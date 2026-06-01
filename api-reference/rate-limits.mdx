@@ -1,0 +1,78 @@
+---
+title: "Rate Limits"
+---
+
+## Request-rate quotas and daily spending caps for the Pioneer API, how to handle 429 errors, and how to request higher limits
+
+The Pioneer API enforces two layers of rate limits: **request-rate limits** that cap how many API calls you can make per minute or hour, and a **daily spending cap** that bounds how much you can spend in a single UTC day. Exceeding either returns a `429 Too Many Requests` response.
+
+## Request-rate limits
+
+A global default applies per client IP address. Per-endpoint limits apply per authenticated user and stack on top of the global default.
+
+| Endpoint | Scope | Limit |
+| --- | --- | --- |
+| All endpoints (default) | Per client IP | 1,000 / min · 10,000 / hour |
+| `POST /inference` | Per user | 1,200 / min |
+| `POST /v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages` | Per user | 200 / min |
+| `POST /gliner-2/*` | Per user | 15,000 / min |
+| `POST /generate/*` | Per user | 120 / min |
+| `POST /felix/training-jobs` | Per user | 20 / min |
+
+## Daily spending cap
+
+If a request exceeds your remaining allowance, you'll receive a`429 Too Many Requests` response with an `X-RateLimit-Reason: daily_spend_cap_exceeded` header. You can check your current usage and remaining allowance anytime in the dashboard or via `GET /billing/usage/requests`.
+
+Inference usage is subject to credit-based rate limits, which vary by plan and reset on a daily, monthly, or other periodic basis. Your current limits are always visible in the billing section of the dashboard.
+
+Spending caps and plan limits are subject to availability and may be adjusted over time. 
+
+<Tip>
+  Need a higher limit? Reach out to [support@fastino.ai](mailto:support@fastino.ai) or your account contact and we can raise the cap on a custom plan.
+</Tip>
+
+## Handling 429 responses
+
+When you exceed a limit, the API returns `429 Too Many Requests` and includes a `Retry-After` header that tells you how many seconds to wait before retrying.
+
+```bash cURL
+HTTP/2 429
+retry-after: 3
+content-type: application/json
+
+{
+  "detail": "Rate limit exceeded: ..."
+}
+```
+
+The following pattern handles `429` responses with a simple sleep-and-retry loop:
+
+```python Python
+import time
+import requests
+
+def call_with_retry(url, headers, payload, max_retries=5):
+    for attempt in range(max_retries):
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 1))
+            print(f"Rate limited. Retrying in {retry_after}s...")
+            time.sleep(retry_after)
+            continue
+
+        response.raise_for_status()
+        return response.json()
+
+    raise RuntimeError("Max retries exceeded.")
+```
+
+<Note>
+  Spending-cap 429s won't resolve by waiting — they clear at 00:00 UTC. The retry loop above raises immediately instead of sleeping when `daily_spend_cap_exceeded` is set.
+</Note>
+
+## Requesting higher limits
+
+If the default or Pro-tier limits don't fit your workload, contact the Pioneer team to discuss a custom plan.
+
+[Request higher limits](https://forms.gle/uzRf8bM2yZtpJFmd7)

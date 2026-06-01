@@ -1,0 +1,227 @@
+---
+title: "Fine-tune an open-source LLM using LoRA on Pioneer"
+sidebarTitle: "LLM Fine-tuning"
+description: "Train a custom large language model using LoRA fine-tuning on Qwen, Llama, DeepSeek, or Gemma base models. Pioneer handles compute, routing, and serving."
+---
+
+Pioneer supports LoRA fine-tuning on a wide range of open-source decoder models — from compact 1B-parameter models to 70B+ frontier models. You bring your training data, choose a base model that fits your task and budget, and Pioneer handles the infrastructure, routing, and serving. The result is a fine-tuned model you can call over the same API, with no GPU management required.
+
+<Steps>
+  <Step title="Choose a decoder base model">
+    Use `GET /base-models` to see the full current catalog, filtered to models that support training:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl "https://api.pioneer.ai/base-models?task_type=decoder&supports_training=true" \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    The table below shows a selection of popular options. Context window size matters if your training examples or inference prompts are long.
+
+    | Model ID | Label | Context |
+    |---|---|---|
+    | `Qwen/Qwen3-32B` | Qwen3 32B | 131K |
+    | `Qwen/Qwen3-30B-A3B-Instruct-2507` | Qwen3 30B A3B Instruct | 262K |
+    | `Qwen/Qwen3-8B` | Qwen3 8B | 131K |
+    | `Qwen/Qwen3-4B-Instruct-2507` | Qwen3 4B Instruct | 262K |
+    | `Qwen/Qwen2.5-7B-Instruct` | Qwen2.5 7B Instruct | 131K |
+    | `Qwen/Qwen2.5-14B-Instruct` | Qwen2.5 14B Instruct | 131K |
+    | `meta-llama/Llama-3.3-70B-Instruct` | Llama 3.3 70B Instruct | 131K |
+    | `meta-llama/Llama-3.1-8B-Instruct` | Llama 3.1 8B Instruct | 131K |
+    | `meta-llama/Llama-3.1-70B-Instruct` | Llama 3.1 70B Instruct | 131K |
+    | `meta-llama/Llama-3.2-3B-Instruct` | Llama 3.2 3B Instruct | 131K |
+    | `deepseek-ai/DeepSeek-V3.1` | DeepSeek V3.1 | 163K |
+    | `google/gemma-4-31b-it` | Gemma 4 31B IT | 128K |
+    | `openai/gpt-oss-120b` | GPT-OSS 120B | 131K |
+
+    **Choosing a model size:** Smaller models (1B–8B) train and respond faster and cost less. Larger models (30B–70B) handle complex reasoning and longer inputs more reliably. Start with `Qwen/Qwen3-8B` or `meta-llama/Llama-3.1-8B-Instruct` for most tasks and scale up if needed.
+  </Step>
+
+  <Step title="Prepare your training data">
+    LLM fine-tuning uses the `decoder` task type. Your dataset should contain prompt-completion pairs — conversations, instruction-response examples, or any input-output format relevant to your task.
+
+    You can generate synthetic decoder training data with Pioneer's `/generate` endpoint:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/generate \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "task_type": "decoder",
+        "dataset_name": "my-llm-dataset",
+        "num_examples": 200,
+        "domain_description": "Customer support for a SaaS product"
+      }'
+    ```
+
+    </CodeGroup>
+
+    See the [Synthetic Data guide](/guides/synthetic-data) for full details on generation options.
+
+    Once generated or uploaded, confirm your dataset is ready:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/datasets/my-llm-dataset \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Start a training job">
+    Submit a training job with your chosen decoder base model and `training_type: "lora"`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-llm-model",
+        "base_model": "meta-llama/Llama-3.1-8B-Instruct",
+        "datasets": [{"name": "my-llm-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 3,
+        "learning_rate": 2e-4
+      }'
+    ```
+
+    </CodeGroup>
+
+    Pioneer routes your job automatically to the best available provider. The response includes your job ID:
+
+    ```json
+    { "id": "uuid-of-training-job", "status": "requested" }
+    ```
+  </Step>
+
+  <Step title="Poll until training is complete">
+    Check job status by polling `GET /felix/training-jobs/:id`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Status transitions: `requested` → `running` → `complete` (or `failed` / `stopped`).
+
+    You can also retrieve training logs while the job is running:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID/logs \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Run inference on your fine-tuned model">
+    Once the job status is `"complete"`, use your job ID as the model identifier. Pioneer supports three inference interfaces.
+
+    **Pioneer native API** — use `"task": "generate"` for decoder models:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/inference \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{                    
+      "model_id":"YOUR_JOB_ID",                                                                       
+      "task": "generate",    
+      "messages": [{"role": "user", "content": "Summarize this article: ..."}]                                          
+    }'   
+    ```
+
+    </CodeGroup>
+
+    **OpenAI-compatible endpoint** — drop-in replacement for the OpenAI SDK:
+
+    <CodeGroup>
+
+    ```python Python (OpenAI SDK)
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key="YOUR_API_KEY",
+        base_url="https://api.pioneer.ai/v1"
+    )
+
+    response = client.chat.completions.create(
+        model="YOUR_JOB_ID",
+        messages=[{"role": "user", "content": "Summarize this article: ..."}]
+    )
+    print(response.choices[0].message.content)
+    ```
+
+    ```bash cURL (OpenAI-compatible)
+    curl -X POST https://api.pioneer.ai/v1/chat/completions \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "YOUR_JOB_ID",
+        "messages": [{"role": "user", "content": "Summarize this article: ..."}]
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Anthropic-compatible endpoint:**
+
+    <CodeGroup>
+
+    ```bash cURL (Anthropic-compatible)
+    curl -X POST https://api.pioneer.ai/v1/messages \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "YOUR_JOB_ID",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Summarize this article: ..."}]
+      }'
+    ```
+
+    </CodeGroup>
+
+    Streaming is supported on all three interfaces.
+  </Step>
+</Steps>
+
+<Note>
+  Downloading your trained model weights is available on the Pro plan and above. Use `GET /felix/training-jobs/:id/download` to retrieve the weights once training is complete.
+</Note>
+
+## Serverless inference for base models
+
+If you want to run inference on a base model without fine-tuning, several models are available as serverless endpoints with no startup latency:
+
+| Model ID | Label | Context |
+|---|---|---|
+| `Qwen/Qwen3-235B-A22B-Instruct-2507` | Qwen3 235B A22B Instruct | 262K |
+| `Qwen/Qwen3-8B` | Qwen3 8B | 131K |
+| `deepseek-ai/DeepSeek-V3.1` | DeepSeek V3.1 | 163K |
+| `openai/gpt-oss-120b` | GPT-OSS 120B | 131K |
+| `meta-llama/Llama-3.3-70B-Instruct` | Llama 3.3 70B Instruct | 131K |
+| `moonshotai/Kimi-K2.6` | Kimi K2.6 | 262K |
+
+Use `GET /base-models?task_type=decoder&supports_inference=true` to see the current serverless catalog.
+
+## Next steps
+
+- [Synthetic Data](/guides/synthetic-data) — generate training data without manual annotation
+- [Adaptive Inference](/guides/adaptive-inference) — automatically retrain on live production data
+- [Agent Skills](/guides/agent-skills) — let an AI coding agent manage training and inference for you

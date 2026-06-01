@@ -1,0 +1,180 @@
+---
+title: "Generate synthetic training data for NER and LLM tasks"
+sidebarTitle: "Synthetic Data"
+description: "Use Pioneer's data generation API to create labeled NER, classification, and decoder training examples without manual annotation, or auto-label existing text."
+---
+
+Labeling training data by hand is slow and expensive. Pioneer's data generation API lets you produce high-quality labeled examples from a short description of your domain and the labels you care about. You can also pass in raw unlabeled text and have Pioneer annotate it automatically. Either way, the resulting dataset is ready to feed directly into a training job.
+
+<Steps>
+  <Step title="Decide on your task type">
+    Pioneer generates training data for three task types:
+
+    | Task type | Use case |
+    |---|---|
+    | `ner` | Named entity recognition — extract spans of text with entity labels |
+    | `classification` | Text classification — assign one or more labels to each input |
+    | `decoder` | Generative LLM training — prompt-completion or conversation pairs |
+
+    Choose the task type that matches the model you plan to train. You'll pass it as `task_type` in the request body.
+  </Step>
+
+  <Step title="Start a generation job">
+    Send a `POST /generate` request with your task type, a dataset name, the labels you want annotated, a description of your domain, and the number of examples to generate.
+
+    <CodeGroup>
+
+    ```bash NER generation
+    curl -X POST https://api.pioneer.ai/generate \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "task_type": "ner",
+        "dataset_name": "my-ner-dataset",
+        "labels": ["person", "company", "product"],
+        "num_examples": 100,
+        "domain_description": "Tech industry news articles"
+      }'
+    ```
+
+    ```bash Classification generation
+    curl -X POST https://api.pioneer.ai/generate \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "task_type": "classification",
+        "dataset_name": "my-classification-dataset",
+        "labels": ["positive", "negative", "neutral"],
+        "num_examples": 200,
+        "domain_description": "Product reviews for consumer electronics"
+      }'
+    ```
+
+    ```bash Decoder generation
+    curl -X POST https://api.pioneer.ai/generate \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "task_type": "decoder",
+        "dataset_name": "my-llm-dataset",
+        "num_examples": 150,
+        "domain_description": "Customer support for a SaaS product",
+        "prompt": "Generate varied customer support conversations with accurate, helpful responses."
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Required fields:**
+
+    | Field | Description |
+    |---|---|
+    | `task_type` | `"ner"`, `"classification"`, or `"decoder"` |
+    | `dataset_name` | Name for the generated dataset (used when starting training) |
+    | `num_examples` | Number of labeled examples to generate |
+
+    **Optional fields:**
+
+    | Field | Description |
+    |---|---|
+    | `labels` | List of label strings (required for NER and classification) |
+    | `domain_description` | Short description of your content domain — improves output relevance |
+    | `classified_examples` | Seed examples with existing labels (classification only) |
+    | `prompt` | Additional instructions for the generation model |
+
+    The response includes a job ID you'll use to poll status.
+  </Step>
+
+  <Step title="Poll job status">
+    Generation jobs run asynchronously. Poll `GET /generate/jobs/:job_id` until the status is `"complete"`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/generate/jobs/YOUR_JOB_ID \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Once complete, the dataset is available under the name you provided in `dataset_name`.
+  </Step>
+
+  <Step title="Use the dataset in a training job">
+    Pass the dataset name directly to `POST /felix/training-jobs`:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-ner-model",
+        "base_model": "fastino/gliner2-base-v1",
+        "datasets": [{"name": "my-ner-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 5,
+        "learning_rate": 5e-5
+      }'
+    ```
+
+    </CodeGroup>
+
+    See the [NER fine-tuning guide](/guides/fine-tune-ner) or [LLM fine-tuning guide](/guides/fine-tune-llm) for full training walkthroughs.
+  </Step>
+</Steps>
+
+## Auto-label existing text
+
+If you already have raw text and want Pioneer to annotate it — rather than generating new examples from scratch — use the label-existing endpoints. This is useful when you have a corpus of real documents but haven't labeled them yet.
+
+**Auto-label for NER:**
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/generate/ner/label-existing \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "labels": ["person", "organization", "location"],
+    "inputs": [
+      "Apple CEO Tim Cook spoke in Cupertino.",
+      "Google hired 500 engineers in London."
+    ]
+  }'
+```
+
+</CodeGroup>
+
+**Auto-label for classification:**
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/generate/classification/label-existing \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "labels": ["positive", "negative", "neutral"],
+    "inputs": [
+      "This product exceeded all my expectations.",
+      "The battery life is disappointingly short."
+    ]
+  }'
+```
+
+</CodeGroup>
+
+Both endpoints accept 1–1,000 strings per request and return annotations synchronously. Required fields are `labels` and `inputs`.
+
+<Warning>
+  Generation endpoints are rate-limited to 120 requests per minute per user. For large annotation jobs, batch your inputs and add a short delay between requests. If you need higher throughput, contact the Pioneer team about an enterprise plan.
+</Warning>
+
+## Next steps
+
+- [Fine-tune a NER model](/guides/fine-tune-ner) — use your generated dataset to train a custom GLiNER model
+- [Fine-tune an LLM](/guides/fine-tune-llm) — train a decoder model on generated prompt-completion pairs
+- [Adaptive Inference](/guides/adaptive-inference) — let Pioneer generate training data from live inference traffic automatically

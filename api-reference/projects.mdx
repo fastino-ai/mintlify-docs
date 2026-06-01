@@ -1,0 +1,197 @@
+---
+title: "Pioneer projects API: deploy and manage model endpoints"
+sidebarTitle: "Projects"
+description: "Organize Pioneer models into projects, deploy fine-tuned models to project endpoints, and run inference without managing training job IDs in your application."
+---
+
+Projects give you a way to organize your trained models and manage their deployments. You create a project, deploy a fine-tuned model to it, and then run inference against that project's endpoint. Each project maintains a deployment history so you can track which model version is live and roll back if needed.
+
+<Note>
+  After deploying a model, use `POST /projects/:project_id/inference` to run predictions through the project endpoint — no need to track training job IDs in your application code.
+</Note>
+
+---
+
+## List projects
+
+`GET /projects`
+
+Returns all projects in your account.
+
+```bash
+curl https://api.pioneer.ai/projects \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+<ResponseField name="projects" type="object[]">
+  Array of project objects.
+  <Expandable title="project properties">
+    <ResponseField name="id" type="string">
+      Unique project ID.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Human-readable project name.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 creation timestamp.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Create a project
+
+`POST /projects`
+
+Creates a new project.
+
+**Request body**
+
+<ParamField body="name" type="string" required>
+  A unique, human-readable name for the project.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/projects \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "production-ner"
+  }'
+```
+
+**Response**
+
+<ResponseField name="id" type="string">
+  The new project's unique ID. Use this in all subsequent project and deployment requests.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  The project name.
+</ResponseField>
+
+---
+
+## Delete a project
+
+`DELETE /projects/:project_id`
+
+Permanently deletes a project and its deployment history. Any deployed models associated with the project will no longer be accessible through the project inference endpoint.
+
+<Warning>
+  Deleting a project removes the deployment endpoint immediately. Make sure any clients using the project inference endpoint are updated before deleting.
+</Warning>
+
+**Path parameters**
+
+<ParamField path="project_id" type="string" required>
+  The project ID.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/projects/YOUR_PROJECT_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Returns `204 No Content` on success.
+
+---
+
+## Deploy a model to a project
+
+`POST /projects/:project_id/deployments`
+
+Deploys a trained model to a project endpoint, making it available for inference. Creating a new deployment replaces the currently active model for that project.
+
+**Path parameters**
+
+<ParamField path="project_id" type="string" required>
+  The project ID to deploy to.
+</ParamField>
+
+**Request body**
+
+<ParamField body="training_job_id" type="string" required>
+  The ID of the completed training job whose model you want to deploy. The training job must be in `complete` status.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/projects/YOUR_PROJECT_ID/deployments \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "training_job_id": "YOUR_TRAINING_JOB_ID"
+  }'
+```
+
+**Response**
+
+<ResponseField name="deployment_id" type="string">
+  Unique ID for this deployment.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current deployment status. Values: `deploying`, `active`, `failed`.
+</ResponseField>
+
+<ResponseField name="training_job_id" type="string">
+  The training job ID that was deployed.
+</ResponseField>
+
+---
+
+## List deployment history
+
+`GET /projects/:project_id/deployments`
+
+Returns the full deployment history for a project, ordered from most recent to oldest. Use this to track which model versions have been deployed and when.
+
+**Path parameters**
+
+<ParamField path="project_id" type="string" required>
+  The project ID.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/projects/YOUR_PROJECT_ID/deployments \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+---
+
+## Run inference on a project model
+
+`POST /projects/:project_id/inference`
+
+Runs a prediction against the currently active model deployed to this project. This endpoint abstracts away the underlying training job ID so your application only needs to reference the project.
+
+**Path parameters**
+
+<ParamField path="project_id" type="string" required>
+  The project ID.
+</ParamField>
+
+**Request body**
+
+<ParamField body="text" type="string" required>
+  The input text to run predictions on.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  The output schema for encoder models. Accepts optional keys: `entities` (list of entity type strings), `classifications` (list of `{task, labels}` objects), `structures`, and `relations`. For decoder models, use `"task": "generate"` instead.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/projects/YOUR_PROJECT_ID/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook announced the new MacBook at WWDC.",
+    "schema": {
+      "entities": ["person", "organization", "product", "event"]
+    }
+  }'
+```

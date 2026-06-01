@@ -1,0 +1,157 @@
+---
+title: "Inference history and feedback endpoints on Pioneer"
+sidebarTitle: "History & Feedback"
+description: "List Pioneer inference history, filter by model or project, retrieve individual results, and submit corrections to improve your model via Adaptive Inference."
+---
+
+Pioneer stores every inference call and lets you retrieve results by ID or in bulk. You can also submit correction feedback on individual inferences — this feedback signals what the model got wrong and powers Adaptive Inference, which automatically retrains your model on corrected examples from live traffic.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/inferences` | List past inferences |
+| `GET` | `/inferences/:id` | Get inference details |
+| `POST` | `/inferences/:id/feedback` | Submit correction feedback |
+
+## List past inferences
+
+`GET /inferences` returns a paginated list of past inference calls. Use the query parameters below to filter results.
+
+### Query parameters
+
+<ParamField query="limit" type="number">
+  Maximum number of results to return per page.
+</ParamField>
+
+<ParamField query="offset" type="number">
+  Number of results to skip before returning. Use with `limit` to paginate through results.
+</ParamField>
+
+<ParamField query="model_id" type="string">
+  Filter by model ID. Accepts a training job ID or a base model ID.
+</ParamField>
+
+<ParamField query="task" type="string">
+  Filter by task type (e.g. `ner`, `classification`, `generate`).
+</ParamField>
+
+<ParamField query="project_id" type="string">
+  Filter by project ID to see only inferences scoped to a specific project.
+</ParamField>
+
+<ParamField query="training_job_id" type="string">
+  Filter by training job ID to see only inferences run against a specific fine-tuned model.
+</ParamField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl "https://api.pioneer.ai/inferences?limit=20&offset=0&model_id=job_abc123" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences",
+    headers={"X-API-Key": "YOUR_API_KEY"},
+    params={
+        "limit": 20,
+        "offset": 0,
+        "model_id": "job_abc123"
+    }
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## Get inference details
+
+`GET /inferences/:id` returns the full record for a single past inference, including the input text, schema, model response, and timestamp.
+
+<CodeGroup>
+
+```bash cURL
+curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID",
+    headers={"X-API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## Submit correction feedback
+
+`POST /inferences/:id/feedback` lets you submit a corrected version of what the model should have predicted. Corrections are used as labeled training examples for Adaptive Inference.
+
+<Note>
+  Feedback submitted here powers Adaptive Inference — Pioneer's continuous improvement loop that automatically retrains your model on corrections collected from live traffic. See the [Adaptive Inference guide](/guides/adaptive-inference) for details on how this works.
+</Note>
+
+### Request parameters
+
+<ParamField body="correction" type="object" required>
+  The corrected output. The shape should match the schema used in the original inference — for example, a corrected `entities` list for an NER inference.
+</ParamField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "correction": {
+      "entities": [
+        {"text": "Apple", "label": "organization", "start": 0, "end": 5},
+        {"text": "iPhone", "label": "product", "start": 18, "end": 24}
+      ]
+    }
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID/feedback",
+    headers={
+        "X-API-Key": "YOUR_API_KEY",
+        "Content-Type": "application/json"
+    },
+    json={
+        "correction": {
+            "entities": [
+                {"text": "Apple", "label": "organization", "start": 0, "end": 5},
+                {"text": "iPhone", "label": "product", "start": 18, "end": 24}
+            ]
+        }
+    }
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## Related
+
+- [Pioneer native inference](/api-reference/inference/pioneer) — run new inferences
+- [Adaptive Inference guide](/guides/adaptive-inference) — continuous model improvement from live traffic

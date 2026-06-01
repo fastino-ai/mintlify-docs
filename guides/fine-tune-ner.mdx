@@ -1,0 +1,216 @@
+---
+title: "Fine-tune a GLiNER NER model from data to inference"
+sidebarTitle: "NER Fine-tuning"
+description: "Train a custom Named Entity Recognition model on your data using Pioneer's GLiNER encoder models, from dataset prep through evaluation and inference."
+---
+
+Named Entity Recognition (NER) lets you extract structured information — people, organizations, products, locations, and any custom entity type you define — from unstructured text. Pioneer's GLiNER encoder models are purpose-built for this task and support LoRA fine-tuning so you can adapt them to your domain with a small labeled dataset and no GPU infrastructure of your own.
+
+<Steps>
+  <Step title="Choose a base model">
+    Pioneer offers four GLiNER base models. For most tasks, `fastino/gliner2-base-v1` is the right starting point: it's fast, accurate, and supports LoRA and full fine-tuning. If your data includes non-English text, use a `multi` variant instead.
+
+    | Model ID | Use case | Training |
+    | --- | --- | --- |
+    | `fastino/gliner2-base-v1` | English, general purpose | LoRA, Full |
+    | `fastino/gliner2-large-v1` | English, higher accuracy | LoRA, Full |
+    | `fastino/gliner2-multi-v1` | Multilingual | LoRA, Full |
+    | `fastino/gliner2-multi-large-v1` | Multilingual, higher accuracy | LoRA, Full |
+
+    You can always fetch the latest catalog from the API:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl "https://api.pioneer.ai/base-models?task_type=encoder&supports_training=true" \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+  </Step>
+  <Step title="Prepare your training data">
+    You have two options: generate synthetic labeled examples with Pioneer, or bring your own labeled data.
+
+    **Option A — Generate synthetic data.** If you don't have labeled examples yet, use the `/generate` endpoint. See the [Synthetic Data guide](/guides/synthetic-data) for full details.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/generate \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "task_type": "ner",
+        "dataset_name": "my-ner-dataset",
+        "labels": ["person", "company", "product"],
+        "num_examples": 100,
+        "domain_description": "Tech industry news articles"
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Option B — Upload through the platform.** If you already have labeled data, upload it directly via the Pioneer dashboard.
+
+    Once your dataset is ready, confirm its status before starting training:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Wait until the dataset status is `ready` before proceeding.
+  </Step>
+  <Step title="Start a training job">
+    Submit your training job with `POST /felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-ner-model",
+        "base_model": "fastino/gliner2-base-v1",
+        "datasets": [{"name": "my-ner-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 5,
+        "learning_rate": 5e-5
+      }'
+    ```
+
+    </CodeGroup>
+
+    The response includes your job ID and initial status:
+
+    ```json
+    { "id": "uuid-of-training-job", "status": "requested" }
+    ```
+
+    Save the `id` — you'll use it to poll status, run evaluations, and call inference.
+  </Step>
+  <Step title="Poll job status and review metrics">
+    Training typically takes a few minutes to a few hours depending on dataset size and epoch count. Poll the job endpoint until status is `"complete"`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Job status values: `requested` → `running` → `complete` (or `failed` / `stopped`).
+
+    When the job reaches `"complete"`, the response includes evaluation metrics:
+
+    ```json
+    {
+      "id": "YOUR_JOB_ID",
+      "status": "complete",
+      "metrics": {
+        "f1": 0.94,
+        "precision": 0.96,
+        "recall": 0.92
+      }
+    }
+    ```
+
+    A high F1 score (above 0.85) generally indicates a model ready for production. If scores are lower, consider adding more training examples or adjusting your entity label definitions.
+  </Step>
+  <Step title="Run an evaluation">
+    Evaluate your trained model against a held-out dataset to get a more rigorous view of performance before deploying.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/evaluations \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "base_model": "YOUR_JOB_ID",
+        "dataset_name": "my-eval-dataset"
+      }'
+    ```
+
+    </CodeGroup>
+
+    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1`, `precision`, `recall`, and a `per_entity` breakdown so you can see which entity types need more training data.
+  </Step>
+  <Step title="Run inference with your trained model">
+    Use your job ID as the `model_id` to run predictions. The `schema` field controls what Pioneer extracts.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/inference \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_id": "YOUR_JOB_ID",
+        "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+        "schema": {
+          "entities": ["organization", "product", "event", "location"]
+        },
+        "threshold": 0.5
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Schema options**
+
+    The `schema` field accepts four optional keys — use any combination:
+
+    | Key | Type | Description |
+    | --- | --- | --- |
+    | `entities` | `string[]` | Entity type labels to extract (NER) |
+    | `classifications` | `{task, labels}[]` | Text classification tasks with their label sets |
+    | `structures` | `object` | Structure definitions for JSON extraction |
+    | `relations` | `object[]` | Relation definitions between entities |
+
+    You can also call inference using the OpenAI-compatible endpoint. Set `base_url` to `https://api.pioneer.ai/v1` and pass Pioneer fields via `extra_body`:
+
+    <CodeGroup>
+
+    ```python Python (OpenAI SDK)
+    from openai import OpenAI
+    
+    client = OpenAI(
+        api_key="YOUR_API_KEY",
+        base_url="https://api.pioneer.ai/v1"
+    )
+    
+    response = client.chat.completions.create(
+        model="YOUR_JOB_ID",
+        messages=[{
+            "role": "user",
+            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+        }],
+        extra_body={
+            "schema": {
+                "entities": ["organization", "product", "event", "location"]
+            }
+        }
+    )
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
+
+<Tip>
+  The `threshold` parameter controls the confidence cutoff for returned entities. The default is `0.5`. Lower it (e.g., `0.3`) to surface more candidates at the cost of more false positives; raise it (e.g., `0.7`) for higher-precision results with fewer extractions.
+</Tip>
+
+## Next steps
+
+- [Generate synthetic training data](/guides/synthetic-data) — create labeled examples without manual annotation
+- [Adaptive Inference](/guides/adaptive-inference) — let Pioneer retrain your model automatically on live traffic
+- [API Reference](/api-reference/overview) — full endpoint documentation

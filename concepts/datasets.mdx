@@ -1,0 +1,123 @@
+---
+title: "Pioneer datasets: create, version, inspect, and delete"
+sidebarTitle: "Datasets"
+description: "Pioneer stores and versions your training datasets automatically. Learn how to create them via generation or auto-labeling, then list, inspect, and delete them."
+---
+
+Datasets in Pioneer are collections of labeled examples used to train and evaluate models. Each dataset has a name you define, and Pioneer versions it automatically as you add or regenerate data. You reference a dataset by name when starting a training job or running an evaluation — so the name you choose is the stable identifier you'll use throughout your workflow.
+
+## How datasets are created
+
+You create datasets in two ways:
+
+**Synthetic data generation** — Use `POST /generate` to have Pioneer produce labeled examples from a description of your domain and the labels you care about. This is the fastest way to bootstrap a dataset without any existing labeled data.
+
+```bash
+curl -X POST https://api.pioneer.ai/generate \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_type": "ner",
+    "dataset_name": "my-ner-dataset",
+    "labels": ["person", "company", "product"],
+    "num_examples": 100,
+    "domain_description": "Tech industry news articles"
+  }'
+```
+
+Once generated or labeled, examples are stored in your dataset automatically. Poll `GET /generate/jobs/:job_id` to check when generation is complete before starting training.
+
+## Uploading your own dataset
+
+Uploading your own data: Use `POST/felix/datasets/upload/url` if you already have labeled data. This is a three-step process:  
+
+#### Step 1. Get a presigned upload URL
+
+```bash
+ curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+    -H "X-API-Key: YOUR_API_KEY" \
+    -H "Content-Type: application/json" \                                                                               
+    -d '{
+      "dataset_name": "my-ner-dataset",                                                                                 
+      "dataset_type": "ner",
+      "type": "training",
+      "filename": "data.jsonl"
+    }'      
+```
+
+The response includes 'presigned\_url', 'dataset\_id', and 'version\_number'.
+
+#### Step 2. Upload the file directly to S3
+
+```bash
+curl -X PUT "<presigned_url from step 1 response>" \                                                                  
+   --upload-file ./data.jsonl
+```
+
+This is a direct HTTP PUT to S3. Do not include your API key here. 
+
+#### Step 3. Trigger processing  
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
+    -H "X-API-Key: YOUR_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{                                                                                                               
+      "dataset_id": "<dataset_id from step 1>"
+    }' 
+```
+
+After this call, the dataset moves through statuses:  initialized → uploading → converting → validating → ready
+
+Poll `GET /felix/datasets/{name}/{version}` until `status` is `ready` before starting a training job.                             
+
+## Listing your datasets
+
+Retrieve all datasets in your account:
+
+```bash
+curl https://api.pioneer.ai/felix/datasets \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+The response lists each dataset by name along with metadata such as creation time and version count.
+
+## Inspecting a dataset
+
+To see the versions and details of a specific dataset, pass its name:
+
+```bash
+curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+This returns version history and example counts, which is useful for confirming the dataset is ready before training.
+
+## Deleting a dataset
+
+```bash
+curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Deleting a dataset by name soft-deletes it and all its versions. Completed training jobs and evaluations are unaffected, but you will no longer be able to start new jobs referencing it.      
+
+<Note>
+  Dataset storage is free. You are not charged for storing datasets in Pioneer, regardless of size or number of versions.
+</Note>
+
+## Dataset endpoints summary
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/felix/datasets` | List all datasets |
+| `GET` | `/felix/datasets/:name` | Get all versions for a dataset |
+| `GET` | `/felix/datasets/:name/:version` | Get status and metadata for a specific version |
+| `DELETE` | `/felix/datasets/:name` | Permanently delete a dataset and all its versions |
+| `DELETE` | `/felix/datasets/:name/:version` | Delete a specific version |
+| `POST` | `/felix/datasets/upload/url` | Get presigned S3 URL for direct upload |
+| `POST` | `/felix/datasets/upload/process` | Trigger processing after S3 upload |
+| `POST` | `/generate` | Start a synthetic data generation job |
+| `GET` | `/generate/jobs/:job_id` | Poll generation job status |
+| `POST` | `/generate/ner/label-existing` | Auto-label raw text for NER |
+| `POST` | `/generate/classification/label-existing` | Auto-classify raw text |

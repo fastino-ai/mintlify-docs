@@ -1,0 +1,80 @@
+---
+title: "Pioneer API authentication: generate and use API keys"
+sidebarTitle: "Authentication"
+description: "How to generate a Pioneer API key, pass it in the X-API-Key header, and manage keys programmatically including creation, listing, and revocation."
+---
+
+Every request to the Pioneer API must include your API key. Pioneer uses a simple header-based scheme — no OAuth flow or token exchange required. Your key identifies you and determines which resources and rate limits apply to your requests.
+
+## Getting an API key
+
+1. Log in at [pioneer.ai](https://pioneer.ai).
+2. Go to **Settings** → **API Keys**.
+3. Click **Create key**, give it a name, and copy the value shown.
+
+Store your key in an environment variable (for example `PIONEER_API_KEY`) rather than hard-coding it in source files.
+
+## Passing your API key
+
+Include your key in the `X-API-Key` header on every request:
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "YOUR_TRAINING_JOB_ID",
+    "text": "Apple announced the MacBook Pro.",
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+## Managing keys via the API
+
+You can create, list, and revoke keys programmatically using the key management endpoints.
+
+### Create a key
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/create-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-integration-key"
+  }'
+```
+
+The response includes the new key value. Copy it immediately — it is not shown again.
+
+### List keys
+
+```bash cURL
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Returns all keys associated with your account, including their names and creation dates. Key values are not returned in list responses.
+
+### Revoke a key
+
+```bash cURL
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"               
+  }'
+```
+
+Revoked keys are rejected immediately on the next request. There is no undo.
+
+## Error responses
+
+| Status | Meaning |
+|---|---|
+| `401 Unauthorized` | The key is missing, malformed, or has been revoked. Check that the `X-API-Key` header is present and contains a valid key. |
+| `402 Payment Required` | Your account has insufficient credits to complete the request. Visit **Settings** → **Billing** to top up your balance. |
+
+<Warning>
+  A `402` response means your account is out of credits. Requests will continue to fail until you add credits or upgrade your plan. See [Plans & Pricing](/pricing) for your options.
+</Warning>

@@ -1,0 +1,112 @@
+# Integrating Pioneer with coding agents
+
+Pioneer supports a growing list of coding agents. Point your agent at Pioneer's inference endpoint and switch between models using each agent's native `/model` command.
+
+## Claude Code
+
+1. Download and [set up](https://code.claude.com/docs/en/quickstart) Claude Code.
+2. Navigate to a fresh terminal and point Claude Code to Pioneer by changing the following environmental variables:
+   ```bash
+   export ANTHROPIC_API_KEY="<Your Pioneer API key>"
+   export ANTHROPIC_BASE_URL="https://api.pioneer.ai/"
+   ```
+3. Start Claude Code:
+   ```bash
+   claude
+   ```
+4. Switch between Pioneer models with `/model` command.
+
+## Codex
+
+1. Download and [set up](https://developers.openai.com/codex/quickstart?setup=cli) the Codex CLI.
+2. Navigate to a fresh terminal and point Codex to Pioneer by pasting the following:
+   ```bash
+   PIONEER_API_KEY="<Your Pioneer API key>" codex \\
+       -c 'model_provider="pioneer"' \\
+       -c 'model_providers.pioneer.name="Pioneer"' \\
+       -c 'model_providers.pioneer.base_url="https://api.pioneer.ai/v1"' \\
+       -c 'model_providers.pioneer.wire_api="responses"' \\
+       -c 'model_providers.pioneer.env_key="PIONEER_API_KEY"'
+   ```
+3. Codex will automatically start for you.
+4. Switch between Pioneer models with `/model` command.
+
+## Cursor
+
+1. Download and [set up](https://cursor.com/docs/get-started/quickstart) Cursor.
+2. Once in the Cursor IDE, navigate to Settings → Models → API Keys
+3. In “OpenAI API Key”: paste in your Pioneer API Key
+4. In “Override OpenAI API Base URL”: paste in `https://api.pioneer.ai/v1`
+
+## OpenCode
+
+1. Download and [set up](https://opencode.ai/download) the OpenCode CLI.
+2. Navigate to a fresh terminal and point OpenCode to Pioneer by pasting the following:
+   ```bash
+   PIONEER_API_KEY="<Your Pioneer API key>" \\
+     PIONEER_BASE_URL="https://api.pioneer.ai/v1" \\
+     OPENCODE_CONFIG_CONTENT='{"provider":{"openai":{"options":
+     {"baseURL":"{env:PIONEER_BASE_URL}","apiKey":"{env:PIONEER_API_KEY}"}},"anthropic":{"options":
+     {"baseURL":"{env:PIONEER_BASE_URL}","apiKey":"{env:PIONEER_API_KEY}"}}}}' \\
+     opencode
+   ```
+3. OpenCode will automatically start for you.
+4. To switch between models, use the `/models` command and select a model. You will see older models not supported by Pioneer which, if selected, will not complete your task. If a model is supported by Pioneer, the inference will complete and you will be able to see it in your Pioneer inference logs.
+
+## OpenClaw
+
+Pioneer exposes an OpenAI-compatible inference endpoint, so you can write it into OpenClaw as a custom provider today, no openclaw release required. This doc covers the stopgap config until Pioneer ships as an official OpenClaw provider.
+
+1. **Export your key — for shell and** `launchd`
+   - The openclaw gateway runs under launchd, not your interactive shell, so an`export` alone won't reach it. You need both:
+   ```shellscript
+   bash
+   export PIONEER_API_KEY='<YOUR_PIONEER_API_KEY>'                # shell session
+   launchctl setenv PIONEER_API_KEY "$PIONEER_API_KEY"            # launchd session
+   ```
+   - Use single quotes on the literal export. If your key contains `!`, zsh's history expansion will mangle it inside double quotes.
+   - `launchctl setenv` doesn't persist across reboots. To make it stick, add the two lines to `~/.zprofile` (login shell runs it on every new session).
+2. **Pick the Pioneer models you want for OpenClaw**
+   - Pioneer’s list of supported models changes constantly. The API is the source of truth for currently supported models in Pioneer. You can get this list by running this command in your terminal.
+   ```shellscript
+   bash
+   curl -sS "https://api.pioneer.ai/base-models?supports_inference=true" \
+     -H "X-API-Key: $PIONEER_API_KEY" \
+     | jq -r '.models[] | select(.task_type == "decoder") | "\(.id)\t\(.context_window)"'
+   ```
+   - You’ll need to copy the `id` and `context_window` of each model you want into the config in the next step.
+3. **Register Pioneer as a custom provider**
+   - Now you need to add each Pioneer model you’d like to use to your OpenClaw config file. You can copy and paste the command below to use these models or use it as a template if you’d like to add or swap out additional models supported by Pioneer from the list above in Step 2.
+   ```shellscript
+   openclaw config set models.providers.pioneer '{
+     "baseUrl": "https://api.pioneer.ai/v1",
+     "api": "openai-completions",
+     "headers": {
+       "X-API-Key": "${PIONEER_API_KEY}"
+     },
+     "models": [
+       { "id": "claude-sonnet-4-6",           "name": "Claude Sonnet 4.6",  "input": ["text"], "contextWindow": 1000000, "maxTokens": 16000 },
+       { "id": "claude-opus-4-7",             "name": "Claude Opus 4.7",    "input": ["text"], "contextWindow": 1000000, "maxTokens": 16000 },
+       { "id": "deepseek-ai/DeepSeek-V4-Pro", "name": "DeepSeek V4 Pro",    "input": ["text"], "contextWindow": 1000000, "maxTokens": 16000 },
+       { "id": "moonshotai/Kimi-K2.6",        "name": "Kimi K2.6",          "input": ["text"], "contextWindow": 256000,  "maxTokens": 16000 },
+       { "id": "gpt-5.5",                     "name": "GPT-5.5",            "input": ["text"], "contextWindow": 400000, "maxTokens": 16000 }
+     ]
+   }' --strict-json
+   ```
+4. **Expose the models to agents**
+   - Registering the provider puts the models in openclaw's catalog, but they don't show up in `openclaw models status` or the model picker until each one is also listed under `agents.defaults.models`. 
+   - For each Pioneer model you added in Step 3, expose the model using this type of command:
+   ```shellscript
+   openclaw config set 'agents.defaults.models["pioneer/claude-sonnet-4-6"]'           '{"alias":"Pioneer Sonnet 4.6"}'      --strict-json
+   openclaw config set 'agents.defaults.models["pioneer/claude-opus-4-7"]'             '{"alias":"Pioneer Opus 4.7"}'        --strict-json
+   openclaw config set 'agents.defaults.models["pioneer/deepseek-ai/DeepSeek-V4-Pro"]' '{"alias":"Pioneer DeepSeek V4 Pro"}' --strict-json
+   openclaw config set 'agents.defaults.models["pioneer/moonshotai/Kimi-K2.6"]'        '{"alias":"Pioneer Kimi K2.6"}'       --strict-json
+   openclaw config set 'agents.defaults.models["pioneer/gpt-5.5"]'                     '{"alias":"Pioneer GPT-5.5"}'         --strict-json
+   ```
+5. **Restart the gateway and verify**
+   - Now, all you need to do is restart the gateway and verify that OpenClaw now sees the Pioneer models.
+   ```shellscript
+   openclaw gateway restart
+   openclaw models status
+   ```
+6. To switch models in OpenClaw, open the TUI and type `/model`.

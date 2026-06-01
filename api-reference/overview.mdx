@@ -1,0 +1,80 @@
+---
+title: "Pioneer REST API: base URL, auth, and quick reference"
+sidebarTitle: "Overview"
+description: "The Pioneer REST API overview: base URL, authentication, the recommended 5-step workflow from dataset to inference, and links to all endpoint group references."
+---
+
+The Pioneer REST API lets you run inference, manage datasets, start training jobs, and evaluate models programmatically. All resources live under a single base URL, and every request is authenticated with your API key. Pioneer also exposes OpenAI- and Anthropic-compatible endpoints so you can integrate with any tool that already supports those formats.
+
+**Base URL:** `https://api.pioneer.ai`
+
+## Authentication
+
+Every request requires an `X-API-Key` header. Generate your key at [pioneer.ai](https://pioneer.ai) → **Settings** → **API Keys**. See the [Authentication](/api-reference/authentication) page for full details, including key management endpoints.
+
+## Recommended workflow
+
+Follow this sequence when you're building a fine-tuned model end to end:
+
+<Steps>
+  <Step title="Create or upload a dataset">
+    Use `POST /generate` to generate synthetic labeled data — the response includes a `job_id`, poll `GET /generate/jobs/{job_id}` until status returns `ready`.
+
+    To upload your own labeled data, use the three-step upload flow: 
+
+    1. Call `POST /felix/datasets/upload/url` to get a presigned S3 URL, 
+    2. `PUT` your file directly to S3
+    3. Call `POST /felix/datasets/upload/process` to trigger processing. 
+    
+    Poll `GET /felix/datasets/{name}/{version}` until status is `ready`.               
+    See the [Datasets](/api-reference/datasets) page for full details.
+
+  </Step>
+  <Step title="Start a training job">
+    Call `POST /felix/training-jobs` with your model\_name, datasets, and base\_model. The response includes a `job_id` — save it for the following steps.
+  </Step>
+  <Step title="Poll training status">
+    Call `GET /felix/training-jobs/:id` repeatedly until the status field is `complete`. Completed jobs include F1, precision, and recall metrics.
+  </Step>
+  <Step title="Run an evaluation">
+    Call `POST /felix/evaluations` with your training job ID and a held-out dataset name to validate performance before you serve traffic.
+  </Step>
+  <Step title="Run inference">
+    Call `POST /inference` with `base_model` set to your training job ID and dataset\_name set to your held out dataset. You can also use any base model ID (for example `fastino/gliner2-base-v1`) without fine-tuning.
+  </Step>
+</Steps>
+
+<Note>
+  Replace placeholder values such as `YOUR_DATASET_NAME` and `YOUR_TRAINING_JOB_ID` with real values before running any example commands.
+</Note>
+
+## Endpoint groups
+
+<CardGroup cols={2}>
+  <Card title="Inference" icon="bolt" href="/api-reference/inference/pioneer">
+    Run predictions against fine-tuned or base models using the Pioneer format, or via drop-in OpenAI- and Anthropic-compatible endpoints.
+  </Card>
+
+  <Card title="Training & Data" icon="database" href="/api-reference/datasets">
+    Manage datasets, generate synthetic training data, start and monitor training jobs, and run evaluations.
+  </Card>
+
+  <Card title="Projects" icon="folder" href="/api-reference/projects">
+    Organize resources into projects, deploy trained models, and run inference against a project endpoint.
+  </Card>
+
+  <Card title="API Keys" icon="key" href="/api-reference/api-keys">
+    Create, list, and revoke API keys programmatically.
+  </Card>
+</CardGroup>
+
+## OpenAI and Anthropic compatibility
+
+Pioneer exposes drop-in replacements for the OpenAI and Anthropic SDKs. Point your existing client at `https://api.pioneer.ai/v1` and use your Pioneer API key — no other changes are required.
+
+| SDK | Base URL | Notes |
+| --- | --- | --- |
+| OpenAI | `https://api.pioneer.ai/v1` | Set `base_url`; pass Pioneer-specific fields via `extra_body` |
+| Anthropic | `https://api.pioneer.ai/v1` | Set `base_url`; supports streaming |
+
+Pass Pioneer-specific fields like `schema` using `extra_body` (OpenAI SDK) or the equivalent extra-parameters mechanism for your client library.

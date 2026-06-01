@@ -1,0 +1,80 @@
+---
+title: "Pioneer API error codes: 401, 402, 404, 422, 429, 500"
+sidebarTitle: "Errors"
+description: "HTTP status codes returned by the Pioneer API — 401, 402, 404, 422, 429, and 500 — with plain-language explanations and steps to resolve each one."
+---
+
+The Pioneer API uses standard HTTP status codes to communicate the outcome of every request. Codes in the `2xx` range indicate success. Codes in the `4xx` range indicate a problem with your request that you can fix. Codes in the `5xx` range indicate a server-side issue.
+
+## Error response format
+
+All error responses include a JSON body with an `error` field and a human-readable `message`:
+
+```json
+{
+  "detail": "..."    
+}
+```
+
+## Status codes
+
+### 401 — Unauthorized
+
+Your request did not include a valid API key, or the key has been revoked.
+
+**How to fix:** Verify that the `X-API-Key` header is present and contains your current key. If you recently revoked the key, generate a new one at **Settings** → **API Keys**. See [Authentication](/api-reference/authentication) for setup instructions.
+
+---
+
+### 402 — Payment Required
+
+<Warning>
+  A `402` response means your account has run out of credits. All API calls will fail until you add credits or upgrade your plan. Visit **Settings** → **Billing** or see [Plans & Pricing](/pricing) to resolve this.
+</Warning>
+
+Your account does not have sufficient credits to complete the request.
+
+**How to fix:** Log in to [pioneer.ai](https://pioneer.ai), go to **Settings** → **Billing**, and top up your balance or upgrade your plan.
+
+---
+
+### 404 — Not Found
+
+The resource you requested does not exist. This can happen when a dataset name, training job ID, evaluation ID, or project ID is misspelled or has been deleted.
+
+**How to fix:** Double-check the ID or name in the request path or body. Use the corresponding `GET` list endpoint (for example `GET /felix/training-jobs`) to confirm the resource exists.
+
+---
+
+### 422 — Unprocessable Entity
+
+The request body failed validation. A required field is missing, a field has the wrong type, or a value is outside the accepted range.
+
+**How to fix:** Review the error `message` for the specific field that failed. Common causes include:
+
+- Omitting `base_model` from `POST /felix/training-jobs`
+- Passing an unsupported `task_type` to `POST /generate`
+- Sending fewer than 1 or more than 1,000 strings in the `inputs` array for label-existing endpoints
+
+```json
+{                                                                                                                     
+    "detail": "For 'POST /felix/training-jobs', ...",
+    "errors": [...]                                                                                                     
+}                                                                                                                        
+```
+
+---
+
+### 429 — Too Many Requests
+
+You have exceeded the rate limit for this endpoint. The response includes a `Retry-After` header that specifies how many seconds to wait before retrying.
+
+**How to fix:** Respect the `Retry-After` value and back off before retrying. See [Rate Limits](/api-reference/rate-limits) for per-endpoint limits and a retry code pattern.
+
+---
+
+### 500 — Internal Server Error
+
+An unexpected error occurred on Pioneer's servers. This is not caused by your request.
+
+**How to fix:** Wait a moment and retry. If the error persists, check [pioneer.ai](https://pioneer.ai) for any service status updates or contact support.

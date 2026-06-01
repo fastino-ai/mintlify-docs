@@ -1,0 +1,188 @@
+---
+title: "OpenAI-compatible chat and completions on Pioneer API"
+sidebarTitle: "OpenAI Compatible"
+description: "Drop-in OpenAI replacement on Pioneer. Set base_url to https://api.pioneer.ai/v1, use your Pioneer key, and all SDK methods including streaming work unchanged."
+---
+
+Pioneer exposes a set of OpenAI-compatible endpoints so you can use your existing OpenAI SDK code against your fine-tuned Pioneer models with minimal changes. Set `base_url` to `https://api.pioneer.ai/v1`, authenticate with your Pioneer API key, and pass your training job ID as the `model`. Pioneer-specific fields like `schema` can be passed via `extra_body` in the Python SDK or included directly in the JSON body.
+
+<Tip>
+  If you already have an OpenAI integration, switching to Pioneer requires only two changes: update `base_url` and swap in your Pioneer API key. Everything else — SDK methods, streaming, message format — stays the same.
+</Tip>
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/chat/completions` | Chat completions |
+| `POST` | `/v1/completions` | Text completions |
+| `POST` | `/v1/responses` | Responses API |
+| `GET` | `/v1/models` | List available models |
+
+## Configure the OpenAI SDK
+
+Point the SDK at Pioneer's base URL and supply your Pioneer API key:
+
+<CodeGroup>
+
+```python Python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.pioneer.ai/v1"
+)
+```
+
+```bash cURL (base URL)
+# Set this as the base for all requests
+https://api.pioneer.ai/v1
+```
+
+</CodeGroup>
+
+## Chat completions
+
+`POST /v1/chat/completions` accepts the same request shape as the OpenAI Chat Completions API. Pass your training job ID as `model` and include Pioneer-specific fields like `schema` in the request body or via `extra_body`.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.pioneer.ai/v1"
+)
+
+response = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
+)
+
+print(response.choices[0].message.content)
+```
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Text completions
+
+`POST /v1/completions` supports the legacy completions format with a `prompt` field.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+response = client.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    prompt="Extract the company names from: Apple and Google announced a partnership.",
+    extra_body={
+        "schema": {
+            "entities": ["organization"]
+        }
+    }
+)
+
+print(response.choices[0].text)
+```
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/v1/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "prompt": "Extract the company names from: Apple and Google announced a partnership.",
+    "schema": {
+      "entities": ["organization"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## List available models
+
+Use `GET /v1/models` to retrieve the list of models you can use with these endpoints.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+```
+
+```bash cURL
+curl https://api.pioneer.ai/v1/models \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+</CodeGroup>
+
+## Streaming
+
+All completions endpoints support streaming. Set `stream=True` in the SDK or `"stream": true` in the request body.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+stream = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
+    stream=True
+)
+
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
+    "stream": true
+  }'
+```
+
+</CodeGroup>
+
+## Passing Pioneer-specific fields
+
+The `schema` field is a Pioneer extension. In the OpenAI Python SDK, pass it via `extra_body` so it is included in the request without affecting SDK validation. In a raw HTTP request, include it at the top level of the JSON body alongside standard fields like `model` and `messages`.
+
+## Related
+
+- [Pioneer native inference](/api-reference/inference/pioneer) — direct Pioneer endpoint with full schema documentation
+- [Anthropic-compatible inference](/api-reference/inference/anthropic-compatible) — use the Anthropic SDK instead
+- [Inference history and feedback](/api-reference/inference/history) — retrieve past results and submit corrections

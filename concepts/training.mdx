@@ -1,0 +1,140 @@
+---
+title: "Pioneer training jobs: lifecycle, metrics, and weights"
+sidebarTitle: "Training"
+description: "Understand how Pioneer training jobs work — from submitting a job and polling status to reading metrics, stopping jobs, and downloading trained model weights."
+---
+
+Fine-tuning in Pioneer adapts a base model to your specific task and domain using your labeled dataset. You submit a training job through the API, Pioneer handles the compute, and you get back a trained model you can call for inference or download. The whole process is asynchronous — you start the job, then poll until it finishes.
+
+## Training job lifecycle
+
+Every training job moves through a fixed sequence of states:
+
+<Steps>
+  <Step title="requested">
+    Your job has been accepted and is queued for execution. Pioneer is allocating compute.
+  </Step>
+  <Step title="running">
+    Training is actively executing. You can stream logs to monitor progress.
+  </Step>
+  <Step title="complete">
+    Training finished successfully. Metrics (F1, precision, recall) are available on the job record, and checkpoints are ready to download.
+  </Step>
+</Steps>
+
+A job may also end in **failed** (an error occurred during training) or **stopped** (you manually cancelled it with `POST /felix/training-jobs/:id/stop`).
+
+## Key parameters
+
+| Parameter | Required | Description |
+|---|---|---|
+| `model_name` | Yes | A name for your trained model, used to identify it in your account. |
+| `base_model` | Yes | The model ID to fine-tune. Use a value from `GET /base-models` or a checkpoint UUID from a previous job. |
+| `datasets` | Yes | An array of dataset objects: `[{"name": "your-dataset-name"}]`. |
+| `training_type` | No | `"lora"` (default, parameter-efficient) or `"full"` (all weights). |
+| `nr_epochs` | No | Number of training epochs. Defaults to a reasonable value for the base model. |
+| `learning_rate` | No | Learning rate. Omit to use the default for the chosen base model. |
+
+<Note>
+  `base_model` is required. Omitting it returns a `422` validation error. The value must be a model ID from `GET /base-models` or a checkpoint UUID — not a free-form string.
+</Note>
+
+## Starting a training job
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-ner-model",
+    "base_model": "fastino/gliner2-base-v1",
+    "datasets": [{"name": "my-ner-dataset"}],
+    "training_type": "lora",
+    "nr_epochs": 5,
+    "learning_rate": 5e-5
+  }'
+```
+
+The response returns immediately with a job ID and initial status:
+
+```json
+{
+  "id": "job_abc123",
+  "status": "requested"
+}
+```
+
+Save the `id` — you'll use it to poll status, retrieve metrics, and run inference against your trained model.
+
+## Polling status and reading metrics
+
+Poll the job endpoint until status is `complete` or `failed`:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/job_abc123 \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+When training completes, the response includes evaluation metrics measured on your dataset:
+
+```json
+{
+  "id": "job_abc123",
+  "status": "complete",
+  "metrics": {
+    "f1": 0.94,
+    "precision": 0.96,
+    "recall": 0.92
+  }
+}
+```
+
+To stream logs while the job is running:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/job_abc123/logs \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+## Stopping a job
+
+If you need to cancel a running job:
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/job_abc123/stop \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+The job status changes to `stopped`. Partial checkpoints saved before the stop may still be available.
+
+## Checkpoints and downloading weights
+
+Pioneer saves checkpoints during training. You can list them at any point after the job starts:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/job_abc123/checkpoints \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+To download the final trained weights:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/job_abc123/download \
+  -H "X-API-Key: YOUR_API_KEY" \
+  --output my-model-weights.zip
+```
+
+You can also use a checkpoint UUID as the `base_model` value in a new training job to continue training from that checkpoint.
+
+## Training endpoints summary
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/felix/training-jobs` | Start a new training job |
+| `GET` | `/felix/training-jobs` | List all training jobs |
+| `GET` | `/felix/training-jobs/:id` | Get job status and metrics |
+| `GET` | `/felix/training-jobs/:id/logs` | Stream training logs |
+| `GET` | `/felix/training-jobs/:id/checkpoints` | List saved checkpoints |
+| `GET` | `/felix/training-jobs/:id/download` | Download trained weights |
+| `POST` | `/felix/training-jobs/:id/stop` | Stop a running job |
+| `DELETE` | `/felix/training-jobs/:id` | Delete a training job record |

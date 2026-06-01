@@ -1,0 +1,96 @@
+---
+title: "Model evaluations in Pioneer: F1, precision, recall"
+sidebarTitle: "Evaluations"
+description: "Run Pioneer evaluations to measure F1, precision, and recall on a labeled dataset before deploying your fine-tuned model to production traffic."
+---
+
+Before you put a fine-tuned model into production, you want to know how it performs on held-out data. Pioneer's evaluation API runs your model against a labeled dataset and returns F1, precision, and recall — both as overall scores and broken down per entity type. This gives you a clear picture of where the model is strong and where it may need more training data.
+
+## What evaluations measure
+
+An evaluation compares your model's predictions against the ground-truth labels in your dataset. Pioneer reports:
+
+- **F1** — the harmonic mean of precision and recall, the primary summary metric
+- **Precision** — of all predictions made, how many were correct
+- **Recall** — of all ground-truth labels, how many the model found
+- **Per-entity breakdown** — the same three metrics for each individual entity type, so you can identify which labels are underperforming
+
+## Running an evaluation
+
+Pass your training job ID as `base_model` and the name of your evaluation dataset as `dataset_name`:
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/evaluations \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_model": "job_abc123",
+    "dataset_name": "my-eval-dataset"
+  }'
+```
+
+The response returns an evaluation ID and queues the job:
+
+```json
+{
+  "id": "eval_xyz789",
+  "status": "running"
+}
+```
+
+You can also pass a base model ID (instead of a training job ID) to evaluate an unmodified base model. This is useful for establishing a baseline before fine-tuning.
+
+## Retrieving results
+
+Poll the evaluation endpoint until results are ready:
+
+```bash
+curl https://api.pioneer.ai/felix/evaluations/eval_xyz789 \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+A completed evaluation includes overall metrics and a per-entity breakdown:
+
+```json
+{
+  "id": "eval_xyz789",
+  "status": "complete",
+  "metrics": {
+    "f1": 0.91,
+    "precision": 0.93,
+    "recall": 0.89,
+    "per_entity": {
+      "organization": {"f1": 0.95, "precision": 0.96, "recall": 0.94},
+      "product":      {"f1": 0.88, "precision": 0.91, "recall": 0.85},
+      "location":     {"f1": 0.90, "precision": 0.92, "recall": 0.88}
+    }
+  }
+}
+```
+
+## Managing evaluations
+
+List all evaluations in your account:
+
+```bash
+curl https://api.pioneer.ai/felix/evaluations \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Filter by project with the optional `project_id` query parameter.
+
+Delete an evaluation you no longer need:
+
+```bash
+curl -X DELETE https://api.pioneer.ai/felix/evaluations/eval_xyz789 \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+## Evaluations endpoint summary
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/felix/evaluations` | Run an evaluation |
+| `GET` | `/felix/evaluations` | List all evaluations |
+| `GET` | `/felix/evaluations/:id` | Get evaluation results |
+| `DELETE` | `/felix/evaluations/:id` | Delete an evaluation |

@@ -1,0 +1,97 @@
+---
+title: "Pioneer FAQ: plans, data privacy, storage, and teams"
+sidebarTitle: "FAQ"
+description: "Answers to common questions about Pioneer plans, storage costs, data training practices, team collaboration, and special pricing for nonprofits and students."
+---
+
+Find answers to the most common questions about Pioneer below. If you don't see what you're looking for, reach out to the team at [support@fastino.ai](mailto:support@fastino.ai).
+
+<AccordionGroup>
+  <Accordion title="What's the easiest way to fine-tune an SLM?">
+    Pioneer is designed to make fine-tuning small language models (SLMs) as simple as possible. The entire process takes four steps:
+
+    1. **Create a dataset** — Upload your own data or generate synthetic examples with Felix, Pioneer's built-in synthetic data tool. See [Datasets](/concepts/datasets).
+    2. **Start a training job** — Pick a base model, point it at your dataset, and submit. All hyperparameters have sensible defaults so you don't need to tune anything to get started. See [Training](/concepts/training).
+    3. **Wait for completion** — Your job moves through `pending → running → complete`. Small datasets typically finish in a few minutes.
+    4. **Run inference** — Use your job ID as the model identifier. Encoder models accept a text and schema; decoder models are OpenAI-compatible. See[Inference](/concepts/inference).
+
+    For a full walkthrough, check out the [NER fine-tuning guide](/guides/ner-fine-tuning) or the [LLM fine-tuning guide](/guides/llm-fine-tuning).
+  </Accordion>
+
+  <Accordion title="Do you charge for storage?">
+    No. Storage is free for all datasets on every plan. You won't be charged for the datasets you create or upload to Pioneer.
+  </Accordion>
+
+  <Accordion title="Which plan is best for me?">
+    It depends on your workload:
+
+    - **Free** — best if you want to experiment with new use cases or explore Pioneer before committing.
+    - **Pro** — best for production workloads where you need uncapped inference and higher rate limits.
+    - **Enterprise (Custom)** — best for organizations with compliance requirements such as HIPAA, or those that need private networking or VPC deployment.
+
+    If you're unsure, [contact the team](https://forms.gle/meJ1TuWPi4ryWpHF6) and they'll help you find the right fit.
+  </Accordion>
+
+  <Accordion title="How can I create synthetic data for training an LLM?">
+    Describe your domain and the labels you want to train for, and Pioneer's Felix pipeline generates realistic labeled examples at scale. This lets you bootstrap a training dataset without any manual annotation — useful when you're starting from scratch or need to expand coverage for edge cases.  
+  </Accordion>
+
+  <Accordion title="How do I call models like Kimi-K2, Qwen or Deepseek?">
+    Pioneer gives you access to a broad catalog of decoder models, including Kimi-K2, Qwen3, DeepSeek-V3, Llama, Gemma, and more, all callable through a single unified API.
+
+```bash
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"model_id\": \"moonshotai/Kimi-K2.6\", \"task\": \"generate\", \"messages\": [{\"role\": \"user\", \"content\": \"Summarize this article...\"}]}"
+```
+
+    Swap the model name for any supported decoder,`deepseek-ai/DeepSeek-V3.1`, `Qwen/Qwen3-32B`,`meta-llama/Llama-3.3-70B-Instruct`, and others. OpenAI-compatible and Anthropic-compatible formats are also supported. To see the full live catalog, call `GET /base-models`. See [Inference](/concepts/inference) for full details.
+  </Accordion>
+
+  <Accordion title="Do you offer any special pricing for students, non-profits, and open source projects?">
+    Yes. The following groups qualify for a discounted Pro plan:
+
+    - Open source projects
+    - 501(c)(3) nonprofit organizations
+    - Students working on research projects
+
+    Complete the [intake form](https://docs.google.com/forms/d/e/1FAIpQLSdgxmKeS69UVk27cII_UNyDO5W2Uo_-T7TBjKnAvOeuKBl0sA/viewform) to apply. The team will follow up with your custom pricing.
+  </Accordion>
+
+  <Accordion title="Do you train on our data?">
+    Yes, by default Pioneer may use your data to improve models. However, you can opt out on the Pro and Custom plans. Custom plans also let you run fine-tuning privately inside your own VPC so your data never leaves your infrastructure.
+
+    [Contact the team](https://forms.gle/meJ1TuWPi4ryWpHF6) to learn more about Custom plan options.
+  </Accordion>
+
+  <Accordion title="Can I share models with teammates using Teams?">
+    Teams in Pioneer are used for shared billing — each member still has their own private workspace. Model sharing between teammates is not built into Teams directly.
+
+    If you need to share models with your team, [get in touch](mailto:support@fastino.ai) and the team can walk you through the best approach for your use case.
+  </Accordion>
+
+  <Accordion title="What's the difference between fine-tuning an encoder vs a decoder model?  ">
+    Encoder models (like GLiNER) are trained to understand and extract structured information from text, they're ideal for NER, classification, and JSON extraction tasks. They're fast, efficient, and run on CPU, making them cheap to serve at scale. Decoder models (like Llama or Qwen) are generative, they produce text, making them suited for summarization, Q&A, chat, and instruction-following tasks.
+
+    Pioneer supports both. If your task has a defined output structure (extract these entity types, classify into these categories), use an encoder. If your task requires generating free-form text, use a decoder. When in doubt, start with an encoder, they train faster, cost less, and are easier to evaluate.
+  </Accordion>
+
+  <Accordion title="How do I evaluate whether my fine-tuned model is good enough?">
+    Pioneer runs evaluations automatically after training and reports F1, precision, and recall on your held-out validation set.
+
+    | F1 Score | What it means |
+    | :-- | :-- |
+    | Above 0.85 | Production-ready for most NER and classification tasks |
+    | 0.70 – 0.85 | Needs more training data or better label quality |
+    | Below 0.70 | Model hasn't learned the task well enough yet |
+
+    If your score is lower than expected, run a manual evaluation against a separate dataset for a cleaner signal. You can also inspect per-example predictions to identify where the model is failing, then use those gaps to generate targeted synthetic data. See [Evaluations](/concepts/evaluations) and [Synthetic Data](/guides/synthetic-data).
+  </Accordion>
+
+  <Accordion title="What is GLiNER and when should I use it? ">
+    GLiNER is an open-source encoder model architecture designed specifically for named entity recognition and structured extraction. Unlike decoder models that generate text token by token, GLiNER classifies spans of text directly, making it significantly faster and more accurate for extraction tasks.
+
+    Use GLiNER when you need to extract specific entity types (people, organizations, products, dates), classify text into predefined categories, or run high-volume inference where latency and cost matter. Pioneer's fine-tuning pipeline is built around GLiNER. You can go from a domain description to a production-ready extraction model in minutes, with no GPU required on your end.
+  </Accordion>
+</AccordionGroup>

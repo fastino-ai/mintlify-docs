@@ -1,0 +1,191 @@
+---
+title: "Synthetic data API — POST /generate and label-existing"
+sidebarTitle: "Synthetic Data"
+description: "Start Pioneer data generation jobs for NER, classification, or decoder tasks, poll job status, and auto-label existing text without manual annotation."
+---
+
+Pioneer's data generation API lets you produce high-quality labeled training examples without manually annotating data. You can generate synthetic examples from scratch for NER, classification, and decoder tasks, or bring your own unlabeled text and have Pioneer label it automatically. All generated data is saved directly to a named dataset ready for fine-tuning.
+
+<Note>
+  Generate endpoints are rate-limited to **120 requests per minute** per user. For large datasets, consider batching your requests or using the job polling endpoint to monitor long-running generation jobs.
+</Note>
+
+---
+
+## Start a generation job
+
+`POST /generate`
+
+Starts an asynchronous job that generates labeled training examples and stores them in a named dataset. Returns a job ID you can use to poll for completion.
+
+**Request body**
+
+<ParamField body="task_type" type="string" required>
+  The type of task to generate data for. Accepted values: `ner`, `classification`, `decoder`.
+</ParamField>
+
+<ParamField body="dataset_name" type="string" required>
+  The name of the dataset to create or append to. If a dataset with this name already exists, new examples are added as a new version.
+</ParamField>
+
+<ParamField body="num_examples" type="number">
+  Number of labeled examples to generate.
+</ParamField>
+
+<ParamField body="labels" type="string[]">
+  List of label strings for NER or classification tasks. For NER, these are entity type names (e.g. `"person"`, `"organization"`). For classification, these are the class names.
+</ParamField>
+
+<ParamField body="domain_description" type="string">
+  A natural-language description of the domain or topic for the generated examples. Providing a detailed description improves example quality and relevance.
+</ParamField>
+
+<ParamField body="classified_examples" type="object[]">
+  Few-shot examples with labels to guide generation for classification tasks.
+</ParamField>
+
+<ParamField body="prompt" type="string">
+  Custom instruction prompt to control generation style for decoder tasks.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/generate \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_type": "ner",
+    "dataset_name": "my-ner-dataset",
+    "labels": ["person", "company", "product"],
+    "num_examples": 100,
+    "domain_description": "Tech industry news articles"
+  }'
+```
+
+**Response**
+
+<ResponseField name="job_id" type="string">
+  Unique identifier for the generation job. Use this with `GET /generate/jobs/:job_id` to poll for status.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Initial job status, typically `queued`.
+</ResponseField>
+
+---
+
+## Poll generation job status
+
+`GET /generate/jobs/:job_id`
+
+Returns the current status of a data generation job. Poll this endpoint until the status is `ready` or `failed` before starting a training job on the resulting dataset.   
+
+**Path parameters**
+
+<ParamField path="job_id" type="string" required>
+  The job ID returned by `POST /generate`.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/generate/jobs/JOB_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+<ResponseField name="job_id" type="string">
+  The generation job ID.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current job status. Values: `queued`, `generating`, `ready`,`failed`.            
+</ResponseField>
+
+<ResponseField name="dataset_name" type="string">
+  The dataset name that examples are being written to.
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Number of examples generated so far.
+</ResponseField>
+
+<ResponseField name="task_type" type="string">
+  The task type for this job (e.g. `ner`, `classification`).                                                          
+</ResponseField>   
+
+<ResponseField name="error" type="string">
+  Error message if the job failed, otherwise `null`.                                                                  
+  </ResponseField>                                    
+                  
+  <ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of when the job was created.                                                                     
+  </ResponseField>   
+
+---
+
+## Auto-label text for NER
+
+`POST /generate/ner/label-existing`
+
+Sends your own unlabeled text to Pioneer and returns NER annotations. Use this when you have existing text that you want to annotate rather than generating new synthetic examples.
+
+**Request body**
+
+<ParamField body="labels" type="string[]" required>
+  List of entity type names to detect. For example: `["person", "organization", "location"]`.
+</ParamField>
+
+<ParamField body="inputs" type="string[]" required>
+  List of text strings to annotate. Accepts between 1 and 1,000 strings per request.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/generate/ner/label-existing \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "labels": ["person", "organization", "location"],
+    "inputs": [
+      "Apple CEO Tim Cook spoke in Cupertino.",
+      "Google hired 500 engineers in London."
+    ]
+  }'
+```
+
+**Response**
+
+Returns an array of annotation objects, one per input string, each containing detected entities with their spans, labels, and confidence scores.
+
+---
+
+## Auto-classify text
+
+`POST /generate/classification/label-existing`
+
+Sends your own unlabeled text to Pioneer and returns classification labels. Use this when you have existing text that you want to classify rather than generating new synthetic examples.
+
+**Request body**
+
+<ParamField body="labels" type="string[]" required>
+  List of class names to classify text into. For example: `["positive", "negative", "neutral"]`.
+</ParamField>
+
+<ParamField body="inputs" type="string[]" required>
+  List of text strings to classify. Accepts between 1 and 1,000 strings per request.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/generate/classification/label-existing \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "labels": ["positive", "negative", "neutral"],
+    "inputs": [
+      "The product exceeded all my expectations.",
+      "Shipping took three weeks and the box was damaged."
+    ]
+  }'
+```
+
+**Response**
+
+Returns an array of classification results, one per input string, each containing the predicted label and a confidence score.

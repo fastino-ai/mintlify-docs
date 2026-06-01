@@ -1,0 +1,130 @@
+---
+title: "How to authenticate your requests with Pioneer API"
+description: "Generate an API key from your Pioneer account, then include it in the X-API-Key header on every request. No OAuth or token refresh required."
+sidebarTitle: "Authentication"
+---
+
+Every request to the Pioneer API must include an API key. Pioneer uses a simple header-based authentication scheme: include your key in the `X-API-Key` header and you're ready to go. There are no tokens to refresh or OAuth flows to manage.
+
+## Generate an API key
+
+1. Sign in to [pioneer.ai](https://pioneer.ai).
+2. Go to **Settings → API Keys**.
+3. Click **Create key**, give it a name, and copy the key value.
+
+<Warning>
+  You can only view the full key immediately after creation. Pioneer does not store the key value, so copy it before closing the dialog. If you lose a key, revoke it and generate a new one.
+</Warning>
+
+## Pass the key in requests
+
+Include your API key in the `X-API-Key` header on every request. The examples below show the same inference call in curl, Python, and JavaScript.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "fastino/gliner2-base-v1",
+    "text": "Apple launched the iPhone in San Francisco.",
+    "schema": {"entities": ["organization", "product", "location"]}
+  }'
+```
+
+```python Python
+import requests
+
+headers = {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(
+    "https://api.pioneer.ai/inference",
+    headers=headers,
+    json={
+        "model_id": "fastino/gliner2-base-v1",
+        "text": "Apple launched the iPhone in San Francisco.",
+        "schema": {"entities": ["organization", "product", "location"]}
+    }
+)
+print(response.json())
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.pioneer.ai/inference", {
+  method: "POST",
+  headers: {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    model_id: "fastino/gliner2-base-v1",
+    text: "Apple launched the iPhone in San Francisco.",
+    schema: { entities: ["organization", "product", "location"] }
+  })
+});
+const data = await response.json();
+console.log(data);
+```
+
+</CodeGroup>
+
+<Tip>
+  Store your API key in an environment variable (e.g., `PIONEER_API_KEY`) rather than hardcoding it. Never commit API keys to version control — add your `.env` file to `.gitignore` and use a secrets manager for production deployments.
+</Tip>
+
+## Authentication errors
+
+| Status | Meaning |
+| --- | --- |
+| `401 Unauthorized` | The `X-API-Key` header is missing or the key is invalid. Check that you're sending the header and that the key hasn't been revoked. |
+| `402 Payment Required` | Your account has insufficient credits. Upgrade your plan or add credits in **Settings → Billing**. |
+
+All other error codes are documented in the [API Reference errors page](/api-reference/errors).
+
+## Manage API keys via the API
+
+You can also create, list, and revoke API keys programmatically using your existing key.
+
+**Create a new key**
+
+```bash
+curl -X POST https://api.pioneer.ai/create-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-integration-key"}'
+```
+
+**List existing keys**
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Revoke a key**
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "key_id_to_revoke"}'
+```
+
+<Note>
+  Revocation is immediate and permanent. Any requests using the revoked key will receive a `401` error. Create a replacement key before revoking an existing one if you need uninterrupted access.
+</Note>
+
+## Security recommendations
+
+<Warning>
+  Rotate API keys regularly, especially if they are used in shared environments or CI/CD pipelines. Use a separate key per integration so you can revoke individual keys without disrupting other services.
+</Warning>
+
+- Use one key per environment (development, staging, production).
+- Revoke keys immediately if you suspect they've been exposed.
+- Avoid passing keys as query parameters — always use the `X-API-Key` header.
+- In production, retrieve keys from a secrets manager rather than from environment variables baked into container images.

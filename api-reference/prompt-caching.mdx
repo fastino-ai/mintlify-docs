@@ -1,0 +1,54 @@
+---
+title: "Prompt Caching on Inference"
+sidebarTitle: "Prompt Caching"
+description: "How prompt caching works on Pioneer, what qualifies for caching, how cache tokens are billed, and where to view cache usage."
+---
+
+Pioneer reuses repeated prompt prefixes (long system prompts, replayed conversation history) so you pay less and get faster responses on the cached portion. You don't have to opt in — caching is applied automatically per provider.
+
+## What you do
+
+Nothing. Send requests normally. Pioneer handles cache setup for you:
+
+- **GPT (OpenAI)** — caches prompt prefixes upstream automatically. No request changes are needed.
+- **Opus / Claude (Anthropic)** — caches only the prefix before a `cache_control` breakpoint. Pioneer inserts those breakpoints for you (on the system prompt, and on the latest turn of a multi-turn conversation) once a prompt is large enough to be worth caching.
+
+If you set your own `cache_control` breakpoints, Pioneer respects them and does not add its own.
+
+## How to read it back
+
+Token usage on every response splits input tokens by cache status:
+
+| Field | Meaning |
+| --- | --- |
+| `prompt_tokens` | Non-cached input tokens |
+| `cache_read_tokens` | Input tokens served from cache (discounted) |
+| `cache_write_tokens` | Input tokens written to cache this request |
+| `completion_tokens` | Output tokens |
+| `total_tokens` | Sum of the four above |
+
+<Warning>
+  Caching charges are visible in **Settings → Credits** and can be displayed by model or by individual request. 
+</Warning>
+
+## Billing
+
+Cached input is cheaper than fresh input. Rates are relative to a model's input price:
+
+| Provider | Cache read | Cache write |
+| --- | --- | --- |
+| Claude / Opus | 0.1× input | 1.25× input |
+| GPT-4 family | 0.5× input | billed at input rate |
+| GPT-5 family | 0.1× input | billed at input rate |
+
+The first request that populates the cache pays the write rate on those tokens; subsequent requests that hit the cache pay the lower read rate. Caches are short-lived, so the savings come from sending similar prompts close together.
+
+<Info>
+  For Anthropic models, the system prompt must be at least **1024 tokens** for caching to activate. Cache entries expire after **5 minutes** of inactivity.
+</Info>
+
+## Tips
+
+- Keep your system prompt **static**. Any change to the cached prefix invalidates the cache.
+- Do not inject dynamic content (timestamps, user IDs, session data) into the system prompt, move it to the user message instead.
+- The **Inference UI** shows input and output token counts per request. Cache token breakdowns and discounted billing are visible on the Settings → **Credit page**.

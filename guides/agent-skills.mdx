@@ -1,0 +1,217 @@
+---
+title: "Use Pioneer with AI coding agents via Agent Skills"
+sidebarTitle: "Agent Skills"
+description: "Add a SKILL.md file to your AI coding agent so Cursor, Claude Code, or similar agents can manage Pioneer datasets, training, and inference autonomously."
+---
+
+AI coding agents like Cursor and Claude Code can use your Pioneer account directly — starting training jobs, checking model status, running inference, and managing datasets — if you give them the right context. Agent Skills is a `SKILL.md` file that provides a coding agent with complete, structured knowledge of the Pioneer API. Once installed, your agent can handle Pioneer tasks end-to-end without you needing to look up endpoints or copy-paste API keys.
+
+## How to install
+
+<Steps>
+  <Step title="Copy the SKILL.md content">
+    Copy the full `SKILL.md` content from the code block in the section below.
+  </Step>
+
+  <Step title="Save the file to your project">
+    Save the file to `.claude/skills/pioneer-api/SKILL.md` in your project root. This is the standard location for Claude Code skills. If you use a different agent, check its documentation for where to place skill files.
+
+    ```
+    your-project/
+    └── .claude/
+        └── skills/
+            └── pioneer-api/
+                └── SKILL.md
+    ```
+  </Step>
+
+  <Step title="Generate your API key">
+    Go to [pioneer.ai](https://pioneer.ai) → Settings → API Keys and create a new key. Give it a name that identifies the project or agent using it.
+  </Step>
+
+  <Step title="Set your API key as an environment variable">
+    Set `PIONEER_API_KEY` (or whichever variable name your agent reads) in the environment your agent runs in. For example:
+
+    <CodeGroup>
+
+    ```bash Shell
+    export PIONEER_API_KEY="your-api-key-here"
+    ```
+
+    ```bash .env file
+    PIONEER_API_KEY=your-api-key-here
+    ```
+
+    </CodeGroup>
+
+    Your agent will automatically discover the skill and substitute the key when making Pioneer API calls.
+  </Step>
+</Steps>
+
+<Warning>
+  Never commit your API key to version control. Add `.env` to your `.gitignore` and use environment variable injection in CI/CD environments.
+</Warning>
+
+## SKILL.md content
+
+Copy this entire file into `.claude/skills/pioneer-api/SKILL.md`:
+
+````markdown
+---
+name: pioneer-api
+description: Interact with the Pioneer API to manage datasets, training jobs, evaluations, and run inference. Use when the user wants to call the Pioneer API, manage ML models, start training runs, run inference, or integrate Pioneer into their workflow.
+---
+
+# Pioneer API
+
+Base URL: https://api.pioneer.ai
+Auth header: X-API-Key: YOUR_API_KEY
+
+Get your API key: pioneer.ai → Settings → API Keys.
+
+## Inference (Pioneer format)
+
+POST /inference — run predictions against a fine-tuned or base model
+GET  /base-models — list available models (supports ?supports_inference=true&task_type=decoder filters)
+
+```bash
+curl -X POST https://api.pioneer.ai/inference \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model_id": "job_abc123",
+ "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+ "schema": {
+ "entities": ["organization", "product", "event", "location"]
+ },
+ "threshold": 0.5
+ }'
+```
+
+The schema is a dict with optional keys:
+- entities        — list of entity type strings (NER)
+- classifications — list of {task, labels} objects (text classification)
+- structures      — dict of structure definitions (JSON extraction)
+- relations       — list of relation definitions
+
+For decoder models, use "task": "generate" with a "messages" array instead of "text" and "schema": 
+{                                                                                                                     
+    "model_id": "job_abc123",                                                                                           
+    "task": "generate",                                                                                                 
+    "messages": [{"role": "user", "content": "Summarize this: ..."}]                                                    
+  }
+
+model_id is the job_id returned from POST /felix/training-jobs,
+or a base model ID like "fastino/gliner2-base-v1".
+
+## Inference (OpenAI-compatible)
+
+POST /v1/chat/completions — OpenAI-compatible chat completions
+POST /v1/completions      — OpenAI-compatible text completions
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model": "job_abc123",
+ "messages": [{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+ "schema": {"entities": ["organization", "product"]}
+ }'
+```
+
+## Inference (Anthropic-compatible)
+
+POST /v1/messages — Anthropic-compatible messages
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/messages \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model": "job_abc123",
+ "max_tokens": 1024,
+ "messages": [{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+ "schema": {"entities": ["organization", "product"]}
+ }'
+```
+
+## Inference History
+
+GET  /inferences              — list past inferences
+GET  /inferences/:id          — get a specific inference result
+POST /inferences/:id/feedback — submit feedback on a result
+
+## Datasets
+
+GET    /felix/datasets           — list all datasets
+GET    /felix/datasets/:name     — get dataset details
+DELETE /felix/datasets/:name     — delete a dataset
+
+```bash
+curl https://api.pioneer.ai/felix/datasets \
+ -H "X-API-Key: YOUR_API_KEY"
+```
+
+## Training Jobs
+
+POST   /felix/training-jobs          — start a training job
+GET    /felix/training-jobs          — list training jobs
+GET    /felix/training-jobs/:id      — get job status and metrics
+POST   /felix/training-jobs/:id/stop — stop a running job
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model_name": "my-ner-model",
+ "base_model": "fastino/gliner2-base-v1",
+ "datasets": [{"name": "my-dataset"}],
+ "training_type": "lora",
+ "nr_epochs": 5,
+ "learning_rate": 5e-5
+ }'
+```
+
+base_model is required. Valid values: a supported model ID returned by GET /base-models
+(e.g. fastino/gliner2-base-v1, Qwen/Qwen3-8B, meta-llama/Llama-3.1-8B-Instruct)
+or a checkpoint UUID from a previous training job.
+
+Response: { "id": "uuid-of-training-job", "status": "requested" }
+
+Job status values: requested | running | complete | failed | stopped
+Metrics (on COMPLETED): { "f1": 0.94, "precision": 0.96, "recall": 0.92 }
+
+## Evaluations
+
+POST   /felix/evaluations      — run an evaluation
+GET    /felix/evaluations      — list evaluations
+GET    /felix/evaluations/:id  — get evaluation results
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/evaluations \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "base_model": "job_abc123",
+ "dataset_name": "my-eval-dataset"
+ }'
+```
+
+Results include: f1, precision, recall, per_entity breakdown
+
+## Errors
+
+401 — invalid or missing API key
+402 — insufficient credits
+404 — resource not found
+422 — validation error (check request body)
+500 — server error
+````
+
+## Next steps
+
+- [Fine-tune a NER model](/guides/fine-tune-ner) — full walkthrough your agent can execute for you
+- [Fine-tune an LLM](/guides/fine-tune-llm) — train a decoder model end-to-end
+- [Synthetic Data](/guides/synthetic-data) — have your agent generate training data on demand

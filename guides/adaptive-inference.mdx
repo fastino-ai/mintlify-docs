@@ -1,0 +1,79 @@
+---
+title: "Adaptive Inference: automatic continuous retraining"
+sidebarTitle: "Adaptive Inference"
+description: "Pioneer's Adaptive Inference monitors live traffic, collects corrections, retrains a new checkpoint, and promotes it automatically when performance improves."
+hidden: true
+---
+
+Most fine-tuned models are static: you train once, deploy, and watch accuracy drift as real-world inputs diverge from your training data. Adaptive Inference breaks that pattern. Pioneer monitors your live inference traffic, identifies high-signal examples, generates training data, fine-tunes a new checkpoint, evaluates it, and helps you promotes it so your model improves in production.
+
+## How it works
+
+Pioneer's Deep Research agent curates a training dataset, a fine-tuning job runs, and the best checkpoint is evaluated before\
+anything touches production. You control when a new model version gets promoted. :
+
+<Steps>
+  <Step title="You serve inference via Pioneer">
+    You call `POST /inference` (or the OpenAI-compatible endpoint) as normal. Inferences are logged automatically and accessible via GET/ inferences.
+  </Step>
+  <Step title="Pioneer captures high-signal traces">
+    As traffic flows through, Pioneer monitors inference results and identifies examples that are ambiguous, low-confidence, or otherwise informative for improving the model. These traces are stored in your inference history and are accessible via `GET /inferences`.
+  </Step>
+  <Step title="A new checkpoint is trained from your corrections">
+    Pioneer uses the high-signal traces — plus any explicit feedback you provide — to generate additional labeled training data. It then fine-tunes a new checkpoint of your model using that data.
+  </Step>
+  <Step title="Performance is benchmarked before promotion">
+    After training completes, Pioneer automatically runs an evaluation against a held-out dataset and reports F1, precision, and recall. Pioneer runs continuous evaluation against the captured traces to measure current model performance. This establishes a baseline before any retraining begins.
+  </Step>
+  <Step title="The improved checkpoint is promoted">
+    The new checkpoint is evaluated against the baseline.Review the evaluation results and deploy the best checkpoint from the deployment page Your `model_id` continues to point to the same endpoint — the underlying model has simply improved. The deployment page highlights the best-performing checkpoint to make this decision easy.
+  </Step>
+</Steps>
+
+## Submitting feedback
+
+Your explicit corrections are the highest-quality signal for Adaptive Inference. After receiving an inference result, submit feedback using the inference ID:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inferences/YOUR_INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verdict": "incorrect",  
+    "corrected_output": {
+      "entities": [
+        {"text": "Tim Cook", "label": "person", "start": 10, "end": 18},
+        {"text": "Apple", "label": "organization", "start": 0, "end": 5}
+      ]
+    }
+  }'
+```
+
+</CodeGroup>
+
+Retrieve a list of your past inferences to find IDs for follow-up:
+
+<CodeGroup>
+
+```bash cURL
+curl "https://api.pioneer.ai/inferences?model_id=YOUR_JOB_ID&limit=50" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+</CodeGroup>
+
+Feedback you submit is incorporated into the next training cycle. The more corrections you provide, the faster the model converges on the behavior you want.
+
+**Enterprise:** For custom retraining schedules, feedback pipelines, or dedicated infrastructure, contact the Pioneer team directly.
+
+<Note>
+  Unlimited Adaptive Inference is available on Pro, Research, and Custom (Enterprise) plans. It is not included in the Free plan. Upgrade at [pioneer.ai](https://pioneer.ai) → Settings → Plan, or reach out for enterprise pricing.
+</Note>
+
+## Next steps
+
+- [Fine-tune a NER model](/guides/fine-tune-ner) — train your initial model before enabling Adaptive Inference
+- [Fine-tune an LLM](/guides/fine-tune-llm) — set up a decoder model for continuous improvement
+- [Synthetic Data](/guides/synthetic-data) — generate additional labeled data to supplement production traces

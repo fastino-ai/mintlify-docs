@@ -1,0 +1,275 @@
+---
+title: "Training jobs API — start, poll, stop, and download"
+sidebarTitle: "Training Jobs"
+description: "Submit Pioneer fine-tuning jobs, poll status, stream logs, list checkpoints, download weights, and stop or delete jobs. Supports LoRA and full fine-tuning."
+---
+
+Training jobs are the core of Pioneer's fine-tuning platform. You submit a job with a base model and one or more datasets, and Pioneer handles the rest — provisioning compute, training the model, and making checkpoints available for download or deployment. Both LoRA and full fine-tuning are supported for encoder and decoder architectures.
+
+<Warning>
+  `base_model` is required when starting a training job. Omitting it returns a `422 Unprocessable Entity` error. Supply a model ID from `GET /base-models` (e.g. `fastino/gliner2-base-v1`, `Qwen/Qwen3-8B`) or a checkpoint UUID from a previous training job.
+</Warning>
+
+---
+
+## Job status lifecycle
+
+| Status      | Description                                                    |
+| ----------- | -------------------------------------------------------------- |
+| `requested` | Job has been submitted and is queued for provisioning.         |
+| `running`   | Training is actively in progress.                              |
+| `complete`  | Training finished successfully. Metrics and checkpoints are available. |
+| `failed`    | Training encountered an error. Check logs for details.         |
+| `deployed`  | Model has been deployed and is serving inference traffic.|
+| `cancelled` | Job was manually stopped via `POST /felix/training-jobs/:id/stop`. | 
+
+---
+
+## Start a training job
+
+`POST /felix/training-jobs`
+
+Submits a new fine-tuning job. Returns immediately with a job ID and `requested` status — use `GET /felix/training-jobs/:id` to poll for progress.
+
+<Note>
+  Rate limit for this endpoint is **20 requests per minute** per user.
+</Note>
+
+**Request body**
+
+<ParamField body="base_model" type="string" required>
+  The model to fine-tune. Use a supported model ID returned by `GET /base-models` (e.g. `fastino/gliner2-base-v1`) or a checkpoint UUID from a previous training job.
+</ParamField>
+
+<ParamField body="datasets" type="object[]" required>
+  Array of dataset references to train on. Each object must include a `name` field matching an existing dataset in the `ready` state.
+</ParamField>
+
+<ParamField body="model_name" type="string" required>
+  A human-readable name for the resulting trained model. Defaults to a generated identifier if not provided.
+</ParamField>
+
+<ParamField body="training_type" type="string">
+  Fine-tuning method to use. Accepted values: `lora`, `full`. Defaults to `lora`.
+</ParamField>
+
+<ParamField body="nr_epochs" type="number">
+  Number of training epochs. Defaults vary by base model.
+</ParamField>
+
+<ParamField body="learning_rate" type="number">
+  Learning rate for the optimizer. For example, `5e-5`.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-ner-model",
+    "base_model": "fastino/gliner2-base-v1",
+    "datasets": [{"name": "my-dataset"}],
+    "training_type": "lora",
+    "nr_epochs": 5,
+    "learning_rate": 5e-5
+  }'
+```
+
+**Response**
+
+<ResponseField name="id" type="string">
+  UUID of the training job. Use this ID in all subsequent requests.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Initial status, always `requested` on creation.
+</ResponseField>
+
+---
+
+## List training jobs
+
+`GET /felix/training-jobs`
+
+Returns all training jobs for your account. Supports filtering to narrow results.
+
+**Query parameters**
+
+<ParamField query="status" type="string">
+  Filter by job status. Accepted values: `requested`, `running`, `complete`, `deployed`, `failed`, `cancelled`. 
+</ParamField>
+
+<ParamField query="project_id" type="string">
+  Filter by project ID to show only jobs associated with a specific project.
+</ParamField>
+
+```bash
+curl "https://api.pioneer.ai/felix/training-jobs?status=complete" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+<ParamField query="limit" type="number">    
+  Maximum number of jobs to return. Accepts 1–200. Defaults to `200`.
+</ParamField>
+
+<ParamField query="offset" type="number">            
+  Number of jobs to skip for pagination. Defaults to `0`
+</ParamField>
+
+---
+
+## Get training job status
+
+`GET /felix/training-jobs/:id`
+
+Returns current status, configuration, and metrics for a specific training job.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The training job UUID.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+<ResponseField name="id" type="string">
+  Training job UUID.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current job status.
+</ResponseField>
+
+<ResponseField name="metrics" type="object">
+  Performance metrics. Only present when status is `complete`.
+  <Expandable title="metrics properties">
+    <ResponseField name="f1" type="number">
+      F1 score on the evaluation split. Example: `0.94`.
+    </ResponseField>
+    <ResponseField name="precision" type="number">
+      Precision score. Example: `0.96`.
+    </ResponseField>
+    <ResponseField name="recall" type="number">
+      Recall score. Example: `0.92`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Get training logs
+
+`GET /felix/training-jobs/:id/logs`
+
+Streams or returns the training logs for a job. Useful for debugging failed jobs or monitoring training progress in real time.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The training job UUID.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/logs \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+---
+
+## List checkpoints
+
+`GET /felix/training-jobs/:id/checkpoints`
+
+Returns all saved checkpoints for a training job. Checkpoint UUIDs can be used as the `base_model` value in a new training job to continue training from an intermediate state.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The training job UUID.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/checkpoints \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+---
+
+## Download model weights
+
+`GET /felix/training-jobs/:id/download`
+
+Returns a download URL for the trained model weights. Only available once the job status is `complete`.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The training job UUID.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/download \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+---
+
+## Stop a running job
+
+`POST /felix/training-jobs/:id/stop`
+
+Gracefully stops a job that is currently in `running` state. The job transitions to `cancelled` status...  
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The training job UUID.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/stop \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+---
+
+## Delete a training job
+
+`DELETE /felix/training-jobs/:id`
+
+Permanently deletes a training job and its associated artifacts, including checkpoints and logs.
+
+<Warning>
+  Deleting a training job also removes the model weights. Make sure you have downloaded or deployed the model before deleting the job if you want to retain access to it.
+</Warning>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The training job UUID.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Returns `200` with `{"success": true, "message": "..."}` on success.
+
+---
+
+## List all trained models
+
+`GET /felix/trained-models`
+
+Returns a flat list of all successfully trained models across all of your training jobs.
+
+```bash
+curl https://api.pioneer.ai/felix/trained-models \
+  -H "X-API-Key: YOUR_API_KEY"
+```

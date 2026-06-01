@@ -1,0 +1,153 @@
+---
+title: "POST /inference — Pioneer native inference endpoint"
+sidebarTitle: "Pioneer Inference"
+description: "POST /inference runs schema-based predictions on encoder or decoder models. Accepts model_id, text, schema with entities or classifications, and a threshold."
+---
+
+The Pioneer inference endpoint accepts a model ID, input text, and a schema that defines exactly what to extract. You can target a fine-tuned model from a completed training job or call a base model directly. For encoder models (GLiNER), use the `schema` field to declare entities, classifications, structures, or relations. For decoder models, use `"task": "generate"` instead.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/inference` | Run inference on a model |
+| `GET` | `/base-models` | List the model catalog |
+
+## List the model catalog
+
+Use `GET /base-models` to fetch the current list of available models. Filter by `?supports_inference=true` to narrow to inference-ready models, and by `?task_type=encoder` or `?task_type=decoder` to filter by architecture.
+
+<CodeGroup>
+
+```bash cURL
+curl "https://api.pioneer.ai/base-models?supports_inference=true" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+</CodeGroup>
+
+## Run inference
+
+### Request parameters
+
+<ParamField body="model_id" type="string" required>
+  The ID of the model to run inference against. Use the job ID returned by `POST /felix/training-jobs` (e.g. `job_abc123`) to target a fine-tuned model, or a base model ID like `fastino/gliner2-base-v1` to call a base model directly.
+</ParamField>
+
+<ParamField body="text" type="string | string[]" required>
+  The input text to run the model against. Pass an array of strings to run batch inference — the response `result`
+</ParamField>
+
+<ParamField body="schema" type="string[] | object">    
+  Defines what to extract from the input text. Used with encoder models. For simple NER, pass a flat array of entity labels (e.g. `["organization", "product"]`). For multi-task extraction, pass an object with any combination of the following keys:
+
+  <ParamField body="entities" type="string[]">
+    List of entity type labels to extract (Named Entity Recognition). Example: `["organization", "product", "location"]`.
+  </ParamField>
+
+  <ParamField body="classifications" type="object[]">
+    List of classification tasks. Each object has a `task` string (the classification label group name) and a `labels` array of candidate class strings.
+  </ParamField>
+
+  <ParamField body="structures" type="object">
+    Dictionary of structure definitions for JSON extraction. Each key is a structure name; the value defines the shape of the output.
+  </ParamField>
+
+  <ParamField body="relations" type="object[]">
+    List of relation definitions. Each object describes a directional relationship between entity types to extract.
+  </ParamField>
+</ParamField>
+
+<ParamField body="threshold" type="number" default="0.5">
+  Confidence threshold for returned predictions. Values range from `0` to `1`. Lower values return more candidates at the cost of precision; higher values return fewer, higher-confidence results.
+</ParamField>
+
+### Example — NER with a fine-tuned model
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "job_abc123",
+    "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+    "schema": {
+      "entities": ["organization", "product", "event", "location"]
+    },
+    "threshold": 0.5
+  }'
+```
+
+</CodeGroup>
+
+### Example — combined schema (entities + classifications)
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "job_abc123",
+    "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+    "schema": {
+      "entities": ["organization", "product", "location"],
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"]
+        }
+      ]
+    },
+    "threshold": 0.5
+  }'
+```
+
+</CodeGroup>
+
+<Note>
+   Decoder models use a different request shape. Pass `"task": "generate"` and a `messages` array instead of `text` and `schema`:
+                                                                 
+    ```json
+    {                                                                                                                   
+      "model_id": "YOUR_TRAINING_JOB_ID",
+      "task": "generate",                
+      "messages": [{ "role": "user", "content": "Your prompt here" }]
+    }  
+    ```                                                                                                                                                  
+</Note>
+
+<Tip>
+  The `threshold` default is `0.5`. Lower it (e.g. `0.3`) to surface more candidates at the cost of more false positives. Raise it (e.g. `0.7`) for tighter, higher-precision extractions.
+</Tip>
+
+## Using a base model ID
+
+If you haven't fine-tuned a model yet, you can call a base model directly. Use a model ID from `GET /base-models`, such as `fastino/gliner2-base-v1`.
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "fastino/gliner2-base-v1",
+    "text": "Tim Cook spoke at the Apple event in San Francisco.",
+    "schema": {
+      "entities": ["person", "organization", "location"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Related
+
+- [OpenAI-compatible inference](/api-reference/inference/openai-compatible) — call Pioneer models through the OpenAI SDK
+- [Anthropic-compatible inference](/api-reference/inference/anthropic-compatible) — call Pioneer models through the Anthropic SDK
+- [Inference history and feedback](/api-reference/inference/history) — retrieve past results and submit corrections
+- [Available models](/concepts/models) — encoder and decoder model catalog

@@ -1,0 +1,142 @@
+---
+title: "Anthropic-compatible POST /v1/messages on Pioneer API"
+sidebarTitle: "Anthropic Compatible"
+description: "Use Pioneer as a drop-in Anthropic SDK replacement. Point base_url to https://api.pioneer.ai/v1 and use your Pioneer API key to access fine-tuned models."
+---
+
+Pioneer implements the Anthropic Messages API so you can route existing Anthropic SDK code to your fine-tuned Pioneer models. Set `base_url` to `https://api.pioneer.ai/v1`, authenticate with your Pioneer API key, and use your training job ID as the model name. No other code changes are required.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/messages` | Create a message (Anthropic-compatible) |
+
+## Configure the Anthropic SDK
+
+Pass your Pioneer API key and base URL when constructing the client:
+
+<CodeGroup>
+
+```python Python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.pioneer.ai/v1"
+)
+```
+
+</CodeGroup>
+
+## Create a message
+
+`POST /v1/messages` accepts the same request shape as the Anthropic Messages API. Set `model` to your training job ID and include your `messages` array. You can pass Pioneer-specific fields like `schema` alongside the standard Anthropic fields.
+
+### Request parameters
+
+<ParamField body="model" type="string" required>
+  Training job ID (e.g. `job_abc123`) or a base model ID. This is the model that processes your request.
+</ParamField>
+
+<ParamField body="max_tokens" type="number" required>
+  Maximum number of tokens to generate in the response.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Conversation messages. Each object has a `role` (`"user"` or `"assistant"`) and a `content` string.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Pioneer-specific extraction schema. Define `entities`, `classifications`, `structures`, or `relations` to control what the model extracts. See [Pioneer inference](/api-reference/inference/pioneer) for full schema documentation.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.pioneer.ai/v1"
+)
+
+message = client.messages.create(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ]
+)
+
+print(message.content[0].text)
+```
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Streaming
+
+The `/v1/messages` endpoint supports streaming. Set `stream=True` in the SDK or `"stream": true` in the raw request body.
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.pioneer.ai/v1"
+)
+
+with client.messages.stream(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Summarize the following: ..."}]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Summarize the following: ..."}],
+    "stream": true
+  }'
+```
+
+</CodeGroup>
+
+## Related
+
+- [Pioneer native inference](/api-reference/inference/pioneer) — direct Pioneer endpoint with full schema documentation
+- [OpenAI-compatible inference](/api-reference/inference/openai-compatible) — use the OpenAI SDK instead
+- [Inference history and feedback](/api-reference/inference/history) — retrieve past results and submit corrections

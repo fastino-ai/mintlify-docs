@@ -1,0 +1,164 @@
+---
+title: "Evaluation API — measure model F1 before deploying"
+sidebarTitle: "Evaluations"
+description: "Run Pioneer evaluations against labeled datasets to measure F1, precision, and recall with per-entity breakdowns before promoting a model to production."
+---
+
+Evaluations let you measure how well a trained model performs against a labeled dataset before you deploy it. You can evaluate your own fine-tuned models or compare them against Pioneer's baseline LLM models to understand the improvement your training has achieved. Results include overall F1, precision, and recall scores as well as per-entity breakdowns for NER tasks.
+
+<Note>
+  The `base_model` field in evaluation requests accepts a training job ID — unlike training jobs, which require a HuggingFace model ID or checkpoint UUID. You can also pass a base model ID to evaluate an untuned model as a baseline.
+</Note>
+
+---
+
+## Run an evaluation
+
+`POST /felix/evaluations`
+
+Starts an evaluation run that measures model performance against a labeled dataset. Returns an evaluation ID you can use to poll for results.
+
+**Request body**
+
+<ParamField body="base_model" type="string" required>
+  The model to evaluate. Accepts a training job ID (to evaluate your fine-tuned model) or a base model ID (to evaluate an untuned model as a baseline).
+</ParamField>
+
+<ParamField body="dataset_name" type="string">
+  The name of the labeled dataset to evaluate against. The dataset must be in the `ready` state.
+</ParamField>
+
+<ParamField body="project_id" type="string">
+  Associate this evaluation with a specific project for organizational purposes.
+</ParamField>
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/evaluations \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_model": "YOUR_TRAINING_JOB_ID",
+    "dataset_name": "YOUR_DATASET_NAME"
+  }'
+```
+
+**Response**
+
+<ResponseField name="success" type="boolean">
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Number of evaluations created.
+</ResponseField>
+
+<ResponseField name="evaluations" type="object[]">
+  Array of created evaluation objects. Each includes an `id` you can pass to `GET /felix/evaluations/:id` to poll for results.
+</ResponseField>
+
+---
+
+## List evaluations
+
+`GET /felix/evaluations`
+
+Returns all evaluations for your account. Supports filtering by project.
+
+**Query parameters**
+
+<ParamField query="project_id" type="string">
+  Filter results to evaluations associated with a specific project.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/evaluations \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+---
+
+## Get evaluation results
+
+`GET /felix/evaluations/:id`
+
+Returns the status and, once complete, the full results of an evaluation run.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The evaluation UUID.
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/evaluations/YOUR_EVALUATION_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+<ResponseField name="id" type="string">
+  Evaluation UUID.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current status of the evaluation. Values: `queued`, `running`, `complete`, `failed`.
+</ResponseField>
+
+<ResponseField name="f1_score" type="number">
+  Overall F1 score. Present once the evaluation is complete.
+</ResponseField>
+
+<ResponseField name="precision_score" type="number">
+  Overall precision score.
+</ResponseField>
+
+<ResponseField name="recall_score" type="number">
+  Overall recall score.
+</ResponseField>
+
+<ResponseField name="sample_count" type="number">
+  Number of examples evaluated.
+</ResponseField>
+
+<ResponseField name="completed_at" type="string">
+  ISO 8601 timestamp of when the evaluation finished.
+</ResponseField>
+
+---
+
+## Delete an evaluation
+
+`DELETE /felix/evaluations/:id`
+
+Permanently deletes an evaluation and its results.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  The evaluation UUID.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/felix/evaluations/YOUR_EVALUATION_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Returns `200` with `{"success": true, "message": "..."}` on success.     
+
+---
+
+## List baseline models
+
+`GET /felix/baseline-models`
+
+Returns the list of baseline LLM models available for evaluation. Use these to benchmark your fine-tuned model's performance against general-purpose models and quantify the improvement from training.
+
+```bash
+curl https://api.pioneer.ai/felix/baseline-models \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+Returns an object with a `models` array and a `count`. Each model has `id`, `name`, `provider`, and `description`. Pass the `id` as `base_model` in `POST /felix/evaluations` to evaluate against a baseline.                            
+  
