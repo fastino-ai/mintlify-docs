@@ -50,7 +50,45 @@ Submits a new fine-tuning job. Returns immediately with a job ID and `requested`
 </ParamField>
 
 <ParamField body="training_type" type="string">
-  Fine-tuning method to use. Accepted values: `lora`, `full`. Defaults to `lora`.
+  Fine-tuning method to use. Accepted values: `lora`, `full`. Defaults to `lora`. Decoder LLM training is LoRA-only; `full` is reserved for GLiNER encoder models.
+</ParamField>
+
+<ParamField body="training_algorithm" type="string">
+  Post-training algorithm. Accepted values: `sft` (default), `grpo`, `dpo`. `sft` is supervised fine-tuning; `grpo` and `dpo` are reinforcement-learning methods that require `rl_config`. See the [Post-training guide](/guides/post-training). Submitting `grpo`/`dpo` for a model that hasn't been verified for RL returns a `422`.
+</ParamField>
+
+<ParamField body="rl_config" type="object">
+  Reinforcement-learning hyperparameters. **Required when** `training_algorithm` is `grpo` or `dpo`; must be omitted for `sft`. Every key inside is optional (TRL-aligned server defaults are applied) except `reward_type`, which is required for GRPO.
+
+  <Expandable title="rl_config keys">
+    <ParamField body="reward_type" type="string">
+      **GRPO, required.** Built-in reward function: `exact_match`, `contains_substring`, `numeric_match`, `choice_match`, `regex_match`, `json_match`, `json_loose_match`, `rougeL_match`, or `llm_as_judge`.
+    </ParamField>
+    <ParamField body="max_steps" type="number">
+      GRPO, DPO. Total optimizer steps.
+    </ParamField>
+    <ParamField body="group_size" type="number">
+      GRPO. Completions sampled per prompt.
+    </ParamField>
+    <ParamField body="kl_beta" type="number">
+      GRPO. KL penalty coefficient.
+    </ParamField>
+    <ParamField body="sampling_temperature" type="number">
+      GRPO. Sampling temperature for rollouts.
+    </ParamField>
+    <ParamField body="max_completion_length" type="number">
+      GRPO. Max generated tokens per completion.
+    </ParamField>
+    <ParamField body="dpo_beta" type="number">
+      DPO. Preference sharpness (β).
+    </ParamField>
+    <ParamField body="loss_type" type="string">
+      DPO. DPO loss variant.
+    </ParamField>
+    <ParamField body="logging_steps" type="number">
+      GRPO, DPO. Defaults to 25; lower for short smoke runs.
+    </ParamField>
+  </Expandable>
 </ParamField>
 
 <ParamField body="nr_epochs" type="number">
@@ -61,7 +99,9 @@ Submits a new fine-tuning job. Returns immediately with a job ID and `requested`
   Learning rate for the optimizer. For example, `5e-5`.
 </ParamField>
 
-```bash
+<CodeGroup>
+
+```bash NER (SFT)
 curl -X POST https://api.pioneer.ai/felix/training-jobs \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
@@ -74,6 +114,48 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs \
     "learning_rate": 5e-5
   }'
 ```
+
+```bash LLM (SFT)
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-sft-model",
+    "base_model": "Qwen/Qwen3-8B",
+    "datasets": [{"name": "my-dataset"}],
+    "training_type": "lora"
+  }'
+```
+
+```bash GRPO
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-grpo-model",
+    "base_model": "Qwen/Qwen3-4B-Instruct-2507",
+    "datasets": [{"name": "gsm8k-grpo"}],
+    "training_type": "lora",
+    "training_algorithm": "grpo",
+    "rl_config": {"reward_type": "numeric_match", "max_steps": 100, "group_size": 8}
+  }'
+```
+
+```bash DPO
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-dpo-model",
+    "base_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "datasets": [{"name": "my-preferences"}],
+    "training_type": "lora",
+    "training_algorithm": "dpo",
+    "rl_config": {"dpo_beta": 0.1}
+  }'
+```
+
+</CodeGroup>
 
 **Response**
 
