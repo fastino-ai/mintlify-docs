@@ -4,16 +4,105 @@ sidebarTitle: "Prompt Caching"
 description: "How prompt caching works on Pioneer, what qualifies for caching, how cache tokens are billed, and where to view cache usage."
 ---
 
-Pioneer reuses repeated prompt prefixes (long system prompts, replayed conversation history) so you pay less and get faster responses on the cached portion. You don't have to opt in — caching is applied automatically per provider.
+A short guide to getting consistent prompt-cache hits from any client or agent harness (Pi, Claude Code, custom curl, SDKs, etc.).
 
-## What you do
+## The one thing to know
 
-Nothing. Send requests normally. Pioneer handles cache setup for you:
+**For Claude / Anthropic-style models, caching is opt-in at the API level, so whether it happens depends on your client.** Pioneer forwards your request as-is and never adds cache markers for you. If the request does not include a `cache_control` marker, the stable prefix is **not** cached and you pay full input price on every turn. Some clients opt in for you — Claude Code, for example, uses Anthropic's endpoints (which require `cache_control`), so it sends markers automatically. A bare custom client that sends plain-string prompts does not, and gets no caching.
 
-- **GPT (OpenAI)** — caches prompt prefixes upstream automatically. No request changes are needed.
-- **Opus / Claude (Anthropic)** — caches only the prefix before a `cache_control` breakpoint. Pioneer inserts those breakpoints for you (on the system prompt, and on the latest turn of a multi-turn conversation) once a prompt is large enough to be worth caching.
+Models that cache automatically (the OpenAI/GPT family) do so transparently and **reject** explicit markers — for those you don't need to do anything, and you should not add `cache_control`.
 
-If you set your own `cache_control` breakpoints, Pioneer respects them and does not add its own.
+| Model | What you do |
+| --- | --- |
+| Claude / Anthropic-style | Add `cache_control` markers (see below) |
+| OpenAI / GPT family (auto-caching) | Nothing — caching is automatic |
+| Other models | If unsure, add a marker; it's honored where supported and ignored where the model auto-caches |
+
+The reliable lever you control is `cache_control` on Claude models. The rest of this guide is about using it correctly.
+
+## How to mark a cacheable prefix
+
+Send the stable part of your prompt as a content block with a `cache_control` marker. Everything **up to and including** the marked block becomes the cached prefix and is reused on later requests that share that exact prefix.
+
+Markers are honored on every message-based endpoint and normalized identically:
+
+- `POST /v1/chat/completions` (OpenAI-compatible) — mark a `system`/`user` message content block.
+- `POST /v1/messages` (Anthropic-compatible) — mark a `system` block, message block, or tools block.
+- `POST /v1/responses` (OpenAI Responses) — mark a content block on an input message. The stable prefix is marked via a `system`/`developer` input message block (the plain `instructions` string has no place for a marker).
+- `POST /inference` (Pioneer native, decoder generation) — send a message `content` as a content-block array and mark a block.
+
+<Note>
+  `POST /v1/completions` (legacy text completions) sends a single opaque `prompt` string with no content blocks, so it has no place to attach a marker. Caching there depends entirely on the upstream's automatic caching.
+</Note>
+
+### Example (`/v1/chat/completions`)
+
+```bash
+curl https://api.pioneer.ai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $PIONEER_API_KEY" \
+  -d '{
+    "model": "claude-opus-4-6",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "Answer in one sentence: what is prompt caching?" }
+    ],
+    "max_tokens": 512
+  }'
+```
+
+The system content must be a **content-block array** (not a plain string) so the marker has a block to attach to. A plain-string system prompt cannot carry a marker and will not be cached.
+
+## Where to put markers
+
+You can mark up to **4 breakpoints** per request. Put them on the parts that stay constant from one turn to the next, in prefix order:
+
+1. **System prompt** — your stable instructions / reusable context.
+2. **Tool definitions** — mark the tools block if you send a large, fixed tool set.
+3. **A message boundary** — mark the last message of a stable conversation prefix to cache the history up to that point in a multi-turn session.
+
+Anything that changes every turn (the latest user question) should come **after** your last marker so the cached prefix stays identical and keeps hitting.
+
+An optional `ttl` (e.g. `{ "type": "ephemeral", "ttl": "1h" }`) controls the cache lifetime; omit it to use the provider's default ephemeral window.
+
+## Minimum cacheable size
+
+Caching only kicks in once the cacheable prefix is large enough — on the order of **~1K–4K tokens depending on the model**. A short system prompt may fall below the threshold, in which case no cache entry is created even with a correct marker. If you expect caching but see no cache tokens, check that the marked prefix is genuinely large.
+
+## Configuring an agent harness
+
+Most harnesses can emit this shape but need to be told to use Anthropic-style cache control for Pioneer's Claude models. When configuring a custom Pioneer provider, make sure the client is set to:
+
+- Send the system prompt as a **content block with `cache_control`** (not a bare string), and
+- Keep the stable instruction on `role: "system"`.
+
+If your harness exposes a provider compatibility option for cache-control format, set it to the Anthropic style. If it only sends plain-string prompts with no `cache_control`, you will not get caching on Claude models even though the same harness caches fine on auto-caching models.
+
+## Verifying it works
+
+Check the `usage` block in the response. Field names differ by endpoint:
+
+- **`/v1/chat/completions`** — reports cache reads under `usage.prompt_tokens_details.cached_tokens`.
+- **`/v1/messages`** — reports `cache_read_input_tokens` and `cache_creation_input_tokens`.
+
+What to expect:
+
+- **First request** with a new prefix: a non-zero cache write/creation count.
+- **Later requests** reusing that prefix: a non-zero cache read count and a much lower uncached input count.
+- **All zeros** means the marker was missing, the prefix was below the minimum size, the prefix changed between turns, or the model auto-caches (savings still apply but aren't reported as cache tokens).
+
+<Note>
+  Some harnesses normalize these into their own fields (e.g. `cacheRead` / `cacheWrite` in their logs) — same numbers, different names.
+</Note>
 
 ## How to read it back
 
@@ -27,10 +116,6 @@ Token usage on every response splits input tokens by cache status:
 | `completion_tokens` | Output tokens |
 | `total_tokens` | Sum of the four above |
 
-<Warning>
-  Caching charges are visible in **Settings → Credits** and can be displayed by model or by individual request. 
-</Warning>
-
 ## Billing
 
 Cached input is cheaper than fresh input. Rates are relative to a model's input price:
@@ -43,12 +128,21 @@ Cached input is cheaper than fresh input. Rates are relative to a model's input 
 
 The first request that populates the cache pays the write rate on those tokens; subsequent requests that hit the cache pay the lower read rate. Caches are short-lived, so the savings come from sending similar prompts close together.
 
+<Warning>
+  Caching charges are visible in **Settings → Credits** and are displayed broken down by model or by individual request.
+</Warning>
+
 <Info>
-  For Anthropic models, the system prompt must be at least **1024 tokens** for caching to activate. Cache entries expire after **5 minutes** of inactivity.
+  For most Anthropic models, the system prompt must be at least **4096 tokens** for caching to activate. Cache entries expire after **5 minutes** of inactivity.
 </Info>
 
-## Tips
+## Common pitfalls
 
-- Keep your system prompt **static**. Any change to the cached prefix invalidates the cache.
-- Do not inject dynamic content (timestamps, user IDs, session data) into the system prompt, move it to the user message instead.
-- The **Inference UI** shows input and output token counts per request. Cache token breakdowns and discounted billing are visible on the Settings → **Credit page**.
+- **No `cache_control` on a Claude request** → no caching, full price every turn. This is the most common cause of a sudden cost jump.
+- **System prompt sent as a plain string** → nothing to attach the marker to.
+- **Prefix too small** → below the minimum cacheable size, so no entry is made.
+- **The cached prefix changes between turns** (e.g. a timestamp early in the system prompt) → the cache can't be reused. Keep the marked prefix byte-for-byte stable.
+- **Marking on `/v1/completions`** → the legacy text endpoint has no content blocks; use any message-based endpoint instead.
+- **On `/v1/responses`, marking the `instructions` field** → it's a plain string and can't carry a marker; put the stable prefix in a `system`/`developer` input message block instead.
+- **Adding `cache_control` to an auto-caching model** → ignored or rejected; let it cache on its own.
+- **More than 4 markers** → only the first 4 are applied.
