@@ -1,0 +1,117 @@
+---
+title: "Code Router"
+---
+
+## title: "Code Router" description: "Automatically route coding tasks to the cheapest model that meets your quality bar."
+
+## The Problem
+
+Agentic coding agents run hundreds to thousands of LLM calls per session. Not every call needs a frontier model — a task that classifies a diff or generates a docstring doesn't need Claude Opus. But switching models manually mid-agent is cumbersome, and agents running autonomously have no mechanism to do it themselves.
+
+## What It Does
+
+The Pioneer Code Router is a low-latency model router trained on coding tasks. It reads the messages in each request, scores every candidate model against the task, and routes to the cheapest model that meets your quality bar — automatically, on every request.
+
+The router sits transparently in front of your inference calls. Your code sends requests exactly as before; the router decides which model executes them.
+
+<Info>
+  Every routing decision is logged with the selected model, confidence score, expected cost, and the rule that fired — visible in the Router detail page and the inference detail view.
+</Info>
+
+## How It Works
+
+<Steps>
+  <Step title="Read the messages">
+    The router classifies the task complexity from the conversation — e.g. trivial lookup vs. multi-file refactor.
+  </Step>
+  <Step title="Score every candidate model">
+    It produces a calibrated success probability for each model on this specific task.
+  </Step>
+  <Step title="Apply your policy">
+    It selects the cheapest model whose score clears your configured thresholds.
+  </Step>
+  <Step title="Fall back gracefully">
+    If no candidate clears the bar, or the router is unreachable, the request falls back to your configured fallback model without error.
+  </Step>
+</Steps>
+
+## Candidate Models
+
+The router selects from this pool. Use the **Candidate Models** setting to restrict it to a subset.
+
+| Model | Provider |
+| --- | --- |
+| DeepSeek V4 Flash | DeepSeek |
+| Qwen 3.6 35B-A3B | Qwen |
+| DeepSeek V4 Pro | DeepSeek |
+| GLM 5.1 | ZhipuAI |
+| Claude Haiku 4.5 | Anthropic |
+| Claude Sonnet 4.6 | Anthropic |
+| GPT-5.5 | OpenAI |
+| Claude Opus 4.7 | Anthropic |
+
+## Parameters
+
+<ParamField path="threshold" default="0.20" type="float">
+  The minimum calibrated success probability a candidate must reach to be selected. The router scores each model 0–1, representing its predicted likelihood of succeeding on this task. A model below this floor is never selected, even if it's the cheapest.
+
+  - **Lower values** (e.g. `0.10`) — more aggressive cost savings; the router will take chances on cheaper models
+  - **Higher values** (e.g. `0.50`) — router only routes when confident; falls back to your fallback model more often
+</ParamField>
+
+<ParamField path="max_regret" default="0.15" type="float">
+  The maximum allowed probability gap between the chosen model and the top-scoring candidate. If the cheapest qualifying model scores 0.80 but the best scores 0.96, the gap is 0.16 — above the default `0.15` — so the router moves up to a more capable model.
+
+  Think of it as: _never pick a model more than X worse than the best available option._
+
+  - **Lower values** — router stays closer to the top-performing model; fewer cost savings
+  - **Higher values** — router accepts a wider quality gap in exchange for lower cost
+</ParamField>
+
+<ParamField path="low_risk_max_regret" default="0.30" type="float">
+  A wider regret bound applied when the router's internal risk classifiers don't fire. The router detects high-stakes patterns (large multi-file refactors, security-sensitive code). When none of those signals fire, the task is considered low-risk and a wider regret budget applies — meaning the router routes to cheaper models more aggressively on simple tasks and stays conservative on complex ones.
+</ParamField>
+
+<ParamField path="fallback" default="claude-sonnet-4-6" type="string">
+  The model used when the router declines to route — either because no candidate cleared the threshold, or because the router service was unreachable (transport error or timeout). The fallback always runs the full inference path.
+
+  <Note>
+    If you set `allowed_models`, the fallback is automatically pinned to your first allowed model unless you specify one explicitly.
+  </Note>
+</ParamField>
+
+<ParamField path="allowed_models" default="all candidates" type="string[]">
+  An optional allowlist of models the router may select from. When set, the router only considers models in this list. Useful for:
+
+  - Restricting to a specific provider (e.g. Anthropic-only)
+  - Removing models that underperform on your specific codebase
+  - Cost caps — exclude the most expensive candidates entirely
+</ParamField>
+
+## Routing Playground
+
+The **Routing Playground** lets you test the router's decisions before enabling it on live traffic. Paste any prompt or a real conversation and the playground shows which model the router would select, the confidence score, and the expected cost savings versus routing everything to your fallback.
+
+## Reading Routing Decisions
+
+Every inference detail view includes a `routing` block when a request went through the router.
+
+<ResponseField name="selected_model" type="string">
+  The model that actually ran the request.
+</ResponseField>
+
+<ResponseField name="confidence" type="float">
+  The router's calibrated success probability for the selected model on this task.
+</ResponseField>
+
+<ResponseField name="rule" type="string">
+  The policy rule that determined the outcome: `threshold`, `max_regret`, `low_risk_max_regret`, or `fallback_declined`.
+</ResponseField>
+
+<ResponseField name="savings_usd" type="float">
+  Cost saved versus routing the same request to the most expensive candidate.
+</ResponseField>
+
+<ResponseField name="reason_codes" type="string[]">
+  Diagnostic codes from the router's internal classifiers. Useful for understanding why a specific routing decision was made.
+</ResponseField>
