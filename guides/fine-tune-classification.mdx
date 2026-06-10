@@ -1,0 +1,269 @@
+---
+title: "Fine-tune a GLiNER text classification model from data to inference"
+sidebarTitle: "Classification Fine-tuning"
+description: "Train a custom single- or multi-label text classification model on your data using Pioneer's GLiNER encoder models, from dataset prep through evaluation and inference."
+---
+
+Text classification assigns one or more labels to a piece of text — sentiment, topic, intent, priority, content category, or any taxonomy you define. Pioneer's GLiNER encoder models classify in the same forward pass they use for NER, so you get a single small, fast model that can do both. LoRA fine-tuning adapts the base classifier to your labels with a small labeled dataset and no GPU of your own.
+
+<Steps>
+  <Step title="Choose a base model">
+    Pioneer offers four GLiNER base models. For most tasks, `fastino/gliner2-base-v1` is the right starting point: it's fast, accurate, and supports LoRA and full fine-tuning. If your data includes non-English text, use a `multi` variant instead.
+
+    | Model ID | Use case | Training |
+    | --- | --- | --- |
+    | `fastino/gliner2-base-v1` | English, general purpose | LoRA, Full |
+    | `fastino/gliner2-large-v1` | English, higher accuracy | LoRA, Full |
+    | `fastino/gliner2-multi-v1` | Multilingual | LoRA, Full |
+    | `fastino/gliner2-multi-large-v1` | Multilingual, higher accuracy | LoRA, Full |
+
+    You can always fetch the latest catalog from the API:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl "https://api.pioneer.ai/base-models?task_type=encoder&supports_training=true" \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+  </Step>
+  <Step title="Decide single-label vs multi-label">
+    Pick one mode and use it consistently across every row in your dataset — mixing the two in the same dataset is rejected at validation time.
+
+    | Mode | Row shape | Use when |
+    | --- | --- | --- |
+    | **Single-label** | `{"text": "...", "label": "positive"}` | Each input gets exactly one label (sentiment, intent, language). |
+    | **Multi-label** | `{"text": "...", "labels": ["positive", "fast-shipping"]}` | Each input can carry multiple labels (topic tagging, content moderation, multi-aspect review). |
+
+    The label vocabulary itself is inferred from the dataset — you don't declare it up front. Pioneer collects every distinct `label` / `labels` value across your training rows and uses that as the candidate set.
+  </Step>
+  <Step title="Prepare your training data">
+    You have two options: generate synthetic labeled examples with Pioneer, or bring your own labeled data.
+
+    **Option A — Generate synthetic data.** If you don't have labeled examples yet, use the `/generate` endpoint with `task_type: "classification"`. See the [Synthetic Data guide](/guides/synthetic-data) for full details.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/generate \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "task_type": "classification",
+        "dataset_name": "my-classification-dataset",
+        "labels": ["positive", "negative", "neutral"],
+        "num_examples": 200,
+        "domain_description": "Product reviews for consumer electronics"
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Option B — Auto-label existing text.** If you have raw text but no labels, send it to `POST /generate/classification/label-existing` and Pioneer will annotate it synchronously. Accepts 1–1,000 strings per call.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/generate/classification/label-existing \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "labels": ["positive", "negative", "neutral"],
+        "inputs": [
+          "This product exceeded all my expectations.",
+          "The battery life is disappointingly short."
+        ]
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Option C — Upload through the platform.** If you already have labeled data, upload it directly via the Pioneer dashboard. Each row needs a `text` column and either a `label` column (single-label) or a `labels` column (multi-label).
+
+    Once your dataset is ready, confirm its status before starting training:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/datasets/my-classification-dataset \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Wait until the dataset status is `ready` before proceeding.
+  </Step>
+  <Step title="Start a training job">
+    Submit your training job with `POST /felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`. The training endpoint is shared with NER — Pioneer infers the task heads from the dataset columns.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-classification-model",
+        "base_model": "fastino/gliner2-base-v1",
+        "datasets": [{"name": "my-classification-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 5,
+        "learning_rate": 5e-5
+      }'
+    ```
+
+    </CodeGroup>
+
+    The response includes your job ID and initial status:
+
+    ```json
+    { "id": "uuid-of-training-job", "status": "requested" }
+    ```
+
+    Save the `id` — you'll use it to poll status, run evaluations, and call inference.
+  </Step>
+  <Step title="Poll job status and review metrics">
+    Training typically takes a few minutes to a few hours depending on dataset size and epoch count. Poll the job endpoint until status is `"complete"`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Job status values: `requested` → `running` → `complete` (or `failed` / `stopped`).
+
+    When the job reaches `"complete"`, the response includes evaluation metrics:
+
+    ```json
+    {
+      "id": "YOUR_JOB_ID",
+      "status": "complete",
+      "metrics": {
+        "f1": 0.92,
+        "precision": 0.94,
+        "recall": 0.90
+      }
+    }
+    ```
+
+    A high F1 score (above 0.85) generally indicates a model ready for production. If scores are lower, consider adding more training examples — especially for any minority classes — or making your label definitions more distinct.
+  </Step>
+  <Step title="Run an evaluation">
+    Evaluate your trained model against a held-out dataset to get a more rigorous view of performance before deploying.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/evaluations \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "base_model": "YOUR_JOB_ID",
+        "dataset_name": "my-eval-dataset"
+      }'
+    ```
+
+    </CodeGroup>
+
+    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1`, `precision`, `recall`, and a per-label breakdown so you can see which classes need more training data.
+  </Step>
+  <Step title="Run inference with your trained model">
+    Use your job ID as the `model_id` to run predictions. Classification lives under the `classifications` key of the `schema` field — each entry defines one independent classification head.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/inference \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_id": "YOUR_JOB_ID",
+        "text": "This product exceeded all my expectations.",
+        "schema": {
+          "classifications": [
+            {
+              "task": "sentiment",
+              "labels": ["positive", "negative", "neutral"],
+              "multi_label": false,
+              "top_k": 1
+            }
+          ]
+        },
+        "threshold": 0.5
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Classification entry options**
+
+    Each object inside `classifications` accepts these keys:
+
+    | Key | Type | Description |
+    | --- | --- | --- |
+    | `task` | `string` | Name for this classification head (free-form; used in the response). |
+    | `labels` | `string[]` | Candidate labels for this task. |
+    | `multi_label` | `boolean` | `false` returns one winning label; `true` allows multiple labels above `threshold`. |
+    | `top_k` | `integer` | Optional cap on the number of labels returned (single-label only). |
+
+    You can attach multiple classification heads in one call — for example, sentiment and topic from the same input — by adding more entries to the list. Classification can also be combined with NER (`entities`), structured extraction (`structures`), or relations (`relations`) in the same request; the response carries each head independently.
+
+    You can also call inference using the OpenAI-compatible endpoint. Set `base_url` to `https://api.pioneer.ai/v1` and pass Pioneer fields via `extra_body`:
+
+    <CodeGroup>
+
+    ```python Python (OpenAI SDK)
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key="YOUR_API_KEY",
+        base_url="https://api.pioneer.ai/v1"
+    )
+
+    response = client.chat.completions.create(
+        model="YOUR_JOB_ID",
+        messages=[{
+            "role": "user",
+            "content": "This product exceeded all my expectations."
+        }],
+        extra_body={
+            "schema": {
+                "classifications": [
+                    {
+                        "task": "sentiment",
+                        "labels": ["positive", "negative", "neutral"],
+                        "multi_label": False
+                    }
+                ]
+            }
+        }
+    )
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
+
+<Tip>
+  The `threshold` parameter only affects multi-label classification — labels below the threshold are dropped from the response. Single-label heads always return the highest-scoring label regardless of threshold. Default is `0.5`.
+</Tip>
+
+## Multi-label vs single-label at inference time
+
+The `multi_label` flag on each classification entry is independent of how your training data was shaped — you can train on single-label data and still query a multi-label head, or vice versa, as long as the candidate `labels` you pass match labels the model has seen.
+
+- **Single-label (`multi_label: false`)** — Returns exactly one winning label (or up to `top_k` ranked labels). Use for mutually exclusive taxonomies like sentiment or intent.
+- **Multi-label (`multi_label: true`)** — Returns every label whose confidence exceeds `threshold`. Use for tagging-style tasks where multiple labels can be true at once.
+
+## Next steps
+
+- [Fine-tune a NER model](/guides/fine-tune-ner) — extract entities with the same GLiNER base model
+- [Fine-tune a structured extraction model](/guides/fine-tune-extraction) — pull JSON-shaped records out of text
+- [Generate synthetic training data](/guides/synthetic-data) — create labeled classification examples without manual annotation
+- [Adaptive Inference](/guides/adaptive-inference) — let Pioneer retrain your classifier automatically on live traffic
+- [API Reference](/api-reference/overview) — full endpoint documentation

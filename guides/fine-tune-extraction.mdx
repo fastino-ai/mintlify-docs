@@ -1,0 +1,275 @@
+---
+title: "Fine-tune a GLiNER structured extraction model from data to inference"
+sidebarTitle: "Extraction Fine-tuning"
+description: "Train a custom JSON-structured extraction model on your data using Pioneer's GLiNER encoder models — pull invoices, forms, and any structured record out of unstructured text."
+---
+
+Structured extraction pulls JSON-shaped records — invoices, contracts, product specs, medical reports, any form with named fields — out of unstructured text. You define a structure (a named bundle of fields), train on examples that fill it in, and the model learns to extract the same shape from new documents. Pioneer's GLiNER encoder models handle extraction in the same forward pass they use for NER and classification, so you get one small, fast model that does all three.
+
+<Steps>
+  <Step title="Choose a base model">
+    Pioneer offers four GLiNER base models. For most tasks, `fastino/gliner2-base-v1` is the right starting point: it's fast, accurate, and supports LoRA and full fine-tuning. If your documents include non-English text, use a `multi` variant instead.
+
+    | Model ID | Use case | Training |
+    | --- | --- | --- |
+    | `fastino/gliner2-base-v1` | English, general purpose | LoRA, Full |
+    | `fastino/gliner2-large-v1` | English, higher accuracy | LoRA, Full |
+    | `fastino/gliner2-multi-v1` | Multilingual | LoRA, Full |
+    | `fastino/gliner2-multi-large-v1` | Multilingual, higher accuracy | LoRA, Full |
+
+    You can always fetch the latest catalog from the API:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl "https://api.pioneer.ai/base-models?task_type=encoder&supports_training=true" \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+  </Step>
+  <Step title="Design your structure">
+    A **structure** is a named record made up of fields. Each field has a name and a type. The two supported types are:
+
+    | Type | Use when | Stored as |
+    | --- | --- | --- |
+    | `str` | Single value extracted from the text (an amount, a date, a party name). | A single string. |
+    | `list` | Multiple values for the same field (line items, bullet points, attendees). | An array of strings. |
+
+    A field can also carry an optional `choices` list (a closed enum like `["USD", "EUR", "GBP"]`) and an optional `description` to nudge the model on what counts. Both are visible at inference time only — at training time the model just sees the values you actually labelled.
+
+    A practical example: extracting invoices.
+
+    ```json
+    {
+      "invoice": {
+        "vendor": "Acme Corp",
+        "invoice_number": "INV-2024-0042",
+        "amount": "1,250.00",
+        "currency": "USD",
+        "line_items": ["Widget x 10", "Premium support, 1 month"]
+      }
+    }
+    ```
+
+    The structure name (`invoice`) groups related fields. You can train multiple structures on the same dataset — for instance, `invoice` and `shipping_label` from the same documents — by including each one separately in the row.
+  </Step>
+  <Step title="Prepare your training data">
+    Structured extraction needs labeled examples — Pioneer's synthetic data generator covers NER, classification, and decoder tasks but does not generate structures, so plan on bringing your own labeled examples (typically dozens to a few hundred to start).
+
+    Each row needs a `text` column and a `json_structures` column. The `json_structures` value is a list of `{structure_name: {field: value}}` dicts, one per structure instance found in the text. Field values must appear verbatim in the text — validation rejects rows with values that aren't span-substrings of `text`.
+
+    ```json
+    {
+      "text": "Invoice INV-2024-0042 from Acme Corp for $1,250.00 USD. Items: Widget x 10, Premium support, 1 month.",
+      "json_structures": [
+        {
+          "invoice": {
+            "vendor": "Acme Corp",
+            "invoice_number": "INV-2024-0042",
+            "amount": "1,250.00",
+            "currency": "USD",
+            "line_items": ["Widget x 10", "Premium support, 1 month"]
+          }
+        }
+      ]
+    }
+    ```
+
+    **A few rules to keep in mind:**
+
+    - Every value (including each entry in a `list` field) must be a verbatim span from `text`. Don't paraphrase or normalize.
+    - A row can carry more than one instance of the same structure if the document contains multiples (e.g. two invoices in one email) — just add more dicts to the `json_structures` list.
+    - `json_structures` can be combined with `entities`, `label` / `labels`, and `relations` in the same row to train a multi-head model in one job.
+
+    Once your dataset is uploaded through the Pioneer dashboard, confirm its status before starting training:
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/datasets/my-extraction-dataset \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Wait until the dataset status is `ready` before proceeding.
+  </Step>
+  <Step title="Start a training job">
+    Submit your training job with `POST /felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`. The training endpoint is shared with NER and classification — Pioneer infers the task heads from the dataset columns.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-extraction-model",
+        "base_model": "fastino/gliner2-base-v1",
+        "datasets": [{"name": "my-extraction-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 5,
+        "learning_rate": 5e-5
+      }'
+    ```
+
+    </CodeGroup>
+
+    The response includes your job ID and initial status:
+
+    ```json
+    { "id": "uuid-of-training-job", "status": "requested" }
+    ```
+
+    Save the `id` — you'll use it to poll status, run evaluations, and call inference.
+  </Step>
+  <Step title="Poll job status and review metrics">
+    Training typically takes a few minutes to a few hours depending on dataset size and epoch count. Poll the job endpoint until status is `"complete"`.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID \
+      -H "X-API-Key: YOUR_API_KEY"
+    ```
+
+    </CodeGroup>
+
+    Job status values: `requested` → `running` → `complete` (or `failed` / `stopped`).
+
+    When the job reaches `"complete"`, the response includes evaluation metrics:
+
+    ```json
+    {
+      "id": "YOUR_JOB_ID",
+      "status": "complete",
+      "metrics": {
+        "f1": 0.91,
+        "precision": 0.93,
+        "recall": 0.89
+      }
+    }
+    ```
+
+    For extraction, the metrics are computed per field across all structure instances. A high F1 score (above 0.85) generally indicates a model ready for production. If a particular field is dragging the score down, the most common fix is adding more training examples that contain that field — especially examples where the value is phrased differently from what you've already labelled.
+  </Step>
+  <Step title="Run an evaluation">
+    Evaluate your trained model against a held-out dataset for a more rigorous read on performance before deploying.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/felix/evaluations \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "base_model": "YOUR_JOB_ID",
+        "dataset_name": "my-eval-dataset"
+      }'
+    ```
+
+    </CodeGroup>
+
+    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1`, `precision`, `recall`, and a per-field breakdown so you can see which fields are accurate and which need more training data.
+  </Step>
+  <Step title="Run inference with your trained model">
+    Use your job ID as the `model_id` to run predictions. Extraction lives under the `structures` key of the `schema` field — at inference time you describe each structure with a list of typed fields, and the model returns the values it extracts from the text.
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -X POST https://api.pioneer.ai/inference \
+      -H "X-API-Key: YOUR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_id": "YOUR_JOB_ID",
+        "text": "Invoice INV-2024-0042 from Acme Corp for $1,250.00 USD. Items: Widget x 10, Premium support, 1 month.",
+        "schema": {
+          "structures": {
+            "invoice": {
+              "fields": [
+                {"name": "vendor", "dtype": "str"},
+                {"name": "invoice_number", "dtype": "str"},
+                {"name": "amount", "dtype": "str", "description": "Total amount due, including currency symbol if present"},
+                {"name": "currency", "dtype": "str", "choices": ["USD", "EUR", "GBP"]},
+                {"name": "line_items", "dtype": "list", "description": "Each line on the invoice"}
+              ]
+            }
+          }
+        },
+        "threshold": 0.5
+      }'
+    ```
+
+    </CodeGroup>
+
+    **Field options**
+
+    Each entry in `fields` accepts these keys:
+
+    | Key | Type | Description |
+    | --- | --- | --- |
+    | `name` | `string` | Field name returned in the response. |
+    | `dtype` | `string` | `"str"` for a single value, `"list"` for multiple values. |
+    | `choices` | `string[]` | Optional closed enum. Predictions outside the list are dropped. |
+    | `description` | `string` | Optional natural-language hint about what to extract. |
+
+    You can request multiple structures in a single call by adding more entries to the `structures` dict, and you can combine extraction with NER (`entities`), classification (`classifications`), or relations (`relations`) in the same request — the response carries each head independently.
+
+    You can also call inference using the OpenAI-compatible endpoint. Set `base_url` to `https://api.pioneer.ai/v1` and pass Pioneer fields via `extra_body`:
+
+    <CodeGroup>
+
+    ```python Python (OpenAI SDK)
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key="YOUR_API_KEY",
+        base_url="https://api.pioneer.ai/v1"
+    )
+
+    response = client.chat.completions.create(
+        model="YOUR_JOB_ID",
+        messages=[{
+            "role": "user",
+            "content": "Invoice INV-2024-0042 from Acme Corp for $1,250.00 USD."
+        }],
+        extra_body={
+            "schema": {
+                "structures": {
+                    "invoice": {
+                        "fields": [
+                            {"name": "vendor", "dtype": "str"},
+                            {"name": "invoice_number", "dtype": "str"},
+                            {"name": "amount", "dtype": "str"},
+                            {"name": "currency", "dtype": "str", "choices": ["USD", "EUR", "GBP"]}
+                        ]
+                    }
+                }
+            }
+        }
+    )
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
+
+<Tip>
+  The `threshold` parameter controls the confidence cutoff per field. The default is `0.5`. Lower it (e.g., `0.3`) to surface partial extractions when documents are noisy; raise it (e.g., `0.7`) when you'd rather have an empty field than a wrong one.
+</Tip>
+
+## Tips for higher-quality extractions
+
+- **Cover the surface forms.** If a field can appear in multiple ways — `$1,250.00`, `USD 1,250`, `one thousand two hundred fifty dollars` — include examples of each. The model extracts spans verbatim, so it can only learn the patterns it has seen.
+- **Use `choices` for closed enums.** Currency codes, status flags, country codes — anything with a fixed vocabulary benefits from `choices`. Predictions outside the list are dropped at inference time.
+- **Write descriptions for ambiguous fields.** `{"name": "date", "dtype": "str", "description": "Date the invoice was issued, not the due date"}` is materially more accurate than a bare `{"name": "date", "dtype": "str"}` when both dates appear in the document.
+- **Treat list fields as their own labelling decisions.** Each entry in a `list` field has to be a verbatim span. Splitting a comma-separated string yourself ("Widget x 10, Premium support, 1 month" → `["Widget x 10", "Premium support, 1 month"]`) is more reliable than asking the model to do the splitting.
+
+## Next steps
+
+- [Fine-tune a NER model](/guides/fine-tune-ner) — extract entities with the same GLiNER base model
+- [Fine-tune a classification model](/guides/fine-tune-classification) — assign labels to text with the same GLiNER base model
+- [Adaptive Inference](/guides/adaptive-inference) — let Pioneer retrain your extractor automatically on live traffic
+- [API Reference](/api-reference/overview) — full endpoint documentation
