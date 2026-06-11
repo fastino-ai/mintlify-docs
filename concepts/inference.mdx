@@ -112,9 +112,38 @@ Both the OpenAI-compatible and Anthropic-compatible endpoints support streaming.
 
 ## Prompt caching
 
-Pioneer automatically applies prompt caching on supported models (GPT and Claude/Opus families), reducing cost and latency on repeated prompt prefixes. Cached tokens are billed at a discounted rate and are visible in **Settings → Credits**.
+Prompt caching cuts cost and latency on repeated prompt prefixes, but how you enable it depends on the model family:
 
-See [Prompt Caching](/api-reference/prompt-caching) for rates, how to read token usage, and tips for maximizing cache hits.
+- **OpenAI / GPT family** — caching is **automatic**. You don't need to do anything, and you should not send `cache_control`.
+- **Claude / Anthropic-style** — caching is **opt-in**. Pioneer forwards your request as-is and never adds cache markers for you, so unless you add a `cache_control` marker on the stable part of your prompt, the prefix is not cached and you pay full input price every turn.
+
+To cache the stable prefix on a Claude model, send the content as a block array and mark it — this works on the OpenAI-compatible endpoint too:
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-7",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "What is prompt caching?" }
+    ]
+  }'
+```
+
+Cached tokens are billed at a discounted rate and are visible in **Settings → Credits**.
+
+See [Prompt Caching](/api-reference/prompt-caching) for where to place markers, minimum sizes, rates, how to read token usage, and tips for maximizing cache hits.
 
 ## Opting out of inference persistence
 
