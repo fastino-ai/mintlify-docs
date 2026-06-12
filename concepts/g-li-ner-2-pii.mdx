@@ -1,0 +1,79 @@
+---
+title: "GLiNER2-PII: PII Detection SLM"
+sidebarTitle: "GLiNER2-PII"
+description: "Run GLiNER2-PII, our open-source multilingual PII detection model, on Pioneer."
+---
+
+GLiNER2-PII is our open-source small language model for detecting and redacting personally identifiable information (PII). At 300 million parameters, it identifies 42 fine-grained PII entity types across 7 languages in a single forward pass.
+
+## Inference GLiNER2-PII in Pioneer
+
+`POST /v1/chat/completions`
+
+Runs GLiNER2-PII over the supplied messages and returns the entities defined in `schema`. Pioneer exposes an OpenAI-compatible endpoint at `https://api.pioneer.ai/v1`, so you call GLiNER2-PII through the standard chat completions route using the model ID `fastino/gliner2-privacy-filter-PII-multi`.
+
+**Request body**
+
+<ParamField body="model" type="string" required>
+  The GLiNER2-PII model ID: `fastino/gliner2-privacy-filter-PII-multi`.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  The text to scan for PII, in standard OpenAI chat format.
+</ParamField>
+
+<ParamField body="schema" type="object" required>
+  The extraction schema. Contains an `entities` array listing the PII types to detect. Pass any subset of the 42 supported types (see the [label table below](#what-gliner2-pii-detects)). The example detects `person`, `email`, and `phone_number`.
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean">
+  Return a confidence score for each detected entity. Set to `true` in the example.
+</ParamField>
+
+<ParamField body="include_spans" type="boolean">
+  Return the character spans for each detected entity. Set to `true` in the example.
+</ParamField>
+
+### Example: PII detection
+
+This request detects three entity types `person`, `email`, and `phone_number` in a single user message.
+
+```bash
+curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_PIONEER_API_KEY>" \
+  -d '{
+  "model": "fastino/gliner2-privacy-filter-PII-multi",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi, my name is John Smith. You can reach me at john.smith@acme.com or +1-555-0192."
+    }
+  ],
+  "schema": {
+    "entities": [
+      "person",
+      "email",
+      "phone_number"
+    ]
+  },
+  "include_confidence": true,
+  "include_spans": true
+}'
+```
+
+## What GLiNER2-PII detects
+
+GLiNER2-PII recognizes 42 fine-grained PII entity types, organized into seven groups.
+
+| Group | Entity types |
+| --- | --- |
+| **Person / names** | `person`, `full_name`, `first_name`, `middle_name`, `last_name`, `date_of_birth` |
+| **Contact / address** | `email`, `phone_number`, `address`, `street_address`, `city`, `state_or_region`, `postal_code`, `country` |
+| **Government / tax IDs** | `government_id`, `national_id_number`, `passport_number`, `drivers_license_number`, `license_number`, `tax_id`, `tax_number` |
+| **Banking / payment** | `bank_account`, `account_number`, `routing_number`, `iban`, `payment_card`, `card_number`, `card_expiry`, `card_cvv` |
+| **Digital identity** | `username`, `ip_address`, `account_id`, `sensitive_account_id` |
+| **Secrets / credentials** | `password`, `secret`, `api_key`, `access_token`, `recovery_code` |
+| **Sensitive dates** | `sensitive_date`, `document_date`, `expiration_date`, `transaction_date` |
+
+Supported languages: English, French, Spanish, German, Italian, Portuguese, and Dutch.
