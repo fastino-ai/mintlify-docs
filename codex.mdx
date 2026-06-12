@@ -5,37 +5,55 @@ title: "Codex"
 Steps to integrate Codex with Pioneer:
 
 1. Download and [set up](https://developers.openai.com/codex/quickstart?setup=cli) the Codex CLI.
-2. Open `~/.zshrc` (or `~/.bashrc` if you use bash) and add this line at the bottom: 
+2. Run Codex
    ```shellscript
-   export PIONEER_API_KEY="<Your Pioneer API key>"
+   codex
    ```
-3. Open a new terminal, or run `source ~/.zshrc` in existing ones to apply the changes. 
-4. Navigate to a fresh terminal and point Codex to Pioneer by pasting the following:
+3. Log in with option 3 and enter your `PIONEER_API_KEY`
+4. Open `~/.codex/config.toml` and add these lines
 
 ```bash
-PIONEER_API_KEY="<Your Pioneer API key>" codex \
-    -c 'model_provider="pioneer"' \
-    -c 'model_providers.pioneer.name="Pioneer"' \
-    -c 'model_providers.pioneer.base_url="https://api.pioneer.ai/v1"' \
-    -c 'model_providers.pioneer.wire_api="responses"' \
-    -c 'model_providers.pioneer.env_key="PIONEER_API_KEY"'
+openai_base_url = "https://api.pioneer.ai/v1"
+model = "pioneer/auto"
 ```
 
-3. Codex will automatically start for you.
-4. To use the `pioneer/auto` router, paste the following: 
+5. Restart Codex
+6. Enter the following prompt into Codex
 
-```bash
-codex -m pioneer/auto \
-  -c 'model_provider="pioneer"' \
-  -c 'model_providers.pioneer.name="Pioneer"' \
-  -c 'model_providers.pioneer.base_url="https://api.pioneer.ai/v1"' \
-  -c 'model_providers.pioneer.wire_api="responses"' \
-  -c 'model_providers.pioneer.env_key="PIONEER_API_KEY"'
+```text
+Set up this machine's Codex CLI to use Pioneer, including a fresh local model catalog.
+  Do exactly this, in order:
+  1. Read my Pioneer API key from the PIONEER_API_KEY environment variable. If it is not set, stop and ask me for it — never
+  guess or hardcode a key, and never print the key value.
+  2. Determine this user's absolute home directory (e.g. run `echo "$HOME"`). Call it HOME_ABS. Everywhere below, use the
+  literal absolute path — do NOT write "~" or "$HOME" into any file, because Codex does not expand them in config.toml.
+  3. Fetch the Pioneer model list:
+     curl -fsS https://api.pioneer.ai/v1/models -H "Authorization: Bearer $PIONEER_API_KEY"
+     If the request fails (non-200), show me the status and body and STOP without changing any files.
+  4. From the JSON response, take ONLY the top-level "models" array (not "data"). Wrap it as {"models": [ ... ]} and write it
+  pretty-printed to:
+     HOME_ABS/.codex/model-catalogs/pioneer.json
+     Create HOME_ABS/.codex/model-catalogs/ if needed. Overwrite the file if it exists.
+  5. Back up HOME_ABS/.codex/config.toml to config.toml.bak (skip if config.toml doesn't exist yet). Then ensure config.toml
+  has exactly these Pioneer settings, written as TOP-LEVEL keys plus the [model_providers.pioneer] table (substitute HOME_ABS
+  into the catalog path):
+     model = "pioneer/auto"
+     model_provider = "pioneer"
+     model_reasoning_effort = "medium"
+     model_catalog_json = "HOME_ABS/.codex/model-catalogs/pioneer.json"
+     [model_providers.pioneer]
+     name = "Pioneer"
+     base_url = "https://api.pioneer.ai/v1"
+     wire_api = "responses"
+     supports_websockets = false
+     Preserve any unrelated existing sections (e.g. [projects.*], [tui.*], other providers). Only set/replace the keys above
+  and the [model_providers.pioneer] table. Make sure model_catalog_json is a top-level key, NOT nested inside
+  [model_providers.pioneer].
+  6. Report how many models were written to the catalog, confirm the config keys are set, and remind me to restart Codex so
+  the /model picker reloads.
 ```
 
-3. If you are unable to see the full Pioneer model catalog:
-   - Double check your `PIONEER_API_KEY` is set.
-   - Open `~/.codex/config.toml` 
-   - Add model\_provider = `"Pioneer"`
-   - model = `"pioneer/auto"`
-4. Switch between models with `/model` command.
+7. Switch between models with `/model` command.
+
+- The `pioneer/auto` router will automatically route your request to the cheapest model! 
+- You should also be able to see our entire Pioneer Model Catalog with `/model` command
