@@ -47,7 +47,7 @@ claude auth logout >/dev/null 2>&1 || true
     If Claude Code previously asked whether to trust this API key and you chose **No**, move the key tail from `customApiKeyResponses.rejected` to `approved` in `~/.claude.json`, or rerun setup from the Pioneer dashboard integration guide (it repairs this automatically).
   </Step>
   <Step title="Install the routed-model hook">
-    When you use `pioneer/auto`, Pioneer returns `pioneer_routed_model` on each response. Claude Code does not display that field by default — install the Stop hook so each turn ends with a line like `Routed pioneer/auto → claude-opus-4-7`:
+    When you use `pioneer/auto`, Pioneer returns `pioneer_routed_model` on each response. Claude Code does not display that field by default — install a **Stop** hook (Claude Code's end-of-turn hook) so each turn ends with a status line like `Stop says: Routed pioneer/auto → claude-opus-4-7`:
 
 ```bash
 mkdir -p ~/.pioneer/hooks
@@ -137,6 +137,18 @@ claude --model pioneer/auto
 - Set `ANTHROPIC_CUSTOM_MODEL_OPTION=pioneer/auto` so Claude Code treats it as a first-class custom model.
 - Launch with `claude --model pioneer/auto`, or select it from `/model`.
 - After each turn, the Stop hook surfaces the backend model Pioneer chose.
+
+### What does `Stop says:` mean?
+
+Claude Code has a [hooks](https://code.claude.com/docs/en/hooks) system. **Stop** is one hook event — it runs after the assistant finishes a turn (not when you exit the session).
+
+The Pioneer setup registers a Stop hook in `~/.claude/settings.json`. That script reads `pioneer_routed_model` from the session transcript and emits a short message. Claude Code labels hook output with the hook name, so the UI shows:
+
+```
+Stop says: Routed pioneer/auto → claude-opus-4-7
+```
+
+This is informational. **Stop** is Claude Code's name for the end-of-turn hook — not a warning and not a command to halt. The arrow shows which backend model the [Code Router](/concepts/router) picked for that turn.
 
 Pioneer also includes `pioneer_routed_model` on Anthropic-compatible responses (streaming `message_start` frames and non-streaming bodies) if you want to build your own tooling around routing metadata.
 
