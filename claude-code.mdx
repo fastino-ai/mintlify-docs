@@ -14,118 +14,119 @@ Pioneer exposes an [Anthropic-compatible API](/api-reference/inference/anthropic
   <Step title="Persist Pioneer env vars">
     Create `~/.pioneer/env` with these contents:
 
-```bash
-unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
-export ANTHROPIC_API_KEY="<YOUR_PIONEER_API_KEY>"
-export ANTHROPIC_BASE_URL="https://api.pioneer.ai"
-export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
-export ANTHROPIC_CUSTOM_MODEL_OPTION="pioneer/auto"
-```
+    ```bash
+    unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
+    export ANTHROPIC_API_KEY="<YOUR_PIONEER_API_KEY>"
+    export ANTHROPIC_BASE_URL="https://api.pioneer.ai"
+    export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+    export ANTHROPIC_CUSTOM_MODEL_OPTION="pioneer/auto"
+    ```
 
     <Accordion title="Shell commands to create and source this file">
-
-```bash
-mkdir -p ~/.pioneer
-cat > ~/.pioneer/env <<'EOF'
-unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
-export ANTHROPIC_API_KEY="<YOUR_PIONEER_API_KEY>"
-export ANTHROPIC_BASE_URL="https://api.pioneer.ai"
-export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
-export ANTHROPIC_CUSTOM_MODEL_OPTION="pioneer/auto"
-EOF
-chmod 600 ~/.pioneer/env
-RC=~/.zshrc
-[ -n "$BASH_VERSION" ] && RC=~/.bashrc
-grep -qsF '. ~/.pioneer/env' "$RC" || printf '\n# Pioneer inference\n. ~/.pioneer/env\n' >> "$RC"
-. ~/.pioneer/env
-```
-
+      ```bash
+      mkdir -p ~/.pioneer
+      cat > ~/.pioneer/env <<'EOF'
+      unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
+      export ANTHROPIC_API_KEY="<YOUR_PIONEER_API_KEY>"
+      export ANTHROPIC_BASE_URL="https://api.pioneer.ai"
+      export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+      export ANTHROPIC_CUSTOM_MODEL_OPTION="pioneer/auto"
+      EOF
+      chmod 600 ~/.pioneer/env
+      RC=~/.zshrc
+      [ -n "$BASH_VERSION" ] && RC=~/.bashrc
+      grep -qsF '. ~/.pioneer/env' "$RC" || printf '\n# Pioneer inference\n. ~/.pioneer/env\n' >> "$RC"
+      . ~/.pioneer/env
+      ```
     </Accordion>
   </Step>
   <Step title="Clear stale Claude.ai auth">
     Sign out of Claude.ai so Claude Code uses your Pioneer key:
 
-```bash
-claude auth logout >/dev/null 2>&1 || true
-```
+    ```bash
+    claude auth logout >/dev/null 2>&1 || true
+    ```
 
     If Claude Code previously asked whether to trust this API key and you chose **No**, move the key tail from `customApiKeyResponses.rejected` to `approved` in `~/.claude.json`, or rerun setup from the Pioneer dashboard integration guide (it repairs this automatically).
   </Step>
   <Step title="Install the routed-model hook">
     When you use `pioneer/auto`, Pioneer returns `pioneer_routed_model` on each response. Claude Code does not display that field by default — install a **Stop** hook (Claude Code's end-of-turn hook) so each turn ends with a status line like `Stop says: Routed pioneer/auto → claude-opus-4-7`:
 
-```bash
-mkdir -p ~/.pioneer/hooks
-cat > ~/.pioneer/hooks/show-pioneer-routed-model.sh <<'PIONEER_ROUTED_MODEL_HOOK'
-#!/usr/bin/env bash
-set -euo pipefail
-INPUT=$(cat)
-if [[ "$(echo "$INPUT" | jq -r '.stop_hook_active // false')" == "true" ]]; then exit 0; fi
-BASE_URL="${ANTHROPIC_BASE_URL:-}"
-case "$BASE_URL" in *pioneer.ai*|*localhost*|*127.0.0.1*) ;; *) exit 0 ;; esac
-TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty')
-[[ -z "$TRANSCRIPT" || ! -f "$TRANSCRIPT" ]] && exit 0
-ROUTED=$(jq -rs '[ .[] | .. | objects | select(has("pioneer_routed_model")) | .pioneer_routed_model ] | map(select(type == "string" and length > 0)) | last // empty' "$TRANSCRIPT" 2>/dev/null || true)
-if [[ -z "$ROUTED" ]]; then
-  ROUTED=$(grep -oE '"pioneer_routed_model"[[:space:]]*:[[:space:]]*"[^"]+"' "$TRANSCRIPT" 2>/dev/null | tail -1 | sed -E 's/.*"([^"]+)"$/\1/' || true)
-fi
-[[ -z "$ROUTED" ]] && exit 0
-SESSION_MODEL="${ANTHROPIC_CUSTOM_MODEL_OPTION:-pioneer/auto}"
-[[ "$ROUTED" == "$SESSION_MODEL" ]] && exit 0
-jq -nc --arg session "$SESSION_MODEL" --arg routed "$ROUTED" '{systemMessage: ("Routed " + $session + " → " + $routed), suppressOutput: true}'
-PIONEER_ROUTED_MODEL_HOOK
-chmod +x ~/.pioneer/hooks/show-pioneer-routed-model.sh
-python3 <<'PY'
-import json
-from pathlib import Path
-
-hook = Path.home() / ".pioneer" / "hooks" / "show-pioneer-routed-model.sh"
-settings_path = Path.home() / ".claude" / "settings.json"
-command = str(hook)
-settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-stop_groups = settings.setdefault("hooks", {}).setdefault("Stop", [])
-
-if not any(entry.get("command") == command for group in stop_groups for entry in group.get("hooks", [])):
-    stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5}]})
-
-settings_path.parent.mkdir(parents=True, exist_ok=True)
-settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-PY
-```
+    <Accordion title="Show hook installer script">
+      ```bash
+      mkdir -p ~/.pioneer/hooks
+      cat > ~/.pioneer/hooks/show-pioneer-routed-model.sh <<'PIONEER_ROUTED_MODEL_HOOK'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      INPUT=$(cat)
+      if [[ "$(echo "$INPUT" | jq -r '.stop_hook_active // false')" == "true" ]]; then exit 0; fi
+      BASE_URL="${ANTHROPIC_BASE_URL:-}"
+      case "$BASE_URL" in *pioneer.ai*|*localhost*|*127.0.0.1*) ;; *) exit 0 ;; esac
+      TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty')
+      [[ -z "$TRANSCRIPT" || ! -f "$TRANSCRIPT" ]] && exit 0
+      ROUTED=$(jq -rs '[ .[] | .. | objects | select(has("pioneer_routed_model")) | .pioneer_routed_model ] | map(select(type == "string" and length > 0)) | last // empty' "$TRANSCRIPT" 2>/dev/null || true)
+      if [[ -z "$ROUTED" ]]; then
+        ROUTED=$(grep -oE '"pioneer_routed_model"[[:space:]]*:[[:space:]]*"[^"]+"' "$TRANSCRIPT" 2>/dev/null | tail -1 | sed -E 's/.*"([^"]+)"$/\1/' || true)
+      fi
+      [[ -z "$ROUTED" ]] && exit 0
+      SESSION_MODEL="${ANTHROPIC_CUSTOM_MODEL_OPTION:-pioneer/auto}"
+      [[ "$ROUTED" == "$SESSION_MODEL" ]] && exit 0
+      jq -nc --arg session "$SESSION_MODEL" --arg routed "$ROUTED" '{systemMessage: ("Routed " + $session + " → " + $routed), suppressOutput: true}'
+      PIONEER_ROUTED_MODEL_HOOK
+      chmod +x ~/.pioneer/hooks/show-pioneer-routed-model.sh
+      python3 <<'PY'
+      import json
+      from pathlib import Path
+      
+      hook = Path.home() / ".pioneer" / "hooks" / "show-pioneer-routed-model.sh"
+      settings_path = Path.home() / ".claude" / "settings.json"
+      command = str(hook)
+      settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+      stop_groups = settings.setdefault("hooks", {}).setdefault("Stop", [])
+      
+      if not any(entry.get("command") == command for group in stop_groups for entry in group.get("hooks", [])):
+          stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5}]})
+      
+      settings_path.parent.mkdir(parents=True, exist_ok=True)
+      settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+      PY
+      ```
+    </Accordion>
   </Step>
   <Step title="Seed the /model picker cache">
     Claude Code reads gateway models from `~/.claude/cache/gateway-models.json`. Seed it once after setup (and again if the catalog changes):
 
-```bash
-python3 <<'PY'
-import json, os, re, time, urllib.request
-base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
-key = os.environ.get("ANTHROPIC_API_KEY", "")
-if not base or not key:
-    raise SystemExit("ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY must be set")
-url = f"{base}/v1/models?limit=1000"
-req = urllib.request.Request(url, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
-data = json.load(urllib.request.urlopen(req, timeout=10))
-models = [
-    {"id": x["id"], **({"display_name": x["display_name"]} if x.get("display_name") else {})}
-    for x in data.get("data", [])
-    if re.match(r"^(claude|anthropic)", x["id"], re.I)
-]
-cache_dir = os.path.expanduser("~/.claude/cache")
-os.makedirs(cache_dir, exist_ok=True)
-path = os.path.join(cache_dir, "gateway-models.json")
-with open(path, "w") as f:
-    json.dump({"baseUrl": base, "fetchedAt": int(time.time() * 1000), "models": models}, f)
-os.chmod(path, 0o600)
-print(f"Seeded {len(models)} models for /model")
-PY
-```
+    <Accordion title="Show seed script (Python)">
+      ```bash
+      python3 <<'PY'
+      import json, os, re, time, urllib.request
+      base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
+      key = os.environ.get("ANTHROPIC_API_KEY", "")
+      if not base or not key:
+          raise SystemExit("ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY must be set")
+      url = f"{base}/v1/models?limit=1000"
+      req = urllib.request.Request(url, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+      data = json.load(urllib.request.urlopen(req, timeout=10))
+      models = [
+          {"id": x["id"], **({"display_name": x["display_name"]} if x.get("display_name") else {})}
+          for x in data.get("data", [])
+          if re.match(r"^(claude|anthropic)", x["id"], re.I)
+      ]
+      cache_dir = os.path.expanduser("~/.claude/cache")
+      os.makedirs(cache_dir, exist_ok=True)
+      path = os.path.join(cache_dir, "gateway-models.json")
+      with open(path, "w") as f:
+          json.dump({"baseUrl": base, "fetchedAt": int(time.time() * 1000), "models": models}, f)
+      os.chmod(path, 0o600)
+      print(f"Seeded {len(models)} models for /model")
+      PY
+      ```
+    </Accordion>
   </Step>
   <Step title="Launch Claude Code">
-
-```bash
-claude --model pioneer/auto
-```
+    ```bash
+    claude --model pioneer/auto
+    ```
 
     Use `/model` inside Claude Code to pick a specific Pioneer model, or keep `pioneer/auto` to use the [Code Router](/concepts/router).
   </Step>
@@ -149,7 +150,7 @@ Claude Code has a [hooks](https://code.claude.com/docs/en/hooks) system. **Stop*
 
 The Pioneer setup registers a Stop hook in `~/.claude/settings.json`. That script reads `pioneer_routed_model` from the session transcript and emits a short message. Claude Code labels hook output with the hook name, so the UI shows:
 
-```
+```text
 Stop says: Routed pioneer/auto → claude-opus-4-7
 ```
 
@@ -172,6 +173,19 @@ Requirements:
 </Warning>
 
 ## Troubleshooting
+
+### Claude Code says "Not logged in · Please run /login"
+
+This usually means Claude Code did not pick up a usable Pioneer API key for the current shell. It is not asking you to sign in to Claude.ai.
+
+1. Run `. ~/.pioneer/env`, then restart Claude Code.
+2. If Claude Code asks whether to use the environment API key, accept it.
+3. Run `/status` and confirm:
+   - **API key** is `ANTHROPIC_API_KEY`
+   - **Anthropic base URL** is your Pioneer endpoint
+   - **Auth token** is `none`
+
+If `/status` points at Pioneer but the error persists, check `~/.claude.json`. Under `customApiKeyResponses`, make sure the suffix for your current Pioneer key is in `approved`, not `rejected`.
 
 ### Claude.ai login conflicts with your Pioneer key
 
@@ -204,3 +218,5 @@ Disable thinking mode when launching:
 ```bash
 claude --thinking disabled --model pioneer/auto
 ```
+
+If you are using a non-production Pioneer endpoint, make sure the API key comes from the same environment.
