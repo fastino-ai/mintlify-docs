@@ -12,7 +12,7 @@ The Pioneer Code Router is a low-latency model router trained on coding tasks. I
 
 The router sits transparently in front of your inference calls. Your code sends requests exactly as before; the router decides which model executes them.
 
-Send `model: "pioneer/auto"` on Anthropic-compatible requests (or run `claude --model pioneer/auto` in [Claude Code](/claude-code)). Pioneer resolves the router choice per turn and returns `pioneer_routed_model` on the response so clients can surface which backend model ran.
+Send `model: "pioneer/auto"` on Anthropic-compatible requests (or run `claude --model pioneer/auto` in [Claude Code](/claude-code)). Routing details — selected model, confidence, rule, and savings — are stored in `inferences.metadata.model_routing` and visible in the Pioneer dashboard.
 
 <Info>
   Every routing decision is logged with the selected model, confidence score, expected cost, and the rule that fired — visible in the Router detail page and the inference detail view.
@@ -68,10 +68,6 @@ The router selects from this pool. Use the **Candidate Models** setting to restr
   - **Higher values** — router accepts a wider quality gap in exchange for lower cost
 </ParamField>
 
-<ParamField path="low_risk_max_regret" default="0.30" type="float">
-  A wider regret bound applied when the router's internal risk classifiers don't fire. The router detects high-stakes patterns (large multi-file refactors, security-sensitive code). When none of those signals fire, the task is considered low-risk and a wider regret budget applies — meaning the router routes to cheaper models more aggressively on simple tasks and stays conservative on complex ones.
-</ParamField>
-
 <ParamField path="fallback" default="claude-sonnet-4-6" type="string">
   The model used when the router declines to route — either because no candidate cleared the threshold, or because the router service was unreachable (transport error or timeout). The fallback always runs the full inference path.
 
@@ -87,6 +83,19 @@ The router selects from this pool. Use the **Candidate Models** setting to restr
   - Removing models that underperform on your specific codebase
   - Cost caps — exclude the most expensive candidates entirely
 </ParamField>
+
+## Routing effort presets
+
+The UI exposes named effort tiers that map to preset `threshold`, `max_regret`, and `allowed_models` combinations.
+
+| Tier | Threshold | Max regret | Candidate pool |
+| --- | --- | --- | --- |
+| `low` | 0.05 | 0.30 | Cheapest 3 only |
+| `medium` | 0.10 | 0.20 | Cheapest 5 |
+| `high` | 0.20 | 0.15 | All 8 (default) |
+| `xhigh` | 0.35 | 0.08 | All 8 |
+| `max` | 0.60 | 0.03 | All 8 |
+| `ultracode` | 0.95 | 0.01 | GPT-5.5 \+ Claude Opus 4.7 only |
 
 ## Routing Playground
 
@@ -105,11 +114,15 @@ Every inference detail view includes a `routing` block when a request went throu
 </ResponseField>
 
 <ResponseField name="rule" type="string">
-  The policy rule that determined the outcome: `threshold`, `max_regret`, `low_risk_max_regret`, or `fallback_declined`.
+  The policy rule that determined the outcome: `threshold`, `max_regret`, or `fallback_declined`.
 </ResponseField>
 
 <ResponseField name="savings_usd" type="float">
   Cost saved versus routing the same request to the most expensive candidate.
+</ResponseField>
+
+<ResponseField name="savings_ratio" type="float">
+  Cost saved as a fraction of the most expensive candidate's cost (0–1).
 </ResponseField>
 
 <ResponseField name="reason_codes" type="string[]">
