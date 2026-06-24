@@ -56,7 +56,377 @@ Pioneer exposes an [Anthropic-compatible API](/api-reference/inference/anthropic
     Pioneer routing saved ~$1.43 this session (vs claude-opus-4-7)
     ```
 
-    The easiest way to install it is the **Integrations** guide in the [Pioneer dashboard](https://pioneer.ai): it copies a single shell block that writes the hook to `~/.pioneer/hooks/show-pioneer-routed-model.sh` and registers it as one `Stop` entry in `~/.claude/settings.json` (so the summary shows exactly once per turn), with your API key already filled in.
+    <Accordion title="Show hook installer script">
+      ```bash
+      mkdir -p ~/.pioneer/hooks
+      cat > ~/.pioneer/hooks/show-pioneer-routed-model.sh <<'PIONEER_ROUTED_MODEL_HOOK'
+      #!/usr/bin/env bash
+      # Claude Code hook: surface how much pioneer/auto's routing has saved this session.
+      #
+      # Instead of the raw backend model, this shows cumulative money saved: for each
+      # pioneer/auto turn the backend stamps a per-1M-token savings rate diff vs a
+      # frontier reference (pioneer_savings) on the response; this hook multiplies it
+      # by the per-turn token usage Claude Code records and sums across the session.
+      # On a turn where the routed model changed (cold prompt cache), cache-write
+      # savings are dropped so the figure stays honest. For a *direct* (non-auto)
+      # model it keeps nudging toward pioneer/auto via X-Pioneer-Router-Tip.
+      # No-op when not on a Pioneer gateway, when no signal is present, or when
+      # cumulative savings are not positive.
+      
+      set -euo pipefail
+      
+      INPUT_FILE=$(mktemp)
+      trap 'rm -f "$INPUT_FILE"' EXIT
+      cat > "$INPUT_FILE"
+      
+      python3 - "$INPUT_FILE" <<'PY' 2>/dev/null || true
+      from __future__ import annotations
+      
+      import json
+      import os
+      import re
+      import sys
+      import time
+      from pathlib import Path
+      
+      
+      ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+      SET_MODEL_RE = re.compile(r"Set model to\s+(.+?)\s+and saved as your default")
+      AUTO_ROUTER_ALIASES = {
+          "pioneer/auto",
+          "anthropic/pioneer-auto",
+          "anthropic/pioneer/auto",
+      }
+      GATEWAY_ALIAS_PREFIX = "anthropic/pioneer/"
+      FRONTIER_REFERENCE_MODEL = "claude-opus-4-7"
+      DEFAULT_ROUTER_TIP = (
+          "Tip: use model=pioneer/auto to let Pioneer route each request automatically; "
+          "named models pin that concrete model."
+      )
+      TOKENS_PER_MILLION = 1_000_000.0
+      USAGE_TOKEN_KEYS = (
+          "input_tokens",
+          "output_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "cache_read_tokens",
+          "cache_write_tokens",
+      )
+      
+      
+      def collect_pioneer_signals(
+          value: object, routed_models: list[str], router_tips: list[str]
+      ) -> None:
+          if isinstance(value, dict):
+              for key, nested in value.items():
+                  key_normalized = str(key).lower().replace("_", "-")
+                  if key_normalized == "pioneer-routed-model":
+                      if isinstance(nested, str) and nested:
+                          routed_models.append(nested)
+                      continue
+                  if key_normalized == "x-pioneer-router-tip":
+                      if isinstance(nested, str) and nested:
+                          router_tips.append(nested)
+                      continue
+                  collect_pioneer_signals(nested, routed_models, router_tips)
+          elif isinstance(value, list):
+              for item in value:
+                  collect_pioneer_signals(item, routed_models, router_tips)
+      
+      
+      def find_first(value: object, target_key: str) -> object:
+          if isinstance(value, dict):
+              for key, nested in value.items():
+                  if str(key).lower().replace("_", "-") == target_key:
+                      return nested
+              for nested in value.values():
+                  found = find_first(nested, target_key)
+                  if found is not None:
+                      return found
+          elif isinstance(value, list):
+              for item in value:
+                  found = find_first(item, target_key)
+                  if found is not None:
+                      return found
+          return None
+      
+      
+      def find_usage(value: object) -> dict | None:
+          if isinstance(value, dict):
+              if any(key in value for key in USAGE_TOKEN_KEYS):
+                  return value
+              for nested in value.values():
+                  found = find_usage(nested)
+                  if found is not None:
+                      return found
+          elif isinstance(value, list):
+              for item in value:
+                  found = find_usage(item)
+                  if found is not None:
+                      return found
+          return None
+      
+      
+      def normalize_model_id(model: str) -> str:
+          model = model.strip()
+          lowered = model.lower()
+          if lowered in AUTO_ROUTER_ALIASES:
+              return "pioneer/auto"
+          if lowered.startswith(GATEWAY_ALIAS_PREFIX):
+              return model[len(GATEWAY_ALIAS_PREFIX) :].strip().lower()
+          return lowered
+      
+      
+      def iter_strings(value: object):
+          if isinstance(value, str):
+              yield value
+          elif isinstance(value, dict):
+              for nested in value.values():
+                  yield from iter_strings(nested)
+          elif isinstance(value, list):
+              for item in value:
+                  yield from iter_strings(item)
+      
+      
+      def is_real_user_turn(payload: object) -> bool:
+          if not isinstance(payload, dict) or payload.get("isMeta") is True:
+              return False
+          if payload.get("type") != "user":
+              return False
+          return "promptSource" in payload
+      
+      
+      def _token_count(usage: dict, *keys: str) -> int:
+          for key in keys:
+              value = usage.get(key)
+              if isinstance(value, bool):
+                  continue
+              if isinstance(value, (int, float)):
+                  return max(int(value), 0)
+          return 0
+      
+      
+      def _turn_savings_usd(usage: dict, diff: dict, *, drop_cache_write: bool) -> float:
+          def rate(name: str) -> float:
+              value = diff.get(name)
+              return float(value) if isinstance(value, (int, float)) else 0.0
+      
+          input_tokens = _token_count(usage, "input_tokens")
+          output_tokens = _token_count(usage, "output_tokens")
+          cache_read = _token_count(usage, "cache_read_input_tokens", "cache_read_tokens")
+          cache_write = _token_count(
+              usage, "cache_creation_input_tokens", "cache_write_tokens"
+          )
+          total = (
+              input_tokens * rate("input")
+              + output_tokens * rate("output")
+              + cache_read * rate("cache_read")
+          )
+          if not drop_cache_write:
+              total += cache_write * rate("cache_write")
+          return total / TOKENS_PER_MILLION
+      
+      
+      def session_savings(records: list[tuple[int, object]]) -> tuple[float, str]:
+          """Sum savings across distinct assistant turns, honoring cold-cache switches."""
+          total = 0.0
+          baseline = ""
+          previous_routed: str | None = None
+          seen_turns: set = set()
+          for line_number, payload in records:
+              if not isinstance(payload, dict) or payload.get("type") != "assistant":
+                  continue
+              routed = find_first(payload, "pioneer-routed-model")
+              savings = find_first(payload, "pioneer-savings")
+              usage = find_usage(payload)
+              if not isinstance(savings, dict) or not isinstance(usage, dict):
+                  if isinstance(routed, str) and routed:
+                      previous_routed = routed
+                  continue
+              turn_id = payload.get("uuid") or line_number
+              if turn_id in seen_turns:
+                  continue
+              seen_turns.add(turn_id)
+              diff = savings.get("rate_diff_per_mtok")
+              if not isinstance(diff, dict):
+                  diff = {}
+              baseline = savings.get("baseline_model") or baseline
+              switched = (
+                  isinstance(routed, str)
+                  and bool(routed)
+                  and previous_routed is not None
+                  and routed != previous_routed
+              )
+              turn_total = _turn_savings_usd(usage, diff, drop_cache_write=switched)
+              if turn_total > 0:
+                  total += turn_total
+              if isinstance(routed, str) and routed:
+                  previous_routed = routed
+          return total, baseline
+      
+      
+      def format_usd(amount: float) -> str:
+          if amount >= 1:
+              return f"${amount:.2f}"
+          if amount >= 0.01:
+              return f"${amount:.3f}"
+          return f"${amount:.4f}"
+      
+      
+      def parse_transcript(
+          transcript_path: str, attempts: int = 1
+      ) -> tuple[str, str, str, float, str]:
+          """Return (routed, tip, selected_model, savings_total, savings_baseline)."""
+          path = Path(transcript_path)
+          for attempt in range(attempts):
+              if path.is_file():
+                  latest_user_line = 0
+                  latest_selected_model = ""
+                  records: list[tuple[int, object]] = []
+                  for line_number, line in enumerate(
+                      path.read_text(encoding="utf-8").splitlines(),
+                      start=1,
+                  ):
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          payload = json.loads(line)
+                      except json.JSONDecodeError:
+                          continue
+                      records.append((line_number, payload))
+                      if is_real_user_turn(payload):
+                          latest_user_line = line_number
+                      for text in iter_strings(payload):
+                          clean = ANSI_RE.sub("", text)
+                          match = SET_MODEL_RE.search(clean)
+                          if match:
+                              latest_selected_model = match.group(1).strip()
+      
+                  latest_routed = ""
+                  latest_tip = ""
+                  for line_number, payload in records:
+                      if line_number <= latest_user_line:
+                          continue
+                      routed_models: list[str] = []
+                      router_tips: list[str] = []
+                      collect_pioneer_signals(payload, routed_models, router_tips)
+                      if router_tips:
+                          latest_tip = router_tips[-1]
+                      if routed_models:
+                          latest_routed = routed_models[-1]
+                      elif router_tips:
+                          latest_routed = ""
+      
+                  savings_total, savings_baseline = session_savings(records)
+                  if (
+                      latest_routed
+                      or latest_tip
+                      or latest_selected_model
+                      or savings_total > 0
+                  ):
+                      return (
+                          latest_routed,
+                          latest_tip,
+                          latest_selected_model,
+                          savings_total,
+                          savings_baseline,
+                      )
+              if attempt + 1 < attempts:
+                  time.sleep(0.05)
+          return "", "", "", 0.0, ""
+      
+      
+      input_path = Path(sys.argv[1])
+      payload = json.loads(input_path.read_text(encoding="utf-8"))
+      event_name = payload.get("hook_event_name") or "Stop"
+      
+      if event_name == "Stop" and payload.get("stop_hook_active") is True:
+          sys.exit(0)
+      if event_name == "MessageDisplay" and int(payload.get("index", -1)) != 0:
+          sys.exit(0)
+      
+      transcript_path = payload.get("transcript_path") or ""
+      if not transcript_path:
+          sys.exit(0)
+      
+      routed, router_tip, selected_model, savings_total, savings_baseline = parse_transcript(
+          transcript_path,
+          attempts=5,
+      )
+      session = selected_model or os.environ.get("ANTHROPIC_CUSTOM_MODEL_OPTION", "pioneer/auto")
+      normalized_session = normalize_model_id(session)
+      message = ""
+      if normalized_session == "pioneer/auto":
+          # Hide the routed model; surface cumulative savings only when positive.
+          if savings_total > 0:
+              reference = savings_baseline or FRONTIER_REFERENCE_MODEL
+              message = (
+                  f"Pioneer routing saved ~{format_usd(savings_total)} this session "
+                  f"(vs {reference})"
+              )
+      elif routed:
+          # Direct (pinned) gateway model: nudge toward pioneer/auto without
+          # framing the pinned model as a routing decision.
+          message = f"Using {routed} — {router_tip or DEFAULT_ROUTER_TIP}"
+      elif router_tip:
+          message = router_tip
+      if not message:
+          sys.exit(0)
+      
+      if event_name == "MessageDisplay":
+          delta = payload.get("delta") or ""
+          print(
+              json.dumps(
+                  {
+                      "hookSpecificOutput": {
+                          "hookEventName": "MessageDisplay",
+                          "displayContent": f"{message}\n\n{delta}",
+                      }
+                  }
+              )
+          )
+          sys.exit(0)
+      
+      print(
+          json.dumps(
+              {"systemMessage": message, "suppressOutput": True}
+          )
+      )
+      PY
+      PIONEER_ROUTED_MODEL_HOOK
+      chmod +x ~/.pioneer/hooks/show-pioneer-routed-model.sh
+      python3 <<'PY'
+      import json
+      from pathlib import Path
+      
+      hook = Path.home() / ".pioneer" / "hooks" / "show-pioneer-routed-model.sh"
+      settings_path = Path.home() / ".claude" / "settings.json"
+      command = str(hook)
+      settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+      hooks = settings.setdefault("hooks", {})
+      
+      # Drop any prior registration of this hook (e.g. an older MessageDisplay one)
+      # so the savings summary is surfaced exactly once per turn, at Stop.
+      for event_name in list(hooks):
+          kept = [
+              group
+              for group in hooks.get(event_name, [])
+              if not any(entry.get("command") == command for entry in group.get("hooks", []))
+          ]
+          if kept:
+              hooks[event_name] = kept
+          else:
+              hooks.pop(event_name, None)
+      
+      hooks.setdefault("Stop", []).append(
+          {"hooks": [{"type": "command", "command": command, "timeout": 5}]}
+      )
+      settings_path.parent.mkdir(parents=True, exist_ok=True)
+      settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+      PY
+      ```
+    </Accordion>
   </Step>
   <Step title="Seed the /model picker cache">
     Claude Code reads gateway models from `~/.claude/cache/gateway-models.json`. Seed it once after setup (and again if the catalog changes):
