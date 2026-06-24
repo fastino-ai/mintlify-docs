@@ -49,49 +49,14 @@ Pioneer exposes an [Anthropic-compatible API](/api-reference/inference/anthropic
 
     If Claude Code previously asked whether to trust this API key and you chose **No**, move the key tail from `customApiKeyResponses.rejected` to `approved` in `~/.claude.json`, or rerun setup from the Pioneer dashboard integration guide (it repairs this automatically).
   </Step>
-  <Step title="Install the routed-model hook">
-    When you use `pioneer/auto`, Pioneer returns `pioneer_routed_model` on each response. Claude Code does not display that field by default — install a **Stop** hook (Claude Code's end-of-turn hook) so each turn ends with a status line like `Stop says: Routed pioneer/auto → claude-opus-4-7`:
+  <Step title="Install the routed-savings hook">
+    When you use `pioneer/auto`, Pioneer stamps `pioneer_savings` on each response — the per-1M-token price difference between the model the router picked and a frontier reference model. Claude Code does not surface that by default, so install a **Stop** hook (Claude Code's end-of-turn hook) that multiplies those rate differences by your actual token usage, sums them across the session, and ends each turn with a line like:
 
-    <Accordion title="Show hook installer script">
-      ```bash
-      mkdir -p ~/.pioneer/hooks
-      cat > ~/.pioneer/hooks/show-pioneer-routed-model.sh <<'PIONEER_ROUTED_MODEL_HOOK'
-      #!/usr/bin/env bash
-      set -euo pipefail
-      INPUT=$(cat)
-      if [[ "$(echo "$INPUT" | jq -r '.stop_hook_active // false')" == "true" ]]; then exit 0; fi
-      BASE_URL="${ANTHROPIC_BASE_URL:-}"
-      case "$BASE_URL" in *pioneer.ai*|*localhost*|*127.0.0.1*) ;; *) exit 0 ;; esac
-      TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty')
-      [[ -z "$TRANSCRIPT" || ! -f "$TRANSCRIPT" ]] && exit 0
-      ROUTED=$(jq -rs '[ .[] | .. | objects | select(has("pioneer_routed_model")) | .pioneer_routed_model ] | map(select(type == "string" and length > 0)) | last // empty' "$TRANSCRIPT" 2>/dev/null || true)
-      if [[ -z "$ROUTED" ]]; then
-        ROUTED=$(grep -oE '"pioneer_routed_model"[[:space:]]*:[[:space:]]*"[^"]+"' "$TRANSCRIPT" 2>/dev/null | tail -1 | sed -E 's/.*"([^"]+)"$/\1/' || true)
-      fi
-      [[ -z "$ROUTED" ]] && exit 0
-      SESSION_MODEL="${ANTHROPIC_CUSTOM_MODEL_OPTION:-pioneer/auto}"
-      [[ "$ROUTED" == "$SESSION_MODEL" ]] && exit 0
-      jq -nc --arg session "$SESSION_MODEL" --arg routed "$ROUTED" '{systemMessage: ("Routed " + $session + " → " + $routed), suppressOutput: true}'
-      PIONEER_ROUTED_MODEL_HOOK
-      chmod +x ~/.pioneer/hooks/show-pioneer-routed-model.sh
-      python3 <<'PY'
-      import json
-      from pathlib import Path
+    ```text
+    Pioneer routing saved ~$1.43 this session (vs claude-opus-4-7)
+    ```
 
-      hook = Path.home() / ".pioneer" / "hooks" / "show-pioneer-routed-model.sh"
-      settings_path = Path.home() / ".claude" / "settings.json"
-      command = str(hook)
-      settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-      stop_groups = settings.setdefault("hooks", {}).setdefault("Stop", [])
-
-      if not any(entry.get("command") == command for group in stop_groups for entry in group.get("hooks", [])):
-          stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5}]})
-
-      settings_path.parent.mkdir(parents=True, exist_ok=True)
-      settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-      PY
-      ```
-    </Accordion>
+    The easiest way to install it is the **Integrations** guide in the [Pioneer dashboard](https://pioneer.ai): it copies a single shell block that writes the hook to `~/.pioneer/hooks/show-pioneer-routed-model.sh` and registers it as one `Stop` entry in `~/.claude/settings.json` (so the summary shows exactly once per turn), with your API key already filled in.
   </Step>
   <Step title="Seed the /model picker cache">
     Claude Code reads gateway models from `~/.claude/cache/gateway-models.json`. Seed it once after setup (and again if the catalog changes):
@@ -142,21 +107,21 @@ Pioneer exposes an [Anthropic-compatible API](/api-reference/inference/anthropic
 
 - Set `ANTHROPIC_CUSTOM_MODEL_OPTION=pioneer/auto` so Claude Code treats it as a first-class custom model.
 - Launch with `claude --model pioneer/auto`, or select it from `/model`.
-- After each turn, the Stop hook surfaces the backend model Pioneer chose.
+- After each turn, the Stop hook shows how much `pioneer/auto` routing has saved you this session.
 
 ### What does `Stop says:` mean?
 
 Claude Code has a [hooks](https://code.claude.com/docs/en/hooks) system. **Stop** is one hook event — it runs after the assistant finishes a turn (not when you exit the session).
 
-The Pioneer setup registers a Stop hook in `~/.claude/settings.json`. That script reads `pioneer_routed_model` from the session transcript and emits a short message. Claude Code labels hook output with the hook name, so the UI shows:
+The Pioneer setup registers a Stop hook in `~/.claude/settings.json`. That script reads the `pioneer_savings` rate differences and the per-turn token usage from the session transcript, sums the savings across the session, and emits a short message. Claude Code labels hook output with the hook name, so the UI shows:
 
 ```text
-Stop says: Routed pioneer/auto → claude-opus-4-7
+Stop says: Pioneer routing saved ~$1.43 this session (vs claude-opus-4-7)
 ```
 
-This is informational. **Stop** is Claude Code's name for the end-of-turn hook — not a warning and not a command to halt. The arrow shows which backend model the [Code Router](/concepts/router) picked for that turn.
+This is informational. **Stop** is Claude Code's name for the end-of-turn hook — not a warning and not a command to halt. The amount is cumulative for the session and only appears once the [Code Router](/concepts/router) has actually saved money versus the frontier reference model.
 
-Pioneer also includes `pioneer_routed_model` on Anthropic-compatible responses (streaming `message_start` frames and non-streaming bodies) if you want to build your own tooling around routing metadata.
+Pioneer also includes `pioneer_routed_model` and `pioneer_savings` on Anthropic-compatible responses (streaming `message_start` frames and non-streaming bodies) if you want to build your own tooling around routing metadata.
 
 ## Full model list in `/model`
 
@@ -220,6 +185,6 @@ This usually means Claude Code did not pick up a usable Pioneer API key for the 
 4. If `/status` points at Pioneer but the error persists, check `~/.claude.json`. Under `customApiKeyResponses`, make sure the suffix for your current Pioneer key is in `approved`, not `rejected`.
 5. If you are using a non-production Pioneer endpoint, make sure the API key comes from the same environment.
 
-### No routed-model line after each turn
+### No savings line after each turn
 
-Install the Stop hook from the setup section. It only runs when `ANTHROPIC_BASE_URL` points at Pioneer.
+Install the Stop hook from the setup section. It only runs when `ANTHROPIC_BASE_URL` points at Pioneer, and the line appears only once `pioneer/auto` routing has actually saved money versus the frontier reference model this session. A brand-new session, or one where the router picked the frontier model itself, will show nothing until there are positive savings to report.
