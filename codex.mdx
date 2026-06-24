@@ -53,7 +53,256 @@ Set up this machine's Codex CLI to use Pioneer, including a fresh local model ca
   the /model picker reloads.
 ```
 
-7. Switch between models with `/model` command.
+7. Install the routing-savings hook. Codex strips Pioneer's custom response fields from its on-disk rollout, so the hook reads your session id and asks Pioneer how much `pioneer/auto` has saved this session. Make sure `PIONEER_API_KEY` is set, then paste this block:
+
+```bash
+: "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
+mkdir -p ~/.pioneer/hooks ~/.pioneer/state
+
+# Credentials the hook reads (sourcing is optional - the hook also reads this file directly)
+cat > ~/.pioneer/codex-env <<EOF
+export PIONEER_API_KEY="$PIONEER_API_KEY"
+export PIONEER_BASE_URL="https://api.pioneer.ai/v1"
+EOF
+chmod 600 ~/.pioneer/codex-env
+
+# The Codex Stop hook
+cat > ~/.pioneer/hooks/show-pioneer-signals.py <<'PIONEER_CODEX_HOOK'
+#!/usr/bin/env python3
+"""Codex Stop hook that surfaces how much pioneer/auto routing saved.
+
+Codex talks to Pioneer over the OpenAI Responses API but strips Pioneer's custom
+response fields (``pioneer_savings`` / ``pioneer_routed_model``) before writing
+its on-disk session rollout, so — unlike the Claude Code hook — this hook cannot
+compute savings from the transcript. Instead Pioneer accumulates each turn's
+savings server-side, keyed by the ``prompt_cache_key`` Codex sends on every
+request (its session id). This hook derives that same session id from the
+rollout and queries the cumulative figure, then prints it once per change.
+
+For a *direct* (non-auto) model it nudges toward pioneer/auto once per session.
+No-op on any error, when the API key is unknown, or when there is nothing to
+show — a Stop hook must never disrupt the session.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+AUTO_ROUTER_MODELS = {"pioneer/auto", "auto"}
+FRONTIER_REFERENCE_MODEL = "claude-opus-4-7"
+DEFAULT_BASE_URL = "https://api.pioneer.ai/v1"
+DEFAULT_ROUTER_TIP = (
+    "Tip: use model=pioneer/auto to let Pioneer route each request automatically; "
+    "named models pin that concrete model."
+)
+ENV_FILE = Path.home() / ".pioneer" / "codex-env"
+STATE_PATH = Path.home() / ".pioneer" / "state" / "codex-pioneer-signals-hook.json"
+REQUEST_TIMEOUT_S = 3.0
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _read_env_file() -> dict[str, str]:
+    """Parse ``~/.pioneer/codex-env`` into a dict (so sourcing is optional).
+
+    Accepts ``KEY=value``, ``export KEY=value``, and quoted values. Missing or
+    unreadable files yield an empty dict.
+    """
+    try:
+        text = ENV_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :]
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _config(name: str, env_values: dict[str, str], default: str = "") -> str:
+    """Resolve a config value from the process env, then the env file."""
+    return os.environ.get(name) or env_values.get(name) or default
+
+
+def _session_id(payload: dict[str, object], transcript_path: str | None) -> str:
+    """Derive the Codex session id (== request ``prompt_cache_key``).
+
+    Prefers the hook payload's ``session_id``; falls back to the UUID embedded
+    in the rollout filename, which Codex uses verbatim as the prompt cache key.
+    """
+    session_id = payload.get("session_id")
+    if isinstance(session_id, str) and session_id:
+        return session_id
+    if transcript_path:
+        match = _UUID_RE.search(Path(transcript_path).name)
+        if match:
+            return match.group(0)
+    return ""
+
+
+def _fetch_savings(base_url: str, api_key: str, session_id: str) -> dict[str, object]:
+    """GET cumulative session savings from Pioneer (empty dict on any failure)."""
+    if not (base_url and api_key and session_id):
+        return {}
+    url = f"{base_url.rstrip('/')}/codex/session-savings/{session_id}"
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("Authorization", f"Bearer {api_key}")
+    request.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
+            body = response.read().decode("utf-8")
+    except (urllib.error.URLError, OSError, ValueError):
+        return {}
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _format_usd(amount: float) -> str:
+    """Format a USD savings amount with magnitude-appropriate precision."""
+    if amount >= 1:
+        return f"${amount:.2f}"
+    if amount >= 0.01:
+        return f"${amount:.3f}"
+    return f"${amount:.4f}"
+
+
+def _is_auto_router_model(model: str) -> bool:
+    """Return True when a Codex model value is the Pioneer auto-router."""
+    normalized = model.strip().lower()
+    return normalized in AUTO_ROUTER_MODELS or normalized.endswith("/pioneer/auto")
+
+
+def _load_state() -> dict[str, str]:
+    """Load the last surfaced message per session."""
+    try:
+        raw = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if isinstance(v, str)}
+
+
+def _write_state(state: dict[str, str]) -> None:
+    """Persist hook state so an unchanged message is not repeated."""
+    try:
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _savings_message(savings: dict[str, object]) -> str:
+    """Build the savings line from the endpoint response, or '' when none."""
+    if not savings.get("found"):
+        return ""
+    amount = savings.get("savings_usd")
+    if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
+        return ""
+    baseline = savings.get("baseline_model")
+    reference = baseline if isinstance(baseline, str) and baseline else (
+        FRONTIER_REFERENCE_MODEL
+    )
+    return (
+        f"Pioneer auto-routing savings this session: ~{_format_usd(float(amount))} "
+        f"(vs {reference})"
+    )
+
+
+def _message_for(payload: dict[str, object], savings: dict[str, object]) -> str:
+    """Pick the systemMessage: savings for the router, a tip for direct models."""
+    model = str(payload.get("model") or "pioneer/auto")
+    if _is_auto_router_model(model):
+        return _savings_message(savings)
+    return DEFAULT_ROUTER_TIP
+
+
+def main() -> int:
+    """Read Codex hook input from stdin and emit a systemMessage when needed."""
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError:
+        return 0
+    if not isinstance(payload, dict) or payload.get("stop_hook_active") is True:
+        return 0
+
+    transcript_path = payload.get("transcript_path")
+    transcript_path = transcript_path if isinstance(transcript_path, str) else None
+    session_id = _session_id(payload, transcript_path)
+
+    env_values = _read_env_file()
+    savings = _fetch_savings(
+        base_url=_config("PIONEER_BASE_URL", env_values, DEFAULT_BASE_URL),
+        api_key=_config("PIONEER_API_KEY", env_values),
+        session_id=session_id,
+    )
+
+    message = _message_for(payload, savings)
+    if not message:
+        return 0
+
+    state = _load_state()
+    state_key = session_id or transcript_path or "default"
+    if state.get(state_key) == message:
+        return 0
+    state[state_key] = message
+    _write_state(state)
+    print(json.dumps({"systemMessage": message}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PIONEER_CODEX_HOOK
+chmod +x ~/.pioneer/hooks/show-pioneer-signals.py
+
+# Register it as a Codex Stop hook
+python3 <<'PY'
+import json
+from pathlib import Path
+
+hook = Path.home() / ".pioneer" / "hooks" / "show-pioneer-signals.py"
+hooks_path = Path.home() / ".codex" / "hooks.json"
+command = f"python3 {hook}"
+config = json.loads(hooks_path.read_text()) if hooks_path.exists() else {}
+stop_groups = config.setdefault("hooks", {}).setdefault("Stop", [])
+if not any(h.get("command") == command for g in stop_groups for h in g.get("hooks", [])):
+    stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5, "statusMessage": "Checking Pioneer routing signals"}]})
+hooks_path.parent.mkdir(parents=True, exist_ok=True)
+hooks_path.write_text(json.dumps(config, indent=2) + "\n")
+print("Installed Pioneer Codex Stop hook")
+PY
+```
+
+Restart Codex and run `/hooks` to trust the hook. Each turn that routes to a model cheaper than the frontier reference then ends with:
+
+```text
+Pioneer auto-routing savings this session: ~$1.43 (vs claude-opus-4-7)
+```
+
+8. Switch between models with `/model` command.
 
 - The `pioneer/auto` router will automatically route your request to the cheapest model! 
 - You should also be able to see our entire Pioneer Model Catalog with `/model` command
+
+<Tip>
+  The Pioneer dashboard **Integrations** guide copies this same block with your API key already filled in.
+</Tip>
