@@ -1,0 +1,1085 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Pioneer Inference API",
+    "version": "1.0.0",
+    "description": "Public inference API for Pioneer AI. Covers the Pioneer-native endpoint, OpenAI-compatible endpoints (/v1/chat/completions, /v1/completions, /v1/models), the Anthropic-compatible endpoint (/v1/messages), and inference history. Authenticate with an X-API-Key header (keys begin with pio_sk_).",
+    "contact": {
+      "name": "Pioneer AI",
+      "url": "https://docs.pioneer.ai",
+      "email": "support@pioneer.ai"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.pioneer.ai",
+      "description": "Production"
+    }
+  ],
+  "security": [
+    { "ApiKeyAuth": [] },
+    { "BearerAuth": [] }
+  ],
+  "tags": [
+    {
+      "name": "inference",
+      "description": "Pioneer-native inference endpoint (encoder NER/classification/extraction and decoder text generation)."
+    },
+    {
+      "name": "openai-compat",
+      "description": "OpenAI-compatible endpoints. Use with the OpenAI SDK by setting base_url=https://api.pioneer.ai/v1."
+    },
+    {
+      "name": "anthropic-compat",
+      "description": "Anthropic-compatible endpoints. Use with the Anthropic SDK by setting base_url=https://api.pioneer.ai."
+    },
+    {
+      "name": "inference-history",
+      "description": "List and retrieve past inference records."
+    }
+  ],
+  "paths": {
+    "/inference": {
+      "post": {
+        "operationId": "run_inference",
+        "summary": "Run inference (Pioneer native)",
+        "description": "Unified inference endpoint for encoder tasks (NER, text classification, JSON extraction) and decoder tasks (text generation). Discriminated by the presence of a `messages` field: include `messages` for decoder generation; use `text` + `schema` for encoder tasks.",
+        "tags": ["inference"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/EncoderInferenceRequest" },
+                  { "$ref": "#/components/schemas/GenerateInferenceRequest" }
+                ]
+              },
+              "examples": {
+                "encoder_ner": {
+                  "summary": "NER — extract entities",
+                  "value": {
+                    "model_id": "YOUR_MODEL_ID",
+                    "text": "Apple launched the iPhone 16 in San Francisco.",
+                    "schema": {
+                      "entities": [
+                        { "name": "organization" },
+                        { "name": "product" },
+                        { "name": "location" }
+                      ]
+                    }
+                  }
+                },
+                "decoder_generate": {
+                  "summary": "Decoder — text generation",
+                  "value": {
+                    "model_id": "YOUR_MODEL_ID",
+                    "task": "generate",
+                    "messages": [
+                      { "role": "user", "content": "Summarize this document in one sentence." }
+                    ],
+                    "max_tokens": 256,
+                    "temperature": 0.7
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inference result. `type` is `\"encoder\"` for encoder tasks and `\"decoder\"` for generation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/EncoderInferenceResponse" },
+                    { "$ref": "#/components/schemas/GenerateInferenceResponse" }
+                  ],
+                  "discriminator": {
+                    "propertyName": "type",
+                    "mapping": {
+                      "encoder": "#/components/schemas/EncoderInferenceResponse",
+                      "decoder": "#/components/schemas/GenerateInferenceResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "402": { "$ref": "#/components/responses/PaymentRequired" },
+          "404": { "$ref": "#/components/responses/ModelNotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "operationId": "create_chat_completion",
+        "summary": "Chat completions (OpenAI-compatible)",
+        "description": "OpenAI-compatible chat completions endpoint. Works with the OpenAI Python SDK by setting `base_url=\"https://api.pioneer.ai/v1\"`. Set `stream=true` for SSE streaming. The response includes a `x_pioneer` extension field with `inference_id` and `routed_model`.",
+        "tags": ["openai-compat"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatCompletionRequest" },
+              "examples": {
+                "simple": {
+                  "summary": "Simple chat completion",
+                  "value": {
+                    "model": "Qwen/Qwen3-8B",
+                    "messages": [{ "role": "user", "content": "Hello!" }]
+                  }
+                },
+                "streaming": {
+                  "summary": "Streaming chat completion",
+                  "value": {
+                    "model": "Qwen/Qwen3-8B",
+                    "messages": [{ "role": "user", "content": "Tell me a short story." }],
+                    "stream": true,
+                    "max_tokens": 512
+                  }
+                },
+                "pioneer_auto": {
+                  "summary": "Use pioneer/auto router",
+                  "value": {
+                    "model": "pioneer/auto",
+                    "messages": [{ "role": "user", "content": "Classify this text." }]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat completion result. Returns `application/json` when `stream=false` (default) and `text/event-stream` SSE when `stream=true`. Each SSE event is `data: {...}\\n\\n` terminated by `data: [DONE]\\n\\n`.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatCompletionResponse" }
+              },
+              "text/event-stream": {
+                "schema": { "$ref": "#/components/schemas/ChatCompletionStreamChunk" },
+                "example": "data: {\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"Qwen/Qwen3-8B\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n"
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "402": { "$ref": "#/components/responses/PaymentRequired" },
+          "404": { "$ref": "#/components/responses/ModelNotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/completions": {
+      "post": {
+        "operationId": "create_text_completion",
+        "summary": "Text completions (OpenAI-compatible)",
+        "description": "OpenAI-compatible legacy text completions endpoint. Accepts a `prompt` string and returns a completion. Set `stream=true` for SSE streaming.",
+        "tags": ["openai-compat"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TextCompletionRequest" },
+              "examples": {
+                "simple": {
+                  "summary": "Simple text completion",
+                  "value": {
+                    "model": "Qwen/Qwen3-8B-Base",
+                    "prompt": "The capital of France is",
+                    "max_tokens": 32
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Text completion result. `application/json` when `stream=false`, `text/event-stream` SSE when `stream=true`.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TextCompletionResponse" }
+              },
+              "text/event-stream": {
+                "schema": { "$ref": "#/components/schemas/TextCompletionStreamChunk" },
+                "example": "data: {\"id\":\"cmpl-abc\",\"object\":\"text_completion\",\"created\":0,\"model\":\"Qwen/Qwen3-8B-Base\",\"choices\":[{\"index\":0,\"text\":\" Paris.\",\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "402": { "$ref": "#/components/responses/PaymentRequired" },
+          "404": { "$ref": "#/components/responses/ModelNotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "list_models",
+        "summary": "List available models",
+        "description": "Returns the Pioneer model catalog including base encoder models (GLiNER), base decoder LLMs, and any fine-tuned models you have deployed. Compatible with both Anthropic and OpenAI model-list consumers.",
+        "tags": ["anthropic-compat"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 },
+            "description": "Maximum number of models to return. Omit for the full catalog."
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Cursor for paginating backward (Anthropic-style)."
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Cursor for paginating forward (Anthropic-style)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Combined Anthropic-compatible and OpenAI-compatible model catalog.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelListResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "operationId": "create_message",
+        "summary": "Messages (Anthropic-compatible)",
+        "description": "Anthropic Messages API compatible endpoint. Works with the Anthropic Python SDK by setting `base_url=\"https://api.pioneer.ai\"`. Set `stream=true` for SSE streaming in Anthropic event format. Extended-thinking is supported via the `thinking` field.",
+        "tags": ["anthropic-compat"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AnthropicMessagesRequest" },
+              "examples": {
+                "simple": {
+                  "summary": "Simple message",
+                  "value": {
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 1024,
+                    "messages": [{ "role": "user", "content": "Hello, Claude!" }]
+                  }
+                },
+                "with_system": {
+                  "summary": "Message with system prompt",
+                  "value": {
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 512,
+                    "system": "You are a helpful assistant.",
+                    "messages": [{ "role": "user", "content": "What is the weather like?" }]
+                  }
+                },
+                "streaming": {
+                  "summary": "Streaming message",
+                  "value": {
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 1024,
+                    "stream": true,
+                    "messages": [{ "role": "user", "content": "Write a haiku about inference routing." }]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message response. `application/json` when `stream=false`, `text/event-stream` SSE (Anthropic event format) when `stream=true`.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AnthropicMessagesResponse" }
+              },
+              "text/event-stream": {
+                "schema": { "type": "string" },
+                "example": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_abc\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-6\",\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "402": { "$ref": "#/components/responses/PaymentRequired" },
+          "404": { "$ref": "#/components/responses/ModelNotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/inferences": {
+      "get": {
+        "operationId": "list_inferences",
+        "summary": "List inference history",
+        "description": "Paginated list of past inference records for the authenticated user's team. Supports filtering by model, project, task type, latency range, and LLM-as-Judge score.",
+        "tags": ["inference-history"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 },
+            "description": "Maximum records to return."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 },
+            "description": "Records to skip for pagination."
+          },
+          {
+            "name": "model_id",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter by model ID."
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter by project ID."
+          },
+          {
+            "name": "training_job_id",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter by training job UUID."
+          },
+          {
+            "name": "task",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter by task type (extract_entities, classify_text, extract_json, generate)."
+          },
+          {
+            "name": "latency_min",
+            "in": "query",
+            "schema": { "type": "number", "minimum": 0 },
+            "description": "Minimum latency in ms."
+          },
+          {
+            "name": "latency_max",
+            "in": "query",
+            "schema": { "type": "number", "minimum": 0 },
+            "description": "Maximum latency in ms."
+          },
+          {
+            "name": "llmaj_score_min",
+            "in": "query",
+            "schema": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "description": "Minimum LLM-as-Judge score [0.0, 1.0]."
+          },
+          {
+            "name": "llmaj_score_max",
+            "in": "query",
+            "schema": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "description": "Maximum LLM-as-Judge score [0.0, 1.0]."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" },
+            "description": "Return records created at or after this ISO 8601 timestamp."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" },
+            "description": "Return records created at or before this ISO 8601 timestamp."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of inference records.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InferenceListResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/inferences/{inference_id}": {
+      "get": {
+        "operationId": "get_inference",
+        "summary": "Get an inference record",
+        "description": "Retrieve a single inference record by ID. Includes LLM-as-Judge verdict and score when judging has completed (fields are null until then).",
+        "tags": ["inference-history"],
+        "parameters": [
+          {
+            "name": "inference_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The inference record UUID returned in `inference_id` on any inference response."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The inference record.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InferenceRecord" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/inferences/{inference_id}/feedback": {
+      "post": {
+        "operationId": "submit_inference_feedback",
+        "summary": "Submit inference feedback",
+        "description": "Submit a human correction on a past inference. Corrections are used as labeled examples for Adaptive Inference — Pioneer's continuous improvement loop that retrains your model on corrected live-traffic examples.",
+        "tags": ["inference-history"],
+        "parameters": [
+          {
+            "name": "inference_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The inference record UUID to annotate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InferenceFeedbackRequest" },
+              "examples": {
+                "correct": {
+                  "summary": "Mark as correct",
+                  "value": { "verdict": "correct" }
+                },
+                "incorrect": {
+                  "summary": "Mark as incorrect with correction",
+                  "value": {
+                    "verdict": "incorrect",
+                    "corrected_output": {
+                      "entities": [
+                        { "text": "Apple", "label": "organization", "start": 0, "end": 5 },
+                        { "text": "iPhone", "label": "product", "start": 18, "end": 24 }
+                      ]
+                    },
+                    "notes": "Missed the product entity"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Feedback recorded.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InferenceFeedbackResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Pioneer API key. Generate one at https://agent.pioneer.ai/settings/api-keys. Keys begin with `pio_sk_`."
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Supabase access token or Pioneer API key as a Bearer token."
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid API key.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "PaymentRequired": {
+        "description": "Insufficient credits or no active billing plan.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "ModelNotFound": {
+        "description": "Model ID not found or not yet deployed.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Request body failed schema validation.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded. Retry after the duration in the `Retry-After` response header.",
+        "headers": {
+          "Retry-After": {
+            "schema": { "type": "integer" },
+            "description": "Seconds to wait before retrying."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "oneOf": [{ "type": "string" }, { "type": "object" }],
+            "description": "Human-readable error message or structured detail object."
+          }
+        }
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "loc": { "type": "array", "items": { "oneOf": [{ "type": "string" }, { "type": "integer" }] } },
+                "msg": { "type": "string" },
+                "type": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "ReasoningConfig": {
+        "type": "object",
+        "description": "Opt-in reasoning / extended-thinking controls. Normalized across providers — Anthropic (`thinking`), OpenAI/Fireworks (`reasoning_effort`), OpenRouter (`reasoning`). Pioneer does not enable reasoning by default.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Set false to explicitly disable thinking on models that have it on by default."
+          },
+          "effort": {
+            "type": "string",
+            "enum": ["minimal", "low", "medium", "high", "xhigh", "none"],
+            "description": "OpenAI/Grok-style effort tier. Mutually exclusive with `max_tokens`."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Anthropic-style reasoning budget in tokens. Mutually exclusive with `effort`."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["manual", "adaptive"],
+            "description": "Anthropic extended-thinking dispatch mode. Leave unset to let Pioneer pick the per-model default."
+          },
+          "display": {
+            "type": "string",
+            "enum": ["summarized", "omitted"],
+            "description": "Whether thinking text streams back (`summarized`) or is omitted to save latency (`omitted`)."
+          },
+          "exclude": {
+            "type": "boolean",
+            "default": false,
+            "description": "Model reasons internally but reasoning tokens are not returned to the caller."
+          }
+        }
+      },
+      "EncoderInferenceRequest": {
+        "type": "object",
+        "required": ["model_id", "text", "schema"],
+        "description": "Request for encoder (GLiNER) tasks. Discriminated from GenerateInferenceRequest by the absence of a `messages` field.",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Training job UUID, project name, or base encoder model ID (e.g. `fastino/gliner2-base-v1`)."
+          },
+          "text": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ],
+            "description": "Input text or list of texts for batch processing."
+          },
+          "schema": {
+            "oneOf": [
+              { "type": "object", "description": "Unified extraction schema dict with keys: entities, classifications, structures, relations." },
+              { "type": "array", "items": { "type": "string" }, "description": "Deprecated flat entity label list. Use the dict form instead." }
+            ],
+            "description": "Extraction schema. Use the unified dict form: `{\"entities\": [{\"name\": \"organization\"}]}`."
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 0.5,
+            "description": "Confidence threshold for predictions."
+          },
+          "include_confidence": { "type": "boolean", "default": true },
+          "include_spans": { "type": "boolean", "default": true, "description": "Include character-level start/end positions." },
+          "store": { "type": "boolean", "default": true, "description": "Persist to inference history. Set false to opt out." },
+          "project_id": { "type": "string", "description": "Project ID for attribution and auto-improvement." }
+        }
+      },
+      "GenerateInferenceRequest": {
+        "type": "object",
+        "required": ["model_id", "task", "messages"],
+        "description": "Request for decoder text generation. Discriminated from EncoderInferenceRequest by the presence of a `messages` field.",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Training job UUID, project name, or base decoder model ID (e.g. `Qwen/Qwen3-8B`)."
+          },
+          "task": { "type": "string", "enum": ["generate"] },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["role", "content"],
+              "properties": {
+                "role": { "type": "string", "enum": ["system", "user", "assistant"] },
+                "content": { "type": "string" }
+              }
+            },
+            "description": "Chat messages. The last message must have role `\"user\"`."
+          },
+          "max_tokens": { "type": "integer", "minimum": 1, "maximum": 131072 },
+          "temperature": { "type": "number", "minimum": 0.0, "maximum": 2.0 },
+          "top_p": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "reasoning": { "$ref": "#/components/schemas/ReasoningConfig" },
+          "include_reasoning_trace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return extracted `<think>` trace text separately in the response."
+          },
+          "store": { "type": "boolean", "default": true, "description": "Persist to inference history. Set false to opt out." },
+          "project_id": { "type": "string" }
+        }
+      },
+      "EncoderInferenceResponse": {
+        "type": "object",
+        "required": ["type", "inference_id", "result", "model_id", "latency_ms", "token_usage", "model_used"],
+        "properties": {
+          "type": { "type": "string", "enum": ["encoder"] },
+          "inference_id": { "type": "string", "description": "Unique inference ID. Use with GET /inferences/{inference_id} or POST /inferences/{inference_id}/feedback." },
+          "result": {
+            "oneOf": [{ "type": "object" }, { "type": "array" }],
+            "description": "Extraction result. Shape depends on the schema and task."
+          },
+          "model_id": { "type": "string" },
+          "latency_ms": { "type": "number", "description": "Server-side inference latency in milliseconds." },
+          "token_usage": { "type": "integer", "description": "Input tokens processed." },
+          "model_used": { "type": "string", "description": "Resolved model identifier." }
+        }
+      },
+      "GenerateInferenceResponse": {
+        "type": "object",
+        "required": ["type", "inference_id", "completion", "model_id", "latency_ms"],
+        "properties": {
+          "type": { "type": "string", "enum": ["decoder"] },
+          "inference_id": { "type": "string", "description": "Unique inference ID." },
+          "completion": { "type": "string", "description": "Generated text." },
+          "reasoning_trace": { "type": "string", "description": "Extracted `<think>` reasoning trace when `include_reasoning_trace=true`." },
+          "model_id": { "type": "string" },
+          "latency_ms": { "type": "number" }
+        }
+      },
+      "PioneerExtension": {
+        "type": "object",
+        "description": "Pioneer-specific extension on OpenAI-compatible responses.",
+        "properties": {
+          "inference_id": {
+            "type": "string",
+            "description": "Pioneer inference record ID. Use with GET /inferences/{inference_id} to poll for async LLM-judge results. Null when persistence was disabled."
+          },
+          "routed_model": {
+            "type": "string",
+            "description": "Actual backend model selected by a router project (e.g. `pioneer/auto`). Null when not routed."
+          }
+        }
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "required": ["model", "messages"],
+        "properties": {
+          "model": { "type": "string", "description": "Model ID, project name, or `pioneer/auto` for automatic routing." },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "type": "string" },
+                "content": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object" } }] },
+                "tool_calls": { "type": "array" },
+                "tool_call_id": { "type": "string" }
+              }
+            }
+          },
+          "temperature": { "type": "number" },
+          "max_tokens": { "type": "integer", "minimum": 1, "maximum": 131072 },
+          "stream": { "type": "boolean", "default": false },
+          "stop": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+          "response_format": { "type": "object" },
+          "tools": { "type": "array" },
+          "tool_choice": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+          "top_p": { "type": "number" },
+          "store": { "type": "boolean", "default": true, "description": "Persist to inference history. Set false to opt out." },
+          "metadata": { "type": "object", "description": "Pioneer reads `metadata.project_id` for attribution." },
+          "reasoning": {
+            "type": "object",
+            "description": "Opt-in reasoning controls (OpenRouter-normalized). Keys: enabled, effort (minimal/low/medium/high/xhigh/none), max_tokens, exclude, mode (manual/adaptive, Anthropic-only), display (summarized/omitted, Anthropic-only). effort and max_tokens are mutually exclusive."
+          },
+          "schema": {
+            "oneOf": [{ "type": "object" }, { "type": "array", "items": { "type": "string" } }],
+            "description": "Pioneer encoder extension: extraction schema dict."
+          },
+          "seed": { "type": "integer" },
+          "n": { "type": "integer" },
+          "presence_penalty": { "type": "number" },
+          "frequency_penalty": { "type": "number" },
+          "user": { "type": "string" }
+        }
+      },
+      "ChatCompletionResponse": {
+        "type": "object",
+        "required": ["id", "object", "created", "model", "choices", "usage"],
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string", "enum": ["chat.completion"] },
+          "created": { "type": "integer" },
+          "model": { "type": "string" },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer" },
+                "message": { "type": "object" },
+                "finish_reason": { "type": "string" }
+              }
+            }
+          },
+          "usage": { "$ref": "#/components/schemas/UsageStats" },
+          "x_pioneer": { "$ref": "#/components/schemas/PioneerExtension" }
+        }
+      },
+      "ChatCompletionStreamChunk": {
+        "type": "object",
+        "description": "One SSE event payload when `stream=true`. Terminal chunk carries `finish_reason` and optionally `usage` and `x_pioneer`. Stream ends with `data: [DONE]`.",
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string", "enum": ["chat.completion.chunk"] },
+          "created": { "type": "integer" },
+          "model": { "type": "string" },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer" },
+                "delta": {
+                  "type": "object",
+                  "properties": {
+                    "content": { "type": "string" },
+                    "reasoning_content": { "type": "string", "description": "Chain-of-thought tokens (de facto vLLM/DeepSeek/Fireworks/OpenRouter extension)." },
+                    "tool_calls": { "type": "array" }
+                  }
+                },
+                "finish_reason": { "type": "string" }
+              }
+            }
+          },
+          "usage": { "$ref": "#/components/schemas/UsageStats" },
+          "x_pioneer": { "$ref": "#/components/schemas/PioneerExtension" }
+        }
+      },
+      "TextCompletionRequest": {
+        "type": "object",
+        "required": ["model", "prompt"],
+        "properties": {
+          "model": { "type": "string" },
+          "prompt": { "type": "string" },
+          "temperature": { "type": "number" },
+          "max_tokens": { "type": "integer", "minimum": 1, "maximum": 131072 },
+          "stream": { "type": "boolean" },
+          "stop": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+          "echo": { "type": "boolean", "default": false },
+          "logprobs": { "type": "integer", "minimum": 0, "maximum": 20 },
+          "store": { "type": "boolean", "default": true },
+          "reasoning": { "type": "object" }
+        }
+      },
+      "TextCompletionResponse": {
+        "type": "object",
+        "required": ["id", "object", "created", "model", "choices", "usage"],
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string", "enum": ["text_completion"] },
+          "created": { "type": "integer" },
+          "model": { "type": "string" },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer" },
+                "text": { "type": "string" },
+                "logprobs": { "type": "object" },
+                "finish_reason": { "type": "string" },
+                "reasoning_content": { "type": "string" }
+              }
+            }
+          },
+          "usage": { "$ref": "#/components/schemas/UsageStats" },
+          "x_pioneer": { "$ref": "#/components/schemas/PioneerExtension" }
+        }
+      },
+      "TextCompletionStreamChunk": {
+        "type": "object",
+        "description": "One SSE event payload for /v1/completions when `stream=true`.",
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string", "enum": ["text_completion"] },
+          "created": { "type": "integer" },
+          "model": { "type": "string" },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer" },
+                "text": { "type": "string" },
+                "finish_reason": { "type": "string" },
+                "reasoning_content": { "type": "string" }
+              }
+            }
+          },
+          "usage": { "$ref": "#/components/schemas/UsageStats" },
+          "x_pioneer": { "$ref": "#/components/schemas/PioneerExtension" }
+        }
+      },
+      "UsageStats": {
+        "type": "object",
+        "properties": {
+          "prompt_tokens": { "type": "integer" },
+          "completion_tokens": { "type": "integer" },
+          "total_tokens": { "type": "integer" },
+          "prompt_tokens_details": {
+            "type": "object",
+            "properties": {
+              "cached_tokens": { "type": "integer", "description": "Input tokens served from cache (cache read)." },
+              "cache_write_tokens": { "type": "integer", "description": "Input tokens written to cache (cache creation)." }
+            }
+          }
+        }
+      },
+      "AnthropicMessagesRequest": {
+        "type": "object",
+        "required": ["model", "messages", "max_tokens"],
+        "properties": {
+          "model": { "type": "string", "description": "Model ID (e.g. `claude-sonnet-4-6`, `claude-opus-4-8`)." },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["role", "content"],
+              "properties": {
+                "role": { "type": "string", "enum": ["user", "assistant"] },
+                "content": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object" } }] }
+              }
+            }
+          },
+          "max_tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
+          "system": {
+            "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object" } }],
+            "description": "System prompt. Accepts a plain string or list of Anthropic system content blocks (with cache_control support)."
+          },
+          "temperature": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "top_p": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "top_k": { "type": "integer", "minimum": 1 },
+          "stream": { "type": "boolean", "default": false },
+          "stop_sequences": { "type": "array", "items": { "type": "string" } },
+          "tools": { "type": "array", "items": { "type": "object" } },
+          "tool_choice": { "type": "object" },
+          "thinking": {
+            "type": "object",
+            "description": "Anthropic-native extended-thinking config. Examples: `{\"type\": \"enabled\", \"budget_tokens\": 8000}` for manual mode; `{\"type\": \"adaptive\", \"effort\": \"high\"}` for adaptive mode (required on Opus 4.7+); `{\"type\": \"disabled\"}` to turn off. Pioneer auto-upgrades manual configs on models that require adaptive."
+          },
+          "store": { "type": "boolean", "default": true, "description": "Persist to inference history. Set false to opt out." },
+          "schema": {
+            "oneOf": [{ "type": "object" }, { "type": "array", "items": { "type": "string" } }],
+            "description": "Pioneer encoder extension: extraction schema dict."
+          }
+        }
+      },
+      "AnthropicMessagesResponse": {
+        "type": "object",
+        "required": ["id", "type", "role", "content", "model", "stop_reason", "usage"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["message"] },
+          "role": { "type": "string", "enum": ["assistant"] },
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string", "enum": ["text", "tool_use", "thinking"] },
+                "text": { "type": "string" }
+              }
+            }
+          },
+          "model": { "type": "string" },
+          "stop_reason": { "type": "string", "enum": ["end_turn", "max_tokens", "stop_sequence", "tool_use"] },
+          "stop_sequence": { "type": "string" },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "input_tokens": { "type": "integer" },
+              "output_tokens": { "type": "integer" },
+              "cache_read_input_tokens": { "type": "integer" },
+              "cache_creation_input_tokens": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "ModelListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Model identifier used in API requests." },
+                "type": { "type": "string", "enum": ["model"] },
+                "display_name": { "type": "string" },
+                "created_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          },
+          "has_more": { "type": "boolean" },
+          "first_id": { "type": "string" },
+          "last_id": { "type": "string" }
+        }
+      },
+      "InferenceRecord": {
+        "type": "object",
+        "required": ["id", "user_id", "model_id", "input", "source", "status", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "model_id": { "type": "string" },
+          "model_name": { "type": "string" },
+          "task": { "type": "string" },
+          "input": { "type": "string" },
+          "output": {},
+          "latency_ms": { "type": "integer" },
+          "tokens": { "type": "integer" },
+          "input_tokens": { "type": "integer" },
+          "output_tokens": { "type": "integer" },
+          "cache_read_tokens": { "type": "integer" },
+          "cache_write_tokens": { "type": "integer" },
+          "source": { "type": "string", "enum": ["api", "ui"] },
+          "status": { "type": "string", "enum": ["success", "failed"] },
+          "error_type": { "type": "string", "enum": ["validation", "timeout", "model_not_ready", "model_not_found", "model_not_supported", "capacity_exhausted", "internal"] },
+          "error_message": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "project_id": { "type": "string" },
+          "training_job_id": { "type": "string" },
+          "provider": { "type": "string" },
+          "base_model": { "type": "string" },
+          "metadata": { "type": "object" },
+          "human_verdict": { "type": "string", "enum": ["correct", "incorrect"] },
+          "human_corrected_output": {},
+          "human_feedback_notes": { "type": "string" },
+          "human_feedback_at": { "type": "string", "format": "date-time" },
+          "llmaj_verdict": { "type": "string", "enum": ["pass", "fail", "uncertain"], "description": "LLM-as-Judge verdict. Null until judging completes." },
+          "llmaj_score": { "type": "number", "description": "LLM-as-Judge confidence score [0.0, 1.0]. Null until judging completes." },
+          "llmaj_judged_at": { "type": "string", "format": "date-time" },
+          "llmaj_reasoning": { "type": "string" }
+        }
+      },
+      "InferenceListResponse": {
+        "type": "object",
+        "required": ["inferences", "total", "limit", "offset"],
+        "properties": {
+          "inferences": { "type": "array", "items": { "$ref": "#/components/schemas/InferenceRecord" } },
+          "total": { "type": "integer", "description": "Total matching records (for pagination)." },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      },
+      "InferenceFeedbackRequest": {
+        "type": "object",
+        "required": ["verdict"],
+        "properties": {
+          "verdict": { "type": "string", "enum": ["correct", "incorrect"] },
+          "corrected_output": { "description": "Required when verdict is `incorrect`. Shape should match the original inference schema." },
+          "notes": { "type": "string", "maxLength": 5000 }
+        }
+      },
+      "InferenceFeedbackResponse": {
+        "type": "object",
+        "properties": {
+          "inference_id": { "type": "string" },
+          "human_verdict": { "type": "string" },
+          "human_feedback_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}
