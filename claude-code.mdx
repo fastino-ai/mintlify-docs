@@ -49,44 +49,379 @@ Pioneer exposes an [Anthropic-compatible API](/api-reference/inference/anthropic
 
     If Claude Code previously asked whether to trust this API key and you chose **No**, move the key tail from `customApiKeyResponses.rejected` to `approved` in `~/.claude.json`, or rerun setup from the Pioneer dashboard integration guide (it repairs this automatically).
   </Step>
-  <Step title="Install the routed-model hook">
-    When you use `pioneer/auto`, Pioneer returns `pioneer_routed_model` on each response. Claude Code does not display that field by default — install a **Stop** hook (Claude Code's end-of-turn hook) so each turn ends with a status line like `Stop says: Routed pioneer/auto → claude-opus-4-7`:
+  <Step title="Install the routed-savings hook">
+    When you use `pioneer/auto`, Pioneer stamps `pioneer_savings` on each response — the per-1M-token price difference between the model the router picked and a frontier reference model. Claude Code does not surface that by default, so install a **Stop** hook (Claude Code's end-of-turn hook) that multiplies those rate differences by your actual token usage, sums them across the session, and ends each turn with a line like:
+
+    ```text
+    Pioneer routing saved ~$1.43 this session (vs claude-opus-4-7)
+    ```
 
     <Accordion title="Show hook installer script">
       ```bash
       mkdir -p ~/.pioneer/hooks
       cat > ~/.pioneer/hooks/show-pioneer-routed-model.sh <<'PIONEER_ROUTED_MODEL_HOOK'
       #!/usr/bin/env bash
+      # Claude Code hook: surface how much pioneer/auto's routing has saved this session.
+      #
+      # Instead of the raw backend model, this shows cumulative money saved: for each
+      # pioneer/auto turn the backend stamps a per-1M-token savings rate diff vs a
+      # frontier reference (pioneer_savings) on the response; this hook multiplies it
+      # by the per-turn token usage Claude Code records and sums across the session.
+      # On a turn where the routed model changed (cold prompt cache), cache-write
+      # savings are dropped so the figure stays honest. For a *direct* (non-auto)
+      # model it keeps nudging toward pioneer/auto via X-Pioneer-Router-Tip.
+      # No-op when not on a Pioneer gateway, when no signal is present, or when
+      # cumulative savings are not positive.
+      
       set -euo pipefail
-      INPUT=$(cat)
-      if [[ "$(echo "$INPUT" | jq -r '.stop_hook_active // false')" == "true" ]]; then exit 0; fi
-      BASE_URL="${ANTHROPIC_BASE_URL:-}"
-      case "$BASE_URL" in *pioneer.ai*|*localhost*|*127.0.0.1*) ;; *) exit 0 ;; esac
-      TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty')
-      [[ -z "$TRANSCRIPT" || ! -f "$TRANSCRIPT" ]] && exit 0
-      ROUTED=$(jq -rs '[ .[] | .. | objects | select(has("pioneer_routed_model")) | .pioneer_routed_model ] | map(select(type == "string" and length > 0)) | last // empty' "$TRANSCRIPT" 2>/dev/null || true)
-      if [[ -z "$ROUTED" ]]; then
-        ROUTED=$(grep -oE '"pioneer_routed_model"[[:space:]]*:[[:space:]]*"[^"]+"' "$TRANSCRIPT" 2>/dev/null | tail -1 | sed -E 's/.*"([^"]+)"$/\1/' || true)
-      fi
-      [[ -z "$ROUTED" ]] && exit 0
-      SESSION_MODEL="${ANTHROPIC_CUSTOM_MODEL_OPTION:-pioneer/auto}"
-      [[ "$ROUTED" == "$SESSION_MODEL" ]] && exit 0
-      jq -nc --arg session "$SESSION_MODEL" --arg routed "$ROUTED" '{systemMessage: ("Routed " + $session + " → " + $routed), suppressOutput: true}'
+      
+      INPUT_FILE=$(mktemp)
+      trap 'rm -f "$INPUT_FILE"' EXIT
+      cat > "$INPUT_FILE"
+      
+      python3 - "$INPUT_FILE" <<'PY' 2>/dev/null || true
+      from __future__ import annotations
+      
+      import json
+      import os
+      import re
+      import sys
+      import time
+      from pathlib import Path
+      
+      
+      ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+      SET_MODEL_RE = re.compile(r"Set model to\s+(.+?)\s+and saved as your default")
+      AUTO_ROUTER_ALIASES = {
+          "pioneer/auto",
+          "anthropic/pioneer-auto",
+          "anthropic/pioneer/auto",
+      }
+      GATEWAY_ALIAS_PREFIX = "anthropic/pioneer/"
+      FRONTIER_REFERENCE_MODEL = "claude-opus-4-7"
+      DEFAULT_ROUTER_TIP = (
+          "Tip: use model=pioneer/auto to let Pioneer route each request automatically; "
+          "named models pin that concrete model."
+      )
+      TOKENS_PER_MILLION = 1_000_000.0
+      USAGE_TOKEN_KEYS = (
+          "input_tokens",
+          "output_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "cache_read_tokens",
+          "cache_write_tokens",
+      )
+      
+      
+      def collect_pioneer_signals(
+          value: object, routed_models: list[str], router_tips: list[str]
+      ) -> None:
+          if isinstance(value, dict):
+              for key, nested in value.items():
+                  key_normalized = str(key).lower().replace("_", "-")
+                  if key_normalized == "pioneer-routed-model":
+                      if isinstance(nested, str) and nested:
+                          routed_models.append(nested)
+                      continue
+                  if key_normalized == "x-pioneer-router-tip":
+                      if isinstance(nested, str) and nested:
+                          router_tips.append(nested)
+                      continue
+                  collect_pioneer_signals(nested, routed_models, router_tips)
+          elif isinstance(value, list):
+              for item in value:
+                  collect_pioneer_signals(item, routed_models, router_tips)
+      
+      
+      def find_first(value: object, target_key: str) -> object:
+          if isinstance(value, dict):
+              for key, nested in value.items():
+                  if str(key).lower().replace("_", "-") == target_key:
+                      return nested
+              for nested in value.values():
+                  found = find_first(nested, target_key)
+                  if found is not None:
+                      return found
+          elif isinstance(value, list):
+              for item in value:
+                  found = find_first(item, target_key)
+                  if found is not None:
+                      return found
+          return None
+      
+      
+      def find_usage(value: object) -> dict | None:
+          if isinstance(value, dict):
+              if any(key in value for key in USAGE_TOKEN_KEYS):
+                  return value
+              for nested in value.values():
+                  found = find_usage(nested)
+                  if found is not None:
+                      return found
+          elif isinstance(value, list):
+              for item in value:
+                  found = find_usage(item)
+                  if found is not None:
+                      return found
+          return None
+      
+      
+      def normalize_model_id(model: str) -> str:
+          model = model.strip()
+          lowered = model.lower()
+          if lowered in AUTO_ROUTER_ALIASES:
+              return "pioneer/auto"
+          if lowered.startswith(GATEWAY_ALIAS_PREFIX):
+              return model[len(GATEWAY_ALIAS_PREFIX) :].strip().lower()
+          return lowered
+      
+      
+      def iter_strings(value: object):
+          if isinstance(value, str):
+              yield value
+          elif isinstance(value, dict):
+              for nested in value.values():
+                  yield from iter_strings(nested)
+          elif isinstance(value, list):
+              for item in value:
+                  yield from iter_strings(item)
+      
+      
+      def is_real_user_turn(payload: object) -> bool:
+          if not isinstance(payload, dict) or payload.get("isMeta") is True:
+              return False
+          if payload.get("type") != "user":
+              return False
+          return "promptSource" in payload
+      
+      
+      def _token_count(usage: dict, *keys: str) -> int:
+          for key in keys:
+              value = usage.get(key)
+              if isinstance(value, bool):
+                  continue
+              if isinstance(value, (int, float)):
+                  return max(int(value), 0)
+          return 0
+      
+      
+      def _turn_savings_usd(usage: dict, diff: dict, *, drop_cache_write: bool) -> float:
+          def rate(name: str) -> float:
+              value = diff.get(name)
+              return float(value) if isinstance(value, (int, float)) else 0.0
+      
+          input_tokens = _token_count(usage, "input_tokens")
+          output_tokens = _token_count(usage, "output_tokens")
+          cache_read = _token_count(usage, "cache_read_input_tokens", "cache_read_tokens")
+          cache_write = _token_count(
+              usage, "cache_creation_input_tokens", "cache_write_tokens"
+          )
+          total = (
+              input_tokens * rate("input")
+              + output_tokens * rate("output")
+              + cache_read * rate("cache_read")
+          )
+          if not drop_cache_write:
+              total += cache_write * rate("cache_write")
+          return total / TOKENS_PER_MILLION
+      
+      
+      def session_savings(records: list[tuple[int, object]]) -> tuple[float, str]:
+          """Sum savings across distinct assistant turns, honoring cold-cache switches."""
+          total = 0.0
+          baseline = ""
+          previous_routed: str | None = None
+          seen_turns: set = set()
+          for line_number, payload in records:
+              if not isinstance(payload, dict) or payload.get("type") != "assistant":
+                  continue
+              routed = find_first(payload, "pioneer-routed-model")
+              savings = find_first(payload, "pioneer-savings")
+              usage = find_usage(payload)
+              if not isinstance(savings, dict) or not isinstance(usage, dict):
+                  if isinstance(routed, str) and routed:
+                      previous_routed = routed
+                  continue
+              turn_id = payload.get("uuid") or line_number
+              if turn_id in seen_turns:
+                  continue
+              seen_turns.add(turn_id)
+              diff = savings.get("rate_diff_per_mtok")
+              if not isinstance(diff, dict):
+                  diff = {}
+              baseline = savings.get("baseline_model") or baseline
+              switched = (
+                  isinstance(routed, str)
+                  and bool(routed)
+                  and previous_routed is not None
+                  and routed != previous_routed
+              )
+              turn_total = _turn_savings_usd(usage, diff, drop_cache_write=switched)
+              if turn_total > 0:
+                  total += turn_total
+              if isinstance(routed, str) and routed:
+                  previous_routed = routed
+          return total, baseline
+      
+      
+      def format_usd(amount: float) -> str:
+          if amount >= 1:
+              return f"${amount:.2f}"
+          if amount >= 0.01:
+              return f"${amount:.3f}"
+          return f"${amount:.4f}"
+      
+      
+      def parse_transcript(
+          transcript_path: str, attempts: int = 1
+      ) -> tuple[str, str, str, float, str]:
+          """Return (routed, tip, selected_model, savings_total, savings_baseline)."""
+          path = Path(transcript_path)
+          for attempt in range(attempts):
+              if path.is_file():
+                  latest_user_line = 0
+                  latest_selected_model = ""
+                  records: list[tuple[int, object]] = []
+                  for line_number, line in enumerate(
+                      path.read_text(encoding="utf-8").splitlines(),
+                      start=1,
+                  ):
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          payload = json.loads(line)
+                      except json.JSONDecodeError:
+                          continue
+                      records.append((line_number, payload))
+                      if is_real_user_turn(payload):
+                          latest_user_line = line_number
+                      for text in iter_strings(payload):
+                          clean = ANSI_RE.sub("", text)
+                          match = SET_MODEL_RE.search(clean)
+                          if match:
+                              latest_selected_model = match.group(1).strip()
+      
+                  latest_routed = ""
+                  latest_tip = ""
+                  for line_number, payload in records:
+                      if line_number <= latest_user_line:
+                          continue
+                      routed_models: list[str] = []
+                      router_tips: list[str] = []
+                      collect_pioneer_signals(payload, routed_models, router_tips)
+                      if router_tips:
+                          latest_tip = router_tips[-1]
+                      if routed_models:
+                          latest_routed = routed_models[-1]
+                      elif router_tips:
+                          latest_routed = ""
+      
+                  savings_total, savings_baseline = session_savings(records)
+                  if (
+                      latest_routed
+                      or latest_tip
+                      or latest_selected_model
+                      or savings_total > 0
+                  ):
+                      return (
+                          latest_routed,
+                          latest_tip,
+                          latest_selected_model,
+                          savings_total,
+                          savings_baseline,
+                      )
+              if attempt + 1 < attempts:
+                  time.sleep(0.05)
+          return "", "", "", 0.0, ""
+      
+      
+      input_path = Path(sys.argv[1])
+      payload = json.loads(input_path.read_text(encoding="utf-8"))
+      event_name = payload.get("hook_event_name") or "Stop"
+      
+      if event_name == "Stop" and payload.get("stop_hook_active") is True:
+          sys.exit(0)
+      if event_name == "MessageDisplay" and int(payload.get("index", -1)) != 0:
+          sys.exit(0)
+      
+      transcript_path = payload.get("transcript_path") or ""
+      if not transcript_path:
+          sys.exit(0)
+      
+      routed, router_tip, selected_model, savings_total, savings_baseline = parse_transcript(
+          transcript_path,
+          attempts=5,
+      )
+      session = selected_model or os.environ.get("ANTHROPIC_CUSTOM_MODEL_OPTION", "pioneer/auto")
+      normalized_session = normalize_model_id(session)
+      message = ""
+      if normalized_session == "pioneer/auto":
+          # Hide the routed model; surface cumulative savings only when positive.
+          if savings_total > 0:
+              reference = savings_baseline or FRONTIER_REFERENCE_MODEL
+              message = (
+                  f"Pioneer routing saved ~{format_usd(savings_total)} this session "
+                  f"(vs {reference})"
+              )
+      elif routed:
+          # Direct (pinned) gateway model: nudge toward pioneer/auto without
+          # framing the pinned model as a routing decision.
+          message = f"Using {routed} — {router_tip or DEFAULT_ROUTER_TIP}"
+      elif router_tip:
+          message = router_tip
+      if not message:
+          sys.exit(0)
+      
+      if event_name == "MessageDisplay":
+          delta = payload.get("delta") or ""
+          print(
+              json.dumps(
+                  {
+                      "hookSpecificOutput": {
+                          "hookEventName": "MessageDisplay",
+                          "displayContent": f"{message}\n\n{delta}",
+                      }
+                  }
+              )
+          )
+          sys.exit(0)
+      
+      print(
+          json.dumps(
+              {"systemMessage": message, "suppressOutput": True}
+          )
+      )
+      PY
       PIONEER_ROUTED_MODEL_HOOK
       chmod +x ~/.pioneer/hooks/show-pioneer-routed-model.sh
       python3 <<'PY'
       import json
       from pathlib import Path
-
+      
       hook = Path.home() / ".pioneer" / "hooks" / "show-pioneer-routed-model.sh"
       settings_path = Path.home() / ".claude" / "settings.json"
       command = str(hook)
       settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-      stop_groups = settings.setdefault("hooks", {}).setdefault("Stop", [])
-
-      if not any(entry.get("command") == command for group in stop_groups for entry in group.get("hooks", [])):
-          stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5}]})
-
+      hooks = settings.setdefault("hooks", {})
+      
+      # Drop any prior registration of this hook (e.g. an older MessageDisplay one)
+      # so the savings summary is surfaced exactly once per turn, at Stop.
+      for event_name in list(hooks):
+          kept = [
+              group
+              for group in hooks.get(event_name, [])
+              if not any(entry.get("command") == command for entry in group.get("hooks", []))
+          ]
+          if kept:
+              hooks[event_name] = kept
+          else:
+              hooks.pop(event_name, None)
+      
+      hooks.setdefault("Stop", []).append(
+          {"hooks": [{"type": "command", "command": command, "timeout": 5}]}
+      )
       settings_path.parent.mkdir(parents=True, exist_ok=True)
       settings_path.write_text(json.dumps(settings, indent=2) + "\n")
       PY
@@ -142,21 +477,21 @@ Pioneer exposes an [Anthropic-compatible API](/api-reference/inference/anthropic
 
 - Set `ANTHROPIC_CUSTOM_MODEL_OPTION=pioneer/auto` so Claude Code treats it as a first-class custom model.
 - Launch with `claude --model pioneer/auto`, or select it from `/model`.
-- After each turn, the Stop hook surfaces the backend model Pioneer chose.
+- After each turn, the Stop hook shows how much `pioneer/auto` routing has saved you this session.
 
 ### What does `Stop says:` mean?
 
 Claude Code has a [hooks](https://code.claude.com/docs/en/hooks) system. **Stop** is one hook event — it runs after the assistant finishes a turn (not when you exit the session).
 
-The Pioneer setup registers a Stop hook in `~/.claude/settings.json`. That script reads `pioneer_routed_model` from the session transcript and emits a short message. Claude Code labels hook output with the hook name, so the UI shows:
+The Pioneer setup registers a Stop hook in `~/.claude/settings.json`. That script reads the `pioneer_savings` rate differences and the per-turn token usage from the session transcript, sums the savings across the session, and emits a short message. Claude Code labels hook output with the hook name, so the UI shows:
 
 ```text
-Stop says: Routed pioneer/auto → claude-opus-4-7
+Stop says: Pioneer routing saved ~$1.43 this session (vs claude-opus-4-7)
 ```
 
-This is informational. **Stop** is Claude Code's name for the end-of-turn hook — not a warning and not a command to halt. The arrow shows which backend model the [Code Router](/concepts/router) picked for that turn.
+This is informational. **Stop** is Claude Code's name for the end-of-turn hook — not a warning and not a command to halt. The amount is cumulative for the session and only appears once the [Code Router](/concepts/router) has actually saved money versus the frontier reference model.
 
-Pioneer also includes `pioneer_routed_model` on Anthropic-compatible responses (streaming `message_start` frames and non-streaming bodies) if you want to build your own tooling around routing metadata.
+Pioneer also includes `pioneer_routed_model` and `pioneer_savings` on Anthropic-compatible responses (streaming `message_start` frames and non-streaming bodies) if you want to build your own tooling around routing metadata.
 
 ## Full model list in `/model`
 
@@ -220,6 +555,6 @@ This usually means Claude Code did not pick up a usable Pioneer API key for the 
 4. If `/status` points at Pioneer but the error persists, check `~/.claude.json`. Under `customApiKeyResponses`, make sure the suffix for your current Pioneer key is in `approved`, not `rejected`.
 5. If you are using a non-production Pioneer endpoint, make sure the API key comes from the same environment.
 
-### No routed-model line after each turn
+### No savings line after each turn
 
-Install the Stop hook from the setup section. It only runs when `ANTHROPIC_BASE_URL` points at Pioneer.
+Install the Stop hook from the setup section. It only runs when `ANTHROPIC_BASE_URL` points at Pioneer, and the line appears only once `pioneer/auto` routing has actually saved money versus the frontier reference model this session. A brand-new session, or one where the router picked the frontier model itself, will show nothing until there are positive savings to report.
