@@ -220,6 +220,45 @@
         }
       }
     },
+    "/base-models": {
+      "get": {
+        "operationId": "list_base_models",
+        "summary": "List base models (Pioneer native)",
+        "description": "Pioneer's native model catalog. Returns all available base models with pricing, context window, and capability flags. Supports filtering by task type and capability — use `?task_type=encoder` for GLiNER NER/extraction models or `?task_type=decoder` for LLMs, and `?supports_inference=true` to narrow to models that can be called via POST /inference right now.",
+        "tags": ["inference"],
+        "parameters": [
+          {
+            "name": "supports_inference",
+            "in": "query",
+            "schema": { "type": "boolean" },
+            "description": "Filter to models that support serverless inference via POST /inference."
+          },
+          {
+            "name": "supports_training",
+            "in": "query",
+            "schema": { "type": "boolean" },
+            "description": "Filter to models that can be fine-tuned."
+          },
+          {
+            "name": "task_type",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["encoder", "decoder"] },
+            "description": "`encoder` for GLiNER NER/classification/extraction models. `decoder` for LLMs."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Filtered model catalog.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BaseModelsResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/v1/models": {
       "get": {
         "operationId": "list_models",
@@ -993,6 +1032,34 @@
               "cache_read_input_tokens": { "type": "integer" },
               "cache_creation_input_tokens": { "type": "integer" }
             }
+          }
+        }
+      },
+      "BaseModelResponse": {
+        "type": "object",
+        "required": ["id", "label", "description", "task_type"],
+        "properties": {
+          "id": { "type": "string", "description": "Model ID — pass this as `model_id` in POST /inference or as `model` in OpenAI/Anthropic-compat endpoints." },
+          "label": { "type": "string", "description": "Human-friendly display name." },
+          "description": { "type": "string", "description": "Short description of the model's capabilities." },
+          "task_type": { "type": "string", "enum": ["encoder", "decoder"], "description": "`encoder` for GLiNER NER/extraction models. `decoder` for LLMs." },
+          "context_window": { "type": "integer", "description": "Maximum context length in tokens (minimum across providers). Null when unknown." },
+          "release_month": { "type": "string", "description": "Official release month, e.g. `Apr 2026`. Null when unknown." },
+          "input_price_per_million": { "type": "number", "description": "Upper-bound USD list price per million input tokens." },
+          "output_price_per_million": { "type": "number", "description": "Upper-bound USD list price per million output tokens." },
+          "cache_read_price_per_million": { "type": "number", "description": "Effective price per million cache-read input tokens." },
+          "cache_write_price_per_million": { "type": "number", "description": "Effective price per million cache-write input tokens." },
+          "supports_inference": { "type": "boolean", "description": "True if this model can be called via POST /inference right now." },
+          "supports_training": { "type": "boolean", "description": "True if this model can be fine-tuned." }
+        }
+      },
+      "BaseModelsResponse": {
+        "type": "object",
+        "required": ["models"],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BaseModelResponse" }
           }
         }
       },
