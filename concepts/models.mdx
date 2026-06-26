@@ -200,6 +200,27 @@ These entries back `POST /felix/embeddings` through OpenRouter and pricing resol
 | `text-embedding-3-small` | text-embedding-3-small | \$0.02 | — | 8,191 |
 | `text-embedding-ada-002` | text-embedding-ada-002 | \$0.10 | — | 8,191 |
 
+## Prompt caching
+
+Many serverless models bill cached input tokens at a discount, and some providers bill a one-time surcharge to write tokens into the cache. Pioneer passes each provider's published cache rates straight through — these are the same rates `GET /base-models` returns as `cache_read_price_per_million` and `cache_write_price_per_million`, and the same rates Pioneer bills you.
+
+Cache rates are derived from each model's input rate using the multipliers below. Where a provider has no separate cache-write line item, cache writes bill at the standard input rate.
+
+| Provider | Cache read | Cache write |
+| --- | --- | --- |
+| Anthropic (Claude) | 0.1× input | 1.25× input |
+| OpenAI (GPT-4 family) | 0.5× input | input rate |
+| OpenAI (GPT-5 family) | 0.1× input | input rate |
+| Google (Gemini) | 0.1× input | input rate |
+| Qwen | 0.2× input | 1.25× input |
+| Mistral | 0.1× input | input rate |
+| MiniMax | 0.2× input | input rate |
+| NVIDIA (Nemotron) | 0.3× input | input rate |
+
+Self-hosted models served on Modal — and any provider without an explicit cache discount — bill cached input at the standard input rate. Fireworks-served models carry per-model cache rates rather than a single ratio, so query the live catalog for exact values.
+
+For example, `claude-opus-4-8` lists \$5.00 input, so cache reads bill at \$0.50 and cache writes at \$6.25 per 1M tokens. `gpt-5.1` lists \$1.25 input, so cache reads bill at \$0.125 per 1M tokens.
+
 ## On-demand vs. serverless inference
 
 Pioneer offers two ways to serve predictions, and the right choice depends on your workflow.
@@ -233,4 +254,15 @@ curl "https://api.pioneer.ai/base-models?task_type=decoder" \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-Each entry in the response includes the model ID, its display label, context length, and boolean flags for `supports_training` and `supports_inference`. Use the model ID value directly in training job requests and inference calls.
+Each entry in the response includes the model ID, its display label, context length, per-1M-token rates (`input_price_per_million`, `output_price_per_million`, `cache_read_price_per_million`, `cache_write_price_per_million`), and boolean flags for `supports_training` and `supports_inference`. Use the model ID value directly in training job requests and inference calls.
+
+To list every model alongside its input, output, and cache rates:
+
+```bash
+curl -s "https://api.pioneer.ai/base-models?supports_inference=true" \
+  -H "X-API-Key: YOUR_API_KEY" \
+| jq -r '["model","input/M","output/M","cache_read/M","cache_write/M"],
+    (.models[] | [.id, .input_price_per_million, .output_price_per_million,
+      .cache_read_price_per_million, .cache_write_price_per_million]) | @tsv' \
+| column -t -s $'\t'
+```
