@@ -125,83 +125,36 @@ openclaw --version
      ```
    - The command manually adds `pioneer/auto` for Pioneer Auto, then reads `.data[]`, deduplicates by `id`, filters `anthropic/pioneer/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
    - To refresh the catalog later, re-run the same command. It replaces the Pioneer provider models and Pioneer agent allowlist while preserving non-Pioneer agent model entries.
-3. Check the discovered models
-   - Confirm OpenClaw sees the generated Pioneer provider catalog:
-     ```shellscript
-     openclaw models list --provider pioneer --plain
-     ```
-   - Confirm the default agent allowlist also contains the Pioneer models. `models status --plain` prints only the default model, so use JSON output to check the full allowlist:
-     ```shellscript
-     openclaw models status --json \
-       | jq '{defaultModel, allowed_count: (.allowed | length), first_allowed: .allowed[0:5]}'
-     ```
-   - Expected result: `defaultModel` is `pioneer/auto`, and `allowed_count` is greater than `1`.
-   - The setup command sets Pioneer Auto as the default model. If you need to set it again manually, run:
-     ```shellscript
-     openclaw models set pioneer/auto
-     ```
-   - If you choose to use environment variables instead of `openclaw models auth paste-api-key`, configure the header as a structured env reference:
-     ```shellscript
-     openclaw config set models.providers.pioneer.headers.X-API-Key \
-         --ref-provider default \
-         --ref-source env \
-         --ref-id PIONEER_API_KEY
-     ```
-   - The gateway service must be able to resolve that variable. In practice, the auth-profile command above is the simpler path.
-4. Safely install or restart the gateway
-   - For a local setup, keep the gateway on loopback and use the LaunchAgent service. Do not run `openclaw gateway run` during normal setup; that starts a second foreground gateway and will fail if the service already owns the port.
-   - Configure gateway token auth before checking the dashboard or gateway probe. This avoids the Control UI getting stuck at `Auth required` and avoids `device identity required` during status probes:
+3. Start the local gateway and open the Web UI
+   - The model-discovery command already sets `pioneer/auto` as the default model. You do not need to run `openclaw models set pioneer/auto` separately.
+   - Use the LaunchAgent service for normal local setup. Do not run `openclaw gateway run` unless you are intentionally debugging in the foreground.
      ```shellscript
      openclaw config set gateway.mode local
 
-     if [ -z "$(openclaw config get gateway.auth.token 2>/dev/null)" ]; then
-       openclaw doctor --generate-gateway-token --yes
+     GATEWAY_TOKEN="$(openclaw config get gateway.auth.token 2>/dev/null || true)"
+     if [ -z "$GATEWAY_TOKEN" ] || [ "$GATEWAY_TOKEN" = "null" ]; then
+       GATEWAY_TOKEN="$(openssl rand -hex 32)"
+       openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
      fi
 
      openclaw gateway install --force
      openclaw gateway restart
-     openclaw gateway status
+     openclaw dashboard
+     unset GATEWAY_TOKEN
      ```
-   - If OpenClaw still reports that the service config is out of date or non-standard, repair the LaunchAgent and restart it:
+   - This avoids the noisy full `openclaw doctor` flow during normal setup. `openclaw gateway install --force` keeps the macOS LaunchAgent service definition current, including the service environment. `openclaw gateway restart` then applies the Pioneer model config and gateway token.
+   - `openclaw dashboard` may print a clean URL such as `http://127.0.0.1:18789/` while copying a token-authenticated URL to your clipboard.
+4. Verify the setup
+   - These checks are optional but useful when validating a fresh setup or debugging a user report:
      ```shellscript
-     openclaw doctor --repair
-     openclaw gateway restart
-     openclaw gateway status
-     ```
-   - If OpenClaw shows a security disclaimer during setup, read it and continue only if this is a trusted personal setup. Do not expose a tool-enabled gateway to untrusted users.
-5. Verify Pioneer through the running gateway
-   - Use a live probe to confirm Pioneer auth and model routing actually work. OpenClaw may probe only the default/effective target even when the agent allowlist contains many Pioneer models; that is fine as long as the configured model count is greater than `1` and `pioneer/auto` probes successfully:
-     ```shellscript
+     openclaw models status --json \
+       | jq '{defaultModel, allowed_count: (.allowed | length), first_allowed: .allowed[0:5]}'
+
      openclaw models status --probe --probe-provider pioneer
      ```
-   - Expected result:
-     ```text
-     Configured models (...): pioneer/auto, pioneer/...
-     Auth probes
-     pioneer/auto | pioneer:manual (api_key) | ok
-     ```
-6. Open the OpenClaw Web UI
-   - OpenClaw's local dashboard is the easiest way to verify the model picker and send a first message through the gateway:
-     ```shellscript
-     openclaw dashboard
-     ```
-   - If the gateway is already running as a service, do not start a second foreground gateway with `openclaw gateway run`. Use the dashboard command or restart the service instead:
-     ```shellscript
-     openclaw gateway restart
-     openclaw dashboard
-     ```
-   - The dashboard command is the supported way to open the Web UI. It may print a clean URL such as `http://127.0.0.1:18789/` while copying a token-authenticated URL to your clipboard. If the browser opens the `Auth required` screen, paste the configured gateway token into the `Gateway Token` field:
-     ```shellscript
-     openclaw config get gateway.auth.token
-     ```
-   - Treat the gateway token as a local secret. Do not paste it into docs, tickets, screenshots, or shell logs.
-   - If no token is configured, generate one and reopen the dashboard:
-     ```shellscript
-     openclaw doctor --generate-gateway-token --yes
-     openclaw gateway restart
-     openclaw dashboard
-     ```
-7. Run a first agent message from the CLI
+   - Expected result: `defaultModel` is `pioneer/auto`, `allowed_count` is greater than `1`, and the Pioneer auth probe succeeds.
+   - OpenClaw may probe only the default/effective target even when the agent allowlist contains many Pioneer models. That is fine as long as the configured model count is greater than `1` and `pioneer/auto` probes successfully.
+5. Run a first agent message from the CLI
    - OpenClaw needs a target session for agent messages. A plain `--message` is not enough.
      ```shellscript
      openclaw agent --agent main --session-key cli-test --message "hello"
@@ -234,9 +187,9 @@ openclaw --version
      ```
    - For launchd, `launchctl setenv` does not persist across reboots and may not be enough if OpenClaw uses a generated service environment wrapper.
 3. `Gateway service not loaded`
-   - Install or restart the LaunchAgent:
+   - Reinstall and restart the LaunchAgent:
      ```shellscript
-     openclaw gateway install
+     openclaw gateway install --force
      openclaw gateway restart
      openclaw gateway status
      ```
@@ -268,11 +221,14 @@ openclaw --version
      openclaw config get gateway.auth.token
      ```
    - Paste that value into the Web UI `Gateway Token` field and click **Connect**.
-   - If the command is empty, generate a token and restart the gateway:
+   - If the command is empty, create a token and restart the gateway:
      ```shellscript
-     openclaw doctor --generate-gateway-token --yes
+     GATEWAY_TOKEN="$(openssl rand -hex 32)"
+     openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
+     openclaw gateway install --force
      openclaw gateway restart
      openclaw dashboard
+     unset GATEWAY_TOKEN
      ```
    - Do not manually extract tokens from OpenClaw's SQLite state database.
 7. Gateway is running but probe fails
