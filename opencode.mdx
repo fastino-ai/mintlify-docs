@@ -5,12 +5,50 @@ title: "OpenCode"
 Steps to integrate OpenCode with Pioneer:
 
 1. Download and [set up](https://opencode.ai/download) the OpenCode CLI.
-2. Navigate to a fresh terminal and point OpenCode to Pioneer by pasting the following:
+2. Navigate to a fresh terminal and set your Pioneer API key:
 
 ```bash
-PIONEER_API_KEY="<Your Pioneer API key>" 
-OPENCODE_CONFIG_CONTENT='{"provider":{"pioneer":{"npm":"@ai-sdk/openai-compatible","name":"Pioneer","options":{"baseURL":"https://api.pioneer.ai/v1","apiKey":"{env:PIONEER_API_KEY}"},"models":{"pioneer/auto":{"name":"pioneer"},"claude-opus-4-8":{"name":"Claude Opus 4.8"},"claude-opus-4-7":{"name":"Claude Opus 4.7"},"claude-opus-4-6":{"name":"Claude Opus 4.6"},"claude-opus-4-5":{"name":"Claude Opus 4.5"},"claude-sonnet-4-6":{"name":"Claude Sonnet 4.6"},"claude-haiku-4-5":{"name":"Claude Haiku 4.5"},"gpt-5.5":{"name":"GPT-5.5"},"gpt-5.4":{"name":"GPT-5.4"},"gpt-5.1":{"name":"GPT-5.1"},"gpt-4.1":{"name":"GPT-4.1"},"gpt-4o":{"name":"GPT-4o"},"gpt-4o-mini":{"name":"GPT-4o mini"},"gemini-3.1-pro":{"name":"Gemini 3.1 Pro"},"gemini-3.5-flash":{"name":"Gemini 3.5 Flash"}}}}}' opencode
+export PIONEER_API_KEY="<Your Pioneer API key>"
 ```
 
-3. OpenCode will automatically start for you.
-4. To switch between models, use the `/models` command and select a model. You will see older models not supported by Pioneer which, if selected, will not complete your task. If a model is supported by Pioneer, the inference will complete and you will be able to see it in your Pioneer inference logs.
+3. Start OpenCode with a Pioneer provider config generated from the live `GET /v1/models` catalog (`curl` and `jq` required):
+
+```bash
+OPENCODE_CONFIG_CONTENT="$(
+  curl -fsS "https://api.pioneer.ai/v1/models" \
+    -H "Authorization: Bearer $PIONEER_API_KEY" \
+    | jq -c '{
+        provider: {
+          pioneer: {
+            npm: "@ai-sdk/openai-compatible",
+            name: "Pioneer",
+            options: {
+              baseURL: "https://api.pioneer.ai/v1",
+              apiKey: "{env:PIONEER_API_KEY}"
+            },
+            models: (
+              {"auto": {"id": "pioneer/auto", "name": "Pioneer Auto"}}
+              + (
+                [.data[]
+                  | select(.deprecated != true)
+                  | select(.id != null)
+                  # Hide Claude Code discovery aliases so OpenCode does not show every model twice.
+                  | select(.id | startswith("anthropic/pioneer/") | not)
+                  # Add the router once as the pioneer/auto model below, even if /v1/models includes it.
+                  | select(.id != "pioneer/auto" and .id != "auto")
+                  | {key: .id, value: {name: (.display_name // .id)}}]
+                | from_entries
+              )
+            )
+          }
+        }
+      }'
+)" opencode
+```
+
+4. OpenCode will automatically start for you.
+5. To switch between models, use the `/models` command and select a model. Choose `pioneer/auto` to use Pioneer's Code Router, or choose any specific canonical model returned by `GET /v1/models`.
+
+<Note>
+  The model list is pulled when you run the command. Re-run the command when you want OpenCode to pick up newly added Pioneer models. The command filters out `anthropic/pioneer/*` discovery aliases because they are only needed for Claude Code and would duplicate models in OpenCode.
+</Note>
