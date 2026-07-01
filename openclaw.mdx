@@ -42,9 +42,15 @@ openclaw --version
      export PIONEER_API_KEY='<YOUR_PIONEER_API_KEY>'
      : "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
 
+     CONFIG_FILE="$(openclaw config file)"
+     case "$CONFIG_FILE" in
+       "~/"*) CONFIG_FILE="$HOME/${CONFIG_FILE#"~/"}" ;;
+     esac
+     [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
+
      curl -fsS "https://api.pioneer.ai/v1/models" \
        -H "Authorization: Bearer $PIONEER_API_KEY" \
-       | jq -c '
+       | jq --slurpfile current "$CONFIG_FILE" -c '
          def model_name:
            (.display_name // .name // .id)
            | split("/") | last
@@ -56,54 +62,79 @@ openclaw --version
            | gsub("\\bAi\\b"; "AI")
            | gsub("(?<n>[0-9]+(\\.[0-9]+)?)b\\b"; "\(.n)B");
 
-         {
-           models: {
-             providers: {
-               pioneer: {
-                 baseUrl: "https://api.pioneer.ai/v1",
-                 api: "openai-completions",
+         def openclaw_model_id($id):
+           if $id | startswith("pioneer/") then $id else "pioneer/" + $id end;
+
+         (
+           [
+             {
+               id: "pioneer/auto",
+               name: "Pioneer Auto",
+               input: ["text"],
+               contextWindow: 1000000,
+               maxTokens: 16000
+             }
+           ] + (
+             [
+               .data[]
+               | select(.deprecated != true)
+               | select(.id != null)
+               | select(.id | startswith("anthropic/pioneer/") | not)
+               | select(.id != "pioneer/auto" and .id != "auto")
+               | {
+                   id: .id,
+                   name: model_name,
+                   input: (["text"] + (if .capabilities.image_input.supported == true then ["image"] else [] end)),
+                   contextWindow: (.max_input_tokens // .context_window // 128000),
+                   maxTokens: (.max_tokens // 16000)
+                 }
+             ]
+             | unique_by(.id)
+             | sort_by(.id)
+           )
+         ) as $pioneer_models
+         | ($current[0].agents.defaults.models // {}) as $current_agent_models
+         | {
+             models: {
+               providers: {
+                 pioneer: {
+                   baseUrl: "https://api.pioneer.ai/v1",
+                   api: "openai-completions",
+                   models: $pioneer_models
+                 }
+               }
+             },
+             agents: {
+               defaults: {
+                 model: {primary: "pioneer/auto"},
                  models: (
-                   [
-                     {
-                       id: "pioneer/auto",
-                       name: "Pioneer Auto",
-                       input: ["text"],
-                       contextWindow: 1000000,
-                       maxTokens: 16000
-                     }
-                   ] + (
-                     [
-                       .data[]
-                       | select(.deprecated != true)
-                       | select(.id != null)
-                       | select(.id | startswith("anthropic/pioneer/") | not)
-                       | select(.id != "pioneer/auto" and .id != "auto")
-                       | {
-                           id: .id,
-                           name: model_name,
-                           input: (["text"] + (if .capabilities.image_input.supported == true then ["image"] else [] end)),
-                           contextWindow: (.max_input_tokens // .context_window // 128000),
-                           maxTokens: (.max_tokens // 16000)
-                         }
-                     ]
-                     | unique_by(.id)
-                     | sort_by(.id)
+                   ($current_agent_models | with_entries(select(.key | startswith("pioneer/") | not)))
+                   + (
+                     $pioneer_models
+                     | map({key: openclaw_model_id(.id), value: {alias: .name}})
+                     | from_entries
                    )
                  )
                }
              }
-           }
-         }' \
-       | openclaw config patch --stdin --replace-path models.providers.pioneer.models
+           }' \
+       | openclaw config patch \
+           --stdin \
+           --replace-path models.providers.pioneer.models \
+           --replace-path agents.defaults.models
      ```
-   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads `.data[]`, deduplicates by `id`, and filters `anthropic/pioneer/*` Claude Code discovery aliases so OpenClaw does not show duplicate models.
-   - To refresh the catalog later, re-run the same command. It replaces only `models.providers.pioneer.models` and leaves the rest of your OpenClaw config intact.
+   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads `.data[]`, deduplicates by `id`, filters `anthropic/pioneer/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
+   - To refresh the catalog later, re-run the same command. It replaces the Pioneer provider models and Pioneer agent allowlist while preserving non-Pioneer agent model entries.
 3. Check the discovered models
    - Confirm OpenClaw sees the generated Pioneer provider catalog:
      ```shellscript
      openclaw models list --provider pioneer --plain
      ```
-   - Set Pioneer Auto as the default model:
+   - Confirm the default agent allowlist also contains the Pioneer models. `models status` reads `agents.defaults.models`, so it should show more than just `pioneer/auto` after the setup command:
+     ```shellscript
+     openclaw models status --plain
+     ```
+   - The setup command sets Pioneer Auto as the default model. If you need to set it again manually, run:
      ```shellscript
      openclaw models set pioneer/auto
      ```
@@ -127,8 +158,9 @@ openclaw --version
    - Restart the gateway so provider and auth changes are loaded:
      ```shellscript
      openclaw gateway restart
+     openclaw gateway status
      ```
-   - Use a live probe, not just `openclaw models status`, to confirm Pioneer auth and model routing actually work:
+   - Use a live probe, not just `openclaw models status`, to confirm Pioneer auth and model routing actually work. Because the setup command exposes the full Pioneer catalog to the default agent, this can probe many models:
      ```shellscript
      openclaw models status --probe --probe-provider pioneer
      ```
@@ -136,8 +168,23 @@ openclaw --version
      ```text
      Auth probes
      pioneer/auto | pioneer:manual (api_key) | ok
+     ...additional Pioneer models...
      ```
-6. Run a first agent message
+6. Open the OpenClaw Web UI
+   - OpenClaw's local dashboard is the easiest way to verify the model picker and send a first message through the gateway:
+     ```shellscript
+     openclaw dashboard
+     ```
+   - If the gateway is already running as a service, do not start a second foreground gateway with `openclaw gateway run`. Use the dashboard command or restart the service instead:
+     ```shellscript
+     openclaw gateway restart
+     openclaw dashboard
+     ```
+   - The dashboard normally opens a loopback URL such as `http://127.0.0.1:18789/`. Some local installs use device identity instead of a copy-paste gateway token; in that case, follow the browser pairing prompt or run:
+     ```shellscript
+     openclaw doctor --repair
+     ```
+7. Run a first agent message from the CLI
    - OpenClaw needs a target session for agent messages. A plain `--message` is not enough.
      ```shellscript
      openclaw agent --agent main --session-key cli-test --message "hello"
@@ -181,7 +228,22 @@ openclaw --version
      ```shellscript
      openclaw agent --agent main --session-key cli-test --message "hello"
      ```
-5. Gateway is running but probe fails
+5. `gateway already running` when using `openclaw gateway run`
+   - The LaunchAgent service is already bound to the gateway port. Use the Web UI or restart/stop the service instead:
+     ```shellscript
+     openclaw dashboard
+     openclaw gateway restart
+     # or, for foreground debugging only:
+     openclaw gateway stop
+     openclaw gateway run
+     ```
+6. Dashboard or probe says `device identity required`
+   - Local OpenClaw installs may use device identity instead of a shared token. Repair or re-pair the local CLI/browser identity:
+     ```shellscript
+     openclaw doctor --repair
+     openclaw dashboard
+     ```
+7. Gateway is running but probe fails
    - Check reachability and logs:
      ```shellscript
      openclaw gateway status
