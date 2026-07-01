@@ -130,10 +130,12 @@ openclaw --version
      ```shellscript
      openclaw models list --provider pioneer --plain
      ```
-   - Confirm the default agent allowlist also contains the Pioneer models. `models status` reads `agents.defaults.models`, so it should show more than just `pioneer/auto` after the setup command:
+   - Confirm the default agent allowlist also contains the Pioneer models. `models status --plain` prints only the default model, so use JSON output to check the full allowlist:
      ```shellscript
-     openclaw models status --plain
+     openclaw models status --json \
+       | jq '{defaultModel, allowed_count: (.allowed | length), first_allowed: .allowed[0:5]}'
      ```
+   - Expected result: `defaultModel` is `pioneer/auto`, and `allowed_count` is greater than `1`.
    - The setup command sets Pioneer Auto as the default model. If you need to set it again manually, run:
      ```shellscript
      openclaw models set pioneer/auto
@@ -160,15 +162,15 @@ openclaw --version
      openclaw gateway restart
      openclaw gateway status
      ```
-   - Use a live probe, not just `openclaw models status`, to confirm Pioneer auth and model routing actually work. Because the setup command exposes the full Pioneer catalog to the default agent, this can probe many models:
+   - Use a live probe to confirm Pioneer auth and model routing actually work. OpenClaw may probe only the default/effective target even when the agent allowlist contains many Pioneer models; that is fine as long as the configured model count is greater than `1` and `pioneer/auto` probes successfully:
      ```shellscript
      openclaw models status --probe --probe-provider pioneer
      ```
    - Expected result:
      ```text
+     Configured models (...): pioneer/auto, pioneer/...
      Auth probes
      pioneer/auto | pioneer:manual (api_key) | ok
-     ...additional Pioneer models...
      ```
 6. Open the OpenClaw Web UI
    - OpenClaw's local dashboard is the easiest way to verify the model picker and send a first message through the gateway:
