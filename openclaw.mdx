@@ -162,6 +162,11 @@ openclaw --version
 
      openclaw gateway status
      ```
+   - Configure gateway token auth before opening the Web UI. This avoids the Control UI getting stuck at `Auth required`:
+     ```shellscript
+     openclaw doctor --generate-gateway-token --yes
+     openclaw gateway restart
+     ```
    - If OpenClaw reports that the service config is out of date or non-standard, repair the LaunchAgent and restart it:
      ```shellscript
      openclaw doctor --repair
@@ -190,10 +195,14 @@ openclaw --version
      openclaw gateway restart
      openclaw dashboard
      ```
-   - The dashboard command is the supported way to open the Web UI. In current OpenClaw versions it may print only the loopback URL, for example `http://127.0.0.1:18789/`; there may not be a separate tokenized URL to copy. Gateway/browser credentials are handled by OpenClaw's local device identity or token state.
-   - If the browser asks for auth, or the CLI reports `device identity required` / `gateway token mismatch`, repair local gateway auth and reopen the dashboard:
+   - The dashboard command is the supported way to open the Web UI. It may print a clean URL such as `http://127.0.0.1:18789/` while copying a token-authenticated URL to your clipboard. If the browser opens the `Auth required` screen, paste the configured gateway token into the `Gateway Token` field:
      ```shellscript
-     openclaw doctor --repair
+     openclaw config get gateway.auth.token
+     ```
+   - Treat the gateway token as a local secret. Do not paste it into docs, tickets, screenshots, or shell logs.
+   - If no token is configured, generate one and reopen the dashboard:
+     ```shellscript
+     openclaw doctor --generate-gateway-token --yes
      openclaw gateway restart
      openclaw dashboard
      ```
@@ -258,13 +267,19 @@ openclaw --version
      openclaw gateway stop
      openclaw gateway run
      ```
-6. Dashboard or probe says `device identity required` or `gateway token mismatch`
-   - Local OpenClaw installs may use device identity or gateway token state instead of a tokenized dashboard URL. Do not manually extract tokens from OpenClaw's state database. Repair local gateway auth and reopen the dashboard:
+6. Dashboard says `Auth required`, `device identity required`, or `gateway token mismatch`
+   - Use the configured shared gateway token. The Control UI expects the same token from `gateway.auth.token` or `OPENCLAW_GATEWAY_TOKEN`:
      ```shellscript
-     openclaw doctor --repair
+     openclaw config get gateway.auth.token
+     ```
+   - Paste that value into the Web UI `Gateway Token` field and click **Connect**.
+   - If the command is empty, generate a token and restart the gateway:
+     ```shellscript
+     openclaw doctor --generate-gateway-token --yes
      openclaw gateway restart
      openclaw dashboard
      ```
+   - Do not manually extract tokens from OpenClaw's SQLite state database.
 7. Gateway is running but probe fails
    - Check reachability and logs:
      ```shellscript
