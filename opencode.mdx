@@ -84,3 +84,25 @@ opencode
 <Note>
   The model list is pulled when you run the setup command. Re-run the setup command when you want OpenCode to pick up newly added Pioneer models. The command filters out `anthropic/pioneer/*` discovery aliases because they are only needed for Claude Code and would duplicate models in OpenCode. After setup, OpenCode reads the saved Pioneer credential from `~/.local/share/opencode/auth.json`, so `PIONEER_API_KEY` does not need to be exported in every terminal.
 </Note>
+
+## Remove the Pioneer setup
+
+If you need to undo the setup, remove only the Pioneer entries. This keeps the rest of your OpenCode config and credentials intact:
+
+```bash
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+AUTH_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json"
+CONFIG_TMP="$(mktemp)"
+AUTH_TMP="$(mktemp)"
+
+[ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
+[ -f "$AUTH_FILE" ] || printf '{}\n' > "$AUTH_FILE"
+
+jq 'del(.provider.pioneer) | if .model == "pioneer/auto" then del(.model) else . end' \
+  "$CONFIG_FILE" > "$CONFIG_TMP"
+
+jq 'del(.pioneer)' "$AUTH_FILE" > "$AUTH_TMP"
+chmod 600 "$AUTH_TMP"
+mv "$CONFIG_TMP" "$CONFIG_FILE"
+mv "$AUTH_TMP" "$AUTH_FILE"
+```
