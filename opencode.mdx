@@ -5,28 +5,29 @@ title: "OpenCode"
 Steps to integrate OpenCode with Pioneer:
 
 1. Download and [set up](https://opencode.ai/download) the OpenCode CLI.
-2. Make your Pioneer API key available in your shell:
+2. Set your Pioneer API key for the one-time setup command:
 
 ```bash
 export PIONEER_API_KEY="<Your Pioneer API key>"
 ```
 
-<Note>
-  For plain `opencode` to work in future terminals, keep `PIONEER_API_KEY` in your shell profile or another environment manager. OpenCode will read it from the persisted config below.
-</Note>
-
-3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, merges Pioneer into your global OpenCode config at `~/.config/opencode/opencode.json`, and sets `pioneer/auto` as the default model:
+3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, merges Pioneer into your global OpenCode config at `~/.config/opencode/opencode.json`, stores your API key in OpenCode's credentials file at `~/.local/share/opencode/auth.json`, and sets `pioneer/auto` as the default model:
 
 ```bash
 : "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 CONFIG_FILE="$CONFIG_DIR/opencode.json"
-TMP_FILE="$(mktemp)"
+CONFIG_TMP="$(mktemp)"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
+AUTH_FILE="$DATA_DIR/auth.json"
+AUTH_TMP="$(mktemp)"
 
-mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR" "$DATA_DIR"
 [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
+[ -f "$AUTH_FILE" ] || printf '{}\n' > "$AUTH_FILE"
 cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
+cp "$AUTH_FILE" "$AUTH_FILE.bak.$(date +%Y%m%d%H%M%S)"
 
 curl -fsS "https://api.pioneer.ai/v1/models" \
   -H "Authorization: Bearer $PIONEER_API_KEY" \
@@ -46,8 +47,7 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
           name: "Pioneer",
           env: ["PIONEER_API_KEY"],
           options: {
-            baseURL: "https://api.pioneer.ai/v1",
-            apiKey: "{env:PIONEER_API_KEY}"
+            baseURL: "https://api.pioneer.ai/v1"
           },
           models: (
             {"auto": {"id": "pioneer/auto", "name": "Pioneer Auto"}}
@@ -65,9 +65,12 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
           )
         }
       })
-    }' > "$TMP_FILE"
+    }' > "$CONFIG_TMP"
 
-mv "$TMP_FILE" "$CONFIG_FILE"
+jq '. + {pioneer: {type: "api", key: env.PIONEER_API_KEY}}' "$AUTH_FILE" > "$AUTH_TMP"
+chmod 600 "$AUTH_TMP"
+mv "$CONFIG_TMP" "$CONFIG_FILE"
+mv "$AUTH_TMP" "$AUTH_FILE"
 ```
 
 4. Start OpenCode normally:
@@ -79,5 +82,5 @@ opencode
 5. To switch between models, use the `/models` command and select a model. Choose `pioneer/auto` to use Pioneer's Code Router, or choose any specific canonical model returned by `GET /v1/models`.
 
 <Note>
-  The model list is pulled when you run the setup command. Re-run the setup command when you want OpenCode to pick up newly added Pioneer models. The command filters out `anthropic/pioneer/*` discovery aliases because they are only needed for Claude Code and would duplicate models in OpenCode.
+  The model list is pulled when you run the setup command. Re-run the setup command when you want OpenCode to pick up newly added Pioneer models. The command filters out `anthropic/pioneer/*` discovery aliases because they are only needed for Claude Code and would duplicate models in OpenCode. After setup, OpenCode reads the saved Pioneer credential from `~/.local/share/opencode/auth.json`, so `PIONEER_API_KEY` does not need to be exported in every terminal.
 </Note>
