@@ -53,8 +53,15 @@ openclaw --version
      curl -fsS "https://api.pioneer.ai/v1/models" \
        -H "Authorization: Bearer $PIONEER_API_KEY" \
        | jq --slurpfile current "$CONFIG_FILE" -c '
+         def dedupe:
+           reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
+         def catalog_models:
+           (.models // []) as $models
+           | if (($models | type) == "array" and ($models | length) > 0) then $models else (.data // []) end;
+         def model_id:
+           .slug // .id;
          def model_name:
-           (.display_name // .name // .id)
+           (.display_name // .name // .id // .slug)
            | split("/") | last
            | gsub("_"; " ")
            | gsub("-"; " ")
@@ -63,6 +70,37 @@ openclaw --version
            | gsub("\\bOss\\b"; "OSS")
            | gsub("\\bAi\\b"; "AI")
            | gsub("(?<n>[0-9]+(\\.[0-9]+)?)b\\b"; "\(.n)B");
+         def bool_supported($value):
+           $value == true or (($value | type) == "object" and $value.supported == true);
+         def input_modalities:
+           . as $row
+           | (
+               [
+                 ($row.input // $row.inputs // $row.modalities // $row.input_modalities // $row.inputModalities // $row.capabilities.input // $row.capabilities.inputs // $row.capabilities.modalities // [])
+                 | .[]?
+                 | select(type == "string")
+                 | ascii_downcase
+                 | select(. == "text" or . == "image" or . == "audio" or . == "video")
+               ]
+               | dedupe
+             ) as $inputs
+           | (if ($inputs | length) > 0 then $inputs else ["text"] end) as $base
+           | if ($row.capabilities.image_input.supported == true and (($base | index("image")) | not)) then $base + ["image"] else $base end;
+         def reasoning_levels:
+           [
+             (.supported_reasoning_levels // .reasoning_levels // .supported_reasoning_efforts // .supportedReasoningLevels // .supportedReasoningEfforts // [])
+             | .[]?
+             | if type == "string" then . else (.effort // .id // .level // .name // empty) end
+             | select(type == "string" and length > 0)
+           ] | dedupe;
+         def supports_reasoning:
+           (reasoning_levels | length) > 0
+           or bool_supported(.reasoning)
+           or bool_supported(.supports_reasoning)
+           or bool_supported(.supportsReasoning)
+           or bool_supported(.thinking)
+           or bool_supported(.capabilities.reasoning)
+           or bool_supported(.capabilities.thinking);
          def openclaw_model_id($id):
            if $id | startswith("pioneer/") then $id else "pioneer/" + $id end;
          (
@@ -76,18 +114,21 @@ openclaw --version
              }
            ] + (
              [
-               .data[]
+               catalog_models[]
                | select(.deprecated != true)
-               | select(.id != null)
-               | select(.id | startswith("anthropic/") | not)
-               | select(.id != "pioneer/auto" and .id != "auto")
-               | {
-                   id: .id,
+               | select(.object == null or .object == "model")
+               | select(model_id != null)
+               | select(model_id | startswith("anthropic/") | not)
+               | select(model_id != "pioneer/auto" and model_id != "auto")
+               | (reasoning_levels) as $levels
+               | ({
+                   id: model_id,
                    name: model_name,
-                   input: (["text"] + (if .capabilities.image_input.supported == true then ["image"] else [] end)),
-                   contextWindow: (.max_input_tokens // .context_window // 128000),
-                   maxTokens: (.max_tokens // 16000)
-                 }
+                   reasoning: supports_reasoning,
+                   input: input_modalities,
+                   contextWindow: (.max_input_tokens // .context_window // .contextWindow // .context_length // .contextLength // 128000),
+                   maxTokens: (.max_output_tokens // .max_tokens // .maxTokens // .max_completion_tokens // .maxCompletionTokens // 16000)
+                 } + (if ($levels | length) > 0 then {compat: {supportedReasoningEfforts: $levels}} else {} end))
              ]
              | unique_by(.id)
              | sort_by(.id)
@@ -123,7 +164,8 @@ openclaw --version
            --replace-path models.providers.pioneer.models \
            --replace-path agents.defaults.models
      ```
-   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads `.data[]`, deduplicates by `id`, filters `anthropic/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
+   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads the top-level `.models[]` catalog when present and falls back to `.data[]`, deduplicates by `id`, filters `anthropic/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
+   - OpenClaw uses `/think` for reasoning controls. Models that advertise `supported_reasoning_levels`, `reasoning`, `supports_reasoning`, or `thinking` metadata are registered with `reasoning: true`; when Pioneer advertises exact reasoning levels, the command also writes `compat.supportedReasoningEfforts` so OpenClaw can include levels such as `xhigh`.
    - To refresh the catalog later, re-run the same command. It replaces the Pioneer provider models and Pioneer agent allowlist while preserving non-Pioneer agent model entries.
 3. Start the local gateway and open the Web UI
    - The model-discovery command already sets `pioneer/auto` as the default model. You do not need to run `openclaw models set pioneer/auto` separately.
@@ -142,6 +184,7 @@ openclaw --version
      ```
    - This avoids the noisy full `openclaw doctor` flow during normal setup. `openclaw gateway install --force` keeps the macOS LaunchAgent service definition current, including the service environment. `openclaw gateway restart` then applies the Pioneer model config and gateway token.
    - `openclaw dashboard` may print a clean URL such as `http://127.0.0.1:18789/` while copying a token-authenticated URL to your clipboard.
+   - In the Web UI, choose a reasoning-capable Pioneer model and use the thinking selector to switch levels. From the CLI or chat input, send `/think low`, `/think medium`, `/think high`, or `/think off`. Send `/think` with no argument to see the current effective level.
 4. Verify the setup **(optional)**
    - These checks are useful when validating a fresh setup or debugging a user report:
      ```shellscript
