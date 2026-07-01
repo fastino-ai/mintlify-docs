@@ -148,20 +148,28 @@ openclaw --version
          --ref-id PIONEER_API_KEY
      ```
    - The gateway service must be able to resolve that variable. In practice, the auth-profile command above is the simpler path.
-4. Install and start the gateway
-   - For a local setup, keep the gateway on loopback:
+4. Safely install or restart the gateway
+   - For a local setup, keep the gateway on loopback and use the LaunchAgent service. Do not run `openclaw gateway run` during normal setup; that starts a second foreground gateway and will fail if the service already owns the port.
      ```shellscript
      openclaw config set gateway.mode local
-     openclaw gateway install
+
+     if openclaw gateway status >/tmp/openclaw-gateway-status.txt 2>&1; then
+       openclaw gateway restart
+     else
+       openclaw gateway install
+       openclaw gateway restart
+     fi
+
      openclaw gateway status
      ```
-   - If OpenClaw shows a security disclaimer during setup, read it and continue only if this is a trusted personal setup. Do not expose a tool-enabled gateway to untrusted users.
-5. Restart and verify
-   - Restart the gateway so provider and auth changes are loaded:
+   - If OpenClaw reports that the service config is out of date or non-standard, repair the LaunchAgent and restart it:
      ```shellscript
+     openclaw doctor --repair
      openclaw gateway restart
      openclaw gateway status
      ```
+   - If OpenClaw shows a security disclaimer during setup, read it and continue only if this is a trusted personal setup. Do not expose a tool-enabled gateway to untrusted users.
+5. Verify Pioneer through the running gateway
    - Use a live probe to confirm Pioneer auth and model routing actually work. OpenClaw may probe only the default/effective target even when the agent allowlist contains many Pioneer models; that is fine as long as the configured model count is greater than `1` and `pioneer/auto` probes successfully:
      ```shellscript
      openclaw models status --probe --probe-provider pioneer
@@ -230,12 +238,20 @@ openclaw --version
      ```shellscript
      openclaw agent --agent main --session-key cli-test --message "hello"
      ```
-5. `gateway already running` when using `openclaw gateway run`
-   - The LaunchAgent service is already bound to the gateway port. Use the Web UI or restart/stop the service instead:
+5. `gateway already running` or `Port 18789 is already in use`
+   - This usually means the LaunchAgent service is already bound to the gateway port. That is normal; do not start a second gateway with `openclaw gateway run`.
+   - For normal use, restart the service and open the Web UI:
      ```shellscript
-     openclaw dashboard
      openclaw gateway restart
-     # or, for foreground debugging only:
+     openclaw dashboard
+     ```
+   - If `gateway status` says the service config is out of date, repair and restart:
+     ```shellscript
+     openclaw doctor --repair
+     openclaw gateway restart
+     ```
+   - For foreground debugging only, stop the service first, then run the gateway in the foreground:
+     ```shellscript
      openclaw gateway stop
      openclaw gateway run
      ```
