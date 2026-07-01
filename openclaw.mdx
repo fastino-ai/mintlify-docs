@@ -1,5 +1,5 @@
 ---
-title: "Set up Pioneer as an OpenClaw custom provider"
+title: "OpenClaw"
 description: "Configure OpenClaw to use Pioneer's OpenAI-compatible endpoint, discover models via /v1/models, and run the local gateway with Pioneer Auto."
 ---
 
@@ -43,16 +43,13 @@ openclaw --version
      case "$AUTH_DB" in
        "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;;
      esac
-
      PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
      : "${PIONEER_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
-
      CONFIG_FILE="$(openclaw config file)"
      case "$CONFIG_FILE" in
        "~/"*) CONFIG_FILE="$HOME/${CONFIG_FILE#"~/"}" ;;
      esac
      [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
-
      curl -fsS "https://api.pioneer.ai/v1/models" \
        -H "Authorization: Bearer $PIONEER_API_KEY" \
        | jq --slurpfile current "$CONFIG_FILE" -c '
@@ -66,10 +63,8 @@ openclaw --version
            | gsub("\\bOss\\b"; "OSS")
            | gsub("\\bAi\\b"; "AI")
            | gsub("(?<n>[0-9]+(\\.[0-9]+)?)b\\b"; "\(.n)B");
-
          def openclaw_model_id($id):
            if $id | startswith("pioneer/") then $id else "pioneer/" + $id end;
-
          (
            [
              {
@@ -135,13 +130,11 @@ openclaw --version
    - Use the LaunchAgent service for normal local setup. Do not run `openclaw gateway run` unless you are intentionally debugging in the foreground.
      ```shellscript
      openclaw config set gateway.mode local
-
      GATEWAY_TOKEN="$(openclaw config get gateway.auth.token 2>/dev/null || true)"
      if [ -z "$GATEWAY_TOKEN" ] || [ "$GATEWAY_TOKEN" = "null" ]; then
        GATEWAY_TOKEN="$(openssl rand -hex 32)"
        openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
      fi
-
      openclaw gateway install --force
      openclaw gateway restart
      openclaw dashboard
@@ -154,7 +147,6 @@ openclaw --version
      ```shellscript
      openclaw models status --json \
        | jq '{defaultModel, allowed_count: (.allowed | length), first_allowed: .allowed[0:5]}'
-
      openclaw models status --probe --probe-provider pioneer
      ```
    - Expected result: `defaultModel` is `pioneer/auto`, `allowed_count` is greater than `1`, and the Pioneer auth probe succeeds.
@@ -200,7 +192,7 @@ openclaw --version
     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
     case "$AUTH_DB" in "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;; esac
     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
-
+    
     curl -fsS "https://api.pioneer.ai/v1/models" \
       -H "Authorization: Bearer $PIONEER_API_KEY" \
       | jq -r '.data[].id | select(test("^pioneer/(auto|auto_v1|general)$"))'
