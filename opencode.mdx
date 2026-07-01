@@ -33,11 +33,43 @@ cp "$AUTH_FILE" "$AUTH_FILE.bak.$(date +%Y%m%d%H%M%S)"
 curl -fsS "https://api.pioneer.ai/v1/models" \
   -H "Authorization: Bearer $PIONEER_API_KEY" \
   | jq --slurpfile current "$CONFIG_FILE" '
+    def dedupe:
+      reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
+
+    def catalog_models:
+      (.models // []) as $models
+      | if (($models | type) == "array" and ($models | length) > 0) then $models else (.data // []) end;
+
+    def model_id:
+      .slug // .id;
+
     def model_name:
-      (.display_name // .id)
+      (.display_name // .name // .id // .slug)
       | sub(" (?<major>[0-9]+) (?<minor>[0-9]+)(?= |$)"; " \(.major).\(.minor)")
       | gsub("\\bGpt\\b"; "GPT")
       | gsub("\\bOss\\b"; "OSS");
+
+    def reasoning_levels:
+      [
+        (.supported_reasoning_levels // .reasoning_levels // .supported_reasoning_efforts // [])
+        | .[]
+        | if type == "string" then . else (.effort // .id // .level // .name // empty) end
+        | select(type == "string" and length > 0)
+      ] | dedupe;
+
+    def model_limits:
+      (.max_input_tokens // .context_window // .contextWindow // null) as $context
+      | (.max_output_tokens // .max_tokens // .maxTokens // null) as $output
+      | if ($context != null and $output != null) then {context: $context, output: $output} else {} end;
+
+    def opencode_model:
+      (reasoning_levels) as $levels
+      | ({name: model_name}
+        + (if (model_limits | length) > 0 then {limit: model_limits} else {} end)
+        + (if ($levels | length) > 0 then {
+            reasoning: true,
+            variants: ($levels | map({key: ., value: {reasoningEffort: .}}) | from_entries)
+          } else {} end));
 
     ($current[0] // {}) + {
       "$schema": "https://opencode.ai/config.json",
@@ -53,14 +85,14 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
           models: (
             {"auto": {"id": "pioneer/auto", "name": "Pioneer Auto"}}
             + (
-              [.data[]
+              [catalog_models[]
                 | select(.deprecated != true)
-                | select(.id != null)
+                | select(model_id != null)
                 # Hide Claude Code discovery aliases so OpenCode does not show every model twice.
-                | select(.id | startswith("anthropic/pioneer/") | not)
+                | select(model_id | startswith("anthropic/pioneer/") | not)
                 # Add the router once as the pioneer/auto model below, even if /v1/models includes it.
-                | select(.id != "pioneer/auto" and .id != "auto")
-                | {key: .id, value: {name: model_name}}]
+                | select(model_id != "pioneer/auto" and model_id != "auto")
+                | {key: model_id, value: opencode_model}]
               | from_entries
             )
           )
@@ -82,6 +114,8 @@ opencode
 
 5. To switch between models, use the `/models` command and select a model. Choose `pioneer/auto` to use Pioneer's Code Router, or choose any specific canonical model returned by `GET /v1/models`.
 
+OpenCode reads Pioneer's `supported_reasoning_levels` metadata as model variants. For models that advertise thinking levels, use OpenCode's variant selector or start OpenCode with `--variant high` to pick a reasoning effort such as `low`, `medium`, `high`, or `xhigh`.
+
 <Note>
   The model list is pulled when you run the setup command. Re-run the setup command when you want OpenCode to pick up newly added Pioneer models. The command filters out `anthropic/pioneer/*` discovery aliases because they are only needed for Claude Code and would duplicate models in OpenCode. After setup, OpenCode reads the saved Pioneer credential from `~/.local/share/opencode/auth.json`, so `PIONEER_API_KEY` does not need to be exported in every terminal.
 </Note>
@@ -97,13 +131,13 @@ opencode
     AUTH_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json"
     CONFIG_TMP="$(mktemp)"
     AUTH_TMP="$(mktemp)"
-    
+
     [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
     [ -f "$AUTH_FILE" ] || printf '{}\n' > "$AUTH_FILE"
-    
+
     jq 'del(.provider.pioneer) | if .model == "pioneer/auto" then del(.model) else . end' \
       "$CONFIG_FILE" > "$CONFIG_TMP"
-    
+
     jq 'del(.pioneer)' "$AUTH_FILE" > "$AUTH_TMP"
     chmod 600 "$AUTH_TMP"
     mv "$CONFIG_TMP" "$CONFIG_FILE"
