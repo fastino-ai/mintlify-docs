@@ -150,24 +150,19 @@ openclaw --version
    - The gateway service must be able to resolve that variable. In practice, the auth-profile command above is the simpler path.
 4. Safely install or restart the gateway
    - For a local setup, keep the gateway on loopback and use the LaunchAgent service. Do not run `openclaw gateway run` during normal setup; that starts a second foreground gateway and will fail if the service already owns the port.
+   - Configure gateway token auth before checking the dashboard or gateway probe. This avoids the Control UI getting stuck at `Auth required` and avoids `device identity required` during status probes:
      ```shellscript
      openclaw config set gateway.mode local
 
-     if openclaw gateway status >/tmp/openclaw-gateway-status.txt 2>&1; then
-       openclaw gateway restart
-     else
-       openclaw gateway install
-       openclaw gateway restart
+     if [ -z "$(openclaw config get gateway.auth.token 2>/dev/null)" ]; then
+       openclaw doctor --generate-gateway-token --yes
      fi
 
+     openclaw gateway install --force
+     openclaw gateway restart
      openclaw gateway status
      ```
-   - Configure gateway token auth before opening the Web UI. This avoids the Control UI getting stuck at `Auth required`:
-     ```shellscript
-     openclaw doctor --generate-gateway-token --yes
-     openclaw gateway restart
-     ```
-   - If OpenClaw reports that the service config is out of date or non-standard, repair the LaunchAgent and restart it:
+   - If OpenClaw still reports that the service config is out of date or non-standard, repair the LaunchAgent and restart it:
      ```shellscript
      openclaw doctor --repair
      openclaw gateway restart
