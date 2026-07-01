@@ -64,41 +64,17 @@ openclaw --version
                  api: "openai-completions",
                  models: (
                    [
-                     {
-                       id: "pioneer/auto",
-                       name: "Pioneer Auto",
-                       input: ["text"],
-                       contextWindow: 1000000,
-                       maxTokens: 16000
-                     },
-                     {
-                       id: "pioneer/auto_v1.1",
-                       name: "Pioneer Auto v1.1",
-                       input: ["text"],
-                       contextWindow: 1000000,
-                       maxTokens: 16000
-                     },
-                     {
-                       id: "pioneer/auto_v1.2",
-                       name: "Pioneer Auto v1.2",
-                       input: ["text"],
-                       contextWindow: 1000000,
-                       maxTokens: 16000
-                     },
-                     (
-                       .data[]
-                       | select(.deprecated != true)
-                       | select(.id != null)
-                       | select(.id | startswith("anthropic/pioneer/") | not)
-                       | select(.id as $id | ["auto", "pioneer/auto", "pioneer/auto_v1.1", "pioneer/auto_v1.2"] | index($id) | not)
-                       | {
-                           id: .id,
-                           name: model_name,
-                           input: (["text"] + (if .capabilities.image_input.supported == true then ["image"] else [] end)),
-                           contextWindow: (.max_input_tokens // .context_window // 128000),
-                           maxTokens: (.max_tokens // 16000)
-                         }
-                     )
+                     .data[]
+                     | select(.deprecated != true)
+                     | select(.id != null)
+                     | select(.id | startswith("anthropic/pioneer/") | not)
+                     | {
+                         id: .id,
+                         name: model_name,
+                         input: (["text"] + (if .capabilities.image_input.supported == true then ["image"] else [] end)),
+                         contextWindow: (.max_input_tokens // .context_window // 128000),
+                         maxTokens: (.max_tokens // 16000)
+                       }
                    ]
                    | unique_by(.id)
                    | sort_by(.id)
@@ -109,7 +85,7 @@ openclaw --version
          }' \
        | openclaw config patch --stdin --replace-path models.providers.pioneer.models
      ```
-   - The command reads `.data[]`, adds the Pioneer router models (`pioneer/auto`, `pioneer/auto_v1.1`, and `pioneer/auto_v1.2`) explicitly, deduplicates by `id`, and filters `anthropic/pioneer/*` Claude Code discovery aliases so OpenClaw does not show duplicate models.
+   - The command reads only `.data[]`, deduplicates by `id`, and filters `anthropic/pioneer/*` Claude Code discovery aliases so OpenClaw does not show duplicate models.
    - To refresh the catalog later, re-run the same command. It replaces only `models.providers.pioneer.models` and leaves the rest of your OpenClaw config intact.
 3. Check the discovered models
    - Confirm OpenClaw sees the generated Pioneer provider catalog:
@@ -118,7 +94,7 @@ openclaw --version
      ```
    - Set the default model if needed. Use any model ID returned by the list command:
      ```shellscript
-     openclaw models set pioneer/auto
+     openclaw models set pioneer/claude-sonnet-4-6
      ```
    - If you choose to use environment variables instead of `openclaw models auth paste-api-key`, configure the header as a structured env reference:
      ```shellscript
