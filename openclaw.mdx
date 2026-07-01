@@ -1,5 +1,5 @@
 ---
-title: "Integrate OpenClaw with Pioneer as a custom provider"
+title: "OpenClaw"
 description: "Configure OpenClaw to use Pioneer's OpenAI-compatible endpoint, discover models via /v1/models, and run the local gateway with Pioneer Auto."
 ---
 
@@ -38,6 +38,112 @@ openclaw --version
 2. Discover and register Pioneer models
    - Pioneer's supported inference models can change over time. Use the OpenAI-compatible `GET /v1/models` catalog as the source of truth and convert it directly into OpenClaw model config.
    - This command reads the Pioneer key from the OpenClaw auth profile saved in step 1, uses it for the catalog fetch, and writes the discovered model catalog into `~/.openclaw/openclaw.json`.
+     ```shellscript
+     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
+     case "$AUTH_DB" in
+       "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;;
+     esac
+     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+     : "${PIONEER_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
+     CONFIG_FILE="$(openclaw config file)"
+     case "$CONFIG_FILE" in
+       "~/"*) CONFIG_FILE="$HOME/${CONFIG_FILE#"~/"}" ;;
+     esac
+     [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
+     curl -fsS "https://api.pioneer.ai/v1/models" \
+       -H "Authorization: Bearer $PIONEER_API_KEY" \
+       | jq --slurpfile current "$CONFIG_FILE" -c '
+         def model_name:
+           (.display_name // .name // .id)
+           | split("/") | last
+           | gsub("_"; " ")
+           | gsub("-"; " ")
+           | sub(" (?<major>[0-9]+) (?<minor>[0-9]+)(?= |$)"; " \(.major).\(.minor)")
+           | gsub("\\bGpt\\b"; "GPT")
+           | gsub("\\bOss\\b"; "OSS")
+           | gsub("\\bAi\\b"; "AI")
+           | gsub("(?<n>[0-9]+(\\.[0-9]+)?)b\\b"; "\(.n)B");
+         def openclaw_model_id($id):
+           if $id | startswith("pioneer/") then $id else "pioneer/" + $id end;PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+     : "${PIONEER_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
+     CONFIG_FILE="$(openclaw config file)"
+     case "$CONFIG_FILE" in
+       "~/"*) CONFIG_FILE="$HOME/${CONFIG_FILE#"~/"}" ;;
+     esac
+     [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
+     curl -fsS "https://api.pioneer.ai/v1/models" \
+       -H "Authorization: Bearer $PIONEER_API_KEY" \
+       | jq --slurpfile current "$CONFIG_FILE" -c '
+         def model_name:
+           (.display_name // .name // .id)
+           | split("/") | last
+           | gsub("_"; " ")
+           | gsub("-"; " ")
+           | sub(" (?<major>[0-9]+) (?<minor>[0-9]+)(?= |$)"; " \(.major).\(.minor)")
+           | gsub("\\bGpt\\b"; "GPT")
+           | gsub("\\bOss\\b"; "OSS")
+           | gsub("\\bAi\\b"; "AI")
+           | gsub("(?<n>[0-9]+(\\.[0-9]+)?)b\\b"; "\(.n)B");
+         def openclaw_model_id($id):
+           if $id | startswith("pioneer/") then $id else "pioneer/" + $id end;
+         (
+           [
+             {
+               id: "pioneer/auto",
+               name: "Pioneer Auto",
+               input: ["text"],
+               contextWindow: 1000000,
+               maxTokens: 16000
+             }
+           ] + (
+             [
+               .data[]
+               | select(.deprecated != true)
+               | select(.id != null)
+               | select(.id | startswith("anthropic/") | not)
+               | select(.id != "pioneer/auto" and .id != "auto")
+               | {
+                   id: .id,
+                   name: model_name,
+                   input: (["text"] + (if .capabilities.image_input.supported == true then ["image"] else [] end)),
+                   contextWindow: (.max_input_tokens // .context_window // 128000),
+                   maxTokens: (.max_tokens // 16000)
+                 }
+             ]
+             | unique_by(.id)
+             | sort_by(.id)
+           )
+         ) as $pioneer_models
+         | ($current[0].agents.defaults.models // {}) as $current_agent_models
+         | {
+             models: {
+               providers: {
+                 pioneer: {
+                   baseUrl: "https://api.pioneer.ai/v1",
+                   api: "openai-completions",
+                   models: $pioneer_models
+                 }
+               }
+             },
+             agents: {
+               defaults: {
+                 model: {primary: "pioneer/auto"},
+                 models: (
+                   ($current_agent_models | with_entries(select(.key | startswith("pioneer/") | not)))
+                   + (
+                     $pioneer_models
+                     | map({key: openclaw_model_id(.id), value: {alias: .name}})
+                     | from_entries
+                   )
+                 )
+               }
+             }
+           }' \
+       | openclaw config patch \
+           --stdin \
+           --replace-path models.providers.pioneer.models \
+           --replace-path agents.defaults.models
+     ```
      ```shellscript
      AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
      case "$AUTH_DB" in
@@ -164,7 +270,134 @@ openclaw --version
            --replace-path models.providers.pioneer.models \
            --replace-path agents.defaults.models
      ```
-   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads the top-level `.models[]` catalog when present and falls back to `.data[]`, deduplicates by `id`, filters `anthropic/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
+     ```shellscript
+     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
+     case "$AUTH_DB" in
+       "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;;
+     esac
+     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+     : "${PIONEER_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
+     CONFIG_FILE="$(openclaw config file)"
+     case "$CONFIG_FILE" in
+       "~/"*) CONFIG_FILE="$HOME/${CONFIG_FILE#"~/"}" ;;
+     esac
+     [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
+     curl -fsS "https://api.pioneer.ai/v1/models" \
+       -H "Authorization: Bearer $PIONEER_API_KEY" \
+       | jq --slurpfile current "$CONFIG_FILE" -c '
+         def dedupe:
+           reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
+         def catalog_models:
+           (.models // []) as $models
+           | if (($models | type) == "array" and ($models | length) > 0) then $models else (.data // []) end;
+         def model_id:
+           .slug // .id;
+         def model_name:
+           (.display_name // .name // .id // .slug)
+           | split("/") | last
+           | gsub("_"; " ")
+           | gsub("-"; " ")
+           | sub(" (?<major>[0-9]+) (?<minor>[0-9]+)(?= |$)"; " \(.major).\(.minor)")
+           | gsub("\\bGpt\\b"; "GPT")
+           | gsub("\\bOss\\b"; "OSS")
+           | gsub("\\bAi\\b"; "AI")
+           | gsub("(?<n>[0-9]+(\\.[0-9]+)?)b\\b"; "\(.n)B");
+         def bool_supported($value):
+           $value == true or (($value | type) == "object" and $value.supported == true);
+         def input_modalities:
+           . as $row
+           | (
+               [
+                 ($row.input // $row.inputs // $row.modalities // $row.input_modalities // $row.inputModalities // $row.capabilities.input // $row.capabilities.inputs // $row.capabilities.modalities // [])
+                 | .[]?
+                 | select(type == "string")
+                 | ascii_downcase
+                 | select(. == "text" or . == "image" or . == "audio" or . == "video")
+               ]
+               | dedupe
+             ) as $inputs
+           | (if ($inputs | length) > 0 then $inputs else ["text"] end) as $base
+           | if ($row.capabilities.image_input.supported == true and (($base | index("image")) | not)) then $base + ["image"] else $base end;
+         def reasoning_levels:
+           [
+             (.supported_reasoning_levels // .reasoning_levels // .supported_reasoning_efforts // .supportedReasoningLevels // .supportedReasoningEfforts // [])
+             | .[]?
+             | if type == "string" then . else (.effort // .id // .level // .name // empty) end
+             | select(type == "string" and length > 0)
+           ] | dedupe;
+         def supports_reasoning:
+           (reasoning_levels | length) > 0
+           or bool_supported(.reasoning)
+           or bool_supported(.supports_reasoning)
+           or bool_supported(.supportsReasoning)
+           or bool_supported(.thinking)
+           or bool_supported(.capabilities.reasoning)
+           or bool_supported(.capabilities.thinking);
+         def openclaw_model_id($id):
+           if $id | startswith("pioneer/") then $id else "pioneer/" + $id end;
+         (
+           [
+             {
+               id: "pioneer/auto",
+               name: "Pioneer Auto",
+               input: ["text"],
+               contextWindow: 1000000,
+               maxTokens: 16000
+             }
+           ] + (
+             [
+               catalog_models[]
+               | select(.deprecated != true)
+               | select(.object == null or .object == "model")
+               | select(model_id != null)
+               | select(model_id | startswith("anthropic/") | not)
+               | select(model_id != "pioneer/auto" and model_id != "auto")
+               | (reasoning_levels) as $levels
+               | ({
+                   id: model_id,
+                   name: model_name,
+                   reasoning: supports_reasoning,
+                   input: input_modalities,
+                   contextWindow: (.max_input_tokens // .context_window // .contextWindow // .context_length // .contextLength // 128000),
+                   maxTokens: (.max_output_tokens // .max_tokens // .maxTokens // .max_completion_tokens // .maxCompletionTokens // 16000)
+                 } + (if ($levels | length) > 0 then {compat: {supportedReasoningEfforts: $levels}} else {} end))
+             ]
+             | unique_by(.id)
+             | sort_by(.id)
+           )
+         ) as $pioneer_models
+         | ($current[0].agents.defaults.models // {}) as $current_agent_models
+         | {
+             models: {
+               providers: {
+                 pioneer: {
+                   baseUrl: "https://api.pioneer.ai/v1",
+                   api: "openai-completions",
+                   models: $pioneer_models
+                 }
+               }
+             },
+             agents: {
+               defaults: {
+                 model: {primary: "pioneer/auto"},
+                 models: (
+                   ($current_agent_models | with_entries(select(.key | startswith("pioneer/") | not)))
+                   + (
+                     $pioneer_models
+                     | map({key: openclaw_model_id(.id), value: {alias: .name}})
+                     | from_entries
+                   )
+                 )
+               }
+             }
+           }' \
+       | openclaw config patch \
+           --stdin \
+           --replace-path models.providers.pioneer.models \
+           --replace-path agents.defaults.models
+     ```
+   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads the top-level `.models[]` catalog when present and falls back to the top-level `.models[]` catalog when present and falls back to `.data[]`, deduplicates by `id`, filters `anthropic/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
+   - OpenClaw uses `/think` for reasoning controls. Models that advertise `supported_reasoning_levels`, `reasoning`, `supports_reasoning`, or `thinking` metadata are registered with `reasoning: true`; when Pioneer advertises exact reasoning levels, the command also writes `compat.supportedReasoningEfforts` so OpenClaw can include levels such as `xhigh`.
    - OpenClaw uses `/think` for reasoning controls. Models that advertise `supported_reasoning_levels`, `reasoning`, `supports_reasoning`, or `thinking` metadata are registered with `reasoning: true`; when Pioneer advertises exact reasoning levels, the command also writes `compat.supportedReasoningEfforts` so OpenClaw can include levels such as `xhigh`.
    - To refresh the catalog later, re-run the same command. It replaces the Pioneer provider models and Pioneer agent allowlist while preserving non-Pioneer agent model entries.
 3. Start the local gateway and open the Web UI
@@ -176,6 +409,10 @@ openclaw --version
      if [ -z "$GATEWAY_TOKEN" ] || [ "$GATEWAY_TOKEN" = "null" ]; then
        GATEWAY_TOKEN="$(openssl rand -hex 32)"
        openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
+     fiGATEWAY_TOKEN="$(openclaw config get gateway.auth.token 2>/dev/null || true)"
+     if [ -z "$GATEWAY_TOKEN" ] || [ "$GATEWAY_TOKEN" = "null" ]; then
+       GATEWAY_TOKEN="$(openssl rand -hex 32)"
+       openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
      fi
      openclaw gateway install --force
      openclaw gateway restart
@@ -184,6 +421,7 @@ openclaw --version
      ```
    - This avoids the noisy full `openclaw doctor` flow during normal setup. `openclaw gateway install --force` keeps the macOS LaunchAgent service definition current, including the service environment. `openclaw gateway restart` then applies the Pioneer model config and gateway token.
    - `openclaw dashboard` may print a clean URL such as `http://127.0.0.1:18789/` while copying a token-authenticated URL to your clipboard.
+   - In the Web UI, choose a reasoning-capable Pioneer model and use the thinking selector to switch levels. From the CLI or chat input, send `/think low`, `/think medium`, `/think high`, or `/think off`. Send `/think` with no argument to see the current effective level.
    - In the Web UI, choose a reasoning-capable Pioneer model and use the thinking selector to switch levels. From the CLI or chat input, send `/think low`, `/think medium`, `/think high`, or `/think off`. Send `/think` with no argument to see the current effective level.
 4. Verify the setup **(optional)**
    - These checks are useful when validating a fresh setup or debugging a user report:
