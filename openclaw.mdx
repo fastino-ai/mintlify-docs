@@ -175,88 +175,129 @@ openclaw --version
 
 ### Troubleshooting OpenClaw integration
 
-1. `Missing auth - pioneer`
-   - OpenClaw does not have a Pioneer auth profile. Run:
-     ```shellscript
-     openclaw models auth paste-api-key --provider pioneer
-     openclaw models status --probe --probe-provider pioneer
-     ```
-2. Only `pioneer/auto` appears in OpenClaw
-   - The catalog fetch likely did not read the saved OpenClaw auth profile. Confirm the Pioneer profile exists, then rerun the discovery command.
-   - Confirm the saved auth profile exists:
-     ```shellscript
-     openclaw models auth list --provider pioneer
-     ```
-   - Confirm the catalog exposes the expected Pioneer router models before rerunning the discovery command:
-     ```shellscript
-     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
-     case "$AUTH_DB" in "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;; esac
-     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+<AccordionGroup>
+  <Accordion title="Missing auth - pioneer" icon="key-round">
+    OpenClaw does not have a Pioneer auth profile. Run:
 
-     curl -fsS "https://api.pioneer.ai/v1/models" \
-       -H "Authorization: Bearer $PIONEER_API_KEY" \
-       | jq -r '.data[].id | select(test("^pioneer/(auto|auto_v1|general)$"))'
-     ```
-   - Expected output includes `pioneer/auto`, `pioneer/auto_v1.1`, `pioneer/auto_v1.2`, and `pioneer/general`. If that works, rerun the discovery command and restart the gateway.
-3. `Missing env var "PIONEER_API_KEY"`
-   - This usually means the config points at an environment variable that is not visible to the OpenClaw process or gateway service. Prefer the auth-profile setup:
-     ```shellscript
-     openclaw models auth paste-api-key --provider pioneer
-     ```
-   - If you intentionally use an env reference, confirm the variable is visible to the process that runs OpenClaw:
-     ```shellscript
-     test -n "$PIONEER_API_KEY" && echo "set" || echo "not set"
-     ```
-   - For launchd, `launchctl setenv` does not persist across reboots and may not be enough if OpenClaw uses a generated service environment wrapper.
-4. `Gateway service not loaded`
-   - Reinstall and restart the LaunchAgent:
-     ```shellscript
-     openclaw gateway install --force
-     openclaw gateway restart
-     openclaw gateway status
-     ```
-5. `No target session selected`
-   - Pass a session target:
-     ```shellscript
-     openclaw agent --agent main --session-key cli-test --message "hello"
-     ```
-6. `gateway already running` or `Port 18789 is already in use`
-   - This usually means the LaunchAgent service is already bound to the gateway port. That is normal; do not start a second gateway with `openclaw gateway run`.
-   - For normal use, restart the service and open the Web UI:
-     ```shellscript
-     openclaw gateway restart
-     openclaw dashboard
-     ```
-   - If `gateway status` says the service config is out of date, repair and restart:
-     ```shellscript
-     openclaw doctor --repair
-     openclaw gateway restart
-     ```
-   - For foreground debugging only, stop the service first, then run the gateway in the foreground:
-     ```shellscript
-     openclaw gateway stop
-     openclaw gateway run
-     ```
-7. Dashboard says `Auth required`, `device identity required`, or `gateway token mismatch`
-   - Use the configured shared gateway token. The Control UI expects the same token from `gateway.auth.token` or `OPENCLAW_GATEWAY_TOKEN`:
-     ```shellscript
-     openclaw config get gateway.auth.token
-     ```
-   - Paste that value into the Web UI `Gateway Token` field and click **Connect**.
-   - If the command is empty, create a token and restart the gateway:
-     ```shellscript
-     GATEWAY_TOKEN="$(openssl rand -hex 32)"
-     openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
-     openclaw gateway install --force
-     openclaw gateway restart
-     openclaw dashboard
-     unset GATEWAY_TOKEN
-     ```
-   - Do not manually extract tokens from OpenClaw's SQLite state database.
-8. Gateway is running but probe fails
-   - Check reachability and logs:
-     ```shellscript
-     openclaw gateway status
-     openclaw gateway probe
-     openclaw logs --follow
-     ```
+    ```shellscript
+    openclaw models auth paste-api-key --provider pioneer
+    openclaw models status --probe --probe-provider pioneer
+    ```
+  </Accordion>
+
+  <Accordion title="Only pioneer/auto appears in OpenClaw" icon="list-filter">
+    The catalog fetch likely did not read the saved OpenClaw auth profile. Confirm the Pioneer profile exists, then rerun the discovery command.
+
+    Confirm the saved auth profile exists:
+
+    ```shellscript
+    openclaw models auth list --provider pioneer
+    ```
+
+    Confirm the catalog exposes the expected Pioneer router models before rerunning the discovery command:
+
+    ```shellscript
+    AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
+    case "$AUTH_DB" in "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;; esac
+    PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+
+    curl -fsS "https://api.pioneer.ai/v1/models" \
+      -H "Authorization: Bearer $PIONEER_API_KEY" \
+      | jq -r '.data[].id | select(test("^pioneer/(auto|auto_v1|general)$"))'
+    ```
+
+    Expected output includes at least `pioneer/auto`. Versioned router entries such as `pioneer/auto_v1.1`, `pioneer/auto_v1.2`, and `pioneer/general` appear when they are exposed by the production catalog for your key. If the catalog output is correct, rerun the discovery command and restart the gateway.
+  </Accordion>
+
+  <Accordion title='Missing env var "PIONEER_API_KEY"' icon="terminal">
+    This usually means the config points at an environment variable that is not visible to the OpenClaw process or gateway service. Prefer the auth-profile setup:
+
+    ```shellscript
+    openclaw models auth paste-api-key --provider pioneer
+    ```
+
+    If you intentionally use an env reference, confirm the variable is visible to the process that runs OpenClaw:
+
+    ```shellscript
+    test -n "$PIONEER_API_KEY" && echo "set" || echo "not set"
+    ```
+
+    For launchd, `launchctl setenv` does not persist across reboots and may not be enough if OpenClaw uses a generated service environment wrapper.
+  </Accordion>
+
+  <Accordion title="Gateway service not loaded" icon="plug-zap">
+    Reinstall and restart the LaunchAgent:
+
+    ```shellscript
+    openclaw gateway install --force
+    openclaw gateway restart
+    openclaw gateway status
+    ```
+  </Accordion>
+
+  <Accordion title="No target session selected" icon="message-square">
+    Pass a session target:
+
+    ```shellscript
+    openclaw agent --agent main --session-key cli-test --message "hello"
+    ```
+  </Accordion>
+
+  <Accordion title="Gateway already running or port 18789 is in use" icon="circle-alert">
+    This usually means the LaunchAgent service is already bound to the gateway port. That is normal; do not start a second gateway with `openclaw gateway run`.
+
+    For normal use, restart the service and open the Web UI:
+
+    ```shellscript
+    openclaw gateway restart
+    openclaw dashboard
+    ```
+
+    If `gateway status` says the service config is out of date, repair and restart:
+
+    ```shellscript
+    openclaw doctor --repair
+    openclaw gateway restart
+    ```
+
+    For foreground debugging only, stop the service first, then run the gateway in the foreground:
+
+    ```shellscript
+    openclaw gateway stop
+    openclaw gateway run
+    ```
+  </Accordion>
+
+  <Accordion title="Dashboard auth required or gateway token mismatch" icon="shield-alert">
+    Use the configured shared gateway token. The Control UI expects the same token from `gateway.auth.token` or `OPENCLAW_GATEWAY_TOKEN`:
+
+    ```shellscript
+    openclaw config get gateway.auth.token
+    ```
+
+    Paste that value into the Web UI `Gateway Token` field and click **Connect**.
+
+    If the command is empty, create a token and restart the gateway:
+
+    ```shellscript
+    GATEWAY_TOKEN="$(openssl rand -hex 32)"
+    openclaw config set gateway.auth.token "$GATEWAY_TOKEN"
+    openclaw gateway install --force
+    openclaw gateway restart
+    openclaw dashboard
+    unset GATEWAY_TOKEN
+    ```
+
+    Do not manually extract tokens from OpenClaw's SQLite state database.
+  </Accordion>
+
+  <Accordion title="Gateway is running but probe fails" icon="activity">
+    Check reachability and logs:
+
+    ```shellscript
+    openclaw gateway status
+    openclaw gateway probe
+    openclaw logs --follow
+    ```
+  </Accordion>
+</AccordionGroup>
