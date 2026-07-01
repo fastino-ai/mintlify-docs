@@ -30,7 +30,14 @@ cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
 
 curl -fsS "https://api.pioneer.ai/v1/models" \
   -H "Authorization: Bearer $PIONEER_API_KEY" \
-  | jq --slurpfile current "$CONFIG_FILE" '($current[0] // {}) + {
+  | jq --slurpfile current "$CONFIG_FILE" '
+    def model_name:
+      (.display_name // .id)
+      | sub(" (?<major>[0-9]+) (?<minor>[0-9]+)(?= |$)"; " \(.major).\(.minor)")
+      | gsub("\\bGpt\\b"; "GPT")
+      | gsub("\\bOss\\b"; "OSS");
+
+    ($current[0] // {}) + {
       "$schema": "https://opencode.ai/config.json",
       model: "pioneer/auto",
       provider: (($current[0].provider // {}) + {
@@ -52,7 +59,7 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
                 | select(.id | startswith("anthropic/pioneer/") | not)
                 # Add the router once as the pioneer/auto model below, even if /v1/models includes it.
                 | select(.id != "pioneer/auto" and .id != "auto")
-                | {key: .id, value: {name: (.display_name // .id)}}]
+                | {key: .id, value: {name: model_name}}]
               | from_entries
             )
           )
