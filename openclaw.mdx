@@ -27,20 +27,24 @@ openclaw --version
 ### Setup steps
 
 1. Save Pioneer auth in OpenClaw
-   - Use OpenClaw's model auth store for the Pioneer API key. This is more reliable than relying on shell or `launchctl` environment propagation, because the OpenClaw gateway runs as a service.
+   - Paste your Pioneer API key once. OpenClaw stores it in the local auth profile store and the gateway reuses it across terminal sessions.
      ```shellscript
      openclaw models auth paste-api-key --provider pioneer
      ```
-   - Paste your Pioneer API key when prompted.
      <Note>
        Do not paste real API keys into docs, screenshots, shared shell history, or issue trackers. Rotate the key if it has been exposed.
      </Note>
 2. Discover and register Pioneer models
    - Pioneer's supported inference models can change over time. Use the OpenAI-compatible `GET /v1/models` catalog as the source of truth and convert it directly into OpenClaw model config.
-   - Set `PIONEER_API_KEY` for this one-time catalog fetch. OpenClaw still uses the auth profile from the previous step when it runs the gateway.
+   - This command reads the Pioneer key from the OpenClaw auth profile saved in step 1, uses it for the catalog fetch, and writes the discovered model catalog into `~/.openclaw/openclaw.json`.
      ```shellscript
-     export PIONEER_API_KEY='<YOUR_PIONEER_API_KEY>'
-     : "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
+     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
+     case "$AUTH_DB" in
+       "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;;
+     esac
+
+     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+     : "${PIONEER_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
 
      CONFIG_FILE="$(openclaw config file)"
      case "$CONFIG_FILE" in
@@ -176,7 +180,24 @@ openclaw --version
      openclaw models auth paste-api-key --provider pioneer
      openclaw models status --probe --probe-provider pioneer
      ```
-2. `Missing env var "PIONEER_API_KEY"`
+2. Only `pioneer/auto` appears in OpenClaw
+   - The catalog fetch likely did not read the saved OpenClaw auth profile. Confirm the Pioneer profile exists, then rerun the discovery command.
+   - Confirm the saved auth profile exists:
+     ```shellscript
+     openclaw models auth list --provider pioneer
+     ```
+   - Confirm the catalog exposes the expected Pioneer router models before rerunning the discovery command:
+     ```shellscript
+     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
+     case "$AUTH_DB" in "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;; esac
+     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+
+     curl -fsS "https://api.pioneer.ai/v1/models" \
+       -H "Authorization: Bearer $PIONEER_API_KEY" \
+       | jq -r '.data[].id | select(test("^pioneer/(auto|auto_v1|general)$"))'
+     ```
+   - Expected output includes `pioneer/auto`, `pioneer/auto_v1.1`, `pioneer/auto_v1.2`, and `pioneer/general`. If that works, rerun the discovery command and restart the gateway.
+3. `Missing env var "PIONEER_API_KEY"`
    - This usually means the config points at an environment variable that is not visible to the OpenClaw process or gateway service. Prefer the auth-profile setup:
      ```shellscript
      openclaw models auth paste-api-key --provider pioneer
@@ -186,19 +207,19 @@ openclaw --version
      test -n "$PIONEER_API_KEY" && echo "set" || echo "not set"
      ```
    - For launchd, `launchctl setenv` does not persist across reboots and may not be enough if OpenClaw uses a generated service environment wrapper.
-3. `Gateway service not loaded`
+4. `Gateway service not loaded`
    - Reinstall and restart the LaunchAgent:
      ```shellscript
      openclaw gateway install --force
      openclaw gateway restart
      openclaw gateway status
      ```
-4. `No target session selected`
+5. `No target session selected`
    - Pass a session target:
      ```shellscript
      openclaw agent --agent main --session-key cli-test --message "hello"
      ```
-5. `gateway already running` or `Port 18789 is already in use`
+6. `gateway already running` or `Port 18789 is already in use`
    - This usually means the LaunchAgent service is already bound to the gateway port. That is normal; do not start a second gateway with `openclaw gateway run`.
    - For normal use, restart the service and open the Web UI:
      ```shellscript
@@ -215,7 +236,7 @@ openclaw --version
      openclaw gateway stop
      openclaw gateway run
      ```
-6. Dashboard says `Auth required`, `device identity required`, or `gateway token mismatch`
+7. Dashboard says `Auth required`, `device identity required`, or `gateway token mismatch`
    - Use the configured shared gateway token. The Control UI expects the same token from `gateway.auth.token` or `OPENCLAW_GATEWAY_TOKEN`:
      ```shellscript
      openclaw config get gateway.auth.token
@@ -231,7 +252,7 @@ openclaw --version
      unset GATEWAY_TOKEN
      ```
    - Do not manually extract tokens from OpenClaw's SQLite state database.
-7. Gateway is running but probe fails
+8. Gateway is running but probe fails
    - Check reachability and logs:
      ```shellscript
      openclaw gateway status
