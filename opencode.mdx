@@ -1,147 +1,24 @@
 ---
 title: "OpenCode"
-description: "Set up the OpenCode CLI with Pioneer by fetching the live model catalog, storing your API key, and configuring pioneer/auto as the default model."
+description: "Pioneer is an inference provider on OpenCode, making integration simple to set up."
 ---
 
 Steps to integrate OpenCode with Pioneer:
 
 1. Download and [set up](https://opencode.ai/download) the OpenCode CLI.
-2. Set your Pioneer API key for the one-time setup command:
-
-```bash
-export PIONEER_API_KEY="<Your Pioneer API key>"
-```
-
-3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, merges Pioneer into your global OpenCode config at `~/.config/opencode/opencode.json`, stores your API key in OpenCode's credentials file at `~/.local/share/opencode/auth.json`, and sets `pioneer/auto` as the default model:
-
-```bash
-: "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
-
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-CONFIG_FILE="$CONFIG_DIR/opencode.json"
-CONFIG_TMP="$(mktemp)"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
-AUTH_FILE="$DATA_DIR/auth.json"
-AUTH_TMP="$(mktemp)"
-
-mkdir -p "$CONFIG_DIR" "$DATA_DIR"
-[ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
-[ -f "$AUTH_FILE" ] || printf '{}\n' > "$AUTH_FILE"
-cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
-cp "$AUTH_FILE" "$AUTH_FILE.bak.$(date +%Y%m%d%H%M%S)"
-
-curl -fsS "https://api.pioneer.ai/v1/models" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
-  | jq --slurpfile current "$CONFIG_FILE" '
-    def dedupe:
-      reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
-
-    def catalog_models:
-      (.models // []) as $models
-      | if (($models | type) == "array" and ($models | length) > 0) then $models else (.data // []) end;
-
-    def model_id:
-      .slug // .id;
-
-    def model_name:
-      (.display_name // .name // .id // .slug)
-      | sub(" (?<major>[0-9]+) (?<minor>[0-9]+)(?= |$)"; " \(.major).\(.minor)")
-      | gsub("\\bGpt\\b"; "GPT")
-      | gsub("\\bOss\\b"; "OSS");
-
-    def reasoning_levels:
-      [
-        (.supported_reasoning_levels // .reasoning_levels // .supported_reasoning_efforts // [])
-        | .[]
-        | if type == "string" then . else (.effort // .id // .level // .name // empty) end
-        | select(type == "string" and length > 0)
-      ] | dedupe;
-
-    def model_limits:
-      (.max_input_tokens // .context_window // .contextWindow // null) as $context
-      | (.max_output_tokens // .max_tokens // .maxTokens // null) as $output
-      | if ($context != null and $output != null) then {context: $context, output: $output} else {} end;
-
-    def opencode_model:
-      (reasoning_levels) as $levels
-      | ({name: model_name}
-        + (if (model_limits | length) > 0 then {limit: model_limits} else {} end)
-        + (if ($levels | length) > 0 then {
-            reasoning: true,
-            variants: ($levels | map({key: ., value: {reasoningEffort: .}}) | from_entries)
-          } else {} end));
-
-    ($current[0] // {}) + {
-      "$schema": "https://opencode.ai/config.json",
-      model: "pioneer/auto",
-      provider: (($current[0].provider // {}) + {
-        pioneer: {
-          npm: "@ai-sdk/openai-compatible",
-          name: "Pioneer",
-          env: ["PIONEER_API_KEY"],
-          options: {
-            baseURL: "https://api.pioneer.ai/v1"
-          },
-          models: (
-            {"auto": {"id": "pioneer/auto", "name": "Pioneer Auto"}}
-            + (
-              [catalog_models[]
-                | select(.deprecated != true)
-                | select(model_id != null)
-                # Hide Claude Code discovery aliases so OpenCode does not show every model twice.
-                | select(model_id | startswith("anthropic/pioneer/") | not)
-                # Add the router once as the pioneer/auto model below, even if /v1/models includes it.
-                | select(model_id != "pioneer/auto" and model_id != "auto")
-                | {key: model_id, value: opencode_model}]
-              | from_entries
-            )
-          )
-        }
-      })
-    }' > "$CONFIG_TMP"
-
-jq '. + {pioneer: {type: "api", key: env.PIONEER_API_KEY}}' "$AUTH_FILE" > "$AUTH_TMP"
-chmod 600 "$AUTH_TMP"
-mv "$CONFIG_TMP" "$CONFIG_FILE"
-mv "$AUTH_TMP" "$AUTH_FILE"
-```
-
-4. Start OpenCode normally:
+2. Sign into Pioneer and get your API key from [agent.pioneer.ai/api-keys](https://agent.pioneer.ai/api-keys)
+3. In a fresh terminal, start OpenCode:
 
 ```bash
 opencode
 ```
 
-5. To switch between models, use the `/models` command and select a model. Choose `pioneer/auto` to use Pioneer's Code Router, or choose any specific canonical model returned by `GET /v1/models`.
+4. Type `/connect` command and select `Pioneer` from the drop-down list.
 
-OpenCode reads Pioneer's `supported_reasoning_levels` metadata as model variants. For models that advertise thinking levels, use OpenCode's variant selector or start OpenCode with `--variant high` to pick a reasoning effort such as `low`, `medium`, `high`, or `xhigh`.
+<Frame>
+  ![Pioneer Provider](/images/pioneer-provider.png)
+</Frame>
 
-<Note>
-  The model list is pulled when you run the setup command. Re-run the setup command when you want OpenCode to pick up newly added Pioneer models. The command filters out `anthropic/pioneer/*` discovery aliases because they are only needed for Claude Code and would duplicate models in OpenCode. After setup, OpenCode reads the saved Pioneer credential from `~/.local/share/opencode/auth.json`, so `PIONEER_API_KEY` does not need to be exported in every terminal.
-</Note>
-
-## Troubleshooting
-
-<AccordionGroup>
-  <Accordion title="How to remove the Pioneer setup" icon="trash">
-    If you need to undo the setup, remove only the Pioneer entries. This keeps the rest of your OpenCode config and credentials intact:
-
-    ```bash
-    CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
-    AUTH_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json"
-    CONFIG_TMP="$(mktemp)"
-    AUTH_TMP="$(mktemp)"
-    
-    [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
-    [ -f "$AUTH_FILE" ] || printf '{}\n' > "$AUTH_FILE"
-    
-    jq 'del(.provider.pioneer) | if .model == "pioneer/auto" then del(.model) else . end' \
-      "$CONFIG_FILE" > "$CONFIG_TMP"
-    
-    jq 'del(.pioneer)' "$AUTH_FILE" > "$AUTH_TMP"
-    chmod 600 "$AUTH_TMP"
-    mv "$CONFIG_TMP" "$CONFIG_FILE"
-    mv "$AUTH_TMP" "$AUTH_FILE"
-    ```
-  </Accordion>
-</AccordionGroup>
+4. Add in your Pioneer API key.
+5. Choose `Pioneer Auto` to use Pioneer's model router. Learn more about our model router [here](/concepts/router).
+6. To switch between models, use the `/models` command and select one from our catalog of 70\+ models (and growing).
