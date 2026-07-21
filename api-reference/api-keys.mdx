@@ -1,10 +1,10 @@
 ---
 title: "Pioneer API key management: create, list, and revoke"
 sidebarTitle: "API Keys"
-description: "Create, list, and revoke Pioneer API keys programmatically. The full key value is returned only at creation — store it immediately in a secrets manager."
+description: "Create Pioneer API keys from the dashboard, then list and revoke keys programmatically. The full secret key is returned only at creation — store it immediately in a secrets manager."
 ---
 
-Every request to the Pioneer API requires an API key passed in the `X-API-Key` header. You can manage your keys programmatically using these endpoints — useful for rotating keys in CI/CD pipelines, issuing scoped keys for different services, or automating key lifecycle management.
+Every request to the Pioneer API requires an API key passed in the `X-API-Key` header. Create keys in the Pioneer dashboard, then use the key management endpoints to list and revoke existing keys programmatically.
 
 <Tip>
   Store API keys in environment variables rather than hardcoding them in source code. For example, set `PIONEER_API_KEY` in your environment and read it at runtime. Never commit API keys to version control.
@@ -16,7 +16,7 @@ Every request to the Pioneer API requires an API key passed in the `X-API-Key` h
 
 `POST /create-api-key`
 
-Generates a new API key associated with your account. The full key value is returned only once at creation time — store it securely immediately.
+Generates a new API key associated with your account. This endpoint is used by the Pioneer dashboard and requires a browser session. Calls authenticated with an existing API key are rejected with `403 Forbidden` to prevent credential chaining.
 
 **Request body**
 
@@ -24,17 +24,18 @@ Generates a new API key associated with your account. The full key value is retu
   A descriptive name to identify this key. Use names that reflect the key's purpose or the service it belongs to, for example `"ci-pipeline"` or `"production-inference"`.
 </ParamField>
 
-```bash
-curl -X POST https://api.pioneer.ai/create-api-key \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-integration-key"}'
-```
+<Warning>
+  Do not use an existing API key to create another API key. `X-API-Key` authentication is not accepted for this endpoint; create keys from **Settings** -> **API Keys** in the dashboard.
+</Warning>
 
 **Response**
 
-<ResponseField name="key" type="string">
+<ResponseField name="secret_key" type="string">
   The full API key value. This is the only time it is returned in plaintext — copy it immediately and store it somewhere secure such as a secrets manager or environment variable.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Unique identifier for the key. Use this ID when revoking the key.
 </ResponseField>
 
 <ResponseField name="name" type="string">
@@ -43,6 +44,22 @@ curl -X POST https://api.pioneer.ai/create-api-key \
 
 <ResponseField name="created_at" type="string">
   ISO 8601 timestamp of when the key was created.
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  Last digits of the generated key for display and identification.
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  Optional ISO 8601 expiration timestamp, or `null` when the key does not expire.
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  Team the key is bound to.
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Whether Pioneer created a Stripe customer record during key creation.
 </ResponseField>
 
 <Warning>
@@ -76,10 +93,32 @@ curl https://api.pioneer.ai/list-api-keys \
     <ResponseField name="created_at" type="string">
       ISO 8601 creation timestamp.
     </ResponseField>
-    <ResponseField name="last_used_at" type="string">
+    <ResponseField name="api_key_last_digits" type="string">
+      Last digits of the key for display and identification.
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
       ISO 8601 timestamp of the most recent request made with this key, if available.
     </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      Expiration timestamp, or `null` when the key does not expire.
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      Team the key is bound to.
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      Total tokens used by this key.
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      Total cost attributed to this key.
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      Number of requests made with this key.
+    </ResponseField>
   </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Number of keys returned.
 </ResponseField>
 
 ---
@@ -107,4 +146,14 @@ curl -X DELETE https://api.pioneer.ai/delete-api-key \
   Revoking a key is immediate and irreversible. Ensure any services using the key are updated to use a replacement key before revoking the old one to avoid service interruptions.
 </Warning>
 
-Returns `204 No Content` on success.
+**Response**
+
+Returns `200 OK` with a JSON success body.
+
+<ResponseField name="success" type="boolean">
+  Whether the key was revoked.
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  Human-readable status message.
+</ResponseField>
