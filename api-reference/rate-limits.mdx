@@ -8,16 +8,21 @@ The Pioneer API enforces two layers of rate limits: **request-rate limits** that
 
 ## Request-rate limits
 
-A global default applies per client IP address. Per-endpoint limits apply per authenticated user and stack on top of the global default.
+Two independent layers protect the API:
+
+1. **Edge rate limit** — always applied to every request at the load balancer, before it reaches the API, regardless of endpoint or authentication. Aggregated by the IP address the edge observes, which is not always your application's true client IP (for example, requests proxied through a shared egress hop are aggregated together). Limit: 100,000 requests / 60 seconds.
+2. **Per-endpoint limit** — most endpoints below enforce their own limit scoped to your billing team (falling back to API key, then user, then client IP for unauthenticated requests). This is the limit that governs a normal, authenticated caller. It replaces the generic per-IP default for that endpoint rather than stacking on top of it — the per-IP default only governs endpoints with no listed override.
 
 | Endpoint | Scope | Limit |
 | --- | --- | --- |
-| All endpoints (default) | Per client IP | 1,000 / min · 10,000 / hour |
-| `POST /inference` | Per user | 1,200 / min |
-| `POST /v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages` | Per user | 200 / min |
+| All other endpoints (no endpoint-specific limit set) | Per client IP | 20,000 / min · 1,000,000 / hour |
+| `POST /inference` | Per user | 5,000 / min |
+| `POST /v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages` | Per user | 5,000 / min |
 | `POST /gliner-2/*` | Per user | 15,000 / min |
 | `POST /generate/*` | Per user | 120 / min |
 | `POST /felix/training-jobs` | Per user | 20 / min |
+
+For a single API key or team, the per-endpoint limit above is what actually binds. The 100,000 requests / 60 second edge limit is a separate, always-on ceiling shared by all traffic through the same load balancer — it only comes into play when many different callers share the same observed IP and collectively exceed it.
 
 ## Daily spending cap
 
