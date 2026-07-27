@@ -1,0 +1,237 @@
+---
+title: "Evaluate Pioneer models with Braintrust and Prime Intellect"
+sidebarTitle: "Third-party evals"
+description: "Point Braintrust or Prime Intellect at your Pioneer models. Both speak the OpenAI API, so you only change base_url and your API key — no adapters or proxies."
+---
+
+Pioneer serves an OpenAI-compatible API, so third-party eval tools work against your models without any adapter. Set `base_url` to `https://api.pioneer.ai/v1`, pass your Pioneer API key, and put a model ID in the `model` field. Everything else in your eval harness stays the same.
+
+This guide covers [Braintrust](https://www.braintrust.dev) for experiment tracking and LLM-as-judge scoring, and [Prime Intellect](https://docs.primeintellect.ai) for environment-based benchmarks such as GSM8K.
+
+<Tip>
+  You can run the LLM-as-judge scorer on Pioneer too. That means you don't need an OpenAI or Anthropic key anywhere in your eval pipeline.
+</Tip>
+
+## Choosing a model ID
+
+The `model` field accepts any of these, so comparing a fine-tune against its base model is a one-value change:
+
+| Value | Example | Use |
+|---|---|---|
+| Catalog slug | `Qwen/Qwen3-8B` | Baseline before fine-tuning |
+| Training job ID | `YOUR_TRAINING_JOB_ID` | One of your fine-tuned models |
+| Project name or ID | `my-extraction-project` | Whatever the project currently has deployed |
+
+## Braintrust
+
+### Install
+
+```bash
+pip install braintrust autoevals openai
+```
+
+### Write the eval
+
+Braintrust discovers Python files named `eval_*.py`. Create `evals/eval_pioneer.py`:
+
+<CodeGroup>
+
+```python evals/eval_pioneer.py
+import os
+
+import autoevals
+from braintrust import Eval, wrap_openai
+from openai import AsyncOpenAI, OpenAI
+
+BASE_URL = os.environ.get("PIONEER_BASE_URL", "https://api.pioneer.ai/v1")
+API_KEY = os.environ["PIONEER_API_KEY"]
+MODEL = os.environ.get("PIONEER_MODEL", "Qwen/Qwen3-8B")
+
+# wrap_openai records each call as a span, so prompts, completions, token
+# usage, and latency appear in the Braintrust UI.
+pioneer = wrap_openai(OpenAI(base_url=BASE_URL, api_key=API_KEY))
+
+# Run the judge on Pioneer as well. Scorers are awaited, so this client
+# must be the async variant.
+autoevals.init(client=AsyncOpenAI(base_url=BASE_URL, api_key=API_KEY))
+
+DATA = [
+    {"input": "What is 17 * 23?", "expected": "391"},
+    {"input": "What is the capital of France?", "expected": "Paris"},
+]
+
+
+def task(question: str) -> str:
+    response = pioneer.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": "Answer with the shortest possible answer."},
+            {"role": "user", "content": question},
+        ],
+        max_tokens=1024,
+        temperature=0,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+Eval(
+    "pioneer-decoder-eval",
+    data=lambda: DATA,
+    task=task,
+    scores=[autoevals.Levenshtein, autoevals.Factuality(model=MODEL)],
+    metadata={"model": MODEL, "base_url": BASE_URL},
+    max_concurrency=4,
+)
+```
+
+```typescript pioneer.eval.ts
+import { Factuality, Levenshtein } from "autoevals";
+import { Eval, wrapOpenAI } from "braintrust";
+import OpenAI from "openai";
+
+const baseURL = process.env.PIONEER_BASE_URL ?? "https://api.pioneer.ai/v1";
+const apiKey = process.env.PIONEER_API_KEY!;
+const model = process.env.PIONEER_MODEL ?? "Qwen/Qwen3-8B";
+
+const pioneer = wrapOpenAI(new OpenAI({ baseURL, apiKey }));
+
+Eval("pioneer-decoder-eval", {
+  data: () => [
+    { input: "What is 17 * 23?", expected: "391" },
+    { input: "What is the capital of France?", expected: "Paris" },
+  ],
+  task: async (question: string) => {
+    const response = await pioneer.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: "Answer with the shortest possible answer." },
+        { role: "user", content: question },
+      ],
+      max_tokens: 1024,
+      temperature: 0,
+    });
+    return response.choices[0].message.content?.trim() ?? "";
+  },
+  scores: [
+    Levenshtein,
+    async ({ input, output, expected }) =>
+      Factuality({ input, output, expected, model, client: pioneer as never }),
+  ],
+  metadata: { model, baseURL },
+  maxConcurrency: 4,
+});
+```
+
+</CodeGroup>
+
+### Run it
+
+Check that your model responds before you sign up for anything. The `--no-send-logs` flag runs the eval locally and prints a summary without a Braintrust account:
+
+```bash
+export PIONEER_API_KEY=YOUR_API_KEY
+braintrust eval --no-send-logs evals/
+```
+
+Once that works, add your Braintrust key to log the run as a tracked experiment:
+
+```bash
+export BRAINTRUST_API_KEY=YOUR_BRAINTRUST_KEY
+export PIONEER_API_KEY=YOUR_API_KEY
+braintrust eval evals/
+```
+
+For TypeScript, use `npx braintrust eval pioneer.eval.ts` with the same environment variables.
+
+### Compare a fine-tune against its base model
+
+Run the same file twice with a different `PIONEER_MODEL`. Braintrust stores each run as a separate experiment, so you can diff them side by side:
+
+```bash
+PIONEER_MODEL="Qwen/Qwen3-8B"      braintrust eval evals/
+PIONEER_MODEL="YOUR_TRAINING_JOB_ID" braintrust eval evals/
+```
+
+## Prime Intellect
+
+Prime Intellect's `verifiers` library runs environment-based benchmarks and reports rewards. Use the `vf-eval` command, which is open source and needs no Prime account.
+
+### Install
+
+```bash
+uv tool install prime
+```
+
+### Run a benchmark
+
+```bash
+export PIONEER_API_KEY=YOUR_API_KEY
+
+vf-eval gsm8k \
+  --model "Qwen/Qwen3-8B" \
+  --api-base-url "https://api.pioneer.ai/v1" \
+  --api-key-var PIONEER_API_KEY \
+  --num-examples 20 \
+  --save-results
+```
+
+Results are written to `./outputs/evals/`, with one JSON row per example containing the prompt, completion, reward, and token usage.
+
+For a base model without a chat template, add `--api-client-type openai_completions` so the harness calls `/v1/completions` instead of `/v1/chat/completions`.
+
+### Save the endpoint
+
+To avoid repeating the flags, register Pioneer in `./configs/endpoints.toml`:
+
+```toml
+[[endpoint]]
+endpoint_id = "pioneer"
+model = "Qwen/Qwen3-8B"
+url = "https://api.pioneer.ai/v1"
+key = "PIONEER_API_KEY"
+```
+
+<Note>
+  The `prime eval run` wrapper requires a Prime Intellect account key even when you target an external endpoint. `vf-eval` takes the same arguments and does not.
+</Note>
+
+## Things to watch for
+
+<AccordionGroup>
+
+<Accordion title="Set max_tokens to at least 512">
+  Reasoning-style models write out their working before the final answer. With a tight `max_tokens`, the response gets cut off mid-thought and the harness scores an empty or partial string as wrong. If a model suddenly scores near zero, raise `max_tokens` before assuming the model is broken.
+</Accordion>
+
+<Accordion title="Don't test your API key against GET /v1/models">
+  That endpoint is public and returns `200` even without valid credentials, so it can't tell you whether your key works. Verify with a real `POST /v1/chat/completions` request instead.
+</Accordion>
+
+<Accordion title="Your key must start with pio_sk_">
+  Pioneer detects that prefix on the `Authorization: Bearer` header and treats the value as an API key rather than a session token. This is what lets the standard OpenAI SDK work unchanged. Keys in other formats are rejected with a `401`.
+</Accordion>
+
+<Accordion title="Token caps set on the verifiers CLI may not apply">
+  Some `verifiers` environments override sampling arguments, so `--max-tokens` does not always reach the model. Pioneer honors `max_tokens` whenever it is sent, but if you are budgeting an eval run, check the reported token usage rather than assuming the flag capped it.
+</Accordion>
+
+<Accordion title="Braintrust --list needs an account key">
+  `braintrust eval --list` authenticates before it enumerates evaluators, so it fails without `BRAINTRUST_API_KEY`. Use `--no-send-logs` for credential-free local runs.
+</Accordion>
+
+</AccordionGroup>
+
+## Encoder models
+
+This guide covers decoder models — the text-in, text-out case these harnesses expect. GLiNER encoder tasks such as extraction and classification return structured JSON and need a `schema` in the request, so an off-the-shelf scorer won't work on them directly. Use [Pioneer's own evaluation API](/concepts/evaluations) for encoder models, which reports F1, precision, and recall with a per-entity breakdown.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="OpenAI-compatible API" icon="sparkle" href="/api-reference/inference/openai-compatible">
+    Full endpoint reference for the compatibility layer.
+  </Card>
+  <Card title="Pioneer evaluations" icon="chart-bar" href="/concepts/evaluations">
+    Native evaluations with F1, precision, and recall.
+  </Card>
+</CardGroup>
