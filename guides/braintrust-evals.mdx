@@ -20,6 +20,31 @@ The `model` field accepts any of these, so comparing a fine-tune against its bas
 | Training job ID | `YOUR_TRAINING_JOB_ID` | One of your fine-tuned models |
 | Project name or ID | `my-extraction-project` | Whatever the project currently has deployed |
 
+A project name is the one identifier that keeps working after you ship a new model. Pioneer resolves it to whatever that project currently has deployed, so promoting a new fine-tune retargets it with no change on your side. A training job ID does the opposite — it pins one checkpoint forever, which is what you want when comparing two models side by side but not what you want for tracking production.
+
+## Register Pioneer as a provider in Braintrust
+
+Passing `base_url` in code works, but registering Pioneer once puts your models in the Braintrust model dropdown, so they're available in the playground, in prompts, and in any eval without per-script configuration.
+
+Go to **Settings** > **AI providers**, choose **Custom providers** > **New**, and configure:
+
+| Field | Value |
+|---|---|
+| Provider name | `Pioneer` |
+| Endpoint URL | `https://api.pioneer.ai/v1` |
+| Format | `openai` |
+| Flavor | `chat` |
+| Headers | `Authorization: Bearer YOUR_PIONEER_API_KEY` |
+| Model name | One entry per model — use your project names |
+
+Enable **This endpoint supports streaming**, since Pioneer streams natively.
+
+<Tip>
+  Enter your **project names** as the model names. Because Pioneer resolves a project to its currently deployed model, every future deployment is picked up automatically and you never have to touch the Braintrust configuration again. Add explicit catalog slugs or training job IDs alongside them only when you need to pin a specific model for comparison.
+</Tip>
+
+If you fill in the optional input and output cost fields with your Pioneer per-token rates, Braintrust's experiment cost estimates will be accurate. Note that Pioneer echoes back the model string you sent, so a request routed through a project reports the project name rather than the underlying checkpoint.
+
 ## Install
 
 ```bash
