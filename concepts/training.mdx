@@ -10,21 +10,27 @@ Pioneer supports three post-training algorithms, selected with the `training_alg
 
 ## Training job lifecycle
 
-Every training job moves through a fixed sequence of states:
+A training job's `status` field moves through several states. The main path is:
 
 <Steps>
   <Step title="requested">
     Your job has been accepted and is queued for execution. Pioneer is allocating compute.
   </Step>
   <Step title="running">
-    Training is actively executing. You can stream logs to monitor progress.
+    Training is actively executing on the provider.
   </Step>
   <Step title="complete">
-    Training finished successfully. Metrics (F1, precision, recall) are available on the job record, and checkpoints are ready to download.
+    GPU training finished successfully. Loss metrics are available on the job record (see [Polling status and reading metrics](#polling-status-and-reading-metrics)), and checkpoints are ready to download or deploy.
+  </Step>
+  <Step title="normalizing / artifact_ready">
+    Intermediate post-training steps — Pioneer is normalizing and packaging the trained artifact. You'll typically only see these transiently between `complete` and `deployed`.
+  </Step>
+  <Step title="deployed">
+    The trained adapter is live on an inference provider and ready to serve requests via `model_id`.
   </Step>
 </Steps>
 
-A job may also end in **failed** (an error occurred during training) or **stopped** (you manually cancelled it with `POST /felix/training-jobs/:id/stop`).
+A job can also end in **`errored`** (an error occurred during training), **`stopped`** (you gracefully halted it with `POST /felix/training-jobs/:id/stop` — checkpoints are preserved), **`terminated`** (you called `POST /felix/training-jobs/:id/terminate`, which stops the job *and* permanently deletes its checkpoints — irreversible), or **`paused`**.
 
 ## Key parameters
 
@@ -35,11 +41,11 @@ A job may also end in **failed** (an error occurred during training) or **stoppe
 | `datasets` | Yes | An array of dataset objects: `[{"name": "your-dataset-name"}]`. |
 | `training_type` | No | `"lora"` (default, parameter-efficient) or `"full"` (all weights). Decoder LLM training is LoRA-only. |
 | `training_algorithm` | No | `"sft"` (default), `"grpo"`, or `"dpo"`. RL algorithms require an `rl_config`. See [LLM fine-tuning](/guides/fine-tune-llm). |
-| `nr_epochs` | No | Number of training epochs. Defaults to a reasonable value for the base model. |
+| `nr_epochs` | No | Number of training epochs. Defaults to 100, except decoder base models default to 10 when omitted. |
 | `learning_rate` | No | Learning rate. Omit to use the default for the chosen base model. |
 
 <Note>
-  `base_model` is required. Omitting it returns a `422` validation error. The value must be a model ID from `GET /base-models` or a checkpoint UUID — not a free-form string.
+  `base_model` is required and must match a model-ID or UUID shape — not a free-form string. Omitting it, or sending a malformed value, returns `422`. A well-formed value that doesn't match any model available for training returns `400` instead.
 </Note>
 
 ## Starting a training job
@@ -58,12 +64,16 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs \
   }'
 ```
 
-The response returns immediately with a job ID and initial status:
+The response returns the full job record immediately, including a UUID `id` and initial status:
 
 ```json
 {
-  "id": "job_abc123",
-  "status": "requested"
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "status": "requested",
+  "nr_epochs": 5,
+  "learning_rate": 5e-5
 }
 ```
 
@@ -71,60 +81,94 @@ Save the `id` — you'll use it to poll status, retrieve metrics, and run infere
 
 ## Polling status and reading metrics
 
-Poll the job endpoint until status is `complete` or `failed`:
+Poll the job endpoint until `status` reaches a terminal value — `complete`, `deployed`, `errored`, `stopped`, or `terminated`:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/job_abc123 \
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-When training completes, the response includes evaluation metrics measured on your dataset:
+The `metrics` field always includes loss values once training starts, plus F1/precision/recall/accuracy if a separate evaluation has been run against the resulting model:
 
 ```json
 {
-  "id": "job_abc123",
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "status": "complete",
   "metrics": {
-    "f1": 0.94,
-    "precision": 0.96,
-    "recall": 0.92
+    "final_training_loss": 0.12,
+    "final_validation_loss": 0.18,
+    "best_validation_loss": 0.15,
+    "eval_f1_score": 0.94,
+    "eval_precision": 0.96,
+    "eval_recall": 0.92,
+    "eval_accuracy": 0.95
   }
 }
 ```
 
-To stream logs while the job is running:
+To retrieve structured stdout/stderr log lines for the job:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/job_abc123/logs \
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-## Stopping a job
+This returns a JSON list of log entries (`{id, timestamp, level, message, source}`) — it's a point-in-time fetch, not a live stream. Poll it periodically while the job is `running` to follow progress.
 
-If you need to cancel a running job:
+## Stopping or terminating a job
+
+To gracefully halt a running job while preserving its checkpoints:
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/job_abc123/stop \
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-The job status changes to `stopped`. Partial checkpoints saved before the stop may still be available.
+The job status changes to `stopped`. Checkpoints saved before the stop remain available for deployment or download.
+
+To permanently end a job and delete its checkpoints instead, use `/terminate`:
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+<Warning>
+  `/terminate` stops the provider job if it's still running and permanently deletes all of its checkpoints. This is irreversible — use `/stop` instead if you want to keep the checkpoints trained so far.
+</Warning>
 
 ## Checkpoints and downloading weights
 
 Pioneer saves checkpoints during training. You can list them at any point after the job starts:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/job_abc123/checkpoints \
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-To download the final trained weights:
+Each checkpoint carries `is_best`, `is_final`, and `is_deployable` flags. You can deploy any deployable checkpoint — not just the final one — to a live inference endpoint:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/job_abc123/download \
-  -H "X-API-Key: YOUR_API_KEY" \
-  --output my-model-weights.zip
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+To download weights instead, request a presigned URL (requires a Pro plan or above — this call returns `403` otherwise):
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+The response is JSON with a `download_url` that expires in 1 hour — fetch that URL separately to get the actual file:
+
+```json
+{
+  "success": true,
+  "download_url": "https://...",
+  "expires_in_seconds": 3600,
+  "file_name": "my-ner-model-weights.zip"
+}
 ```
 
 You can also use a checkpoint UUID as the `base_model` value in a new training job to continue training from that checkpoint.
@@ -134,10 +178,12 @@ You can also use a checkpoint UUID as the `base_model` value in a new training j
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/felix/training-jobs` | Start a new training job |
-| `GET` | `/felix/training-jobs` | List all training jobs |
+| `GET` | `/felix/training-jobs` | List training jobs (filter by `project_id`, `status`; paginate with `limit`/`offset`) |
 | `GET` | `/felix/training-jobs/:id` | Get job status and metrics |
-| `GET` | `/felix/training-jobs/:id/logs` | Stream training logs |
+| `GET` | `/felix/training-jobs/:id/logs` | Get structured training log entries |
 | `GET` | `/felix/training-jobs/:id/checkpoints` | List saved checkpoints |
-| `GET` | `/felix/training-jobs/:id/download` | Download trained weights |
-| `POST` | `/felix/training-jobs/:id/stop` | Stop a running job |
-| `DELETE` | `/felix/training-jobs/:id` | Delete a training job record |
+| `POST` | `/felix/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | Deploy a specific checkpoint for inference |
+| `GET` | `/felix/training-jobs/:id/download` | Get a presigned URL to download trained weights (Pro plan+) |
+| `POST` | `/felix/training-jobs/:id/stop` | Gracefully stop a running job, preserving checkpoints |
+| `POST` | `/felix/training-jobs/:id/terminate` | Stop the job and permanently delete its checkpoints (irreversible) |
+| `DELETE` | `/felix/training-jobs/:id` | Delete the job record — also stops it if active and deletes its checkpoints |
