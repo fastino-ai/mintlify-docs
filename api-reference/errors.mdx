@@ -1,48 +1,87 @@
 ---
-title: "Pioneer API error codes: 401, 402, 404, 422, 429, 500"
+title: "Pioneer API error codes: 400, 401, 402, 403, 404, 422, 429, 500"
 sidebarTitle: "Errors"
-description: "HTTP status codes returned by the Pioneer API — 401, 402, 404, 422, 429, and 500 — with plain-language explanations and steps to resolve each one."
+description: "HTTP status codes returned by the Pioneer API — including 400, 401, 402, 403, 404, 409, 413, 422, 425, 429, 451, 500, and 503 — with plain-language explanations and steps to resolve each one."
 ---
 
 The Pioneer API uses standard HTTP status codes to communicate the outcome of every request. Codes in the `2xx` range indicate success. Codes in the `4xx` range indicate a problem with your request that you can fix. Codes in the `5xx` range indicate a server-side issue.
 
 ## Error response format
 
-All error responses include a JSON body with an `error` field and a human-readable `message`:
+Most error responses return a JSON body with a `detail` field:
 
 ```json
 {
-  "detail": "..."    
+  "detail": "..."
 }
 ```
 
+A few response families use a different shape:
+
+- **Billing denials** (`402`, some `403`s) return `{"code", "message", "resolution_url"}` instead of `detail` — see [402](#402-payment-required) and [403](#403-forbidden) below.
+- **Rate-limit responses** (`429`) add `code` and `scope` fields alongside `detail`, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers — see [429](#429-too-many-requests) below.
+- **Unhandled server errors** (`500`) return `{"error", "message"}` rather than `detail`.
+- Requests against the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/embeddings`) receive an OpenAI-shaped `{"error": {"code", "type", "param", "message"}}` envelope, and requests carrying an `anthropic-version` header receive an Anthropic-shaped `{"type": "error", "error": {"type", "message"}}` envelope instead of the generic shapes above.
+
 ## Status codes
+
+### 400 — Bad Request
+
+The request itself is malformed — invalid JSON, or a query/path parameter of the wrong type.
+
+**How to fix:** Confirm your request body is valid JSON and that query/path parameters match the types documented in the endpoint reference.
+
+---
 
 ### 401 — Unauthorized
 
-Your request did not include a valid API key, or the key has been revoked.
+Your request did not include a valid API key, the key has been revoked, or your account has been blocked for billing or fraud review.
 
-**How to fix:** Verify that the `X-API-Key` header is present and contains your current key. If you recently revoked the key, generate a new one at **Settings** → **API Keys**. See [Authentication](/api-reference/authentication) for setup instructions.
+**How to fix:** Verify that the `X-API-Key` header is present and contains your current key. If you recently revoked the key, generate a new one at **Settings** → **API Keys**. If your account is blocked, contact [support@pioneer.ai](mailto:support@pioneer.ai). See [Authentication](/api-reference/authentication) for setup instructions.
 
 ---
 
 ### 402 — Payment Required
 
 <Warning>
-  A `402` response means your account has run out of credits. All API calls will fail until you add credits or upgrade your plan. Visit **Settings** → **Billing** or see [Plans & Pricing](/pricing) to resolve this.
+  A `402` response means your account is out of spendable credits or a billing action is required before inference can run. All API calls will fail until you add credits or upgrade your plan. Visit **Settings** → **Billing** or see [Plans & Pricing](/pricing) to resolve this.
 </Warning>
 
-Your account does not have sufficient credits to complete the request.
+Your account does not have sufficient credits to complete the request. The response body's `code` field tells you which case applies — most commonly `out_of_credits` (your included credits are exhausted and there's no spendable paid balance) or `direct_model_requires_credits` (included plan credits are router-only; calling a model directly instead of through `pioneer/auto` requires a paid credit balance).
 
-**How to fix:** Log in to [pioneer.ai](https://pioneer.ai), go to **Settings** → **Billing**, and top up your balance or upgrade your plan.
+**How to fix:** Log in to [pioneer.ai](https://pioneer.ai), go to **Settings** → **Billing**, and top up your balance or upgrade your plan. See [Credit limits and overage spending cap](/api-reference/rate-limits#credit-limits-and-overage-spending-cap) for how credit limits and overage billing work.
+
+---
+
+### 403 — Forbidden
+
+Your team has reached its plan's maximum monthly overage spend (`code: "credit_ceiling_reached"`), or your account needs a verified payment method before running inference (`code: "card_required"`).
+
+**How to fix:** For a spend-ceiling denial, upgrade your plan at **Settings** → **Billing** to raise the ceiling. For a card-verification denial, add a valid payment method. Both responses include a `resolution_url` pointing directly at the page to resolve them.
 
 ---
 
 ### 404 — Not Found
 
-The resource you requested does not exist. This can happen when a dataset name, training job ID, evaluation ID, or project ID is misspelled or has been deleted.
+The resource you requested does not exist. This can happen when a dataset name, training job ID, evaluation ID, project ID, or model ID is misspelled or has been deleted.
 
-**How to fix:** Double-check the ID or name in the request path or body. Use the corresponding `GET` list endpoint (for example `GET /felix/training-jobs`) to confirm the resource exists.
+**How to fix:** Double-check the ID or name in the request path or body. Use the corresponding `GET` list endpoint (for example `GET /felix/training-jobs`, `GET /base-models`) to confirm the resource exists.
+
+---
+
+### 409 — Conflict
+
+The model exists in the catalog but isn't currently servable — for example, a training-only base model requested for direct inference, or an on-demand deployment that hasn't finished provisioning after a training job completed.
+
+**How to fix:** Check `supports_inference` and `supports_on_demand_inference` for the model via `GET /base-models`, or retry after the deployment finishes provisioning.
+
+---
+
+### 413 — Payload Too Large
+
+The request body — typically a file upload for an evaluation or dataset — exceeds the endpoint's size limit.
+
+**How to fix:** Check the endpoint reference for its upload size limit and split or compress the payload before retrying.
 
 ---
 
@@ -57,24 +96,63 @@ The request body failed validation. A required field is missing, a field has the
 - Sending fewer than 1 or more than 1,000 strings in the `inputs` array for label-existing endpoints
 
 ```json
-{                                                                                                                     
+{
     "detail": "For 'POST /felix/training-jobs', ...",
-    "errors": [...]                                                                                                     
-}                                                                                                                        
+    "errors": [...]
+}
 ```
+
+---
+
+### 425 — Too Early
+
+The requested on-demand deployment is still warming up (cold-starting) and isn't ready to serve inference yet.
+
+**How to fix:** Respect the `Retry-After` header and retry after the given delay. This is expected on the first request against a freshly provisioned on-demand deployment.
 
 ---
 
 ### 429 — Too Many Requests
 
-You have exceeded the rate limit for this endpoint. The response includes a `Retry-After` header that specifies how many seconds to wait before retrying.
+You have exceeded a request-rate limit for this endpoint. The response includes a `Retry-After` header, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers identifying which limit you hit — the JSON body carries matching `code` and `scope` fields alongside `detail`.
 
-**How to fix:** Respect the `Retry-After` value and back off before retrying. See [Rate Limits](/api-reference/rate-limits) for per-endpoint limits and a retry code pattern.
+**How to fix:** Respect the `Retry-After` value and back off before retrying. See [Rate Limits](/api-reference/rate-limits) for per-endpoint limits and a retry code pattern. Note that credit and overage denials return `402`/`403`, not `429` — see [Credit limits and overage spending cap](/api-reference/rate-limits#credit-limits-and-overage-spending-cap).
+
+---
+
+### 451 — Unavailable for Legal Reasons
+
+The requested model isn't available to your account due to export-control or sanctions restrictions in your region.
+
+**How to fix:** See the [FAQ](/faq) for the current list of restricted regions and provider-specific policies. If you believe your access was incorrectly restricted, contact support.
 
 ---
 
 ### 500 — Internal Server Error
 
-An unexpected error occurred on Pioneer's servers. This is not caused by your request.
+An unexpected error occurred on Pioneer's servers. This is not caused by your request. The body uses `error` and `message` fields rather than `detail`:
 
-**How to fix:** Wait a moment and retry. If the error persists, check [pioneerai.statuspage.io](https://pioneerai.statuspage.io) for live service status or contact support.
+```json
+{
+  "error": "Internal server error",
+  "message": "..."
+}
+```
+
+**How to fix:** Wait a moment and retry. If the error persists, check [status.pioneer.ai](https://status.pioneer.ai) for live service status or contact support.
+
+---
+
+### 503 — Service Unavailable
+
+A dependency the request needed — billing verification, or a provider's status/metrics endpoint — is temporarily unavailable.
+
+**How to fix:** Wait a moment and retry. If the error persists, check [status.pioneer.ai](https://status.pioneer.ai) for live service status or contact support.
+
+---
+
+### 529 — Overloaded (Anthropic-compatible endpoint only)
+
+`POST /v1/messages` mirrors Anthropic's own `overloaded_error` response when upstream Claude capacity is temporarily saturated.
+
+**How to fix:** Retry with backoff, the same as you would for a `429` or `503`.
