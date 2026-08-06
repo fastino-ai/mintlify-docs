@@ -1,0 +1,99 @@
+---
+title: "Rate Limits und Credit-/Ausgabenobergrenzen für die Pioneer API"
+description: "Anfrage-Rate-Limits pro Endpunkt, Edge-WAF-Kontingente, credit-basierte Nutzungslimits und Overage-Ausgabenobergrenzen, Umgang mit 429-Fehlern und wie Sie höhere Limits für die Pioneer API anfordern."
+---
+
+## Anfrage-Rate-Kontingente und Credit-/Ausgabenobergrenzen für die Pioneer API, Umgang mit 429-Fehlern und wie Sie höhere Limits anfordern
+
+Die Pioneer API erzwingt zwei voneinander unabhängige Dinge, die eine Anfrage stoppen können: **Anfrage-Rate-Limits**, die begrenzen, wie viele API-Aufrufe Sie pro Minute oder Stunde tätigen können, und **credit-basierte Nutzungslimits**, die begrenzen, wie viel Sie ausgeben können. Das Überschreiten eines Anfrage-Rate-Limits gibt `429 Too Many Requests` zurück. Aufgebrauchte Credits oder das Erreichen der Overage-Obergrenze Ihres Tarifs geben stattdessen `402 Payment Required` oder `403 Forbidden` zurück – siehe [Credit-Limits und Ausgabenobergrenze für Overage](#credit-limits-and-overage-spending-cap) unten.
+
+## Anfrage-Rate-Limits
+
+Zwei unabhängige Schichten schützen die API:
+
+1. **Edge-Rate-Limit** – wird immer auf jede Anfrage am Load Balancer angewendet, bevor sie die API erreicht, unabhängig von Endpunkt oder Authentifizierung. Aggregiert nach der vom Edge beobachteten IP-Adresse, die nicht immer die tatsächliche Client-IP Ihrer Anwendung ist (zum Beispiel werden Anfragen, die über einen gemeinsamen Egress-Hop geproxyt werden, gemeinsam aggregiert). Limit: 100.000 Anfragen / 60 Sekunden.
+2. **Limit pro Endpunkt** – die meisten unten aufgeführten Endpunkte erzwingen ihr eigenes Limit, das auf Ihr Abrechnungsteam bezogen ist (mit Fallback auf den API-Schlüssel, dann Benutzer, dann Client-IP bei nicht authentifizierten Anfragen). Dies ist das Limit, das einen normalen, authentifizierten Aufrufer regelt. Es ersetzt den generischen Pro-IP-Standard für diesen Endpunkt, statt sich darauf zu stapeln – der Pro-IP-Standard gilt nur für Endpunkte ohne aufgeführte Überschreibung.
+
+| Endpunkt | Scope | Limit |
+| --- | --- | --- |
+| Alle anderen Endpunkte (kein endpunktspezifisches Limit gesetzt) | Pro Client-IP | 20.000 / min · 1.000.000 / Stunde |
+| `POST /inference` | Pro Benutzer | 5.000 / min |
+| `POST /v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages` | Pro Benutzer | 5.000 / min |
+| `POST /gliner-2/*` | Pro Benutzer | 15.000 / min |
+| `POST /generate/*` | Pro Benutzer | 120 / min |
+| `POST /felix/training-jobs` | Pro Benutzer | 20 / min |
+
+Für einen einzelnen API-Schlüssel oder ein Team ist das obige Limit pro Endpunkt das, was tatsächlich bindet. Das Edge-Limit von 100.000 Anfragen / 60 Sekunden ist eine separate, immer aktive Obergrenze, die von allem Datenverkehr über denselben Load Balancer geteilt wird – es greift nur dann, wenn viele verschiedene Aufrufer sich dieselbe beobachtete IP teilen und sie gemeinsam überschreiten.
+
+## Credit-Limits und Ausgabenobergrenze für Overage
+
+Inferenz wird gegen ein Credit-Guthaben abgerechnet, nicht gegen ein Anfrage-Rate-Fenster (1 Credit = \$0,01). Jeder Tarif enthält ein Credit-Kontingent – der Free-Tarif gewährt ein einmaliges Kontingent, das sich nicht erneuert, während bezahlte Tarife ihre enthaltenen Credits jeden Abrechnungsmonat erneuern. Sobald die enthaltenen Credits eines bezahlten Tarifs verbraucht sind, wird zusätzliche Nutzung über die Overage-Abrechnung bezogen (sofern aktiviert) bis zur maximalen monatlichen Overage-Ausgabe dieses Tarifs; im Free-Tarif stoppt das Aufbrauchen einfach die Inferenz, bis Sie Credits hinzufügen oder upgraden.
+
+Das Überschreiten eines Credit-Limits gibt **nicht** `429 Too Many Requests` zurück. Stattdessen wird zurückgegeben:
+
+- `402 Payment Required`, wenn Ihre enthaltenen Credits aufgebraucht sind und kein ausgabefähiges Guthaben verfügbar ist (`code: "out_of_credits"`).
+- `403 Forbidden`, wenn die maximale monatliche Overage-Ausgabe Ihres Tarifs erreicht wurde (`code: "credit_ceiling_reached"`).
+
+Beide Antworten haben dieselbe JSON-Struktur:
+
+```json
+{
+  "code": "out_of_credits",
+  "message": "You've used your included credits. Add credits or enable auto top-up.",
+  "resolution_url": "https://agent.pioneer.ai/credits"
+}
+```
+
+Sie können Ihre aktuelle Nutzung, das verbleibende Kontingent und die Overage-Einstellungen jederzeit im Abrechnungsbereich des Dashboards einsehen.
+
+Credit-Limits, Overage-Obergrenzen und Tarifbedingungen unterliegen der Verfügbarkeit und können im Laufe der Zeit angepasst werden.
+
+<Tip>
+  Benötigen Sie ein höheres Limit? Wenden Sie sich an [support@fastino.ai](mailto:support@fastino.ai) oder an Ihren Account-Kontakt, und wir können die Obergrenze in einem individuellen Tarif anheben.
+</Tip>
+
+## Umgang mit 429-Antworten
+
+Wenn Sie ein Limit überschreiten, gibt die API `429 Too Many Requests` zurück und enthält einen `Retry-After`-Header, der angibt, wie viele Sekunden Sie vor einem erneuten Versuch warten sollen.
+
+```bash cURL
+HTTP/2 429
+retry-after: 3
+content-type: application/json
+
+{
+  "detail": "Rate limit exceeded: ..."
+}
+```
+
+Das folgende Muster behandelt `429`-Antworten mit einer einfachen Sleep-and-Retry-Schleife:
+
+```python Python
+import time
+import requests
+
+def call_with_retry(url, headers, payload, max_retries=5):
+    for attempt in range(max_retries):
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 1))
+            print(f"Rate limited. Retrying in {retry_after}s...")
+            time.sleep(retry_after)
+            continue
+
+        response.raise_for_status()
+        return response.json()
+
+    raise RuntimeError("Max retries exceeded.")
+```
+
+<Note>
+  Credit- und Overage-Ablehnungen (`402`/`403`, siehe [Credit-Limits und Ausgabenobergrenze für Overage](#credit-limits-and-overage-spending-cap)) lassen sich nicht durch Warten beheben – die obige Retry-Schleife gilt nur für `429`-Antworten. Ein `402`/`403` erfordert eine Abrechnungsaktion (Credits hinzufügen, automatisches Aufladen aktivieren oder Tarif upgraden), bevor die nächste Anfrage erfolgreich sein kann.
+</Note>
+
+## Höhere Limits anfordern
+
+Wenn die Standard- oder Pro-Tier-Limits nicht zu Ihrer Arbeitslast passen, wenden Sie sich an das Pioneer-Team, um einen individuellen Tarif zu besprechen.
+
+[Höhere Limits anfordern](https://forms.gle/uzRf8bM2yZtpJFmd7)

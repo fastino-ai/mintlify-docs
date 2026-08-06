@@ -1,0 +1,158 @@
+---
+title: "Codes d'erreur de l'API Pioneer : 400, 401, 402, 403, 404, 422, 429, 500"
+sidebarTitle: "Erreurs"
+description: "Codes de statut HTTP renvoyés par l'API Pioneer — dont 400, 401, 402, 403, 404, 409, 413, 422, 425, 429, 451, 500 et 503 — avec des explications claires et les étapes pour résoudre chacun."
+---
+
+L'API Pioneer utilise les codes de statut HTTP standard pour communiquer le résultat de chaque requête. Les codes de la plage `2xx` indiquent un succès. Les codes de la plage `4xx` indiquent un problème avec votre requête que vous pouvez corriger. Les codes de la plage `5xx` indiquent un problème côté serveur.
+
+## Format des réponses d'erreur
+
+La plupart des réponses d'erreur renvoient un corps JSON avec un champ `detail` :
+
+```json
+{
+  "detail": "..."
+}
+```
+
+Quelques familles de réponses utilisent une forme différente :
+
+- **Refus de facturation** (`402`, certains `403`) renvoient `{"code", "message", "resolution_url"}` au lieu de `detail` — voir [402](#402-payment-required) et [403](#403-forbidden) ci-dessous.
+- **Réponses de limitation de débit** (`429`) ajoutent des champs `code` et `scope` à côté de `detail`, ainsi que les en-têtes `X-RateLimit-Scope` et `X-RateLimit-Code` — voir [429](#429-too-many-requests) ci-dessous.
+- **Erreurs serveur non gérées** (`500`) renvoient `{"error", "message"}` plutôt que `detail`.
+- Les requêtes vers les endpoints compatibles OpenAI (`/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/embeddings`) reçoivent une enveloppe au format OpenAI `{"error": {"code", "type", "param", "message"}}`, et les requêtes portant un en-tête `anthropic-version` reçoivent une enveloppe au format Anthropic `{"type": "error", "error": {"type", "message"}}` au lieu des formes génériques ci-dessus.
+
+## Codes de statut
+
+### 400 — Requête incorrecte
+
+La requête elle-même est mal formée — JSON invalide, ou un paramètre de requête/de chemin du mauvais type.
+
+**Comment corriger :** Vérifiez que le corps de votre requête est un JSON valide et que les paramètres de requête/de chemin correspondent aux types documentés dans la référence de l'endpoint.
+
+---
+
+### 401 — Non autorisé
+
+Votre requête ne contenait pas de clé API valide, la clé a été révoquée, ou votre compte a été bloqué pour raison de facturation ou d'examen antifraude.
+
+**Comment corriger :** Vérifiez que l'en-tête `X-API-Key` est présent et contient votre clé actuelle. Si vous avez récemment révoqué la clé, générez-en une nouvelle dans **Settings** → **API Keys**. Si votre compte est bloqué, contactez [support@pioneer.ai](mailto:support@pioneer.ai). Consultez [Authentification](/api-reference/authentication) pour les instructions de configuration.
+
+---
+
+### 402 — Paiement requis
+
+<Warning>
+  Une réponse `402` signifie que votre compte n'a plus de crédits utilisables ou qu'une action de facturation est requise avant de pouvoir exécuter l'inférence. Tous les appels API échoueront jusqu'à ce que vous ajoutiez des crédits ou passiez à un plan supérieur. Rendez-vous dans **Settings** → **Billing** ou consultez [Plans & tarifs](/pricing) pour résoudre cela.
+</Warning>
+
+Votre compte ne dispose pas de crédits suffisants pour effectuer la requête. Le champ `code` du corps de la réponse vous indique le cas concerné — le plus souvent `out_of_credits` (vos crédits inclus sont épuisés et il n'y a pas de solde payé utilisable) ou `direct_model_requires_credits` (les crédits inclus de votre plan sont réservés au routeur ; appeler un modèle directement au lieu de passer par `pioneer/auto` nécessite un solde de crédits payé).
+
+**Comment corriger :** Connectez-vous à [pioneer.ai](https://pioneer.ai), allez dans **Settings** → **Billing**, et rechargez votre solde ou passez à un plan supérieur. Consultez [Limites de crédits et plafond de dépassement](/api-reference/rate-limits#credit-limits-and-overage-spending-cap) pour comprendre le fonctionnement des limites de crédits et de la facturation en dépassement.
+
+---
+
+### 403 — Interdit
+
+Votre équipe a atteint le plafond mensuel maximum de dépassement de son plan (`code: "credit_ceiling_reached"`), ou votre compte doit disposer d'un moyen de paiement vérifié avant de pouvoir exécuter l'inférence (`code: "card_required"`).
+
+**Comment corriger :** Pour un refus lié au plafond de dépenses, passez à un plan supérieur dans **Settings** → **Billing** pour augmenter le plafond. Pour un refus lié à la vérification de la carte, ajoutez un moyen de paiement valide. Les deux réponses incluent une `resolution_url` pointant directement vers la page permettant de résoudre le problème.
+
+---
+
+### 404 — Introuvable
+
+La ressource que vous avez demandée n'existe pas. Cela peut se produire lorsqu'un nom de jeu de données, un ID de tâche d'entraînement, un ID d'évaluation, un ID de projet ou un ID de modèle est mal orthographié ou a été supprimé.
+
+**Comment corriger :** Vérifiez à nouveau l'ID ou le nom dans le chemin ou le corps de la requête. Utilisez l'endpoint de liste `GET` correspondant (par exemple `GET /felix/training-jobs`, `GET /base-models`) pour confirmer que la ressource existe.
+
+---
+
+### 409 — Conflit
+
+Le modèle existe dans le catalogue mais n'est pas actuellement servable — par exemple, un modèle de base uniquement destiné à l'entraînement demandé pour de l'inférence directe, ou un déploiement à la demande qui n'a pas fini d'être provisionné après la fin d'une tâche d'entraînement.
+
+**Comment corriger :** Vérifiez `supports_inference` et `supports_on_demand_inference` pour le modèle via `GET /base-models`, ou réessayez une fois le déploiement provisionné.
+
+---
+
+### 413 — Charge utile trop volumineuse
+
+Le corps de la requête — typiquement un envoi de fichier pour une évaluation ou un jeu de données — dépasse la limite de taille de l'endpoint.
+
+**Comment corriger :** Consultez la référence de l'endpoint pour connaître sa limite de taille d'envoi et découpez ou compressez la charge utile avant de réessayer.
+
+---
+
+### 422 — Entité non traitable
+
+Le corps de la requête a échoué à la validation. Un champ requis est manquant, un champ a le mauvais type, ou une valeur est hors de la plage acceptée.
+
+**Comment corriger :** Consultez le `message` d'erreur pour connaître le champ précis en cause. Les causes courantes incluent :
+
+- Omission de `base_model` dans `POST /felix/training-jobs`
+- Transmission d'un `task_type` non pris en charge à `POST /generate`
+- Envoi de moins d'1 ou plus de 1 000 chaînes dans le tableau `inputs` pour les endpoints label-existing
+
+```json
+{
+    "detail": "For 'POST /felix/training-jobs', ...",
+    "errors": [...]
+}
+```
+
+---
+
+### 425 — Trop tôt
+
+Le déploiement à la demande demandé est encore en cours de préchauffage (démarrage à froid) et n'est pas encore prêt à servir de l'inférence.
+
+**Comment corriger :** Respectez l'en-tête `Retry-After` et réessayez après le délai indiqué. Cela est attendu lors de la première requête vers un déploiement à la demande fraîchement provisionné.
+
+---
+
+### 429 — Trop de requêtes
+
+Vous avez dépassé la limite de débit de requêtes pour cet endpoint. La réponse inclut un en-tête `Retry-After`, ainsi que les en-têtes `X-RateLimit-Scope` et `X-RateLimit-Code` identifiant la limite atteinte — le corps JSON contient des champs `code` et `scope` correspondants à côté de `detail`.
+
+**Comment corriger :** Respectez la valeur `Retry-After` et attendez avant de réessayer. Consultez [Limites de débit](/api-reference/rate-limits) pour les limites par endpoint et un modèle de code pour les nouvelles tentatives. Notez que les refus liés aux crédits et au dépassement renvoient `402`/`403`, et non `429` — voir [Limites de crédits et plafond de dépassement](/api-reference/rate-limits#credit-limits-and-overage-spending-cap).
+
+---
+
+### 451 — Indisponible pour des raisons légales
+
+Le modèle demandé n'est pas disponible pour votre compte en raison de restrictions liées au contrôle des exportations ou aux sanctions dans votre région.
+
+**Comment corriger :** Consultez la [FAQ](/faq) pour la liste actuelle des régions restreintes et les politiques spécifiques à chaque fournisseur. Si vous estimez que votre accès a été restreint à tort, contactez le support.
+
+---
+
+### 500 — Erreur interne du serveur
+
+Une erreur inattendue s'est produite sur les serveurs de Pioneer. Elle n'est pas causée par votre requête. Le corps utilise les champs `error` et `message` plutôt que `detail` :
+
+```json
+{
+  "error": "Internal server error",
+  "message": "..."
+}
+```
+
+**Comment corriger :** Attendez un instant et réessayez. Si l'erreur persiste, consultez [status.pioneer.ai](https://status.pioneer.ai) pour l'état des services en direct ou contactez le support.
+
+---
+
+### 503 — Service indisponible
+
+Une dépendance nécessaire à la requête — vérification de facturation, ou endpoint de statut/métriques d'un fournisseur — est temporairement indisponible.
+
+**Comment corriger :** Attendez un instant et réessayez. Si l'erreur persiste, consultez [status.pioneer.ai](https://status.pioneer.ai) pour l'état des services en direct ou contactez le support.
+
+---
+
+### 529 — Surchargé (endpoint compatible Anthropic uniquement)
+
+`POST /v1/messages` reproduit la propre réponse `overloaded_error` d'Anthropic lorsque la capacité amont de Claude est temporairement saturée.
+
+**Comment corriger :** Réessayez avec un backoff, comme vous le feriez pour un `429` ou un `503`.

@@ -1,0 +1,158 @@
+---
+title: "Pioneer API 错误代码：400、401、402、403、404、422、429、500"
+sidebarTitle: "错误"
+description: "Pioneer API 返回的 HTTP 状态代码——包括 400、401、402、403、404、409、413、422、425、429、451、500 和 503——附有通俗解释以及解决每种错误的步骤。"
+---
+
+Pioneer API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx` 范围的代码表示成功。`4xx` 范围的代码表示您的请求存在可修复的问题。`5xx` 范围的代码表示服务器端问题。
+
+## 错误响应格式
+
+大多数错误响应会返回包含 `detail` 字段的 JSON 主体：
+
+```json
+{
+  "detail": "..."
+}
+```
+
+少数几类响应使用不同的结构：
+
+- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非 `detail`——参见下方的 [402](#402-payment-required) 和 [403](#403-forbidden)。
+- **速率限制响应**（`429`）在 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头——参见下方的 [429](#429-too-many-requests)。
+- **未处理的服务器错误**（`500`）返回 `{"error", "message"}` 而不是 `detail`。
+- 针对 OpenAI 兼容端点（`/v1/chat/completions`、`/v1/completions`、`/v1/responses`、`/v1/embeddings`）的请求会收到 OpenAI 格式的 `{"error": {"code", "type", "param", "message"}}` 封装，而携带 `anthropic-version` 请求头的请求则会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装，而非上述通用格式。
+
+## 状态代码
+
+### 400 — 请求无效 (Bad Request)
+
+请求本身格式错误——JSON 无效，或查询/路径参数类型有误。
+
+**如何修复：** 确认请求主体为有效 JSON，并且查询/路径参数与端点参考文档中记录的类型一致。
+
+---
+
+### 401 — 未授权 (Unauthorized)
+
+您的请求未包含有效的 API 密钥、密钥已被撤销，或者您的账户因计费或欺诈审查而被封禁。
+
+**如何修复：** 确认 `X-API-Key` 请求头存在并且包含您当前的密钥。如果您最近撤销了密钥，请在 **Settings** → **API Keys** 中生成新的密钥。如果您的账户被封禁，请联系 [support@pioneer.ai](mailto:support@pioneer.ai)。设置说明请参见[身份验证](/api-reference/authentication)。
+
+---
+
+### 402 — 需要付款 (Payment Required)
+
+<Warning>
+  `402` 响应表示您的账户没有可用的付费余额，或需要执行计费操作才能运行推理。在您充值或升级套餐之前，所有 API 调用都会失败。请前往 **Settings** → **Billing** 或参见[套餐和定价](/pricing)来解决此问题。
+</Warning>
+
+您的账户余额不足以完成请求。响应主体的 `code` 字段会告诉您具体属于哪种情况——最常见的是 `out_of_credits`（您的赠送额度已耗尽且没有可用的付费余额）或 `direct_model_requires_credits`（套餐包含的额度仅适用于路由器；直接调用模型而非通过 `pioneer/auto` 需要付费余额）。
+
+**如何修复：** 登录 [pioneer.ai](https://pioneer.ai)，前往 **Settings** → **Billing**，充值或升级套餐。有关额度限制及超额计费的工作方式，请参见[额度限制和超额消费上限](/api-reference/rate-limits#credit-limits-and-overage-spending-cap)。
+
+---
+
+### 403 — 禁止访问 (Forbidden)
+
+您的团队已达到套餐的最高月度超额支出（`code: "credit_ceiling_reached"`），或者您的账户需要经过验证的支付方式才能运行推理（`code: "card_required"`）。
+
+**如何修复：** 对于支出上限拒绝，请在 **Settings** → **Billing** 中升级套餐以提高上限。对于卡验证拒绝，请添加有效的支付方式。两类响应都包含直接指向解决页面的 `resolution_url`。
+
+---
+
+### 404 — 未找到 (Not Found)
+
+您请求的资源不存在。当数据集名称、训练任务 ID、评估 ID、项目 ID 或模型 ID 拼写错误或已被删除时，可能会出现这种情况。
+
+**如何修复：** 请仔细核对请求路径或主体中的 ID 或名称。使用相应的 `GET` 列表端点（例如 `GET /felix/training-jobs`、`GET /base-models`）确认资源存在。
+
+---
+
+### 409 — 冲突 (Conflict)
+
+模型在目录中存在但当前无法提供服务——例如，仅可用于训练的基础模型被请求用于直接推理，或者训练任务完成后按需部署尚未完成配置。
+
+**如何修复：** 通过 `GET /base-models` 查看模型的 `supports_inference` 和 `supports_on_demand_inference`，或等待部署完成配置后重试。
+
+---
+
+### 413 — 负载过大 (Payload Too Large)
+
+请求主体——通常是评估或数据集的文件上传——超过了端点的大小限制。
+
+**如何修复：** 查看端点参考文档中的上传大小限制，并在重试前拆分或压缩负载。
+
+---
+
+### 422 — 无法处理的实体 (Unprocessable Entity)
+
+请求主体未通过验证。必填字段缺失、字段类型错误，或值超出可接受范围。
+
+**如何修复：** 查看错误 `message` 中失败的具体字段。常见原因包括：
+
+- 在 `POST /felix/training-jobs` 中省略了 `base_model`
+- 向 `POST /generate` 传入了不受支持的 `task_type`
+- 在 label-existing 端点的 `inputs` 数组中发送的字符串少于 1 个或多于 1,000 个
+
+```json
+{
+    "detail": "For 'POST /felix/training-jobs', ...",
+    "errors": [...]
+}
+```
+
+---
+
+### 425 — 过早 (Too Early)
+
+请求的按需部署仍在预热（冷启动），尚未准备好提供推理服务。
+
+**如何修复：** 遵循 `Retry-After` 响应头，等待指定的延迟后重试。这在首次请求新配置的按需部署时属于正常现象。
+
+---
+
+### 429 — 请求过多 (Too Many Requests)
+
+您已超出该端点的请求速率限制。响应包括一个 `Retry-After` 响应头，以及 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头，用于标识您触发了哪项限制——JSON 主体在 `detail` 之外携带对应的 `code` 和 `scope` 字段。
+
+**如何修复：** 遵循 `Retry-After` 的值并在重试前退避等待。按端点划分的限制以及重试代码模式请参见[速率限制](/api-reference/rate-limits)。请注意，额度和超额拒绝返回的是 `402`/`403`，而不是 `429`——请参见[额度限制和超额消费上限](/api-reference/rate-limits#credit-limits-and-overage-spending-cap)。
+
+---
+
+### 451 — 因法律原因不可用 (Unavailable for Legal Reasons)
+
+由于您所在地区的出口管制或制裁限制，请求的模型不对您的账户开放。
+
+**如何修复：** 请参见 [FAQ](/faq) 获取当前受限地区列表和特定提供商的政策。如果您认为访问被错误地限制，请联系支持团队。
+
+---
+
+### 500 — 服务器内部错误 (Internal Server Error)
+
+Pioneer 服务器发生意外错误。这并非由您的请求引起。响应主体使用 `error` 和 `message` 字段，而不是 `detail`：
+
+```json
+{
+  "error": "Internal server error",
+  "message": "..."
+}
+```
+
+**如何修复：** 稍等片刻后重试。如果错误持续，请查看 [status.pioneer.ai](https://status.pioneer.ai) 获取实时服务状态或联系支持团队。
+
+---
+
+### 503 — 服务不可用 (Service Unavailable)
+
+请求所需的依赖项——计费验证，或某个提供商的状态/指标端点——暂时不可用。
+
+**如何修复：** 稍等片刻后重试。如果错误持续，请查看 [status.pioneer.ai](https://status.pioneer.ai) 获取实时服务状态或联系支持团队。
+
+---
+
+### 529 — 过载 (Overloaded)（仅适用于 Anthropic 兼容端点）
+
+`POST /v1/messages` 会在上游 Claude 容量暂时饱和时，镜像 Anthropic 自身的 `overloaded_error` 响应。
+
+**如何修复：** 使用退避策略重试，与处理 `429` 或 `503` 的方式相同。
