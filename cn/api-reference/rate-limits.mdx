@@ -1,0 +1,99 @@
+---
+title: "Pioneer API 的速率限制和额度 / 消费上限"
+description: "Pioneer API 的每个端点请求速率限制、边缘 WAF 配额、基于额度的使用限制和超额消费上限、429 错误处理，以及如何申请更高的限制。"
+---
+
+## Pioneer API 的请求速率配额和额度 / 消费上限、如何处理 429 错误以及如何申请更高的限制
+
+Pioneer API 强制执行两项独立且可能中止请求的机制：**请求速率限制**，用于限制您每分钟或每小时能发起多少 API 调用；**基于额度的使用限制**，用于限制您能消费多少。超出请求速率限制会返回 `429 Too Many Requests`。额度耗尽或达到套餐的超额上限则会返回 `402 Payment Required` 或 `403 Forbidden`——参见下方的[额度限制和超额消费上限](#credit-limits-and-overage-spending-cap)。
+
+## 请求速率限制
+
+两个独立的层保护 API：
+
+1. **边缘速率限制** — 在请求到达 API 之前，始终在负载均衡器上对每个请求应用，与端点或身份验证无关。按照边缘观察到的 IP 地址聚合，这并不总是您应用程序真正的客户端 IP（例如，通过共享出口跳板代理的请求会一起聚合）。限制：100,000 次请求 / 60 秒。
+2. **每端点限制** — 下方大多数端点强制执行按您的计费团队限定的自有限制（在未认证请求中，依次回退到 API 密钥、用户、然后是客户端 IP）。这是对正常已认证调用者起作用的限制。它替代了该端点的通用按 IP 默认限制，而不是叠加在上面——按 IP 默认限制仅适用于没有列出覆盖的端点。
+
+| 端点 | 范围 | 限制 |
+| --- | --- | --- |
+| 所有其他端点（未设定端点专属限制） | 按客户端 IP | 20,000 / 分钟 · 1,000,000 / 小时 |
+| `POST /inference` | 按用户 | 5,000 / 分钟 |
+| `POST /v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages` | 按用户 | 5,000 / 分钟 |
+| `POST /gliner-2/*` | 按用户 | 15,000 / 分钟 |
+| `POST /generate/*` | 按用户 | 120 / 分钟 |
+| `POST /felix/training-jobs` | 按用户 | 20 / 分钟 |
+
+对于单个 API 密钥或团队，上述每端点限制才是真正起作用的限制。100,000 次请求 / 60 秒的边缘限制是一个独立的、始终生效的上限，由通过同一负载均衡器的所有流量共享——只有当许多不同调用者共享同一个被观察到的 IP 并共同超过它时才会触发。
+
+## 额度限制和超额消费上限
+
+推理是按额度余额计费的，而不是按请求速率窗口计费（1 额度 = \$0.01）。每个套餐都包含一定的额度分配——Free 套餐授予一次性且不续期的额度分配，而付费套餐每个计费月都会续期其包含的额度。付费套餐的包含额度用完后，额外用量会从超额计费中扣除（如果已启用），最高不超过该套餐每月的最大超额支出；在 Free 套餐上，用完后推理会直接停止，直到您充值或升级套餐。
+
+超过额度限制**不会**返回 `429 Too Many Requests`，而是返回：
+
+- 当您的包含额度已耗尽且没有可支出的余额可扣时，返回 `402 Payment Required`（`code: "out_of_credits"`）。
+- 当您已达到套餐的最高月度超额支出时，返回 `403 Forbidden`（`code: "credit_ceiling_reached"`）。
+
+两类响应共享相同的 JSON 结构：
+
+```json
+{
+  "code": "out_of_credits",
+  "message": "You've used your included credits. Add credits or enable auto top-up.",
+  "resolution_url": "https://agent.pioneer.ai/credits"
+}
+```
+
+您可以随时在仪表盘的计费部分查看当前用量、剩余额度和超额设置。
+
+额度限制、超额上限和套餐条款可能因供应情况而变化，可能会随时间调整。
+
+<Tip>
+  需要更高的限制？请联系 [support@fastino.ai](mailto:support@fastino.ai) 或您的账户联系人，我们可以在自定义套餐上提高上限。
+</Tip>
+
+## 处理 429 响应
+
+当您超出限制时，API 会返回 `429 Too Many Requests`，并包含一个 `Retry-After` 响应头，告诉您在重试前需要等待多少秒。
+
+```bash cURL
+HTTP/2 429
+retry-after: 3
+content-type: application/json
+
+{
+  "detail": "Rate limit exceeded: ..."
+}
+```
+
+以下模式使用简单的 sleep-and-retry 循环来处理 `429` 响应：
+
+```python Python
+import time
+import requests
+
+def call_with_retry(url, headers, payload, max_retries=5):
+    for attempt in range(max_retries):
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 1))
+            print(f"Rate limited. Retrying in {retry_after}s...")
+            time.sleep(retry_after)
+            continue
+
+        response.raise_for_status()
+        return response.json()
+
+    raise RuntimeError("Max retries exceeded.")
+```
+
+<Note>
+  额度和超额拒绝（`402`/`403`，参见[额度限制和超额消费上限](#credit-limits-and-overage-spending-cap)）不会通过等待自动解决——上述重试循环仅适用于 `429` 响应。`402`/`403` 需要执行计费操作（充值、启用自动充值或升级套餐）才能让下一次请求成功。
+</Note>
+
+## 申请更高的限制
+
+如果默认或 Pro 级别的限制不适合您的工作负载，请联系 Pioneer 团队讨论自定义套餐。
+
+[申请更高的限制](https://forms.gle/uzRf8bM2yZtpJFmd7)

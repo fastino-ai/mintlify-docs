@@ -1,0 +1,99 @@
+---
+title: "Límites de velocidad y topes de créditos / gasto para la API de Pioneer"
+description: "Límites de velocidad de solicitudes por endpoint, cuotas del WAF de borde, límites de uso basados en créditos y topes de gasto por excedente, manejo de errores 429 y cómo solicitar límites más altos para la API de Pioneer."
+---
+
+## Cuotas de velocidad de solicitudes y topes de créditos / gasto para la API de Pioneer, cómo manejar los errores 429 y cómo solicitar límites más altos
+
+La API de Pioneer aplica dos cosas independientes que pueden detener una solicitud: **límites de velocidad de solicitudes** que restringen cuántas llamadas a la API puedes hacer por minuto o por hora, y **límites de uso basados en créditos** que restringen cuánto puedes gastar. Superar un límite de velocidad de solicitudes devuelve `429 Too Many Requests`. Quedarte sin créditos o alcanzar el tope de excedente de tu plan devuelve `402 Payment Required` o `403 Forbidden` en su lugar — consulta [Límites de créditos y tope de gasto por excedente](#credit-limits-and-overage-spending-cap) más abajo.
+
+## Límites de velocidad de solicitudes
+
+Dos capas independientes protegen la API:
+
+1. **Límite de velocidad en el borde** — se aplica siempre a cada solicitud en el balanceador de carga, antes de que llegue a la API, independientemente del endpoint o la autenticación. Se agrega por la dirección IP que observa el borde, que no siempre es la IP real del cliente de tu aplicación (por ejemplo, las solicitudes que pasan por un salto de salida compartido se agregan juntas). Límite: 100.000 solicitudes / 60 segundos.
+2. **Límite por endpoint** — la mayoría de los endpoints de abajo aplican su propio límite ceñido a tu equipo de facturación (recurriendo a la clave de API, luego al usuario, y luego a la IP del cliente para solicitudes no autenticadas). Este es el límite que gobierna a un llamador normal autenticado. Reemplaza el valor por defecto genérico por IP para ese endpoint en lugar de sumarse sobre él — el valor por defecto por IP solo gobierna los endpoints sin una anulación listada.
+
+| Endpoint | Ámbito | Límite |
+| --- | --- | --- |
+| Todos los demás endpoints (sin límite específico de endpoint definido) | Por IP de cliente | 20.000 / min · 1.000.000 / hora |
+| `POST /inference` | Por usuario | 5.000 / min |
+| `POST /v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages` | Por usuario | 5.000 / min |
+| `POST /gliner-2/*` | Por usuario | 15.000 / min |
+| `POST /generate/*` | Por usuario | 120 / min |
+| `POST /felix/training-jobs` | Por usuario | 20 / min |
+
+Para una sola clave de API o equipo, el límite por endpoint indicado arriba es el que realmente aplica. El límite de borde de 100.000 solicitudes / 60 segundos es un tope separado, siempre activo, compartido por todo el tráfico a través del mismo balanceador de carga — solo entra en juego cuando muchos llamadores distintos comparten la misma IP observada y colectivamente lo superan.
+
+## Límites de créditos y tope de gasto por excedente
+
+La inferencia se factura contra un saldo de créditos en lugar de una ventana de velocidad de solicitudes (1 crédito = \$0,01). Cada plan incluye una asignación de créditos — el plan Free concede una asignación única que no se renueva, mientras que los planes de pago renuevan sus créditos incluidos cada mes de facturación. Una vez usados los créditos incluidos de un plan de pago, el uso adicional se cobra por facturación de excedente (si está habilitada) hasta el gasto máximo mensual por excedente de ese plan; en el plan Free, quedarte sin créditos simplemente detiene la inferencia hasta que añadas créditos o mejores tu plan.
+
+Superar un límite de créditos **no** devuelve `429 Too Many Requests`. En su lugar devuelve:
+
+- `402 Payment Required` cuando tus créditos incluidos están agotados y no hay saldo utilizable del que extraer (`code: "out_of_credits"`).
+- `403 Forbidden` cuando se ha alcanzado el gasto máximo mensual por excedente de tu plan (`code: "credit_ceiling_reached"`).
+
+Ambas respuestas comparten la misma forma JSON:
+
+```json
+{
+  "code": "out_of_credits",
+  "message": "You've used your included credits. Add credits or enable auto top-up.",
+  "resolution_url": "https://agent.pioneer.ai/credits"
+}
+```
+
+Puedes consultar tu uso actual, la asignación restante y la configuración de excedente en cualquier momento en la sección de facturación del panel.
+
+Los límites de créditos, los topes de excedente y las condiciones del plan están sujetos a disponibilidad y pueden ajustarse con el tiempo.
+
+<Tip>
+  ¿Necesitas un límite más alto? Escríbenos a [support@fastino.ai](mailto:support@fastino.ai) o a tu contacto de cuenta y podemos aumentar el tope en un plan personalizado.
+</Tip>
+
+## Manejo de respuestas 429
+
+Cuando superas un límite, la API devuelve `429 Too Many Requests` e incluye un encabezado `Retry-After` que te indica cuántos segundos esperar antes de reintentar.
+
+```bash cURL
+HTTP/2 429
+retry-after: 3
+content-type: application/json
+
+{
+  "detail": "Rate limit exceeded: ..."
+}
+```
+
+El siguiente patrón maneja respuestas `429` con un simple bucle de espera y reintento:
+
+```python Python
+import time
+import requests
+
+def call_with_retry(url, headers, payload, max_retries=5):
+    for attempt in range(max_retries):
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 1))
+            print(f"Rate limited. Retrying in {retry_after}s...")
+            time.sleep(retry_after)
+            continue
+
+        response.raise_for_status()
+        return response.json()
+
+    raise RuntimeError("Max retries exceeded.")
+```
+
+<Note>
+  Las denegaciones por créditos y por excedente (`402`/`403`, consulta [Límites de créditos y tope de gasto por excedente](#credit-limits-and-overage-spending-cap)) no se resolverán esperando — el bucle de reintento anterior solo se aplica a respuestas `429`. Un `402`/`403` requiere una acción de facturación (añadir créditos, habilitar la recarga automática o mejorar el plan) antes de que la siguiente solicitud pueda tener éxito.
+</Note>
+
+## Solicitar límites más altos
+
+Si los límites por defecto o del nivel Pro no se ajustan a tu carga de trabajo, contacta con el equipo de Pioneer para hablar de un plan personalizado.
+
+[Solicitar límites más altos](https://forms.gle/uzRf8bM2yZtpJFmd7)
