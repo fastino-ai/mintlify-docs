@@ -1,11 +1,11 @@
 ---
-title: "Rate limits and daily spending caps for the Pioneer API"
-description: "Per-endpoint request-rate limits, edge WAF quotas, daily spending caps, 429 error handling, and how to request higher limits for the Pioneer API."
+title: "Rate limits and credit / spending caps for the Pioneer API"
+description: "Per-endpoint request-rate limits, edge WAF quotas, credit-based usage limits and overage spending caps, 429 error handling, and how to request higher limits for the Pioneer API."
 ---
 
-## Request-rate quotas and daily spending caps for the Pioneer API, how to handle 429 errors, and how to request higher limits
+## Request-rate quotas and credit / spending caps for the Pioneer API, how to handle 429 errors, and how to request higher limits
 
-The Pioneer API enforces two layers of rate limits: **request-rate limits** that cap how many API calls you can make per minute or hour, and a **daily spending cap** that bounds how much you can spend in a single UTC day. Exceeding either returns a `429 Too Many Requests` response.
+The Pioneer API enforces two independent things that can stop a request: **request-rate limits** that cap how many API calls you can make per minute or hour, and **credit-based usage limits** that cap how much you can spend. Exceeding a request-rate limit returns `429 Too Many Requests`. Running out of credits or hitting your plan's overage ceiling returns `402 Payment Required` or `403 Forbidden` instead — see [Credit limits and overage spending cap](#credit-limits-and-overage-spending-cap) below.
 
 ## Request-rate limits
 
@@ -25,16 +25,31 @@ Two independent layers protect the API:
 
 For a single API key or team, the per-endpoint limit above is what actually binds. The 100,000 requests / 60 second edge limit is a separate, always-on ceiling shared by all traffic through the same load balancer — it only comes into play when many different callers share the same observed IP and collectively exceed it.
 
-## Daily spending cap
+## Credit limits and overage spending cap
 
-If a request exceeds your remaining allowance, you'll receive a`429 Too Many Requests` response with an `X-RateLimit-Reason: daily_spend_cap_exceeded` header. You can check your current usage and remaining allowance anytime in the dashboard or via `GET /billing/usage/requests`.
+Inference is billed against a credit balance rather than a request-rate window (1 credit = \$0.01). Each plan includes a credit allowance — the Free plan grants a one-time allowance that does not renew, while paid plans renew their included credits every billing month. Once a paid plan's included credits are used, additional usage draws from overage billing (if enabled) up to that plan's maximum overage spend per month; on the Free plan, running out simply stops inference until you add credits or upgrade.
 
-Inference usage is subject to credit-based rate limits, which vary by plan and reset on a daily, monthly, or other periodic basis. Your current limits are always visible in the billing section of the dashboard.
+Exceeding a credit limit does **not** return `429 Too Many Requests`. Instead it returns:
 
-Spending caps and plan limits are subject to availability and may be adjusted over time. 
+- `402 Payment Required` when your included credits are exhausted and there's no spendable balance to draw from (`code: "out_of_credits"`).
+- `403 Forbidden` when your plan's maximum monthly overage spend has been reached (`code: "credit_ceiling_reached"`).
+
+Both responses share the same JSON shape:
+
+```json
+{
+  "code": "out_of_credits",
+  "message": "You've used your included credits. Add credits or enable auto top-up.",
+  "resolution_url": "https://agent.pioneer.ai/credits"
+}
+```
+
+You can check your current usage, remaining allowance, and overage settings anytime in the billing section of the dashboard.
+
+Credit limits, overage ceilings, and plan terms are subject to availability and may be adjusted over time.
 
 <Tip>
-  Need a higher limit? Reach out to [support@fastino.ai](mailto:support@fastino.ai) or your account contact and we can raise the cap on a custom plan.
+  Need a higher limit? Reach out to [support@fastino.ai](mailto:support@fastino.ai) or your account contact and we can raise the ceiling on a custom plan.
 </Tip>
 
 ## Handling 429 responses
@@ -74,7 +89,7 @@ def call_with_retry(url, headers, payload, max_retries=5):
 ```
 
 <Note>
-  Spending-cap 429s won't resolve by waiting — they clear at 00:00 UTC. The retry loop above raises immediately instead of sleeping when `daily_spend_cap_exceeded` is set.
+  Credit and overage denials (`402`/`403`, see [Credit limits and overage spending cap](#credit-limits-and-overage-spending-cap)) won't resolve by waiting — the retry loop above only applies to `429` responses. A `402`/`403` needs a billing action (add credits, enable auto top-up, or upgrade your plan) before the next request can succeed.
 </Note>
 
 ## Requesting higher limits
