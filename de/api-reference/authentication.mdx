@@ -1,0 +1,87 @@
+---
+title: "Authentifizierung der Pioneer API: API-Schlüssel erstellen und verwenden"
+sidebarTitle: "Authentifizierung"
+description: "So erstellen Sie einen Pioneer-API-Schlüssel, übergeben ihn im X-API-Key-Header und listen oder widerrufen Schlüssel programmatisch."
+---
+
+Jede Anfrage an die Pioneer API muss Ihren API-Schlüssel enthalten. Pioneer verwendet ein einfaches header-basiertes Schema. Es ist kein OAuth-Flow und kein Token-Austausch erforderlich. Ihr Schlüssel identifiziert Sie und bestimmt, welche Ressourcen und Rate Limits für Ihre Anfragen gelten.
+
+## Einen API-Schlüssel erhalten
+
+1. Melden Sie sich bei [pioneer.ai](https://pioneer.ai) an.
+2. Gehen Sie zu **Settings** → **API Keys**.
+3. Klicken Sie auf **Create key**, vergeben Sie einen Namen und kopieren Sie den angezeigten Wert.
+
+Speichern Sie Ihren Schlüssel in einer Umgebungsvariable (zum Beispiel `PIONEER_API_KEY`), statt ihn in Quelldateien fest zu hinterlegen.
+
+## Übergabe Ihres API-Schlüssels
+
+Fügen Sie Ihren Schlüssel bei jeder Anfrage in den `X-API-Key`-Header ein:
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "YOUR_TRAINING_JOB_ID",
+    "text": "Apple announced the MacBook Pro.",
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+## Schlüssel verwalten
+
+Erstellen Sie neue API-Schlüssel unter **Settings** -> **API Keys** im Pioneer-Dashboard. Mit API-Schlüsseln authentifizierte Anfragen können Schlüssel auflisten und widerrufen, aber keine weiteren Schlüssel erstellen.
+
+### Einen Schlüssel erstellen
+
+`POST /create-api-key` wird vom Web-Dashboard verwendet und erfordert eine Browser-Sitzung. Mit `X-API-Key` authentifizierte Aufrufe geben `403 Forbidden` mit der Meldung `API key creation is only allowed from the web dashboard.` zurück.
+
+Die Antwort auf die Erstellung enthält den neuen `secret_key`-Wert. Kopieren Sie ihn sofort. Er wird kein zweites Mal angezeigt.
+
+### Schlüssel auflisten
+
+```bash cURL
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Gibt alle Ihrem Konto zugeordneten Schlüssel zurück, einschließlich Namen und Erstellungsdaten. Schlüsselwerte werden in Listenantworten nicht zurückgegeben.
+
+### Einen Schlüssel widerrufen
+
+```bash cURL
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"               
+  }'
+```
+
+Widerrufene Schlüssel werden bei der nächsten Anfrage sofort abgelehnt. Ein Rückgängigmachen ist nicht möglich.
+
+### Konnektivität testen, bevor Sie einen Schlüssel haben
+
+Um während der Integration zu prüfen, ob Ihr Netzwerk die Pioneer API erreichen kann, senden Sie eine Anfrage mit einem Platzhalterschlüssel. Sie erhalten ein `401` zurück. Das bestätigt, dass der Endpunkt erreichbar und Ihre Anfrage korrekt verdrahtet ist.
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: pio_sk_test" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-4-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# Expected: {"detail":"Invalid API key format. API keys must start with 'pio_sk_'. Please check your X-API-Key header."}
+# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
+```
+
+## Fehlerantworten
+
+| Status | Bedeutung |
+| --- | --- |
+| `401 Unauthorized` | Der Schlüssel fehlt, ist fehlerhaft formatiert oder wurde widerrufen. Prüfen Sie, ob der `X-API-Key`-Header vorhanden ist und einen gültigen Schlüssel enthält. |
+| `402 Payment Required` | Ihr Konto verfügt über zu wenig Guthaben, um die Anfrage abzuschließen. Rufen Sie **Settings** → **Billing** auf, um Ihr Guthaben aufzuladen. |
+
+<Warning>
+  Eine `402`-Antwort bedeutet, dass das Guthaben Ihres Kontos aufgebraucht ist. Anfragen werden weiterhin fehlschlagen, bis Sie Guthaben hinzufügen oder Ihren Plan aktualisieren. Siehe [Pläne & Preise](/pricing) für Ihre Optionen.
+</Warning>

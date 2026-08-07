@@ -1,0 +1,78 @@
+---
+title: "Pioneer REST API: Basis-URL, Authentifizierung und Kurzreferenz"
+sidebarTitle: "Übersicht"
+description: "Die Übersicht der Pioneer REST API: Basis-URL, Authentifizierung, der empfohlene 5-Schritte-Workflow vom Datensatz bis zur Inferenz und Links zu allen Referenzen der Endpunktgruppen."
+---
+
+Mit der Pioneer REST API können Sie Inferenzen ausführen, Datensätze verwalten, Trainingsjobs starten und Modelle programmatisch evaluieren. Alle Ressourcen liegen unter einer einzigen Basis-URL, und jede Anfrage wird mit Ihrem API-Schlüssel authentifiziert. Pioneer stellt außerdem OpenAI- und Anthropic-kompatible Endpunkte bereit, sodass Sie sich in jedes Tool integrieren können, das diese Formate bereits unterstützt.
+
+**Basis-URL:** `https://api.pioneer.ai`
+
+## Authentifizierung
+
+Jede Anfrage erfordert einen `X-API-Key`-Header. Erstellen Sie Ihren Schlüssel im Pioneer-Dashboard unter [agent.pioneer.ai/api-keys](https://agent.pioneer.ai/api-keys) oder öffnen Sie nach der Anmeldung **Settings** -> **API Keys**. Weitere Details, einschließlich der Endpunkte zur Schlüsselverwaltung, finden Sie auf der Seite [Authentifizierung](/de/api-reference/authentication).
+
+## Empfohlener Workflow
+
+Folgen Sie dieser Reihenfolge, wenn Sie ein feinabgestimmtes Modell durchgängig aufbauen:
+
+<Steps>
+  <Step title="Einen Datensatz erstellen oder hochladen">
+    Verwenden Sie `POST /generate`, um synthetische, gelabelte Daten zu erzeugen. Die Antwort enthält eine `job_id`; fragen Sie `GET /generate/jobs/{job_id}` ab, bis der Status `ready` zurückgibt.
+
+    Um eigene gelabelte Daten hochzuladen, verwenden Sie den dreistufigen Upload-Ablauf:
+
+    1. Rufen Sie `POST /felix/datasets/upload/url` auf, um eine vorsignierte S3-URL zu erhalten.
+    2. Führen Sie einen `PUT` Ihrer Datei direkt an S3 aus.
+    3. Rufen Sie `POST /felix/datasets/upload/process` auf, um die Verarbeitung anzustoßen.
+
+    Fragen Sie `GET /felix/datasets/{name}/{version}` ab, bis der Status `ready` ist.<br />Weitere Details finden Sie auf der Seite [Datensätze](/api-reference/datasets).
+  </Step>
+  <Step title="Einen Trainingsjob starten">
+    Rufen Sie `POST /felix/training-jobs` mit Ihrem model\_name, Ihren datasets und base\_model auf. Die Antwort enthält eine `job_id`. Bewahren Sie diese für die folgenden Schritte auf.
+  </Step>
+  <Step title="Trainingsstatus abfragen">
+    Rufen Sie `GET /felix/training-jobs/:id` wiederholt auf, bis das Statusfeld `complete` ist. Abgeschlossene Jobs enthalten F1-, Precision- und Recall-Metriken.
+  </Step>
+  <Step title="Eine Evaluation ausführen">
+    Rufen Sie `POST /felix/evaluations` mit Ihrer Trainingsjob-ID und dem Namen eines zurückgehaltenen Datensatzes auf, um die Leistung zu validieren, bevor Sie Traffic bereitstellen.
+  </Step>
+  <Step title="Inferenz ausführen">
+    Rufen Sie `POST /inference` auf, wobei `base_model` auf Ihre Trainingsjob-ID und dataset\_name auf Ihren zurückgehaltenen Datensatz gesetzt sind. Sie können auch jede beliebige Basismodell-ID (zum Beispiel `fastino/gliner2-base-v1`) ohne Fine-Tuning verwenden.
+  </Step>
+</Steps>
+
+<Note>
+  Ersetzen Sie Platzhalterwerte wie `YOUR_DATASET_NAME` und `YOUR_TRAINING_JOB_ID` durch echte Werte, bevor Sie Beispielbefehle ausführen.
+</Note>
+
+## Endpunktgruppen
+
+<CardGroup cols={2}>
+  <Card title="Inferenz" icon="bolt" href="/api-reference/inference/pioneer">
+    Führen Sie Vorhersagen gegen feinabgestimmte oder Basismodelle im Pioneer-Format aus, oder über Drop-in-kompatible OpenAI- und Anthropic-Endpunkte.
+  </Card>
+
+  <Card title="Training & Daten" icon="database" href="/api-reference/datasets">
+    Verwalten Sie Datensätze, erzeugen Sie synthetische Trainingsdaten, starten und überwachen Sie Trainingsjobs und führen Sie Evaluationen aus.
+  </Card>
+
+  <Card title="Projekte" icon="folder" href="/api-reference/projects">
+    Organisieren Sie Ressourcen in Projekten, stellen Sie trainierte Modelle bereit und führen Sie Inferenzen gegen einen Projekt-Endpunkt aus.
+  </Card>
+
+  <Card title="API-Schlüssel" icon="key" href="/de/api-reference/api-keys">
+    Erstellen Sie Schlüssel im Dashboard und listen und widerrufen Sie bestehende Schlüssel dann programmatisch.
+  </Card>
+</CardGroup>
+
+## OpenAI- und Anthropic-Kompatibilität
+
+Pioneer bietet Drop-in-Ersatz für die OpenAI- und Anthropic-SDKs. Richten Sie Ihren bestehenden Client auf `https://api.pioneer.ai/v1` aus und verwenden Sie Ihren Pioneer-API-Schlüssel. Weitere Änderungen sind nicht erforderlich.
+
+| SDK | Basis-URL | Hinweise |
+| --- | --- | --- |
+| OpenAI | `https://api.pioneer.ai/v1` | `base_url` setzen; Pioneer-spezifische Felder über `extra_body` übergeben |
+| Anthropic | `https://api.pioneer.ai/v1` | `base_url` setzen; unterstützt Streaming |
+
+Übergeben Sie Pioneer-spezifische Felder wie `schema` über `extra_body` (OpenAI SDK) oder den entsprechenden Mechanismus für zusätzliche Parameter Ihrer Client-Bibliothek.

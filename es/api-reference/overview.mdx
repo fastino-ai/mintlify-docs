@@ -1,0 +1,78 @@
+---
+title: "API REST de Pioneer: URL base, autenticación y referencia rápida"
+sidebarTitle: "Descripción general"
+description: "Descripción general de la API REST de Pioneer: URL base, autenticación, el flujo de trabajo recomendado en 5 pasos desde el dataset hasta la inferencia, y enlaces a todas las referencias por grupo de endpoints."
+---
+
+La API REST de Pioneer te permite ejecutar inferencia, gestionar datasets, iniciar trabajos de entrenamiento y evaluar modelos de forma programática. Todos los recursos residen bajo una única URL base, y cada solicitud se autentica con tu clave de API. Pioneer también expone endpoints compatibles con OpenAI y Anthropic, por lo que puedes integrarlo con cualquier herramienta que ya admita esos formatos.
+
+**URL base:** `https://api.pioneer.ai`
+
+## Autenticación
+
+Cada solicitud requiere un encabezado `X-API-Key`. Crea tu clave en el panel de Pioneer en [agent.pioneer.ai/api-keys](https://agent.pioneer.ai/api-keys), o abre **Settings** -> **API Keys** después de iniciar sesión. Consulta la página de [Autenticación](/es/api-reference/authentication) para más detalles, incluyendo los endpoints de gestión de claves.
+
+## Flujo de trabajo recomendado
+
+Sigue esta secuencia cuando estés construyendo un modelo ajustado de principio a fin:
+
+<Steps>
+  <Step title="Crear o subir un dataset">
+    Usa `POST /generate` para generar datos etiquetados sintéticos. La respuesta incluye un `job_id`; consulta `GET /generate/jobs/{job_id}` hasta que el estado devuelva `ready`.
+
+    Para subir tus propios datos etiquetados, utiliza el flujo de subida en tres pasos:
+
+    1. Llama a `POST /felix/datasets/upload/url` para obtener una URL prefirmada de S3,
+    2. Envía tu archivo con `PUT` directamente a S3
+    3. Llama a `POST /felix/datasets/upload/process` para iniciar el procesamiento.
+
+    Consulta `GET /felix/datasets/{name}/{version}` hasta que el estado sea `ready`.<br />Consulta la página de [Datasets](/api-reference/datasets) para más detalles.
+  </Step>
+  <Step title="Iniciar un trabajo de entrenamiento">
+    Llama a `POST /felix/training-jobs` con tu model\_name, datasets y base\_model. La respuesta incluye un `job_id`. Guárdalo para los siguientes pasos.
+  </Step>
+  <Step title="Consultar el estado del entrenamiento">
+    Llama a `GET /felix/training-jobs/:id` repetidamente hasta que el campo de estado sea `complete`. Los trabajos completados incluyen métricas de F1, precisión y recall.
+  </Step>
+  <Step title="Ejecutar una evaluación">
+    Llama a `POST /felix/evaluations` con el ID de tu trabajo de entrenamiento y el nombre de un dataset reservado para validar el rendimiento antes de servir tráfico.
+  </Step>
+  <Step title="Ejecutar inferencia">
+    Llama a `POST /inference` con `base_model` configurado como el ID de tu trabajo de entrenamiento y dataset\_name configurado como tu dataset reservado. También puedes usar cualquier ID de modelo base (por ejemplo `fastino/gliner2-base-v1`) sin ajuste fino.
+  </Step>
+</Steps>
+
+<Note>
+  Reemplaza los valores de marcador como `YOUR_DATASET_NAME` y `YOUR_TRAINING_JOB_ID` con valores reales antes de ejecutar cualquier comando de ejemplo.
+</Note>
+
+## Grupos de endpoints
+
+<CardGroup cols={2}>
+  <Card title="Inferencia" icon="bolt" href="/api-reference/inference/pioneer">
+    Ejecuta predicciones contra modelos ajustados o modelos base usando el formato de Pioneer, o mediante endpoints compatibles con OpenAI y Anthropic listos para usar.
+  </Card>
+
+  <Card title="Entrenamiento y datos" icon="database" href="/api-reference/datasets">
+    Gestiona datasets, genera datos de entrenamiento sintéticos, inicia y monitorea trabajos de entrenamiento y ejecuta evaluaciones.
+  </Card>
+
+  <Card title="Proyectos" icon="folder" href="/api-reference/projects">
+    Organiza los recursos en proyectos, despliega modelos entrenados y ejecuta inferencia contra un endpoint del proyecto.
+  </Card>
+
+  <Card title="Claves de API" icon="key" href="/es/api-reference/api-keys">
+    Crea claves en el panel, y luego lista y revoca claves existentes de forma programática.
+  </Card>
+</CardGroup>
+
+## Compatibilidad con OpenAI y Anthropic
+
+Pioneer ofrece reemplazos directos para los SDK de OpenAI y Anthropic. Apunta tu cliente existente a `https://api.pioneer.ai/v1` y utiliza tu clave de API de Pioneer. No se requieren otros cambios.
+
+| SDK | URL base | Notas |
+| --- | --- | --- |
+| OpenAI | `https://api.pioneer.ai/v1` | Configura `base_url`; pasa los campos específicos de Pioneer mediante `extra_body` |
+| Anthropic | `https://api.pioneer.ai/v1` | Configura `base_url`; admite streaming |
+
+Pasa los campos específicos de Pioneer como `schema` usando `extra_body` (SDK de OpenAI) o el mecanismo equivalente de parámetros adicionales para tu biblioteca cliente.

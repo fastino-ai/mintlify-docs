@@ -1,0 +1,123 @@
+---
+title: "Cómo autenticar tus solicitudes con la API de Pioneer"
+description: "Genera una clave de API desde tu cuenta de Pioneer y luego inclúyela en el encabezado X-API-Key en cada solicitud. No se requiere OAuth ni renovación de tokens."
+sidebarTitle: "Autenticación"
+---
+
+Cada solicitud a la API de Pioneer debe incluir una clave de API. Pioneer utiliza un esquema de autenticación sencillo basado en encabezados: incluye tu clave en el encabezado `X-API-Key` y ya está todo listo. No hay tokens que renovar ni flujos de OAuth que gestionar.
+
+## Generar una clave de API
+
+1. Inicia sesión en [pioneer.ai](https://pioneer.ai).
+2. Ve a **Settings → API Keys**.
+3. Haz clic en **Create key**, asígnale un nombre y copia el valor de la clave.
+
+<Warning>
+  Solo puedes ver la clave completa inmediatamente después de crearla. Pioneer no almacena el valor de la clave, así que cópiala antes de cerrar el diálogo. Si pierdes una clave, revócala y genera una nueva.
+</Warning>
+
+## Pasar la clave en las solicitudes
+
+Incluye tu clave de API en el encabezado `X-API-Key` en cada solicitud. Los ejemplos a continuación muestran la misma llamada de inferencia en curl, Python y JavaScript.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "fastino/gliner2-base-v1",
+    "text": "Apple launched the iPhone in San Francisco.",
+    "schema": {"entities": ["organization", "product", "location"]}
+  }'
+```
+
+```python Python
+import requests
+
+headers = {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(
+    "https://api.pioneer.ai/inference",
+    headers=headers,
+    json={
+        "model_id": "fastino/gliner2-base-v1",
+        "text": "Apple launched the iPhone in San Francisco.",
+        "schema": {"entities": ["organization", "product", "location"]}
+    }
+)
+print(response.json())
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.pioneer.ai/inference", {
+  method: "POST",
+  headers: {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    model_id: "fastino/gliner2-base-v1",
+    text: "Apple launched the iPhone in San Francisco.",
+    schema: { entities: ["organization", "product", "location"] }
+  })
+});
+const data = await response.json();
+console.log(data);
+```
+
+</CodeGroup>
+
+<Tip>
+  Guarda tu clave de API en una variable de entorno (por ejemplo, `PIONEER_API_KEY`) en lugar de codificarla directamente. Nunca subas claves de API al control de versiones. Añade tu archivo `.env` a `.gitignore` y utiliza un gestor de secretos para los despliegues en producción.
+</Tip>
+
+## Errores de autenticación
+
+| Estado | Significado |
+| --- | --- |
+| `401 Unauthorized` | Falta el encabezado `X-API-Key` o la clave no es válida. Verifica que estás enviando el encabezado y que la clave no ha sido revocada. |
+| `402 Payment Required` | Tu cuenta no tiene créditos suficientes. Mejora tu plan o añade créditos en **Settings → Billing**. |
+
+Todos los demás códigos de error están documentados en la [página de errores de la referencia de la API](/es/api-reference/errors).
+
+## Gestionar claves de API existentes a través de la API
+
+Crea nuevas claves de API desde **Settings -> API Keys** en el panel de Pioneer. Por seguridad, las solicitudes autenticadas con clave de API no pueden crear claves de API adicionales; `POST /create-api-key` solo está disponible en sesiones del panel y devuelve `403 Forbidden` cuando se llama con `X-API-Key`.
+
+Puedes listar y revocar claves existentes de forma programática utilizando una clave existente.
+
+**Listar claves existentes**
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Revocar una clave**
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "key_id_to_revoke"}'
+```
+
+<Note>
+  La revocación es inmediata y permanente. Cualquier solicitud que utilice la clave revocada recibirá un error `401`. Crea una clave de reemplazo antes de revocar una existente si necesitas acceso sin interrupciones.
+</Note>
+
+## Recomendaciones de seguridad
+
+<Warning>
+  Rota las claves de API regularmente, especialmente si se utilizan en entornos compartidos o pipelines de CI/CD. Usa una clave distinta por cada integración para poder revocar claves individuales sin afectar a otros servicios.
+</Warning>
+
+- Usa una clave por entorno (desarrollo, staging, producción).
+- Revoca las claves de inmediato si sospechas que han quedado expuestas.
+- Evita pasar las claves como parámetros de consulta. Usa siempre el encabezado `X-API-Key`.
+- En producción, obtén las claves desde un gestor de secretos en lugar de variables de entorno incrustadas en imágenes de contenedor.

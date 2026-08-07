@@ -1,0 +1,87 @@
+---
+title: "Pioneer API 身份验证:生成和使用 API 密钥"
+sidebarTitle: "身份验证"
+description: "如何生成 Pioneer API 密钥、将其放入 X-API-Key 头,以及以编程方式列出或撤销密钥。"
+---
+
+Pioneer API 的每个请求都必须包含您的 API 密钥。Pioneer 采用简单的基于请求头的方案,无需 OAuth 流程或令牌交换。您的密钥用于标识您的身份,并决定哪些资源和速率限制适用于您的请求。
+
+## 获取 API 密钥
+
+1. 在 [pioneer.ai](https://pioneer.ai) 登录。
+2. 前往 **Settings** → **API Keys**。
+3. 点击 **Create key**,为其命名,并复制显示的值。
+
+请将您的密钥存储在环境变量中(例如 `PIONEER_API_KEY`),而不是硬编码在源文件中。
+
+## 传递 API 密钥
+
+在每个请求的 `X-API-Key` 头中包含您的密钥:
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "YOUR_TRAINING_JOB_ID",
+    "text": "Apple announced the MacBook Pro.",
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+## 管理密钥
+
+请从 Pioneer 控制面板的 **Settings** -> **API Keys** 创建新的 API 密钥。使用 API 密钥进行身份验证的请求可以列出和撤销密钥,但无法创建更多密钥。
+
+### 创建密钥
+
+`POST /create-api-key` 供 Web 控制面板使用,需要浏览器会话。使用 `X-API-Key` 进行身份验证的调用会返回 `403 Forbidden`,并附带消息 `API key creation is only allowed from the web dashboard.`
+
+创建响应包含新的 `secret_key` 值。请立即复制它,该值不会再次显示。
+
+### 列出密钥
+
+```bash cURL
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+返回与您账户关联的所有密钥,包括名称和创建日期。列表响应中不返回密钥值。
+
+### 撤销密钥
+
+```bash cURL
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"               
+  }'
+```
+
+被撤销的密钥在下一个请求时会立即被拒绝。无法撤销此操作。
+
+### 在获得密钥前测试连通性
+
+要在集成期间验证您的网络能否访问 Pioneer API,请使用占位符密钥发送请求。您会收到 `401` 响应,这表明该端点可达,并且您的请求已正确连接。
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: pio_sk_test" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-4-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# Expected: {"detail":"Invalid API key format. API keys must start with 'pio_sk_'. Please check your X-API-Key header."}
+# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
+```
+
+## 错误响应
+
+| 状态码 | 含义 |
+| --- | --- |
+| `401 Unauthorized` | 密钥缺失、格式错误或已被撤销。请检查是否存在 `X-API-Key` 头,并确保其中包含有效的密钥。 |
+| `402 Payment Required` | 您的账户积分不足以完成请求。请前往 **Settings** → **Billing** 为余额充值。 |
+
+<Warning>
+  `402` 响应表示您的账户积分已用尽。请求将持续失败,直至您添加积分或升级套餐。请参阅 [Plans & Pricing](/pricing) 了解可选方案。
+</Warning>

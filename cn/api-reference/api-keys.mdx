@@ -1,0 +1,159 @@
+---
+title: "Pioneer API 密钥管理:创建、列出与撤销"
+sidebarTitle: "API 密钥"
+description: "在控制面板中创建 Pioneer API 密钥,然后以编程方式列出和撤销密钥。完整的密钥仅在创建时返回一次,请立即将其存储在密钥管理服务中。"
+---
+
+Pioneer API 的每个请求都需要在 `X-API-Key` 头中传入 API 密钥。请在 Pioneer 控制面板中创建密钥,然后使用密钥管理端点以编程方式列出和撤销现有密钥。
+
+<Tip>
+  请将 API 密钥存储在环境变量中,而不是硬编码在源代码里。例如,在环境中设置 `PIONEER_API_KEY`,并在运行时读取它。切勿将 API 密钥提交到版本控制系统。
+</Tip>
+
+---
+
+## 创建 API 密钥
+
+`POST /create-api-key`
+
+生成与您账户关联的新 API 密钥。此端点由 Pioneer 控制面板使用,需要浏览器会话。使用现有 API 密钥进行身份验证的调用会被拒绝并返回 `403 Forbidden`,以防止凭证链式生成。
+
+**请求体**
+
+<ParamField body="name" type="string" required>
+  用于标识此密钥的描述性名称。请使用反映密钥用途或所属服务的名称,例如 `"ci-pipeline"` 或 `"production-inference"`。
+</ParamField>
+
+<Warning>
+  不要使用现有的 API 密钥创建另一个 API 密钥。此端点不接受 `X-API-Key` 身份验证;请从控制面板的 **Settings** -> **API Keys** 中创建密钥。
+</Warning>
+
+**响应**
+
+<ResponseField name="secret_key" type="string">
+  完整的 API 密钥值。这是唯一一次以明文返回该值,请立即复制并将其存储在安全的地方,例如密钥管理服务或环境变量中。
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  密钥的唯一标识符。撤销密钥时请使用此 ID。
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  您为密钥指定的名称。
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  密钥创建时间的 ISO 8601 时间戳。
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  生成密钥的末尾数字,用于显示和识别。
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  可选的 ISO 8601 过期时间戳,当密钥不会过期时为 `null`。
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  密钥绑定的团队。
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Pioneer 是否在创建密钥时创建了 Stripe 客户记录。
+</ResponseField>
+
+<Warning>
+  完整的密钥值仅在创建时返回。如果丢失,您必须撤销该密钥并创建新的密钥。
+</Warning>
+
+---
+
+## 列出 API 密钥
+
+`GET /list-api-keys`
+
+返回与您账户关联的所有 API 密钥。响应中的密钥值会被遮盖,仅返回名称和创建日期等元数据。
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**响应**
+
+<ResponseField name="keys" type="object[]">
+  API 密钥元数据对象数组。
+  <Expandable title="密钥属性">
+    <ResponseField name="id" type="string">
+      密钥的唯一标识符。撤销密钥时请使用此 ID。
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      分配给此密钥的名称。
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 创建时间戳。
+    </ResponseField>
+    <ResponseField name="api_key_last_digits" type="string">
+      密钥的末尾数字,用于显示和识别。
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
+      使用此密钥最近一次请求的 ISO 8601 时间戳(如可用)。
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      过期时间戳,当密钥不会过期时为 `null`。
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      密钥绑定的团队。
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      此密钥使用的总 token 数。
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      归属于此密钥的总费用。
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      使用此密钥发出的请求数量。
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  返回的密钥数量。
+</ResponseField>
+
+---
+
+## 撤销 API 密钥
+
+`DELETE /delete-api-key`
+
+永久撤销 API 密钥。使用被撤销密钥的任何请求都将立即收到 `401 Unauthorized` 响应。
+
+**请求体**
+
+<ParamField body="key_id" type="string" required>
+  要撤销的密钥的唯一 ID,由 `GET /list-api-keys` 返回。
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "YOUR_KEY_ID"}'
+```
+
+<Warning>
+  撤销密钥是即时且不可逆的。为避免服务中断,请确保在撤销旧密钥之前,将所有使用该密钥的服务更新为使用替换密钥。
+</Warning>
+
+**响应**
+
+返回 `200 OK` 以及一个表示成功的 JSON 响应体。
+
+<ResponseField name="success" type="boolean">
+  密钥是否被撤销。
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  人类可读的状态消息。
+</ResponseField>

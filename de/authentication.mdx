@@ -1,0 +1,123 @@
+---
+title: "So authentifizieren Sie Ihre Anfragen mit der Pioneer API"
+description: "Erstellen Sie einen API-Schlüssel in Ihrem Pioneer-Konto und fügen Sie ihn bei jeder Anfrage in den X-API-Key-Header ein. Kein OAuth und keine Token-Erneuerung erforderlich."
+sidebarTitle: "Authentifizierung"
+---
+
+Jede Anfrage an die Pioneer API muss einen API-Schlüssel enthalten. Pioneer verwendet ein einfaches header-basiertes Authentifizierungsschema: Fügen Sie Ihren Schlüssel in den `X-API-Key`-Header ein und schon können Sie loslegen. Es gibt keine Token zum Erneuern und keine OAuth-Flows zu verwalten.
+
+## API-Schlüssel erstellen
+
+1. Melden Sie sich bei [pioneer.ai](https://pioneer.ai) an.
+2. Gehen Sie zu **Settings → API Keys**.
+3. Klicken Sie auf **Create key**, vergeben Sie einen Namen und kopieren Sie den Schlüsselwert.
+
+<Warning>
+  Sie können den vollständigen Schlüssel nur unmittelbar nach der Erstellung einsehen. Pioneer speichert den Schlüsselwert nicht, kopieren Sie ihn daher, bevor Sie den Dialog schließen. Falls Sie einen Schlüssel verlieren, widerrufen Sie ihn und erstellen Sie einen neuen.
+</Warning>
+
+## Den Schlüssel in Anfragen übergeben
+
+Fügen Sie Ihren API-Schlüssel bei jeder Anfrage in den `X-API-Key`-Header ein. Die folgenden Beispiele zeigen denselben Inferenzaufruf in curl, Python und JavaScript.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "fastino/gliner2-base-v1",
+    "text": "Apple launched the iPhone in San Francisco.",
+    "schema": {"entities": ["organization", "product", "location"]}
+  }'
+```
+
+```python Python
+import requests
+
+headers = {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(
+    "https://api.pioneer.ai/inference",
+    headers=headers,
+    json={
+        "model_id": "fastino/gliner2-base-v1",
+        "text": "Apple launched the iPhone in San Francisco.",
+        "schema": {"entities": ["organization", "product", "location"]}
+    }
+)
+print(response.json())
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.pioneer.ai/inference", {
+  method: "POST",
+  headers: {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    model_id: "fastino/gliner2-base-v1",
+    text: "Apple launched the iPhone in San Francisco.",
+    schema: { entities: ["organization", "product", "location"] }
+  })
+});
+const data = await response.json();
+console.log(data);
+```
+
+</CodeGroup>
+
+<Tip>
+  Speichern Sie Ihren API-Schlüssel in einer Umgebungsvariable (z. B. `PIONEER_API_KEY`), anstatt ihn fest im Code zu hinterlegen. Committen Sie API-Schlüssel niemals in die Versionskontrolle. Fügen Sie Ihre `.env`-Datei zu `.gitignore` hinzu und verwenden Sie für Produktionsbereitstellungen einen Secrets-Manager.
+</Tip>
+
+## Authentifizierungsfehler
+
+| Status | Bedeutung |
+| --- | --- |
+| `401 Unauthorized` | Der `X-API-Key`-Header fehlt oder der Schlüssel ist ungültig. Prüfen Sie, ob Sie den Header senden und ob der Schlüssel nicht widerrufen wurde. |
+| `402 Payment Required` | Ihr Konto verfügt über zu wenig Guthaben. Führen Sie ein Upgrade Ihres Plans durch oder laden Sie unter **Settings → Billing** Guthaben auf. |
+
+Alle weiteren Fehlercodes sind auf der Seite [Fehler in der API-Referenz](/de/api-reference/errors) dokumentiert.
+
+## Bestehende API-Schlüssel über die API verwalten
+
+Erstellen Sie neue API-Schlüssel unter **Settings -> API Keys** im Pioneer-Dashboard. Aus Sicherheitsgründen können mit API-Schlüsseln authentifizierte Anfragen keine weiteren API-Schlüssel erstellen. `POST /create-api-key` steht ausschließlich in Dashboard-Sitzungen zur Verfügung und liefert bei Aufruf mit `X-API-Key` den Fehler `403 Forbidden` zurück.
+
+Sie können bestehende Schlüssel mit einem vorhandenen Schlüssel programmatisch auflisten und widerrufen.
+
+**Bestehende Schlüssel auflisten**
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Einen Schlüssel widerrufen**
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "key_id_to_revoke"}'
+```
+
+<Note>
+  Der Widerruf erfolgt sofort und ist endgültig. Anfragen, die den widerrufenen Schlüssel verwenden, erhalten einen `401`-Fehler. Erstellen Sie einen Ersatzschlüssel, bevor Sie einen bestehenden widerrufen, falls Sie einen unterbrechungsfreien Zugriff benötigen.
+</Note>
+
+## Sicherheitsempfehlungen
+
+<Warning>
+  Rotieren Sie API-Schlüssel regelmäßig, insbesondere wenn sie in gemeinsam genutzten Umgebungen oder CI/CD-Pipelines verwendet werden. Verwenden Sie pro Integration einen eigenen Schlüssel, damit Sie einzelne Schlüssel widerrufen können, ohne andere Dienste zu beeinträchtigen.
+</Warning>
+
+- Verwenden Sie einen Schlüssel pro Umgebung (Entwicklung, Staging, Produktion).
+- Widerrufen Sie Schlüssel sofort, wenn Sie den Verdacht haben, dass sie kompromittiert wurden.
+- Übergeben Sie Schlüssel nicht als Query-Parameter. Nutzen Sie immer den `X-API-Key`-Header.
+- Beziehen Sie Schlüssel in der Produktion aus einem Secrets-Manager statt aus Umgebungsvariablen, die in Container-Images eingebettet sind.

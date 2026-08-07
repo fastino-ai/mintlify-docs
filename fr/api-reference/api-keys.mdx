@@ -1,0 +1,159 @@
+---
+title: "Gestion des clés API Pioneer : créer, lister et révoquer"
+sidebarTitle: "Clés API"
+description: "Créez des clés API Pioneer depuis le tableau de bord, puis listez et révoquez les clés de manière programmatique. La clé secrète complète n'est renvoyée qu'à la création. Stockez-la immédiatement dans un gestionnaire de secrets."
+---
+
+Chaque requête à l'API Pioneer nécessite une clé API transmise dans l'en-tête `X-API-Key`. Créez les clés dans le tableau de bord Pioneer, puis utilisez les endpoints de gestion des clés pour lister et révoquer les clés existantes de manière programmatique.
+
+<Tip>
+  Stockez les clés API dans des variables d'environnement plutôt que de les coder en dur dans le code source. Par exemple, définissez `PIONEER_API_KEY` dans votre environnement et lisez-la à l'exécution. Ne validez jamais de clés API dans le contrôle de version.
+</Tip>
+
+---
+
+## Créer une clé API
+
+`POST /create-api-key`
+
+Génère une nouvelle clé API associée à votre compte. Cet endpoint est utilisé par le tableau de bord Pioneer et nécessite une session de navigateur. Les appels authentifiés avec une clé API existante sont rejetés avec `403 Forbidden` pour empêcher l'enchaînement des identifiants.
+
+**Corps de la requête**
+
+<ParamField body="name" type="string" required>
+  Un nom descriptif pour identifier cette clé. Utilisez des noms qui reflètent la finalité de la clé ou le service auquel elle appartient, par exemple `"ci-pipeline"` ou `"production-inference"`.
+</ParamField>
+
+<Warning>
+  N'utilisez pas une clé API existante pour créer une autre clé API. L'authentification `X-API-Key` n'est pas acceptée pour cet endpoint ; créez les clés depuis **Settings** -> **API Keys** dans le tableau de bord.
+</Warning>
+
+**Réponse**
+
+<ResponseField name="secret_key" type="string">
+  La valeur complète de la clé API. C'est la seule fois où elle est renvoyée en clair. Copiez-la immédiatement et stockez-la dans un endroit sûr comme un gestionnaire de secrets ou une variable d'environnement.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Identifiant unique de la clé. Utilisez cet ID lors de la révocation de la clé.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Le nom que vous avez attribué à la clé.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Horodatage ISO 8601 de la création de la clé.
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  Derniers chiffres de la clé générée à des fins d'affichage et d'identification.
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  Horodatage d'expiration ISO 8601 optionnel, ou `null` lorsque la clé n'expire pas.
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  Équipe à laquelle la clé est liée.
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Indique si Pioneer a créé un enregistrement client Stripe lors de la création de la clé.
+</ResponseField>
+
+<Warning>
+  La valeur complète de la clé n'est renvoyée qu'au moment de la création. Si vous la perdez, vous devez révoquer la clé et en créer une nouvelle.
+</Warning>
+
+---
+
+## Lister les clés API
+
+`GET /list-api-keys`
+
+Renvoie toutes les clés API associées à votre compte. Les valeurs des clés sont masquées dans la réponse. Seules les métadonnées telles que le nom et la date de création sont renvoyées.
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Réponse**
+
+<ResponseField name="keys" type="object[]">
+  Tableau d'objets de métadonnées de clés API.
+  <Expandable title="propriétés de la clé">
+    <ResponseField name="id" type="string">
+      Identifiant unique de la clé. Utilisez cet ID lors de la révocation de la clé.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Le nom attribué à cette clé.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Horodatage de création ISO 8601.
+    </ResponseField>
+    <ResponseField name="api_key_last_digits" type="string">
+      Derniers chiffres de la clé à des fins d'affichage et d'identification.
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
+      Horodatage ISO 8601 de la requête la plus récente effectuée avec cette clé, s'il est disponible.
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      Horodatage d'expiration, ou `null` lorsque la clé n'expire pas.
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      Équipe à laquelle la clé est liée.
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      Total des tokens utilisés par cette clé.
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      Coût total attribué à cette clé.
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      Nombre de requêtes effectuées avec cette clé.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Nombre de clés renvoyées.
+</ResponseField>
+
+---
+
+## Révoquer une clé API
+
+`DELETE /delete-api-key`
+
+Révoque définitivement une clé API. Toute requête utilisant la clé révoquée recevra immédiatement une réponse `401 Unauthorized`.
+
+**Corps de la requête**
+
+<ParamField body="key_id" type="string" required>
+  L'ID unique de la clé à révoquer, tel que renvoyé par `GET /list-api-keys`.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "YOUR_KEY_ID"}'
+```
+
+<Warning>
+  La révocation d'une clé est immédiate et irréversible. Assurez-vous que tous les services utilisant la clé sont mis à jour pour utiliser une clé de remplacement avant de révoquer l'ancienne, afin d'éviter les interruptions de service.
+</Warning>
+
+**Réponse**
+
+Renvoie `200 OK` avec un corps JSON de succès.
+
+<ResponseField name="success" type="boolean">
+  Indique si la clé a été révoquée.
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  Message de statut lisible.
+</ResponseField>

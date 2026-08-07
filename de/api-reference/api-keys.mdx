@@ -1,0 +1,159 @@
+---
+title: "Verwaltung von Pioneer-API-Schlüsseln: erstellen, auflisten und widerrufen"
+sidebarTitle: "API Keys"
+description: "Erstellen Sie Pioneer-API-Schlüssel im Dashboard und listen bzw. widerrufen Sie Schlüssel dann programmatisch. Der vollständige Secret Key wird nur bei der Erstellung zurückgegeben. Speichern Sie ihn sofort in einem Secrets-Manager."
+---
+
+Jede Anfrage an die Pioneer API erfordert einen API-Schlüssel, der im `X-API-Key`-Header übergeben wird. Erstellen Sie Schlüssel im Pioneer-Dashboard und verwenden Sie anschließend die Endpunkte zur Schlüsselverwaltung, um bestehende Schlüssel programmatisch aufzulisten und zu widerrufen.
+
+<Tip>
+  Speichern Sie API-Schlüssel in Umgebungsvariablen, statt sie fest im Quellcode zu hinterlegen. Legen Sie beispielsweise `PIONEER_API_KEY` in Ihrer Umgebung fest und lesen Sie den Wert zur Laufzeit ein. Committen Sie API-Schlüssel niemals in die Versionskontrolle.
+</Tip>
+
+---
+
+## Einen API-Schlüssel erstellen
+
+`POST /create-api-key`
+
+Erstellt einen neuen API-Schlüssel, der Ihrem Konto zugeordnet ist. Dieser Endpunkt wird vom Pioneer-Dashboard verwendet und erfordert eine Browser-Sitzung. Mit einem bestehenden API-Schlüssel authentifizierte Aufrufe werden mit `403 Forbidden` abgelehnt, um Credential Chaining zu verhindern.
+
+**Request Body**
+
+<ParamField body="name" type="string" required>
+  Ein aussagekräftiger Name zur Identifizierung dieses Schlüssels. Verwenden Sie Namen, die den Zweck des Schlüssels oder den zugehörigen Dienst widerspiegeln, zum Beispiel `"ci-pipeline"` oder `"production-inference"`.
+</ParamField>
+
+<Warning>
+  Verwenden Sie keinen bestehenden API-Schlüssel, um einen weiteren API-Schlüssel zu erstellen. Die Authentifizierung per `X-API-Key` wird für diesen Endpunkt nicht akzeptiert. Erstellen Sie Schlüssel unter **Settings** -> **API Keys** im Dashboard.
+</Warning>
+
+**Response**
+
+<ResponseField name="secret_key" type="string">
+  Der vollständige Wert des API-Schlüssels. Dies ist das einzige Mal, dass er im Klartext zurückgegeben wird. Kopieren Sie ihn sofort und speichern Sie ihn an einem sicheren Ort wie einem Secrets-Manager oder einer Umgebungsvariable.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Eindeutige Kennung des Schlüssels. Verwenden Sie diese ID, wenn Sie den Schlüssel widerrufen.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Der Name, den Sie dem Schlüssel zugewiesen haben.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO-8601-Zeitstempel des Erstellungszeitpunkts des Schlüssels.
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  Letzte Ziffern des erzeugten Schlüssels zur Anzeige und Identifikation.
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  Optionaler ISO-8601-Ablaufzeitpunkt oder `null`, wenn der Schlüssel nicht abläuft.
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  Team, an das der Schlüssel gebunden ist.
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Gibt an, ob Pioneer während der Schlüsselerstellung einen Stripe-Kundendatensatz angelegt hat.
+</ResponseField>
+
+<Warning>
+  Der vollständige Schlüsselwert wird nur bei der Erstellung zurückgegeben. Wenn Sie ihn verlieren, müssen Sie den Schlüssel widerrufen und einen neuen erstellen.
+</Warning>
+
+---
+
+## API-Schlüssel auflisten
+
+`GET /list-api-keys`
+
+Gibt alle Ihrem Konto zugeordneten API-Schlüssel zurück. Schlüsselwerte sind in der Antwort maskiert. Es werden nur Metadaten wie Name und Erstellungsdatum zurückgegeben.
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+<ResponseField name="keys" type="object[]">
+  Array mit Metadatenobjekten der API-Schlüssel.
+  <Expandable title="Schlüsseleigenschaften">
+    <ResponseField name="id" type="string">
+      Eindeutige Kennung des Schlüssels. Verwenden Sie diese ID, wenn Sie den Schlüssel widerrufen.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Der diesem Schlüssel zugewiesene Name.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO-8601-Zeitstempel der Erstellung.
+    </ResponseField>
+    <ResponseField name="api_key_last_digits" type="string">
+      Letzte Ziffern des Schlüssels zur Anzeige und Identifikation.
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
+      ISO-8601-Zeitstempel der letzten mit diesem Schlüssel gestellten Anfrage, sofern verfügbar.
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      Ablaufzeitpunkt oder `null`, wenn der Schlüssel nicht abläuft.
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      Team, an das der Schlüssel gebunden ist.
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      Gesamtzahl der mit diesem Schlüssel verbrauchten Tokens.
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      Gesamte Kosten, die diesem Schlüssel zugerechnet werden.
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      Anzahl der mit diesem Schlüssel gestellten Anfragen.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Anzahl der zurückgegebenen Schlüssel.
+</ResponseField>
+
+---
+
+## Einen API-Schlüssel widerrufen
+
+`DELETE /delete-api-key`
+
+Widerruft einen API-Schlüssel dauerhaft. Anfragen, die den widerrufenen Schlüssel verwenden, erhalten sofort `401 Unauthorized`-Antworten.
+
+**Request Body**
+
+<ParamField body="key_id" type="string" required>
+  Die eindeutige ID des zu widerrufenden Schlüssels, wie sie von `GET /list-api-keys` zurückgegeben wird.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "YOUR_KEY_ID"}'
+```
+
+<Warning>
+  Das Widerrufen eines Schlüssels erfolgt sofort und ist unwiderruflich. Stellen Sie sicher, dass alle Dienste, die den Schlüssel verwenden, auf einen Ersatzschlüssel umgestellt sind, bevor Sie den alten widerrufen, um Dienstunterbrechungen zu vermeiden.
+</Warning>
+
+**Response**
+
+Gibt `200 OK` mit einem JSON-Erfolgsbody zurück.
+
+<ResponseField name="success" type="boolean">
+  Gibt an, ob der Schlüssel widerrufen wurde.
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  Menschenlesbare Statusmeldung.
+</ResponseField>
