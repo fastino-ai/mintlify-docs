@@ -1,0 +1,159 @@
+---
+title: "Gestión de claves de API de Pioneer: crear, listar y revocar"
+sidebarTitle: "Claves de API"
+description: "Crea claves de API de Pioneer desde el panel y luego lista y revoca claves de forma programática. La clave secreta completa solo se devuelve al crearla. Guárdala inmediatamente en un gestor de secretos."
+---
+
+Cada solicitud a la API de Pioneer requiere una clave de API pasada en el encabezado `X-API-Key`. Crea claves en el panel de Pioneer y luego utiliza los endpoints de gestión de claves para listar y revocar claves existentes de forma programática.
+
+<Tip>
+  Guarda las claves de API en variables de entorno en lugar de codificarlas en el código fuente. Por ejemplo, define `PIONEER_API_KEY` en tu entorno y léelo en tiempo de ejecución. Nunca subas claves de API al control de versiones.
+</Tip>
+
+---
+
+## Crear una clave de API
+
+`POST /create-api-key`
+
+Genera una nueva clave de API asociada a tu cuenta. Este endpoint lo utiliza el panel de Pioneer y requiere una sesión de navegador. Las llamadas autenticadas con una clave de API existente se rechazan con `403 Forbidden` para evitar el encadenamiento de credenciales.
+
+**Cuerpo de la solicitud**
+
+<ParamField body="name" type="string" required>
+  Un nombre descriptivo para identificar esta clave. Usa nombres que reflejen el propósito de la clave o el servicio al que pertenece, por ejemplo `"ci-pipeline"` o `"production-inference"`.
+</ParamField>
+
+<Warning>
+  No utilices una clave de API existente para crear otra clave de API. La autenticación con `X-API-Key` no se acepta para este endpoint; crea claves desde **Settings** -> **API Keys** en el panel.
+</Warning>
+
+**Respuesta**
+
+<ResponseField name="secret_key" type="string">
+  El valor completo de la clave de API. Esta es la única vez que se devuelve en texto plano. Cópiala inmediatamente y guárdala en un lugar seguro, como un gestor de secretos o una variable de entorno.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Identificador único de la clave. Usa este ID al revocar la clave.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  El nombre que asignaste a la clave.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Marca de tiempo en ISO 8601 de cuándo se creó la clave.
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  Últimos dígitos de la clave generada, para su visualización e identificación.
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  Marca de tiempo opcional de expiración en ISO 8601, o `null` cuando la clave no expira.
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  Equipo al que está vinculada la clave.
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Indica si Pioneer creó un registro de cliente de Stripe durante la creación de la clave.
+</ResponseField>
+
+<Warning>
+  El valor completo de la clave solo se devuelve en el momento de la creación. Si lo pierdes, deberás revocar la clave y crear una nueva.
+</Warning>
+
+---
+
+## Listar claves de API
+
+`GET /list-api-keys`
+
+Devuelve todas las claves de API asociadas a tu cuenta. Los valores de las claves están enmascarados en la respuesta. Solo se devuelven metadatos como el nombre y la fecha de creación.
+
+```bash
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Respuesta**
+
+<ResponseField name="keys" type="object[]">
+  Array de objetos con metadatos de las claves de API.
+  <Expandable title="propiedades de la clave">
+    <ResponseField name="id" type="string">
+      Identificador único de la clave. Usa este ID al revocar la clave.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      El nombre asignado a esta clave.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Marca de tiempo de creación en ISO 8601.
+    </ResponseField>
+    <ResponseField name="api_key_last_digits" type="string">
+      Últimos dígitos de la clave, para su visualización e identificación.
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
+      Marca de tiempo en ISO 8601 de la solicitud más reciente realizada con esta clave, si está disponible.
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      Marca de tiempo de expiración, o `null` cuando la clave no expira.
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      Equipo al que está vinculada la clave.
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      Total de tokens utilizados por esta clave.
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      Costo total atribuido a esta clave.
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      Número de solicitudes realizadas con esta clave.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Número de claves devueltas.
+</ResponseField>
+
+---
+
+## Revocar una clave de API
+
+`DELETE /delete-api-key`
+
+Revoca permanentemente una clave de API. Cualquier solicitud que utilice la clave revocada recibirá inmediatamente respuestas `401 Unauthorized`.
+
+**Cuerpo de la solicitud**
+
+<ParamField body="key_id" type="string" required>
+  El ID único de la clave a revocar, tal como lo devuelve `GET /list-api-keys`.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "YOUR_KEY_ID"}'
+```
+
+<Warning>
+  Revocar una clave es inmediato e irreversible. Asegúrate de que cualquier servicio que utilice la clave se actualice para usar una clave de reemplazo antes de revocar la antigua, para evitar interrupciones del servicio.
+</Warning>
+
+**Respuesta**
+
+Devuelve `200 OK` con un cuerpo JSON de éxito.
+
+<ResponseField name="success" type="boolean">
+  Indica si la clave fue revocada.
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  Mensaje de estado legible por humanos.
+</ResponseField>

@@ -1,0 +1,87 @@
+---
+title: "Authentification de l'API Pioneer : générer et utiliser des clés API"
+sidebarTitle: "Authentification"
+description: "Comment générer une clé API Pioneer, la transmettre dans l'en-tête X-API-Key et lister ou révoquer des clés de manière programmatique."
+---
+
+Chaque requête à l'API Pioneer doit inclure votre clé API. Pioneer utilise un schéma simple basé sur les en-têtes. Aucun flux OAuth ni échange de jeton n'est requis. Votre clé vous identifie et détermine les ressources et les limites de débit qui s'appliquent à vos requêtes.
+
+## Obtenir une clé API
+
+1. Connectez-vous à [pioneer.ai](https://pioneer.ai).
+2. Allez dans **Settings** → **API Keys**.
+3. Cliquez sur **Create key**, donnez-lui un nom et copiez la valeur affichée.
+
+Stockez votre clé dans une variable d'environnement (par exemple `PIONEER_API_KEY`) plutôt que de la coder en dur dans les fichiers source.
+
+## Transmettre votre clé API
+
+Incluez votre clé dans l'en-tête `X-API-Key` de chaque requête :
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "YOUR_TRAINING_JOB_ID",
+    "text": "Apple announced the MacBook Pro.",
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+## Gestion des clés
+
+Créez de nouvelles clés API depuis **Settings** -> **API Keys** dans le tableau de bord Pioneer. Les requêtes authentifiées par clé API peuvent lister et révoquer des clés, mais ne peuvent pas en créer d'autres.
+
+### Créer une clé
+
+`POST /create-api-key` est utilisé par le tableau de bord web et nécessite une session de navigateur. Les appels authentifiés avec `X-API-Key` renvoient `403 Forbidden` avec le message `API key creation is only allowed from the web dashboard.`
+
+La réponse de création inclut la nouvelle valeur `secret_key`. Copiez-la immédiatement, elle n'est plus affichée par la suite.
+
+### Lister les clés
+
+```bash cURL
+curl https://api.pioneer.ai/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Renvoie toutes les clés associées à votre compte, y compris leurs noms et dates de création. Les valeurs des clés ne sont pas renvoyées dans les réponses de liste.
+
+### Révoquer une clé
+
+```bash cURL
+curl -X DELETE https://api.pioneer.ai/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"               
+  }'
+```
+
+Les clés révoquées sont rejetées immédiatement dès la requête suivante. Il n'y a pas d'annulation possible.
+
+### Tester la connectivité avant d'avoir une clé
+
+Pour vérifier que votre réseau peut atteindre l'API Pioneer pendant l'intégration, envoyez une requête avec une clé fictive. Vous recevrez un `401` en retour, ce qui confirme que l'endpoint est accessible et que votre requête est correctement configurée.
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: pio_sk_test" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-4-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# Expected: {"detail":"Invalid API key format. API keys must start with 'pio_sk_'. Please check your X-API-Key header."}
+# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
+```
+
+## Réponses d'erreur
+
+| Statut | Signification |
+| --- | --- |
+| `401 Unauthorized` | La clé est manquante, mal formée ou a été révoquée. Vérifiez que l'en-tête `X-API-Key` est présent et contient une clé valide. |
+| `402 Payment Required` | Votre compte n'a pas assez de crédits pour compléter la requête. Rendez-vous dans **Settings** → **Billing** pour recharger votre solde. |
+
+<Warning>
+  Une réponse `402` signifie que votre compte est à court de crédits. Les requêtes continueront à échouer jusqu'à ce que vous ajoutiez des crédits ou que vous mettiez à niveau votre offre. Consultez [Plans & Pricing](/pricing) pour vos options.
+</Warning>
