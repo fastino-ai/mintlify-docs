@@ -25,11 +25,22 @@ curl -X POST https://api.pioneer.ai/generate \
   }'
 ```
 
-Once generated or labeled, examples are stored in your dataset automatically. Poll `GET /generate/jobs/:job_id` to check when generation is complete before starting training.
+`POST /generate` also supports task types beyond NER — pass a different `task_type` and its required field:
+
+| `task_type` | Required field | Produces |
+| --- | --- | --- |
+| `ner` | `labels` | Named-entity recognition dataset |
+| `classification` | `labels` | Text classification dataset |
+| `custom` | `prompt` | Free-form prompt-based dataset |
+| `decoder` | `domain_description` | Instruction-tuning (chat format) dataset |
+| `records` | `fields` | Structured records |
+| `fields` | `input_fields` and `output_fields` | Structured records with separate input/output schemas |
+
+The endpoint returns `202` immediately with a `job_id`; generation itself runs asynchronously. Once generated or labeled, examples are stored in your dataset automatically. Poll `GET /generate/jobs/:job_id` until `status` is `ready` (or `failed`, in which case check the `error` field) before starting training.
 
 ## Uploading your own dataset
 
-Uploading your own data: Use `POST/felix/datasets/upload/url` if you already have labeled data. This is a three-step process:  
+Uploading your own data: Use `POST/felix/datasets/upload/url` if you already have labeled data. This is a three-step process:
 
 #### Step 1. Get a presigned upload URL
 
@@ -45,7 +56,7 @@ Uploading your own data: Use `POST/felix/datasets/upload/url` if you already hav
     }'      
 ```
 
-The response includes 'presigned\_url', 'dataset\_id', and 'version\_number'.
+Only `dataset_name` is required — `dataset_type` defaults to `"ner"` if omitted, and accepts `"ner"`, `"classification"`, `"custom"`, or `"decoder"` (the `type` field is `"training"` by default; `"benchmark"` is rejected here since benchmark datasets are system-managed). The response includes 'presigned\_url', 'dataset\_id', and 'version\_number'.
 
 #### Step 2. Upload the file directly to S3
 
@@ -54,9 +65,9 @@ curl -X PUT "<presigned_url from step 1 response>" \
    --upload-file ./data.jsonl
 ```
 
-This is a direct HTTP PUT to S3. Do not include your API key here. 
+This is a direct HTTP PUT to S3. Do not include your API key here.
 
-#### Step 3. Trigger processing  
+#### Step 3. Trigger processing
 
 ```bash
 curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
@@ -67,9 +78,9 @@ curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
     }' 
 ```
 
-After this call, the dataset moves through statuses:  initialized → uploading → converting → validating → ready
+This call returns immediately (`202`) with status `uploading`; the dataset then moves through the remaining statuses in the background: initialized → uploading → converting → validating → ready
 
-Poll `GET /felix/datasets/{name}/{version}` until `status` is `ready` before starting a training job.                             
+Poll `GET /felix/datasets/{name}/{version}` until `status` is `ready` (or `failed`, in which case check `processing_error`) before starting a training job. You can also pass `latest` in place of a version number to always fetch the newest version.
 
 ## Listing your datasets
 
@@ -80,7 +91,7 @@ curl https://api.pioneer.ai/felix/datasets \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-The response lists each dataset by name along with metadata such as creation time and version count.
+The response lists each dataset by name along with metadata such as creation time and version count. Datasets with status `failed` are excluded by default — pass `include_failed=true` to see them too.
 
 ## Inspecting a dataset
 
@@ -100,7 +111,7 @@ curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-Deleting a dataset by name soft-deletes it and all its versions. Completed training jobs and evaluations are unaffected, but you will no longer be able to start new jobs referencing it.      
+Deleting a dataset by name soft-deletes it and all its versions — S3 data is preserved in case you need to restore it. If any evaluation or training job is currently `pending`/`running` against the dataset, the delete is rejected with `409 Conflict` until that job finishes. Once deletion succeeds, already-completed training jobs and evaluations remain queryable, but you can no longer start new jobs referencing it.
 
 <Note>
   Dataset storage is free. You are not charged for storing datasets in Pioneer, regardless of size or number of versions.
@@ -112,15 +123,21 @@ Deleting a dataset by name soft-deletes it and all its versions. Completed train
 | --- | --- | --- |
 | `GET` | `/felix/datasets` | List all datasets |
 | `GET` | `/felix/datasets/:name` | Get all versions for a dataset |
-| `GET` | `/felix/datasets/:name/:version` | Get status and metadata for a specific version |
-| `DELETE` | `/felix/datasets/:name` | Permanently delete a dataset and all its versions |
-| `DELETE` | `/felix/datasets/:name/:version` | Delete a specific version |
+| `GET` | `/felix/datasets/:name/:version` | Get status and metadata for a specific version (`:version` also accepts `latest`) |
+| `GET` | `/felix/datasets/:name/:version/preview` | Preview a sample of rows without downloading the full file |
+| `GET` | `/felix/datasets/:name/:version/download` | Download a version as `jsonl`, `csv`, or `parquet` |
+| `DELETE` | `/felix/datasets/:name` | Soft-delete a dataset and all its versions (rejected with `409` while a job/eval is actively using it) |
+| `DELETE` | `/felix/datasets/:name/:version` | Soft-delete a specific version |
 | `POST` | `/felix/datasets/upload/url` | Get presigned S3 URL for direct upload |
 | `POST` | `/felix/datasets/upload/process` | Trigger processing after S3 upload |
-| `POST` | `/generate` | Start a synthetic data generation job |
+| `POST` | `/felix/datasets/merge` | Merge multiple datasets of the same type into one new dataset |
+| `POST` | `/felix/datasets/:name/:version/push-to-hub` | Push a dataset version to HuggingFace Hub |
+| `POST` | `/felix/datasets/pull-from-hub` | Import a dataset from HuggingFace Hub |
+| `POST` | `/felix/datasets/preview-from-hub` | Preview a HuggingFace Hub dataset before importing it |
+| `POST` | `/generate` | Start a synthetic data generation job (`202` + `job_id`, async) |
 | `GET` | `/generate/jobs/:job_id` | Poll generation job status |
-| `POST` | `/generate/ner/label-existing` | Auto-label raw text for NER |
-| `POST` | `/generate/classification/label-existing` | Auto-classify raw text |
+| `POST` | `/generate/ner/label-existing` | Auto-label raw text for NER (synchronous — returns results directly, no `job_id`) |
+| `POST` | `/generate/classification/label-existing` | Auto-classify raw text (synchronous — returns results directly, no `job_id`) |
 
 <Note>
   **Data Privacy:** If you would like to opt out of having your data used in Fastino's model training, please email [support@fastino.ai](mailto:support@fastino.ai) and we will ensure your data is excluded from our training pipelines.
