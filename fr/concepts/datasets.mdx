@@ -1,0 +1,144 @@
+---
+title: "Datasets Pioneer : créer, versionner, inspecter et supprimer"
+sidebarTitle: "Datasets"
+description: "Pioneer stocke et versionne automatiquement vos datasets d'entraînement. Découvrez comment les créer par génération ou auto-étiquetage, puis les lister, les inspecter et les supprimer."
+---
+
+Dans Pioneer, les datasets sont des collections d'exemples étiquetés utilisées pour entraîner et évaluer des modèles. Chaque dataset porte un nom que vous définissez, et Pioneer le versionne automatiquement à mesure que vous ajoutez ou régénérez des données. Vous référencez un dataset par son nom lorsque vous démarrez une tâche d'entraînement ou lancez une évaluation. Le nom que vous choisissez est donc l'identifiant stable que vous utiliserez tout au long de votre flux de travail.
+
+## Comment les datasets sont créés
+
+Vous créez des datasets de deux manières :
+
+**Génération de données synthétiques** — Utilisez `POST /generate` pour que Pioneer produise des exemples étiquetés à partir d'une description de votre domaine et des labels qui vous intéressent. C'est le moyen le plus rapide d'amorcer un dataset sans aucune donnée étiquetée existante.
+
+```bash
+curl -X POST https://api.pioneer.ai/generate \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_type": "ner",
+    "dataset_name": "my-ner-dataset",
+    "labels": ["person", "company", "product"],
+    "num_examples": 100,
+    "domain_description": "Tech industry news articles"
+  }'
+```
+
+`POST /generate` prend également en charge des types de tâches au-delà de la NER. Passez un `task_type` différent et le champ requis correspondant :
+
+| `task_type` | Champ requis | Produit |
+| --- | --- | --- |
+| `ner` | `labels` | Dataset de reconnaissance d'entités nommées |
+| `classification` | `labels` | Dataset de classification de texte |
+| `custom` | `prompt` | Dataset libre basé sur un prompt |
+| `decoder` | `domain_description` | Dataset d'instruction-tuning (format chat) |
+| `records` | `fields` | Enregistrements structurés |
+| `fields` | `input_fields` et `output_fields` | Enregistrements structurés avec schémas d'entrée/sortie séparés |
+
+L'endpoint renvoie immédiatement `202` avec un `job_id` ; la génération elle-même s'exécute de manière asynchrone. Une fois générés ou étiquetés, les exemples sont stockés automatiquement dans votre dataset. Interrogez `GET /generate/jobs/:job_id` jusqu'à ce que `status` soit `ready` (ou `failed`, auquel cas consultez le champ `error`) avant de démarrer l'entraînement.
+
+## Charger votre propre dataset
+
+Charger vos propres données : utilisez `POST/felix/datasets/upload/url` si vous disposez déjà de données étiquetées. Le processus se déroule en trois étapes :
+
+#### Étape 1. Obtenir une URL d'upload présignée
+
+```bash
+ curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+    -H "X-API-Key: YOUR_API_KEY" \
+    -H "Content-Type: application/json" \                                                                               
+    -d '{
+      "dataset_name": "my-ner-dataset",                                                                                 
+      "dataset_type": "ner",
+      "type": "training",
+      "filename": "data.jsonl"
+    }'      
+```
+
+Seul `dataset_name` est requis. `dataset_type` vaut `"ner"` par défaut si omis, et accepte `"ner"`, `"classification"`, `"custom"` ou `"decoder"` (le champ `type` vaut `"training"` par défaut ; `"benchmark"` est rejeté ici car les datasets de benchmark sont gérés par le système). La réponse inclut `presigned_url`, `dataset_id` et `version_number`.
+
+#### Étape 2. Uploader le fichier directement vers S3
+
+```bash
+curl -X PUT "<presigned_url from step 1 response>" \                                                                  
+   --upload-file ./data.jsonl
+```
+
+Il s'agit d'un HTTP PUT direct vers S3. N'incluez pas votre clé API ici.
+
+#### Étape 3. Déclencher le traitement
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
+    -H "X-API-Key: YOUR_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{                                                                                                               
+      "dataset_id": "<dataset_id from step 1>"
+    }' 
+```
+
+Cet appel renvoie immédiatement (`202`) avec le statut `uploading` ; le dataset passe ensuite par les statuts restants en arrière-plan : initialized → uploading → converting → validating → ready
+
+Interrogez `GET /felix/datasets/{name}/{version}` jusqu'à ce que `status` soit `ready` (ou `failed`, auquel cas consultez `processing_error`) avant de démarrer une tâche d'entraînement. Vous pouvez également passer `latest` à la place d'un numéro de version pour toujours récupérer la version la plus récente.
+
+## Lister vos datasets
+
+Récupérez tous les datasets de votre compte :
+
+```bash
+curl https://api.pioneer.ai/felix/datasets \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+La réponse liste chaque dataset par nom ainsi que des métadonnées telles que l'heure de création et le nombre de versions. Les datasets au statut `failed` sont exclus par défaut. Passez `include_failed=true` pour les voir également.
+
+## Inspecter un dataset
+
+Pour voir les versions et les détails d'un dataset spécifique, passez son nom :
+
+```bash
+curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Cela renvoie l'historique des versions et le nombre d'exemples, ce qui est utile pour confirmer que le dataset est prêt avant l'entraînement.
+
+## Supprimer un dataset
+
+```bash
+curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+La suppression d'un dataset par nom effectue une suppression logique de celui-ci et de toutes ses versions. Les données S3 sont conservées au cas où vous auriez besoin de les restaurer. Si une évaluation ou une tâche d'entraînement est actuellement `pending`/`running` sur le dataset, la suppression est rejetée avec `409 Conflict` jusqu'à la fin de cette tâche. Une fois la suppression réussie, les tâches d'entraînement et les évaluations déjà terminées restent interrogeables, mais vous ne pouvez plus démarrer de nouvelles tâches qui y font référence.
+
+<Note>
+  Le stockage des datasets est gratuit. Vous n'êtes pas facturé pour le stockage des datasets dans Pioneer, quelle que soit leur taille ou leur nombre de versions.
+</Note>
+
+## Récapitulatif des endpoints de datasets
+
+| Méthode | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/felix/datasets` | Lister tous les datasets |
+| `GET` | `/felix/datasets/:name` | Obtenir toutes les versions d'un dataset |
+| `GET` | `/felix/datasets/:name/:version` | Obtenir le statut et les métadonnées d'une version spécifique (`:version` accepte aussi `latest`) |
+| `GET` | `/felix/datasets/:name/:version/preview` | Prévisualiser un échantillon de lignes sans télécharger le fichier complet |
+| `GET` | `/felix/datasets/:name/:version/download` | Télécharger une version au format `jsonl`, `csv` ou `parquet` |
+| `DELETE` | `/felix/datasets/:name` | Suppression logique d'un dataset et de toutes ses versions (rejetée avec `409` si une tâche ou une évaluation l'utilise activement) |
+| `DELETE` | `/felix/datasets/:name/:version` | Suppression logique d'une version spécifique |
+| `POST` | `/felix/datasets/upload/url` | Obtenir une URL S3 présignée pour l'upload direct |
+| `POST` | `/felix/datasets/upload/process` | Déclencher le traitement après l'upload S3 |
+| `POST` | `/felix/datasets/merge` | Fusionner plusieurs datasets du même type en un nouveau dataset |
+| `POST` | `/felix/datasets/:name/:version/push-to-hub` | Pousser une version de dataset vers HuggingFace Hub |
+| `POST` | `/felix/datasets/pull-from-hub` | Importer un dataset depuis HuggingFace Hub |
+| `POST` | `/felix/datasets/preview-from-hub` | Prévisualiser un dataset HuggingFace Hub avant de l'importer |
+| `POST` | `/generate` | Démarrer une tâche de génération de données synthétiques (`202` + `job_id`, asynchrone) |
+| `GET` | `/generate/jobs/:job_id` | Interroger le statut d'une tâche de génération |
+| `POST` | `/generate/ner/label-existing` | Auto-étiqueter du texte brut pour la NER (synchrone, renvoie les résultats directement, pas de `job_id`) |
+| `POST` | `/generate/classification/label-existing` | Auto-classifier du texte brut (synchrone, renvoie les résultats directement, pas de `job_id`) |
+
+<Note>
+  **Confidentialité des données :** si vous souhaitez refuser que vos données soient utilisées dans l'entraînement des modèles de Fastino, veuillez écrire à [support@fastino.ai](mailto:support@fastino.ai) et nous veillerons à ce que vos données soient exclues de nos pipelines d'entraînement.
+</Note>

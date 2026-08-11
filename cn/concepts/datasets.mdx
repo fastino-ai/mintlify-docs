@@ -1,0 +1,144 @@
+---
+title: "Pioneer 数据集：创建、版本管理、查看与删除"
+sidebarTitle: "数据集"
+description: "Pioneer 会自动存储并对训练数据集进行版本管理。了解如何通过合成生成或自动打标签创建数据集，并列出、查看和删除它们。"
+---
+
+Pioneer 中的数据集是用于训练和评估模型的带标签样例集合。每个数据集都有您自己定义的名称，Pioneer 会在您添加或重新生成数据时自动为其做版本管理。启动训练任务或运行评估时，您通过名称引用数据集，因此您选择的名称将是整个工作流中稳定的标识符。
+
+## 如何创建数据集
+
+您可以通过两种方式创建数据集：
+
+**合成数据生成** — 使用 `POST /generate`，让 Pioneer 根据您对领域和关注标签的描述生成带标签的样例。这是在没有任何现成带标签数据的情况下最快速地启动数据集的方式。
+
+```bash
+curl -X POST https://api.pioneer.ai/generate \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_type": "ner",
+    "dataset_name": "my-ner-dataset",
+    "labels": ["person", "company", "product"],
+    "num_examples": 100,
+    "domain_description": "Tech industry news articles"
+  }'
+```
+
+`POST /generate` 还支持 NER 以外的任务类型。传入不同的 `task_type` 及其必填字段：
+
+| `task_type` | 必填字段 | 生成内容 |
+| --- | --- | --- |
+| `ner` | `labels` | 命名实体识别数据集 |
+| `classification` | `labels` | 文本分类数据集 |
+| `custom` | `prompt` | 自由形式的基于提示的数据集 |
+| `decoder` | `domain_description` | 指令微调（对话格式）数据集 |
+| `records` | `fields` | 结构化记录 |
+| `fields` | `input_fields` 和 `output_fields` | 具有独立输入/输出模式的结构化记录 |
+
+端点会立即返回 `202` 和一个 `job_id`，生成本身在后台异步执行。生成或打标签完成后，样例会自动存入您的数据集。在启动训练之前，请轮询 `GET /generate/jobs/:job_id`，直到 `status` 为 `ready`（若为 `failed`，请查看 `error` 字段）。
+
+## 上传自己的数据集
+
+上传自有数据：如果您已有带标签的数据，请使用 `POST/felix/datasets/upload/url`。这是一个三步流程：
+
+#### 第 1 步：获取预签名上传 URL
+
+```bash
+ curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+    -H "X-API-Key: YOUR_API_KEY" \
+    -H "Content-Type: application/json" \                                                                               
+    -d '{
+      "dataset_name": "my-ner-dataset",                                                                                 
+      "dataset_type": "ner",
+      "type": "training",
+      "filename": "data.jsonl"
+    }'      
+```
+
+只有 `dataset_name` 是必填的。`dataset_type` 若省略默认为 `"ner"`，可取值 `"ner"`、`"classification"`、`"custom"` 或 `"decoder"`（`type` 字段默认为 `"training"`；`"benchmark"` 在此处会被拒绝，因为基准数据集由系统托管）。响应中包含 'presigned\_url'、'dataset\_id' 和 'version\_number'。
+
+#### 第 2 步：将文件直接上传到 S3
+
+```bash
+curl -X PUT "<presigned_url from step 1 response>" \                                                                  
+   --upload-file ./data.jsonl
+```
+
+这是一个直接向 S3 发起的 HTTP PUT 请求。此处不要携带您的 API 密钥。
+
+#### 第 3 步：触发处理
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
+    -H "X-API-Key: YOUR_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{                                                                                                               
+      "dataset_id": "<dataset_id from step 1>"
+    }' 
+```
+
+该调用立即返回 `202`，状态为 `uploading`；数据集随后在后台依次经过其余状态：initialized → uploading → converting → validating → ready
+
+在启动训练任务之前，请轮询 `GET /felix/datasets/{name}/{version}`，直到 `status` 为 `ready`（若为 `failed`，请查看 `processing_error`）。您也可以传入 `latest` 代替版本号，以始终获取最新版本。
+
+## 列出您的数据集
+
+获取账户中的所有数据集：
+
+```bash
+curl https://api.pioneer.ai/felix/datasets \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+响应会按名称列出每个数据集，并附带创建时间和版本数等元数据。默认不返回状态为 `failed` 的数据集，若要一并查看，请传入 `include_failed=true`。
+
+## 查看数据集
+
+要查看某个数据集的版本和详细信息，传入其名称：
+
+```bash
+curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+这会返回版本历史和样例数量，可用于在训练前确认数据集已就绪。
+
+## 删除数据集
+
+```bash
+curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+按名称删除数据集会将其及其所有版本软删除。S3 数据会保留，以便您在需要时恢复。如果有任何评估或训练任务正处于 `pending`/`running` 状态并使用该数据集，删除会被拒绝并返回 `409 Conflict`，直到该任务结束。删除成功后，已完成的训练任务和评估仍可查询，但您将无法再启动引用该数据集的新任务。
+
+<Note>
+  数据集存储是免费的。无论体积或版本数量多少，Pioneer 都不会就存储数据集向您收费。
+</Note>
+
+## 数据集端点汇总
+
+| 方法 | 端点 | 说明 |
+| --- | --- | --- |
+| `GET` | `/felix/datasets` | 列出所有数据集 |
+| `GET` | `/felix/datasets/:name` | 获取某数据集的所有版本 |
+| `GET` | `/felix/datasets/:name/:version` | 获取特定版本的状态和元数据（`:version` 也可传 `latest`） |
+| `GET` | `/felix/datasets/:name/:version/preview` | 预览若干行样本，无需下载完整文件 |
+| `GET` | `/felix/datasets/:name/:version/download` | 以 `jsonl`、`csv` 或 `parquet` 下载某个版本 |
+| `DELETE` | `/felix/datasets/:name` | 软删除数据集及其所有版本（当有任务/评估正在使用时，返回 `409` 拒绝） |
+| `DELETE` | `/felix/datasets/:name/:version` | 软删除特定版本 |
+| `POST` | `/felix/datasets/upload/url` | 获取用于直接上传的 S3 预签名 URL |
+| `POST` | `/felix/datasets/upload/process` | 在 S3 上传完成后触发处理 |
+| `POST` | `/felix/datasets/merge` | 将同类型的多个数据集合并为一个新数据集 |
+| `POST` | `/felix/datasets/:name/:version/push-to-hub` | 将某数据集版本推送到 HuggingFace Hub |
+| `POST` | `/felix/datasets/pull-from-hub` | 从 HuggingFace Hub 导入数据集 |
+| `POST` | `/felix/datasets/preview-from-hub` | 在导入前预览 HuggingFace Hub 上的数据集 |
+| `POST` | `/generate` | 启动一个合成数据生成任务（`202` + `job_id`，异步） |
+| `GET` | `/generate/jobs/:job_id` | 轮询生成任务状态 |
+| `POST` | `/generate/ner/label-existing` | 对原始文本进行 NER 自动打标签（同步，直接返回结果，不返回 `job_id`） |
+| `POST` | `/generate/classification/label-existing` | 对原始文本进行自动分类（同步，直接返回结果，不返回 `job_id`） |
+
+<Note>
+  **数据隐私：** 如果您希望不让您的数据用于 Fastino 的模型训练，请发送邮件至 [support@fastino.ai](mailto:support@fastino.ai)，我们将确保将您的数据排除在训练流水线之外。
+</Note>

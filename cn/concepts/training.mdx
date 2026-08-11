@@ -1,0 +1,189 @@
+---
+title: "Pioneer 训练任务：生命周期、指标与权重"
+sidebarTitle: "训练"
+description: "了解 Pioneer 训练任务的工作原理：从提交任务、轮询状态到读取指标、停止任务，以及下载训练完成的模型权重。"
+---
+
+在 Pioneer 中进行微调，是使用您的带标签数据集将基础模型适配到您的特定任务和领域。您通过 API 提交训练任务，Pioneer 负责算力，您获得可用于推理或下载的训练完成的模型。整个流程是异步的：先启动任务，然后轮询直到完成。
+
+Pioneer 支持三种训练后算法，通过 `training_algorithm` 参数选择：监督微调（`sft`，默认）以及强化学习方法 GRPO（`grpo`）和 DPO（`dpo`）。何时使用哪种以及数据集应如何组织，请参见 [LLM 微调指南](/guides/fine-tune-llm)。
+
+## 训练任务生命周期
+
+训练任务的 `status` 字段会经过多个状态。主路径如下：
+
+<Steps>
+  <Step title="requested">
+    您的任务已被接受并排队执行。Pioneer 正在分配算力。
+  </Step>
+  <Step title="running">
+    训练正在提供商侧执行。
+  </Step>
+  <Step title="complete">
+    GPU 训练已成功结束。任务记录上可获取损失指标（参见[轮询状态与读取指标](#polling-status-and-reading-metrics)），检查点可供下载或部署。
+  </Step>
+  <Step title="normalizing / artifact_ready">
+    训练后的中间步骤：Pioneer 正在对训练产物进行标准化和打包。您通常只会在 `complete` 与 `deployed` 之间短暂看到这些状态。
+  </Step>
+  <Step title="deployed">
+    训练完成的适配器已在推理提供商上线，可通过 `model_id` 提供服务。
+  </Step>
+</Steps>
+
+任务也可能以以下状态结束：**`errored`**（训练过程中发生错误）、**`stopped`**（您通过 `POST /felix/training-jobs/:id/stop` 优雅地终止了任务，检查点保留）、**`terminated`**（您调用了 `POST /felix/training-jobs/:id/terminate`，它会停止任务*并*永久删除其检查点，不可逆），或 **`paused`**。
+
+## 关键参数
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `model_name` | 是 | 为您训练完成的模型指定的名称，用于在账户中标识它。 |
+| `base_model` | 是 | 要微调的模型 ID。使用 `GET /base-models` 中的取值，或某个先前任务返回的检查点 UUID。 |
+| `datasets` | 是 | 数据集对象数组：`[{"name": "your-dataset-name"}]`。 |
+| `training_type` | 否 | `"lora"`（默认，参数高效）或 `"full"`（全部权重）。解码器 LLM 训练仅支持 LoRA。 |
+| `training_algorithm` | 否 | `"sft"`（默认）、`"grpo"` 或 `"dpo"`。RL 算法需要 `rl_config`。参见 [LLM 微调](/guides/fine-tune-llm)。 |
+| `nr_epochs` | 否 | 训练轮数。默认 100，解码器基础模型省略时默认为 10。 |
+| `learning_rate` | 否 | 学习率。省略时会使用所选基础模型的默认值。 |
+
+<Note>
+  `base_model` 是必填的，且必须匹配模型 ID 或 UUID 形式，不能是自由形式的字符串。省略或发送格式错误的值会返回 `422`。若值格式正确但不匹配任何可训练模型，则返回 `400`。
+</Note>
+
+## 启动训练任务
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-ner-model",
+    "base_model": "fastino/gliner2-base-v1",
+    "datasets": [{"name": "my-ner-dataset"}],
+    "training_type": "lora",
+    "nr_epochs": 5,
+    "learning_rate": 5e-5
+  }'
+```
+
+响应会立即返回完整的任务记录，包括 UUID `id` 和初始状态：
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "status": "requested",
+  "nr_epochs": 5,
+  "learning_rate": 5e-5
+}
+```
+
+请保存好 `id`，之后您将使用它来轮询状态、获取指标以及针对训练完成的模型运行推理。
+
+## 轮询状态与读取指标
+
+轮询任务端点，直到 `status` 达到终态：`complete`、`deployed`、`errored`、`stopped` 或 `terminated`：
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+一旦训练开始，`metrics` 字段就始终包含损失值；若已对训练所得模型运行了单独的评估，还会包含 F1/精确率/召回率/准确率：
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "status": "complete",
+  "metrics": {
+    "final_training_loss": 0.12,
+    "final_validation_loss": 0.18,
+    "best_validation_loss": 0.15,
+    "eval_f1_score": 0.94,
+    "eval_precision": 0.96,
+    "eval_recall": 0.92,
+    "eval_accuracy": 0.95
+  }
+}
+```
+
+要获取该任务的结构化 stdout/stderr 日志行：
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+这会返回日志条目的 JSON 列表（`{id, timestamp, level, message, source}`）。这是一次即时抓取，并非实时流。在任务 `running` 时定期轮询即可跟踪进度。
+
+## 停止或终止任务
+
+要在保留检查点的前提下优雅地停止正在运行的任务：
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+任务状态会变为 `stopped`。在停止之前保存的检查点仍可用于部署或下载。
+
+若要永久终止任务并删除其检查点，请改用 `/terminate`：
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+<Warning>
+  如果任务仍在运行，`/terminate` 会停止提供商侧的任务，并永久删除其所有检查点。该操作不可逆。如果您希望保留至今训练出的检查点，请改用 `/stop`。
+</Warning>
+
+## 检查点与下载权重
+
+Pioneer 会在训练过程中保存检查点。任务开始后，您可以随时列出它们：
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+每个检查点带有 `is_best`、`is_final` 和 `is_deployable` 标志。您可以将任意可部署的检查点（不仅限于最终检查点）部署到实时推理端点：
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+若要下载权重，请请求一个预签名 URL（需要 Pro 及以上套餐，否则该调用返回 `403`）：
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+响应为 JSON，其中的 `download_url` 会在 1 小时后过期，请另行访问该 URL 以获取实际文件：
+
+```json
+{
+  "success": true,
+  "download_url": "https://...",
+  "expires_in_seconds": 3600,
+  "file_name": "my-ner-model-weights.zip"
+}
+```
+
+您也可以在新的训练任务中把某个检查点 UUID 作为 `base_model` 的取值，从而在该检查点之上继续训练。
+
+## 训练端点汇总
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `POST` | `/felix/training-jobs` | 启动新的训练任务 |
+| `GET` | `/felix/training-jobs` | 列出训练任务（可按 `project_id`、`status` 过滤，通过 `limit`/`offset` 分页） |
+| `GET` | `/felix/training-jobs/:id` | 获取任务状态和指标 |
+| `GET` | `/felix/training-jobs/:id/logs` | 获取结构化训练日志条目 |
+| `GET` | `/felix/training-jobs/:id/checkpoints` | 列出已保存的检查点 |
+| `POST` | `/felix/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | 部署指定检查点用于推理 |
+| `GET` | `/felix/training-jobs/:id/download` | 获取用于下载已训练权重的预签名 URL（Pro 及以上套餐） |
+| `POST` | `/felix/training-jobs/:id/stop` | 优雅地停止正在运行的任务，保留检查点 |
+| `POST` | `/felix/training-jobs/:id/terminate` | 停止任务并永久删除其检查点（不可逆） |
+| `DELETE` | `/felix/training-jobs/:id` | 删除任务记录（若任务仍活动则同时停止并删除其检查点） |
