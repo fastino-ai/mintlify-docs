@@ -1,0 +1,230 @@
+---
+title: "Pioneer 上的推理：原生、OpenAI 与 Anthropic API"
+description: "通过原生 /inference 端点、兼容 OpenAI 的 chat completions 或兼容 Anthropic 的 messages 在 Pioneer 上运行推理，三者都指向同一批模型。"
+---
+
+有了训练完成的模型（或希望直接使用基础模型）之后，您可以向 Pioneer API 发送请求来运行推理。`model_id` 字段既接受基础模型 ID（如 `fastino/gliner2-base-v1`），也接受已完成的训练任务返回的任务 ID（一个 UUID，例如 `3fa85f64-5717-4562-b3fc-2c963f66afa6`）。Pioneer 会自动把请求路由到正确的部署。
+
+Pioneer 支持三种请求格式：自有的原生格式、兼容 OpenAI 的格式，以及兼容 Anthropic 的格式。三者都指向同一批底层模型，且都以相同方式接受您的 API 密钥：`X-API-Key` 请求头或 `Authorization: Bearer <key>` 请求头均可，您的 SDK 默认发送哪一种都能工作，无需按格式做额外配置。
+
+<Note>
+  对话形状的端点（`/v1/chat/completions`、`/v1/responses`、`/v1/messages`）会以 `400` 拒绝对预训练（非 instruct）基础解码器模型的请求，请改用该模型的 `-Instruct` 变体，或调用 `/v1/completions` 并传入原始 `prompt`。
+</Note>
+
+## Pioneer 原生格式
+
+使用 `POST /inference` 搭配 Pioneer 的 schema 格式。这是最具表达力的选项，能让您对提取任务拥有完整控制。
+
+```bash
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+    "schema": {
+      "entities": ["organization", "product", "event", "location"]
+    },
+    "threshold": 0.5
+  }'
+```
+
+### Schema 结构
+
+`schema` 字段是一个包含可选键的字典。只需包含适用于您任务的键。
+
+| 键 | 类型 | 说明 |
+| --- | --- | --- |
+| `entities` | `string[]` | 用于命名实体识别 (NER) 的实体类型标签。 |
+| `classifications` | `object[]` | 分类任务，每个任务包含一个 `task` 名称和 `labels` 列表。 |
+| `structures` | `object` | 用于 JSON 提取的命名结构定义。 |
+| `relations` | `object[]` | 连接已提取实体的关系定义。 |
+
+### 解码器模型
+
+对于解码器模型 (LLM)，将 `schema` 替换为 `"task": "generate"`：
+
+```bash
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "Qwen/Qwen3-8B",
+    "task": "generate",
+    "messages": [                                                                                                     
+        {"role": "user", "content": "Summarize the following article in two sentences."}
+      ]
+  }'
+```
+
+## 兼容 OpenAI 的格式
+
+Pioneer 在 `https://api.pioneer.ai/v1` 提供一个兼容 OpenAI 的端点。将任何现有的 OpenAI SDK 或集成的 base URL 指向该地址，并使用您的 Pioneer API 密钥，无需任何其他修改。
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "messages": [
+      {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
+    ],
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+可用的 OpenAI 兼容端点：
+
+| 方法 | 端点 | 说明 |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | 聊天补全 |
+| `POST` | `/v1/completions` | 文本补全 |
+| `POST` | `/v1/responses` | Responses API |
+| `POST` | `/v1/embeddings` | 创建嵌入 |
+| `GET` | `/v1/models` | 列出可用模型（对于公开目录，可无需鉴权调用） |
+| `GET` | `/v1/models/:model_id` | 获取单个模型的元数据 |
+
+`/v1/models` 和 `/v1/models/:model_id` 是共享基础设施，同样这两条路由也用于响应 Anthropic 兼容 SDK 的 `models.retrieve(...)` 调用。
+
+<Tip>
+  在使用 OpenAI 的 Python 或 Node SDK 时，通过 `extra_body` 参数传递 Pioneer 特有字段，如 `schema`。例如：
+
+  ```python
+  client.chat.completions.create(
+      model="3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+      extra_body={"schema": {"entities": ["organization", "product"]}}
+  )
+  ```
+</Tip>
+
+## 兼容 Anthropic 的格式
+
+Pioneer 也提供一个兼容 Anthropic 的端点。将 SDK 的 `base_url` 设置为 `https://api.pioneer.ai/v1`，并用 Pioneer API 密钥代替 Anthropic 密钥。Anthropic SDK 会以 `x-api-key` 头发送它，Pioneer 与其他两种格式一样能接受。
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
+    ],
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+OpenAI 兼容端点和 Anthropic 兼容端点都支持流式（`stream: true`）。原生 `/inference` 端点不支持流式，如果您需要逐 token 的输出，请使用其中一种兼容格式。
+
+## 提示缓存
+
+提示缓存能降低重复提示前缀的成本和延迟，但启用方式因模型系列而异：
+
+- **OpenAI / GPT 系列** — 缓存是**自动**的。您无需做任何事；您发送的任何 `cache_control` 都会被静默忽略，因此从 Claude 切换客户端过来时无需删除它。
+- **Claude / Anthropic 风格** — 缓存默认**需要显式开启**。Pioneer 会原样转发您的请求，不会自动添加缓存标记，因此除非您在提示的稳定部分添加 `cache_control` 标记，否则前缀不会被缓存，每轮都会按完整输入价计费。
+
+要在 Claude 模型上缓存稳定前缀，请以块数组形式发送内容并进行标记。这同样适用于 `/v1/chat/completions` 和 `/v1/responses`，并不局限于 Anthropic 兼容端点：
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-7",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "What is prompt caching?" }
+    ]
+  }'
+```
+
+缓存的 tokens 会以折扣费率计费，并可在 **Settings → Credits** 中查看。
+
+关于标记的位置、最小尺寸、费率、如何读取 token 用量以及提高缓存命中率的技巧，请参见[提示缓存](/api-reference/prompt-caching)。
+
+## 关闭推理持久化
+
+默认情况下，Pioneer 会存储每一次推理的输入、输出和元数据，用于评估、用例聚类和适配器训练。传入 `store: false` 可对特定请求跳过持久化。
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "Authorization: Bearer pio_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-7",
+    "messages": [
+      {"role": "user", "content": "Hello, world!"}
+    ],
+    "store": false
+  }'
+```
+
+`store: false` 在三种请求格式上均受支持：原生 `/inference`、`/v1/chat/completions` 和 `/v1/messages`，对于流式和非流式请求行为一致。
+
+### `store: false` 会带来哪些变化
+
+|  | 默认（`store: true`） | `store: false` |
+| --- | --- | --- |
+| 推理是否执行 | 是 | 是 |
+| 输入/输出是否存储 | 是 | 否 |
+| 评估是否运行 | 是 | 否 |
+| 用例聚类 | 是 | 否 |
+| 适配器训练输入 | 是 | 否 |
+| Token 计费 | 是 | 是 |
+| 响应中的 `inference_id` | 是 | 是（用于关联） |
+
+<Note>
+  计费仍然照常。即便设置了 `store: false`，token 用量、COGS 和计量计费仍会被记录，只是不会保留完整的请求/响应负载。
+</Note>
+
+### 何时使用
+
+- **健康检查** — 持续运行的存活性与就绪性探针 - **内部基准** — 您自己针对基准答案运行的评估，不希望污染面向用户的推理历史 - **开发与测试** — 集成过程中进行的探索性调用，累积推理记录会产生噪声
+
+## 推理历史
+
+Pioneer 会记录每一次推理调用。您可以获取过往结果，并提交更正以改进未来的训练数据。
+
+```bash
+# List recent inferences
+curl https://api.pioneer.ai/inferences \
+  -H "X-API-Key: YOUR_API_KEY"
+
+# Get a specific inference result
+curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+
+# Mark as correct
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"verdict": "correct"}'
+
+# Submit a correction
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"verdict": "incorrect", "corrected_output": {...}, "notes": "optional reviewer note"}'
+
+# Read back the feedback you (or a teammate) already submitted
+curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+如果尚未针对某次推理提交反馈，`GET .../feedback` 会返回 404。`POST .../feedback` 上的 `notes` 字段是可选的。
+
+`GET /inferences` 的可选查询过滤：`limit`、`offset`、`model_id`、`task`、`project_id`、`training_job_id`、`latency_min`、`latency_max`（ms）、`since`、`until`（对 `created_at` 的 ISO 8601 边界）。
+
+`GET /inferences/INFERENCE_ID` 也会在记录中一并返回已提交的人工反馈（`human_verdict`、`human_corrected_output`、`human_feedback_notes`）。

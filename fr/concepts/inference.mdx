@@ -1,0 +1,230 @@
+---
+title: "Inférence sur Pioneer : API natives, OpenAI et Anthropic"
+description: "Exécutez l'inférence sur Pioneer via l'endpoint natif /inference, les chat completions compatibles OpenAI ou les messages compatibles Anthropic. Tous accèdent aux mêmes modèles."
+---
+
+Une fois que vous disposez d'un modèle entraîné, ou que vous souhaitez utiliser directement un modèle de base, vous exécutez l'inférence en envoyant une requête à l'API Pioneer. Le champ `model_id` accepte soit un ID de modèle de base (comme `fastino/gliner2-base-v1`), soit l'ID de tâche (un UUID) renvoyé par une tâche d'entraînement terminée (comme `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Pioneer route automatiquement la requête vers le bon déploiement.
+
+Pioneer prend en charge trois formats de requête : son propre format natif, un format compatible OpenAI et un format compatible Anthropic. Les trois accèdent aux mêmes modèles sous-jacents, et les trois acceptent votre clé API de la même façon : soit un en-tête `X-API-Key`, soit un en-tête `Authorization: Bearer <key>`. Celui que votre SDK envoie par défaut fonctionne, aucune configuration par format n'est nécessaire.
+
+<Note>
+  Les endpoints de type chat (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`) rejettent les requêtes vers un modèle de base décodeur pré-entraîné (non-instruct) avec un `400`. Utilisez la variante `-Instruct` du modèle, ou appelez `/v1/completions` avec un `prompt` brut à la place.
+</Note>
+
+## Format natif Pioneer
+
+Utilisez `POST /inference` avec le format de schéma Pioneer. C'est l'option la plus expressive et elle vous donne un contrôle complet sur les tâches d'extraction.
+
+```bash
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+    "schema": {
+      "entities": ["organization", "product", "event", "location"]
+    },
+    "threshold": 0.5
+  }'
+```
+
+### Structure du schéma
+
+Le champ `schema` est un dictionnaire avec des clés optionnelles. N'incluez que les clés qui s'appliquent à votre tâche.
+
+| Clé | Type | Description |
+| --- | --- | --- |
+| `entities` | `string[]` | Labels de types d'entités pour la reconnaissance d'entités nommées (NER). |
+| `classifications` | `object[]` | Tâches de classification, chacune avec un nom de `task` et une liste de `labels`. |
+| `structures` | `object` | Définitions de structures nommées pour l'extraction JSON. |
+| `relations` | `object[]` | Définitions de relations reliant des entités extraites. |
+
+### Modèles décodeur
+
+Pour les modèles décodeur (LLM), remplacez `schema` par `"task": "generate"` :
+
+```bash
+curl -X POST https://api.pioneer.ai/inference \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "Qwen/Qwen3-8B",
+    "task": "generate",
+    "messages": [                                                                                                     
+        {"role": "user", "content": "Summarize the following article in two sentences."}
+      ]
+  }'
+```
+
+## Format compatible OpenAI
+
+Pioneer expose un endpoint compatible OpenAI à `https://api.pioneer.ai/v1`. Pointez n'importe quel SDK ou intégration OpenAI existant vers cette URL de base et utilisez votre clé API Pioneer. Aucune autre modification n'est nécessaire.
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "messages": [
+      {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
+    ],
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+Endpoints compatibles OpenAI disponibles :
+
+| Méthode | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | Chat completions |
+| `POST` | `/v1/completions` | Text completions |
+| `POST` | `/v1/responses` | API Responses |
+| `POST` | `/v1/embeddings` | Créer des embeddings |
+| `GET` | `/v1/models` | Lister les modèles disponibles (appelable sans authentification pour le catalogue public) |
+| `GET` | `/v1/models/:model_id` | Récupérer les métadonnées d'un modèle unique |
+
+`/v1/models` et `/v1/models/:model_id` sont une infrastructure partagée. Ces deux mêmes routes servent également les appels `models.retrieve(...)` du SDK compatible Anthropic.
+
+<Tip>
+  Lorsque vous utilisez le SDK OpenAI Python ou Node, passez les champs spécifiques à Pioneer comme `schema` via le paramètre `extra_body`. Par exemple :
+
+  ```python
+  client.chat.completions.create(
+      model="3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+      extra_body={"schema": {"entities": ["organization", "product"]}}
+  )
+  ```
+</Tip>
+
+## Format compatible Anthropic
+
+Pioneer expose également un endpoint compatible Anthropic. Définissez le `base_url` de votre SDK sur `https://api.pioneer.ai/v1` et utilisez votre clé API Pioneer à la place d'une clé Anthropic. Le SDK Anthropic l'envoie en tant que `x-api-key`, que Pioneer accepte de la même façon que les deux autres formats.
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
+    ],
+    "schema": {"entities": ["organization", "product"]}
+  }'
+```
+
+Les endpoints compatibles OpenAI et Anthropic prennent tous deux en charge le streaming (`stream: true`). L'endpoint natif `/inference` ne prend pas en charge le streaming. Utilisez l'un des formats compatibles si vous avez besoin d'une sortie token par token.
+
+## Mise en cache des prompts
+
+La mise en cache des prompts réduit le coût et la latence sur les préfixes de prompt répétés, mais la façon de l'activer dépend de la famille de modèles :
+
+- **Famille OpenAI / GPT** — la mise en cache est **automatique**. Vous n'avez rien à faire ; tout `cache_control` que vous envoyez est ignoré silencieusement plutôt qu'appliqué, il n'y a donc pas besoin de le supprimer si vous faites basculer un client depuis Claude.
+- **Style Claude / Anthropic** — la mise en cache est **opt-in par défaut**. Pioneer transmet votre requête telle quelle et n'ajoute pas de marqueurs de cache pour vous. Ainsi, à moins que vous n'ajoutiez un marqueur `cache_control` sur la partie stable de votre prompt, le préfixe n'est pas mis en cache et vous payez le tarif d'entrée plein à chaque tour.
+
+Pour mettre en cache le préfixe stable sur un modèle Claude, envoyez le contenu sous forme de tableau de blocs et marquez-le. Cela fonctionne aussi sur `/v1/chat/completions` et `/v1/responses`, pas seulement sur l'endpoint compatible Anthropic :
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-7",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "What is prompt caching?" }
+    ]
+  }'
+```
+
+Les tokens mis en cache sont facturés à un tarif réduit et sont visibles dans **Paramètres → Crédits**.
+
+Consultez [Mise en cache des prompts](/api-reference/prompt-caching) pour savoir où placer les marqueurs, connaître les tailles minimales, les tarifs, comment lire l'usage des tokens, et obtenir des conseils pour maximiser les hits de cache.
+
+## Désactiver la persistance de l'inférence
+
+Par défaut, Pioneer stocke chaque inférence (entrée, sortie et métadonnées) afin d'alimenter l'évaluation, le clustering de cas d'usage et l'entraînement d'adaptateurs. Passez `store: false` pour ignorer la persistance sur une requête spécifique.
+
+```bash
+curl -X POST https://api.pioneer.ai/v1/chat/completions \
+  -H "Authorization: Bearer pio_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-7",
+    "messages": [
+      {"role": "user", "content": "Hello, world!"}
+    ],
+    "store": false
+  }'
+```
+
+`store: false` est pris en charge sur les trois formats de requête : le natif `/inference`, `/v1/chat/completions` et `/v1/messages`. Il fonctionne de manière identique pour les requêtes en streaming et non-streaming.
+
+### Ce qui change avec `store: false`
+
+|  | Défaut (`store: true`) | `store: false` |
+| --- | --- | --- |
+| L'inférence s'exécute | Oui | Oui |
+| Entrée/sortie stockées | Oui | Non |
+| Évaluation exécutée | Oui | Non |
+| Clustering de cas d'usage | Oui | Non |
+| Alimentation de l'entraînement d'adaptateurs | Oui | Non |
+| Facturation des tokens | Oui | Oui |
+| `inference_id` dans la réponse | Oui | Oui (pour la corrélation) |
+
+<Note>
+  La facturation s'applique toujours. L'usage des tokens, les COGS et la facturation mesurée sont enregistrés même lorsque `store: false` est défini. Seule la charge utile complète requête/réponse n'est pas conservée.
+</Note>
+
+### Quand l'utiliser
+
+- **Health checks** — sondes de liveness et de readiness qui s'exécutent en continu - **Benchmarks internes** — évaluations que vous exécutez contre votre propre vérité terrain et qui ne devraient pas polluer l'historique d'inférence côté utilisateur - **Développement et tests** — appels exploratoires pendant le travail d'intégration où l'accumulation de lignes d'inférence ajoute du bruit
+
+## Historique des inférences
+
+Pioneer enregistre chaque appel d'inférence. Vous pouvez récupérer les résultats passés et soumettre des corrections pour améliorer les données d'entraînement futures.
+
+```bash
+# List recent inferences
+curl https://api.pioneer.ai/inferences \
+  -H "X-API-Key: YOUR_API_KEY"
+
+# Get a specific inference result
+curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+
+# Mark as correct
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"verdict": "correct"}'
+
+# Submit a correction
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"verdict": "incorrect", "corrected_output": {...}, "notes": "optional reviewer note"}'
+
+# Read back the feedback you (or a teammate) already submitted
+curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+`GET .../feedback` renvoie 404 si aucun feedback n'a encore été soumis pour cette inférence. Le champ `notes` sur `POST .../feedback` est optionnel.
+
+Filtres de requête optionnels pour `GET /inferences` : `limit`, `offset`, `model_id`, `task`, `project_id`, `training_job_id`, `latency_min`, `latency_max` (ms), `since`, `until` (bornes ISO 8601 sur `created_at`).
+
+`GET /inferences/INFERENCE_ID` fait également apparaître tout feedback humain déjà soumis (`human_verdict`, `human_corrected_output`, `human_feedback_notes`) directement sur l'enregistrement.

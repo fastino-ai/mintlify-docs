@@ -1,0 +1,189 @@
+---
+title: "Trabajos de entrenamiento en Pioneer: ciclo de vida, métricas y pesos"
+sidebarTitle: "Entrenamiento"
+description: "Entiende cómo funcionan los trabajos de entrenamiento de Pioneer: desde enviar un trabajo y sondear su estado hasta leer métricas, detener trabajos y descargar los pesos del modelo entrenado."
+---
+
+El fine-tuning en Pioneer adapta un modelo base a tu tarea y dominio específicos usando tu dataset etiquetado. Envías un trabajo de entrenamiento a través de la API, Pioneer gestiona la computación y tú recibes un modelo entrenado al que puedes llamar para inferencia o descargar. Todo el proceso es asíncrono: inicias el trabajo y luego sondeas hasta que termina.
+
+Pioneer admite tres algoritmos de post-entrenamiento, que se seleccionan con el parámetro `training_algorithm`: fine-tuning supervisado (`sft`, el predeterminado) y los métodos de aprendizaje por refuerzo GRPO (`grpo`) y DPO (`dpo`). Consulta la [guía de fine-tuning de LLM](/guides/fine-tune-llm) para saber cuándo usar cada uno y cómo dar formato a los datasets.
+
+## Ciclo de vida de un trabajo de entrenamiento
+
+El campo `status` de un trabajo de entrenamiento pasa por varios estados. La ruta principal es:
+
+<Steps>
+  <Step title="requested">
+    Tu trabajo se ha aceptado y está en cola para ejecutarse. Pioneer está asignando cómputo.
+  </Step>
+  <Step title="running">
+    El entrenamiento se está ejecutando activamente en el proveedor.
+  </Step>
+  <Step title="complete">
+    El entrenamiento en GPU ha finalizado con éxito. Las métricas de pérdida están disponibles en el registro del trabajo (consulta [Sondear el estado y leer métricas](#polling-status-and-reading-metrics)), y los checkpoints están listos para descargar o desplegar.
+  </Step>
+  <Step title="normalizing / artifact_ready">
+    Pasos intermedios de post-entrenamiento. Pioneer está normalizando y empaquetando el artefacto entrenado. Normalmente solo verás estos estados de forma transitoria entre `complete` y `deployed`.
+  </Step>
+  <Step title="deployed">
+    El adaptador entrenado está activo en un proveedor de inferencia y listo para servir solicitudes vía `model_id`.
+  </Step>
+</Steps>
+
+Un trabajo también puede terminar en **`errored`** (ocurrió un error durante el entrenamiento), **`stopped`** (lo detuviste de forma controlada con `POST /felix/training-jobs/:id/stop`; los checkpoints se conservan), **`terminated`** (llamaste a `POST /felix/training-jobs/:id/terminate`, que detiene el trabajo *y* elimina permanentemente sus checkpoints; es irreversible) o **`paused`**.
+
+## Parámetros clave
+
+| Parámetro | Obligatorio | Descripción |
+|---|---|---|
+| `model_name` | Sí | Un nombre para tu modelo entrenado, que se usa para identificarlo en tu cuenta. |
+| `base_model` | Sí | El ID del modelo a afinar. Usa un valor de `GET /base-models` o un UUID de checkpoint de un trabajo anterior. |
+| `datasets` | Sí | Un array de objetos de dataset: `[{"name": "your-dataset-name"}]`. |
+| `training_type` | No | `"lora"` (predeterminado, eficiente en parámetros) o `"full"` (todos los pesos). El entrenamiento de LLM decoder es solo LoRA. |
+| `training_algorithm` | No | `"sft"` (predeterminado), `"grpo"` o `"dpo"`. Los algoritmos de RL requieren un `rl_config`. Consulta [fine-tuning de LLM](/guides/fine-tune-llm). |
+| `nr_epochs` | No | Número de épocas de entrenamiento. El valor predeterminado es 100, salvo en modelos base decoder, donde es 10 cuando se omite. |
+| `learning_rate` | No | Tasa de aprendizaje. Omítelo para usar el valor predeterminado del modelo base elegido. |
+
+<Note>
+  `base_model` es obligatorio y debe coincidir con la forma de un ID de modelo o UUID, no con una cadena libre. Omitirlo o enviar un valor mal formado devuelve `422`. Un valor bien formado que no coincida con ningún modelo disponible para entrenamiento devuelve `400`.
+</Note>
+
+## Iniciar un trabajo de entrenamiento
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-ner-model",
+    "base_model": "fastino/gliner2-base-v1",
+    "datasets": [{"name": "my-ner-dataset"}],
+    "training_type": "lora",
+    "nr_epochs": 5,
+    "learning_rate": 5e-5
+  }'
+```
+
+La respuesta devuelve el registro completo del trabajo de inmediato, incluidos un UUID `id` y el estado inicial:
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "status": "requested",
+  "nr_epochs": 5,
+  "learning_rate": 5e-5
+}
+```
+
+Guarda el `id`: lo usarás para sondear el estado, recuperar métricas y ejecutar inferencia contra tu modelo entrenado.
+
+## Sondear el estado y leer métricas
+
+Sondea el endpoint del trabajo hasta que `status` alcance un valor terminal: `complete`, `deployed`, `errored`, `stopped` o `terminated`:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+El campo `metrics` siempre incluye valores de pérdida en cuanto el entrenamiento comienza, además de F1/precision/recall/accuracy si se ha ejecutado una evaluación aparte contra el modelo resultante:
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "status": "complete",
+  "metrics": {
+    "final_training_loss": 0.12,
+    "final_validation_loss": 0.18,
+    "best_validation_loss": 0.15,
+    "eval_f1_score": 0.94,
+    "eval_precision": 0.96,
+    "eval_recall": 0.92,
+    "eval_accuracy": 0.95
+  }
+}
+```
+
+Para recuperar líneas estructuradas de stdout/stderr del trabajo:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Esto devuelve una lista JSON de entradas de log (`{id, timestamp, level, message, source}`). Es una consulta puntual, no un stream en vivo. Sondéalo periódicamente mientras el trabajo esté en `running` para seguir el progreso.
+
+## Detener o terminar un trabajo
+
+Para detener de forma controlada un trabajo en ejecución preservando sus checkpoints:
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+El estado del trabajo cambia a `stopped`. Los checkpoints guardados antes de la detención siguen disponibles para desplegar o descargar.
+
+Para finalizar permanentemente un trabajo y eliminar sus checkpoints, usa `/terminate`:
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+<Warning>
+  `/terminate` detiene el trabajo del proveedor si aún se está ejecutando y elimina permanentemente todos sus checkpoints. Es irreversible. Usa `/stop` si quieres conservar los checkpoints entrenados hasta ese momento.
+</Warning>
+
+## Checkpoints y descarga de pesos
+
+Pioneer guarda checkpoints durante el entrenamiento. Puedes listarlos en cualquier momento tras iniciar el trabajo:
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Cada checkpoint incluye las banderas `is_best`, `is_final` e `is_deployable`. Puedes desplegar cualquier checkpoint desplegable, no solo el final, en un endpoint de inferencia activo:
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Para descargar los pesos, solicita una URL prefirmada (requiere plan Pro o superior; en caso contrario, esta llamada devuelve `403`):
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+La respuesta es JSON con un `download_url` que expira en 1 hora. Descarga esa URL por separado para obtener el archivo real:
+
+```json
+{
+  "success": true,
+  "download_url": "https://...",
+  "expires_in_seconds": 3600,
+  "file_name": "my-ner-model-weights.zip"
+}
+```
+
+También puedes usar un UUID de checkpoint como valor de `base_model` en un nuevo trabajo de entrenamiento para continuar el entrenamiento desde ese checkpoint.
+
+## Resumen de endpoints de entrenamiento
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/felix/training-jobs` | Inicia un nuevo trabajo de entrenamiento |
+| `GET` | `/felix/training-jobs` | Lista trabajos de entrenamiento (filtra por `project_id`, `status`; pagina con `limit`/`offset`) |
+| `GET` | `/felix/training-jobs/:id` | Obtiene el estado y las métricas del trabajo |
+| `GET` | `/felix/training-jobs/:id/logs` | Obtiene entradas estructuradas del log de entrenamiento |
+| `GET` | `/felix/training-jobs/:id/checkpoints` | Lista los checkpoints guardados |
+| `POST` | `/felix/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | Despliega un checkpoint concreto para inferencia |
+| `GET` | `/felix/training-jobs/:id/download` | Obtiene una URL prefirmada para descargar los pesos entrenados (plan Pro o superior) |
+| `POST` | `/felix/training-jobs/:id/stop` | Detiene de forma controlada un trabajo en ejecución preservando los checkpoints |
+| `POST` | `/felix/training-jobs/:id/terminate` | Detiene el trabajo y elimina permanentemente sus checkpoints (irreversible) |
+| `DELETE` | `/felix/training-jobs/:id` | Elimina el registro del trabajo. También lo detiene si está activo y borra sus checkpoints |
