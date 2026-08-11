@@ -3,9 +3,13 @@ title: "Inference on Pioneer: native, OpenAI, and Anthropic APIs"
 description: "Run inference on Pioneer via the native /inference endpoint, OpenAI-compatible chat completions, or Anthropic-compatible messages — all reach the same models."
 ---
 
-Once you have a trained model — or want to use a base model directly — you run inference by sending a request to the Pioneer API. The `model_id` field accepts either a base model ID (like `fastino/gliner2-base-v1`) or the job ID returned from a completed training job (like `job_abc123`). Pioneer routes the request to the right deployment automatically.
+Once you have a trained model — or want to use a base model directly — you run inference by sending a request to the Pioneer API. The `model_id` field accepts either a base model ID (like `fastino/gliner2-base-v1`) or the job ID (a UUID) returned from a completed training job (like `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Pioneer routes the request to the right deployment automatically.
 
-Pioneer supports three request formats: its own native format, an OpenAI-compatible format, and an Anthropic-compatible format. All three reach the same underlying models.
+Pioneer supports three request formats: its own native format, an OpenAI-compatible format, and an Anthropic-compatible format. All three reach the same underlying models, and all three accept your API key the same way: either an `X-API-Key` header or an `Authorization: Bearer <key>` header — whichever your SDK sends by default works, no per-format configuration needed.
+
+<Note>
+  The chat-shaped endpoints (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`) reject requests for a pretrained (non-instruct) base decoder model with a `400` — use the model's `-Instruct` variant, or call `/v1/completions` with a raw `prompt` instead.
+</Note>
 
 ## Pioneer native format
 
@@ -16,7 +20,7 @@ curl -X POST https://api.pioneer.ai/inference \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model_id": "job_abc123",
+    "model_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
     "schema": {
       "entities": ["organization", "product", "event", "location"]
@@ -62,7 +66,7 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "job_abc123",
+    "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "messages": [
       {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
     ],
@@ -77,14 +81,18 @@ Available OpenAI-compatible endpoints:
 | `POST` | `/v1/chat/completions` | Chat completions |
 | `POST` | `/v1/completions` | Text completions |
 | `POST` | `/v1/responses` | Responses API |
-| `GET` | `/v1/models` | List available models |
+| `POST` | `/v1/embeddings` | Create embeddings |
+| `GET` | `/v1/models` | List available models (callable without auth for the public catalog) |
+| `GET` | `/v1/models/:model_id` | Retrieve a single model's metadata |
+
+`/v1/models` and `/v1/models/:model_id` are shared infrastructure — the same two routes also serve the Anthropic-compatible SDK's `models.retrieve(...)` calls.
 
 <Tip>
   When using the OpenAI Python or Node SDK, pass Pioneer-specific fields like `schema` via the `extra_body` parameter. For example:
 
   ```python
   client.chat.completions.create(
-      model="job_abc123",
+      model="3fa85f64-5717-4562-b3fc-2c963f66afa6",
       messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
       extra_body={"schema": {"entities": ["organization", "product"]}}
   )
@@ -93,14 +101,14 @@ Available OpenAI-compatible endpoints:
 
 ## Anthropic-compatible format
 
-Pioneer also exposes an Anthropic-compatible endpoint. Set your SDK's `base_url` to `https://api.pioneer.ai/v1` and use your Pioneer API key in place of an Anthropic key.
+Pioneer also exposes an Anthropic-compatible endpoint. Set your SDK's `base_url` to `https://api.pioneer.ai/v1` and use your Pioneer API key in place of an Anthropic key — the Anthropic SDK sends it as `x-api-key`, which Pioneer accepts the same as the other two formats.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/messages \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "job_abc123",
+    "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "max_tokens": 1024,
     "messages": [
       {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
@@ -109,16 +117,16 @@ curl -X POST https://api.pioneer.ai/v1/messages \
   }'
 ```
 
-Both the OpenAI-compatible and Anthropic-compatible endpoints support streaming.
+The OpenAI-compatible and Anthropic-compatible endpoints both support streaming (`stream: true`). The native `/inference` endpoint does not support streaming — use one of the compatible formats if you need token-by-token output.
 
 ## Prompt caching
 
 Prompt caching cuts cost and latency on repeated prompt prefixes, but how you enable it depends on the model family:
 
-- **OpenAI / GPT family** — caching is **automatic**. You don't need to do anything, and you should not send `cache_control`.
-- **Claude / Anthropic-style** — caching is **opt-in**. Pioneer forwards your request as-is and never adds cache markers for you, so unless you add a `cache_control` marker on the stable part of your prompt, the prefix is not cached and you pay full input price every turn.
+- **OpenAI / GPT family** — caching is **automatic**. You don't need to do anything; any `cache_control` you send is silently ignored rather than applied, so there's no need to strip it if you're switching a client over from Claude.
+- **Claude / Anthropic-style** — caching is **opt-in by default**. Pioneer forwards your request as-is and does not add cache markers for you, so unless you add a `cache_control` marker on the stable part of your prompt, the prefix is not cached and you pay full input price every turn.
 
-To cache the stable prefix on a Claude model, send the content as a block array and mark it — this works on the OpenAI-compatible endpoint too:
+To cache the stable prefix on a Claude model, send the content as a block array and mark it — this works on `/v1/chat/completions` and `/v1/responses` too, not just the Anthropic-compatible endpoint:
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/chat/completions \
@@ -208,7 +216,15 @@ curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
 curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"verdict": "incorrect", "corrected_output": {...}}'  
+  -d '{"verdict": "incorrect", "corrected_output": {...}, "notes": "optional reviewer note"}'
+
+# Read back the feedback you (or a teammate) already submitted
+curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY"
 ```
 
-Optional query filters for `GET /inferences`: `limit`, `offset`, `model_id`, `task`, `project_id`, `training_job_id`.
+`GET .../feedback` returns 404 if no feedback has been submitted for that inference yet. The `notes` field on `POST .../feedback` is optional.
+
+Optional query filters for `GET /inferences`: `limit`, `offset`, `model_id`, `task`, `project_id`, `training_job_id`, `latency_min`, `latency_max` (ms), `since`, `until` (ISO 8601 bounds on `created_at`).
+
+`GET /inferences/INFERENCE_ID` also surfaces any human feedback already submitted (`human_verdict`, `human_corrected_output`, `human_feedback_notes`) inline on the record.
