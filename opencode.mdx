@@ -1,41 +1,81 @@
 ---
 title: "OpenCode"
-description: "Connect the OpenCode CLI or desktop app to Pioneer to route model calls, switch between 70+ models, and optionally enable Exa-powered web search."
+description: "Run OpenCode on Pioneer with a single pioneer integrate opencode command that syncs the latest Pioneer models and launches OpenCode."
 ---
 
-## Setup steps
+The fastest way to use OpenCode with Pioneer is the Pioneer CLI. `pioneer integrate opencode` syncs the latest Pioneer models into your OpenCode config and launches OpenCode wired to Pioneer inference, using your existing CLI login. There are no config files, keys, or model catalogs to maintain by hand.
 
-**Integrate OpenCode CLI with Pioneer:**
+## Prerequisites
 
-<iframe src="https://www.youtube.com/embed/N6DzWZZYxfs" title="YouTube video player" frameborder="0" className="w-full aspect-video rounded-xl" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen />
+- [OpenCode](https://opencode.ai/download) installed.
+- The Pioneer CLI installed and authenticated. See [CLI installation](/CLI-Installation).
 
-1. Download and [set up](https://opencode.ai/download) the OpenCode CLI.
-2. Sign into Pioneer and get your API key from [agent.pioneer.ai/api-keys](https://agent.pioneer.ai/api-keys)
-3. In a fresh terminal, start OpenCode. Include `OPENCODE_ENABLE_EXA=1` if you want web search (OpenCode disables it for custom providers by default):
+## Integrate
+
+<Steps>
+  <Step title="Install and authenticate the Pioneer CLI">
+    ```bash
+    npm install -g @fastino-ai/pioneer-cli
+    pioneer auth login
+    ```
+  </Step>
+  <Step title="Run the integration">
+    ```bash
+    pioneer integrate opencode
+    ```
+  </Step>
+  <Step title="Pick a model">
+    Choose a model in the interactive picker (per-model thinking levels are shown where supported), or skip the picker with `--model`:
+
+    ```bash
+    pioneer integrate opencode --model pioneer/auto
+    ```
+
+    `pioneer/auto` sends each request through the Pioneer [Code Router](/concepts/router), which picks the cheapest model that meets your quality bar.
+  </Step>
+</Steps>
+
+## What the command does
+
+OpenCode ships an official Pioneer provider, but its model list comes from models.dev, so new Pioneer models can lag. `pioneer integrate opencode` diffs the live Pioneer catalog against models.dev and writes only the missing models into your OpenCode config, then launches OpenCode reading your Pioneer key from the environment. It backs up your config first, so the change is reversible.
+
+## Keep the model list current
+
+Re-sync whenever Pioneer adds models, without launching OpenCode:
 
 ```bash
-OPENCODE_ENABLE_EXA=1 opencode
+pioneer integrate opencode sync            # add newly available Pioneer models
+pioneer integrate opencode sync --dry-run  # preview the changes only
+pioneer integrate opencode sync --all      # write the full live catalog
 ```
 
-4. Type `/connect` and select `Pioneer` from the drop-down list.
+Switch models inside a running OpenCode session with `/models`.
 
-<Frame>
-  ![Pioneer Provider](/images/pioneer-provider.png)
-</Frame>
+## Options
 
-5. Add your Pioneer API key.
-6. Choose `Pioneer Auto` to use Pioneer's model router. Learn more about our model router [here](/concepts/router).
-7. To switch between models, use the `/models` command and select one from our catalog of 70\+ models (and growing).
+- `--model <id>` launches with a specific model and skips the picker.
+- `--level <thinking-level>` sets the reasoning level on models that support it.
+- Anything after the agent name, or after `--`, is passed to OpenCode unchanged.
+- `pioneer integrate --help` shows the full command surface.
 
-Web search runs through OpenCode's built-in Exa tool when `OPENCODE_ENABLE_EXA=1` is set. Allow the `websearch` permission if OpenCode prompts for it. Omit the flag to keep search off.
+## Undo
 
-**Integrate OpenCode Desktop app with Pioneer:**
+```bash
+pioneer integrate restore opencode
+```
 
-1. Download and install OpenCode Desktop app
-2. In the app: go to Settings → Providers → Pioneer
-3. Enter your Pioneer API key
-4. In Settings → Models: toggle on the models available in Pioneer model catalog that you'd like to use. Make sure to toggle on `Pioneer Auto` if you'd like to use Pioneer's model router.
+This reverts the model sync to its pre-integration state. Restores touch only settings; your OpenCode chat history is stored separately and is preserved.
 
-<Frame>
-  ![Open Code Desktop App](/OpenCode-desktop-app.png "Open Code Desktop App")
-</Frame>
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Only Pioneer Auto appears in the model list" icon="list">
+    Run `pioneer integrate opencode sync` to add the rest of the live catalog, then reopen the `/models` picker.
+  </Accordion>
+  <Accordion title="OpenCode does not launch" icon="circle-alert">
+    Confirm OpenCode is installed and on your `PATH` (`opencode --version`), then rerun `pioneer integrate opencode`.
+  </Accordion>
+  <Accordion title="Requests are not authenticated" icon="key-round">
+    Confirm the CLI is logged in with `pioneer auth status`, then rerun the integration so the current key is used.
+  </Accordion>
+</AccordionGroup>
