@@ -1,187 +1,74 @@
 ---
 title: "Hermes Agent"
-description: "Configure Hermes Agent with Pioneer using a one-time setup command that imports a filtered model catalog and defaults to pioneer/auto routing."
+description: "Run Hermes Agent on Pioneer with pioneer integrate hermes, using an isolated Hermes home so your normal Hermes setup stays untouched."
 ---
 
-Steps to integrate Hermes Agent with Pioneer:
+`pioneer integrate hermes` runs Hermes Agent against Pioneer from an isolated Hermes home, so your normal Hermes configuration is left untouched. It uses your existing Pioneer CLI login.
 
-1. Download and [set up](https://hermes-agent.nousresearch.com/docs/getting-started/installation) Hermes Agent.
-2. Set your Pioneer API key for the one-time setup command:
+## Prerequisites
 
-```bash
-export PIONEER_API_KEY="<Your Pioneer API key>"
-```
+- Hermes Agent installed. See the [Hermes setup guide](https://hermes-agent.nousresearch.com/docs/getting-started/installation).
+- The Pioneer CLI installed and authenticated. See [CLI installation](/CLI-Installation).
 
-3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, filters out Claude Code discovery aliases, stores your Pioneer API key in Hermes' local environment file at `~/.hermes/.env`, writes the filtered Pioneer provider to `~/.hermes/config.yaml`, and sets `pioneer/auto` as the default model so Pioneer can route each request automatically.
+## Integrate
 
-The command requires `jq` and `ruby`. It creates a timestamped backup of your existing Hermes config before updating the Pioneer section.
+<Steps>
+  <Step title="Install and authenticate the Pioneer CLI">
+    ```bash
+    npm install -g @fastino-ai/pioneer-cli
+    pioneer auth login
+    ```
 
-```bash
-: "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
+    `pioneer auth login` prompts you to drop in your Pioneer API key.
+  </Step>
+  <Step title="Run the integration">
+    ```bash
+    pioneer integrate hermes
+    ```
+  </Step>
+  <Step title="Pick a model">
+    Choose a model in the interactive picker, or skip it by passing `--model` before the agent name:
 
-command -v jq >/dev/null || { echo "jq is required"; exit 1; }
-command -v ruby >/dev/null || { echo "ruby is required"; exit 1; }
+    ```bash
+    pioneer integrate --model kimi-k3 hermes
+    ```
+  </Step>
+</Steps>
 
-CONFIG_FILE="$(hermes config path)"
-CONFIG_TMP="$(mktemp)"
-MODELS_JSON="$(mktemp)"
-trap 'rm -f "$CONFIG_TMP" "$MODELS_JSON"' EXIT
+## What the command does
 
-mkdir -p "$(dirname "$CONFIG_FILE")"
-[ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
-cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
+`pioneer integrate hermes` launches Hermes from an isolated home at `~/.pioneer/hermes-home`, writes a Pioneer provider config there, sets a default model, and passes your Pioneer key through the environment. Your everyday `hermes` setup is not modified.
 
-hermes config set PIONEER_API_KEY "$PIONEER_API_KEY"
+## Switch models
 
-curl -fsS "https://api.pioneer.ai/v1/models" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
-  | jq '
-    def dedupe:
-      reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
+Use `/model` inside Hermes to switch between Pioneer models.
 
-    def catalog_models:
-      (.models // []) as $models
-      | if (($models | type) == "array" and ($models | length) > 0) then $models else (.data // []) end;
+## Flags
 
-    def model_id:
-      .slug // .id;
-
-    (["pioneer/auto"] + [
-      catalog_models[]
-      | select(.deprecated != true)
-      | model_id
-      | select(type == "string" and length > 0)
-      # Hide Claude Code discovery aliases so Hermes does not show every model twice.
-      | select(startswith("anthropic/") | not)
-      | select(. != "pioneer/auto" and . != "auto")
-    ]) | dedupe
-  ' > "$MODELS_JSON"
-
-ruby -ryaml -rjson -e '
-  config_path, models_path, out_path = ARGV
-  cfg = File.exist?(config_path) ? (YAML.safe_load(File.read(config_path), aliases: true) || {}) : {}
-  abort "#{config_path} must contain a YAML mapping" unless cfg.is_a?(Hash)
-
-  models = JSON.parse(File.read(models_path))
-  cfg["providers"] = {} unless cfg["providers"].is_a?(Hash)
-  cfg["providers"]["pioneer"] = {
-    "name" => "Pioneer",
-    "base_url" => "https://api.pioneer.ai/v1",
-    "key_env" => "PIONEER_API_KEY",
-    "api_mode" => "chat_completions",
-    "discover_models" => false,
-    "default_model" => "pioneer/auto",
-    "models" => models
-  }
-
-  cfg["model"] = {} unless cfg["model"].is_a?(Hash)
-  cfg["model"]["provider"] = "pioneer"
-  cfg["model"]["default"] = "pioneer/auto"
-  cfg["model"]["base_url"] = "https://api.pioneer.ai/v1"
-  cfg["model"]["api_mode"] = "chat_completions"
-
-  File.write(out_path, YAML.dump(cfg))
-' "$CONFIG_FILE" "$MODELS_JSON" "$CONFIG_TMP"
-
-mv "$CONFIG_TMP" "$CONFIG_FILE"
-chmod 600 "$CONFIG_FILE"
-```
-
-4. Start Hermes normally:
+The Pioneer CLI has its own flags, and Hermes has its own. Pioneer flags go before the agent name; anything after the agent name is forwarded to Hermes.
 
 ```bash
-hermes
+pioneer integrate --help                  # the Pioneer CLI's integrate options
+pioneer integrate --model kimi-k3 hermes  # a Pioneer flag: pick a model, then launch
+pioneer integrate --level high hermes     # a Pioneer flag: set the reasoning level
+hermes --help                             # Hermes's own options (run Hermes directly)
 ```
 
-5. Switch between saved Pioneer models with `/model` inside Hermes. Use `--global` when you want the change to persist in `~/.hermes/config.yaml`:
-
-```text
-/model
-/model claude-opus-4-8 --provider pioneer
-/model gpt-5.5 --provider pioneer --global
-/model pioneer/auto --provider pioneer --global
-```
-
-<Note>
-  `hermes model` is Hermes' full provider setup wizard. `/model` inside an active Hermes session only switches between providers you have already configured. The setup above configures a named `pioneer` provider, so `/model` can switch among saved Pioneer models without re-entering your API key.
-</Note>
-
-<Note>
-  The model list is pulled when you run the setup command. Re-run the setup command when you want Hermes to pick up newly added Pioneer models. The command sets `discover_models: false` because Pioneer's live catalog also includes `anthropic/*` aliases for Claude Code, which would otherwise make Hermes show duplicate rows.
-</Note>
-
-## Verify setup
-
-Run a quick non-interactive check:
+## Undo
 
 ```bash
-hermes chat -q "Reply with exactly PIONEER_HERMES_OK"
+pioneer integrate restore hermes
 ```
 
-Or inspect the filtered catalog directly:
-
-```bash
-curl -fsS "https://api.pioneer.ai/v1/models" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
-  | jq -r '
-    def catalog_models:
-      (.models // []) as $models
-      | if (($models | type) == "array" and ($models | length) > 0) then $models else (.data // []) end;
-
-    catalog_models[]
-    | (.slug // .id)
-    | select(type == "string" and length > 0)
-    | select(startswith("anthropic/") | not)
-  ' \
-  | head
-```
-
-<Note>
-  After setup, Hermes reads `PIONEER_API_KEY` from `~/.hermes/.env`, so you do not need to export it in every terminal. Keep exporting it only when you want to run shell commands like the catalog check above.
-</Note>
+This removes the Pioneer provider config from the isolated Hermes home. Your Hermes sessions there are preserved.
 
 ## Troubleshooting
 
 <AccordionGroup>
   <Accordion title="/model does not show Pioneer models" icon="list">
-    Re-run the setup command above, then restart Hermes. The setup writes both the named provider and the filtered `providers.pioneer.models` list that `/model` reads.
-
-    Confirm the active provider:
-
-    ```bash
-    hermes config show
-    ```
-
-    Make sure `Model` shows `provider: pioneer`, then start a new Hermes session. If you are already inside a Hermes session, `/model` can switch models but cannot run the full provider setup wizard.
+    Rerun `pioneer integrate hermes` to rewrite the provider config in the isolated home, then start Hermes again.
   </Accordion>
-
-  <Accordion title="Pioneer models appear twice" icon="copy">
-    Re-run the setup command above. The duplicate entries are Claude Code discovery aliases from the raw Pioneer catalog, such as `anthropic/pioneer/gpt-5.5`. Hermes does not filter generic live discovery in v0.18, so the setup stores a filtered list and sets `providers.pioneer.discover_models` to `false`.
-  </Accordion>
-
-  <Accordion title="Hermes says the Pioneer API key is missing" icon="key">
-    Store the key again:
-
-    ```bash
-    export PIONEER_API_KEY="<Your Pioneer API key>"
-    hermes config set PIONEER_API_KEY "$PIONEER_API_KEY"
-    ```
-
-    Hermes stores API keys in `~/.hermes/.env`, not directly in `config.yaml`.
-  </Accordion>
-
-  <Accordion title="How to undo the Pioneer setup" icon="trash">
-    Switch Hermes back to the provider you want:
-
-    ```bash
-    hermes model
-    ```
-
-    Or set another provider directly:
-
-    ```bash
-    hermes config set model.provider openrouter
-    hermes config set model.default anthropic/claude-sonnet-4
-    ```
+  <Accordion title="Requests are not authenticated" icon="key-round">
+    Confirm the CLI is logged in with `pioneer auth status`, then rerun the integration.
   </Accordion>
 </AccordionGroup>
