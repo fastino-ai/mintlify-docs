@@ -1,37 +1,25 @@
 ---
-title: "Fine-tune an open-source LLM on Pioneer — SFT, GRPO, and DPO"
+title: "Fine-tune Nemotron 3.5 Lightning on Pioneer"
 sidebarTitle: "LLM Fine-tuning / Post-training"
-description: "LoRA fine-tune Qwen, Llama, DeepSeek, or Gemma on Pioneer with SFT, GRPO, or DPO via one training endpoint — from dataset prep to a deployed decoder model."
+description: "LoRA fine-tune Nemotron 3.5 Lightning on Pioneer with supervised fine-tuning via one training endpoint — from dataset prep to a deployed decoder model."
 ---
 
-Pioneer supports parameter-efficient (LoRA) post-training on a wide range of open-source decoder models — from compact 1B-parameter models to 70B+ frontier models. You bring your training data, choose a base model that fits your task and budget, and Pioneer handles the infrastructure, routing, and serving. The result is a fine-tuned adapter you can call over the same API, with no GPU management required.
+Pioneer supports parameter-efficient (LoRA) post-training on the Nemotron 3.5 Lightning family. You bring your training data, choose the general, finance, or healthcare target, and Pioneer handles the infrastructure, routing, and serving. The result is a fine-tuned adapter you can call over the same API, with no GPU management required.
 
-All three post-training algorithms — supervised fine-tuning (`sft`), GRPO (`grpo`), and DPO (`dpo`) — are created through the same [`POST /felix/training-jobs`](/api-reference/training-jobs) endpoint and selected with the **`training_algorithm`** parameter.
+New decoder training jobs use supervised fine-tuning (SFT) through the [`POST /felix/training-jobs`](/api-reference/training-jobs) endpoint.
 
-## Choose an algorithm
+## Training method
 
-| Algorithm | `training_algorithm` | What it optimizes | Dataset signal |
-| --- | --- | --- | --- |
-| **Supervised fine-tuning** | `sft` *(default)* | Imitate the assistant turns in your examples | Chat `messages` |
-| **GRPO** | `grpo` | Maximize a reward over sampled completions | `prompt` + `answer` (+ a reward function) |
-| **DPO** | `dpo` | Prefer chosen responses over rejected ones | `prompt` + `chosen` + `rejected` |
-
-Omitting `training_algorithm` is equivalent to `sft`, so existing requests keep working unchanged.
-
-<CardGroup cols={3}>
-  <Card title="SFT" icon="graduation-cap">
-    You have example outputs you want the model to imitate (conversations, instruction-response pairs). The default and simplest path.
-  </Card>
-  <Card title="GRPO" icon="trophy">
-    "Good" is a programmatic check — exact answers, numeric correctness, JSON validity, a rubric. The model explores and is reinforced toward higher reward.
-  </Card>
-  <Card title="DPO" icon="scale-balanced">
-    You have preference pairs — a better and a worse response per prompt — rather than a single gold answer.
-  </Card>
-</CardGroup>
+SFT trains the model to imitate the assistant turns in your examples. Supply
+chat-format `messages` with the user instruction and desired assistant response.
 
 <Note>
-  All three algorithms are **LoRA-based**. A completed job produces a low-rank adapter that is hot-swapped onto the shared base model at serve time and exposed behind the same inference endpoints as base models — reference the training job's `id` as the `model_id` at inference time. `training_type` defaults to `"lora"` and is the only supported value for decoder LLMs; `"full"` is reserved for [GLiNER encoder models](/guides/fine-tune-ner).
+  Decoder SFT is **LoRA-based**. A completed job produces a low-rank adapter
+  that is hot-swapped onto the shared base model at serve time and exposed
+  behind the same inference endpoints as base models — reference the training
+  job's `id` as the `model_id` at inference time. `training_type` defaults to
+  `"lora"` and is the only supported value for decoder LLMs; `"full"` is
+  reserved for [GLiNER encoder models](/guides/fine-tune-ner).
 </Note>
 
 ## End-to-end walkthrough
@@ -49,35 +37,25 @@ Omitting `training_algorithm` is equivalent to `sft`, so existing requests keep 
 
     </CodeGroup>
 
-    The table below shows a selection of popular options. Context window size matters if your training examples or inference prompts are long.
+    The supported decoder targets are:
 
     | Model ID | Label | Context |
     |---|---|---|
-    | `Qwen/Qwen3-32B` | Qwen3 32B | 131K |
-    | `Qwen/Qwen3-30B-A3B-Instruct-2507` | Qwen3 30B A3B Instruct | 262K |
-    | `Qwen/Qwen3-8B` | Qwen3 8B | 131K |
-    | `Qwen/Qwen3-4B-Instruct-2507` | Qwen3 4B Instruct | 262K |
-    | `Qwen/Qwen2.5-7B-Instruct` | Qwen2.5 7B Instruct | 131K |
-    | `Qwen/Qwen2.5-14B-Instruct` | Qwen2.5 14B Instruct | 131K |
-    | `meta-llama/Llama-3.3-70B-Instruct` | Llama 3.3 70B Instruct | 131K |
-    | `meta-llama/Llama-3.1-8B-Instruct` | Llama 3.1 8B Instruct | 131K |
-    | `meta-llama/Llama-3.1-70B-Instruct` | Llama 3.1 70B Instruct | 131K |
-    | `meta-llama/Llama-3.2-3B-Instruct` | Llama 3.2 3B Instruct | 131K |
-    | `deepseek-ai/DeepSeek-V3.1` | DeepSeek V3.1 | 163K |
-    | `google/gemma-4-31b-it` | Gemma 4 31B IT | 128K |
-    | `openai/gpt-oss-120b` | GPT-OSS 120B | 131K |
+    | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | Nemotron 3.5 Lightning 30B-A3B | 8K |
+    | `fastino/Fastino-Nemotron-3.5-Lightning-Finance` | Fastino Nemotron 3.5 Lightning Finance | 8K |
+    | `fastino/Fastino-Nemotron-3.5-Lightning-Healthcare` | Fastino Nemotron 3.5 Lightning Healthcare | 8K |
 
-    **Choosing a model size:** Smaller models (1B–8B) train and respond faster and cost less. Larger models (30B–70B) handle complex reasoning and longer inputs more reliably. Start with `Qwen/Qwen3-8B` or `meta-llama/Llama-3.1-8B-Instruct` for most tasks and scale up if needed.
+    Use the general Lightning target unless your data is specifically finance or
+    healthcare. These targets have an 8K qualified context window, so split or
+    truncate longer examples before training.
 
-    Not every model supports every algorithm — see [Supported models](#supported-models) below for the SFT/GRPO/DPO matrix.
+    All listed decoder targets support LoRA SFT.
   </Step>
 
   <Step title="Prepare your training data">
-    The dataset shape depends on the algorithm you picked. Pick the matching tab.
+    Format each example as a chat conversation with an assistant response:
 
-    <CodeGroup>
-
-    ```bash SFT (chat messages)
+    ```bash
     # Each row: {"messages": [{"role": "user" | "assistant" | "system", "content": "..."}]}
     # Generate synthetically:
     curl -X POST https://api.pioneer.ai/generate \
@@ -91,38 +69,19 @@ Omitting `training_algorithm` is equivalent to `sft`, so existing requests keep 
       }'
     ```
 
-    ```bash GRPO (prompt + answer)
-    # Each row: {"prompt": "...", "answer": "..."}
-    # The answer is the per-row ground truth read by the reward function.
-    # Upload through the Pioneer dashboard, then confirm:
-    curl https://api.pioneer.ai/felix/datasets/my-grpo-dataset \
-      -H "X-API-Key: YOUR_API_KEY"
-    ```
-
-    ```bash DPO (preference pairs)
-    # Each row: {"prompt": "...", "chosen": "...", "rejected": "..."}
-    # Upload through the Pioneer dashboard, then confirm:
-    curl https://api.pioneer.ai/felix/datasets/my-dpo-dataset \
-      -H "X-API-Key: YOUR_API_KEY"
-    ```
-
-    </CodeGroup>
-
     See the [Synthetic Data guide](/guides/synthetic-data) for the full set of `/generate` options, including auto-labelling existing text. Once generated or uploaded, wait until the dataset status is `ready` before starting training.
   </Step>
 
   <Step title="Start a training job">
-    Submit your training job with `POST /felix/training-jobs`. The `training_algorithm` parameter selects SFT, GRPO, or DPO.
+    Submit your SFT job with `POST /felix/training-jobs`:
 
-    <CodeGroup>
-
-    ```bash SFT
+    ```bash
     curl -X POST https://api.pioneer.ai/felix/training-jobs \
       -H "X-API-Key: YOUR_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
         "model_name": "my-sft-model",
-        "base_model": "Qwen/Qwen3-8B",
+        "base_model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
         "training_type": "lora",
         "datasets": [{"name": "my-sft-dataset", "version": "1"}],
         "lora_r": 16,
@@ -132,49 +91,12 @@ Omitting `training_algorithm` is equivalent to `sft`, so existing requests keep 
       }'
     ```
 
-    ```bash GRPO
-    curl -X POST https://api.pioneer.ai/felix/training-jobs \
-      -H "X-API-Key: YOUR_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model_name": "my-grpo-model",
-        "base_model": "Qwen/Qwen3-4B-Instruct-2507",
-        "training_type": "lora",
-        "training_algorithm": "grpo",
-        "datasets": [{"name": "gsm8k-grpo", "version": "1"}],
-        "rl_config": {
-          "reward_type": "numeric_match",
-          "max_steps": 100,
-          "group_size": 8
-        }
-      }'
-    ```
-
-    ```bash DPO
-    curl -X POST https://api.pioneer.ai/felix/training-jobs \
-      -H "X-API-Key: YOUR_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model_name": "my-dpo-model",
-        "base_model": "meta-llama/Llama-3.1-8B-Instruct",
-        "training_type": "lora",
-        "training_algorithm": "dpo",
-        "datasets": [{"name": "my-preferences", "version": "1"}],
-        "rl_config": {
-          "dpo_beta": 0.1
-        }
-      }'
-    ```
-
-    </CodeGroup>
-
     Pioneer routes your job automatically to the best available provider. The response includes your job ID:
 
     ```json
     { "id": "uuid-of-training-job", "status": "requested" }
     ```
 
-    `rl_config` is **required when** `training_algorithm` is `grpo` or `dpo` and **must be omitted for** `sft`. Every key inside `rl_config` is optional and falls back to a TRL-aligned server default except `reward_type`, which is required for GRPO.
   </Step>
 
   <Step title="Poll until training is complete">
@@ -281,7 +203,7 @@ Omitting `training_algorithm` is equivalent to `sft`, so existing requests keep 
 
 ## LoRA hyperparameters
 
-LoRA capacity and the core optimization settings are configurable; the defaults are sensible starting points for SFT and the RL algorithms alike.
+LoRA capacity and the core optimization settings are configurable; the defaults are sensible starting points for SFT.
 
 | Field | Default | Purpose |
 | --- | --- | --- |
@@ -293,61 +215,41 @@ LoRA capacity and the core optimization settings are configurable; the defaults 
 | `nr_epochs` | `100` | Epoch ceiling; early stopping usually halts well before this. |
 | `validation_data_percentage` | `0.2` | Fraction of the dataset held out for validation. |
 
-## GRPO reward functions
-
-GRPO (Group Relative Policy Optimization) samples multiple completions per prompt and reinforces the ones that score highest against a reward function. Set `rl_config.reward_type` to one of:
-
-| `reward_type` | Scores a completion as correct when… |
-| --- | --- |
-| `exact_match` | the normalized completion equals `answer` |
-| `contains_substring` | `answer` appears anywhere in the completion |
-| `numeric_match` | the extracted number matches `answer` (handles `#### 42`, `\boxed{42}`, "the answer is 42") |
-| `choice_match` | the final multiple-choice letter matches `answer` |
-| `regex_match` | the completion matches the supplied pattern |
-| `json_match` | the parsed JSON deep-equals `answer` |
-| `json_loose_match` | the parsed JSON loosely matches `answer` |
-| `rougeL_match` | ROUGE-L against the `answer` reference(s) |
-| `llm_as_judge` | a judge model scores the completion against a rubric |
-
-<Note>
-  When `reward_type` is `llm_as_judge`, Pioneer mints and manages the judge credential for you — you never supply an API key. Optional judge knobs include `llm_judge_model`, `llm_judge_rubric`, and `llm_judge_score_scale`.
-</Note>
-
 ## Supported models
 
-The canonical, live list is always `GET /base-models?supports_training=true`. As of this writing:
+The only decoder training targets are:
 
-| Base model | SFT | GRPO | DPO |
-| --- | :---: | :---: | :---: |
-| `Qwen/Qwen3-8B` | ✅ | ✅ | ✅ |
-| `Qwen/Qwen3-32B` | ✅ | ✅ | ✅ |
-| `Qwen/Qwen3-4B-Instruct-2507` | ✅ | ✅ | ✅ |
-| `Qwen/Qwen3-4B-Base` | ✅ | ✅ | ✅ |
-| `Qwen/Qwen3-1.7B-Base` | ✅ | ✅ | ✅ |
-| `meta-llama/Llama-3.1-8B-Instruct` | ✅ | ✅ | ✅ |
-| `HuggingFaceTB/SmolLM3-3B-Base` | ✅ | ✅ | ✅ |
-| `google/gemma-4-31b-it` | ✅ | — | — |
-| `meta-llama/Llama-3.2-3B-Instruct` | ✅ | — | — |
-| `Qwen/Qwen2.5-7B-Instruct` | ✅ | — | — |
+| Base model | Intended domain |
+| --- | --- |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | General-purpose decoder training |
+| `fastino/Fastino-Nemotron-3.5-Lightning-Finance` | Finance |
+| `fastino/Fastino-Nemotron-3.5-Lightning-Healthcare` | Healthcare |
 
-<Note>
-  GRPO and DPO are available on the subset of models that have been verified end-to-end for reinforcement learning. Every trainable decoder supports SFT. Models marked `—` for RL accept `sft` only; submitting `grpo`/`dpo` for them returns a `422`.
-</Note>
+GLiNER2 Base, Large, Multi, and Multi Large encoder targets are also supported
+through the same endpoint. See the encoder
+fine-tuning guides for [NER](/guides/fine-tune-ner),
+[classification](/guides/fine-tune-classification), and
+[structured extraction](/guides/fine-tune-extraction).
 
-GLiNER encoder models (`fastino/gliner2-base-v1`, `fastino/gliner2-large-v1`, `fastino/gliner2-multi-v1`, `fastino/gliner2-multi-large-v1`) are also trainable through the same endpoint — see the encoder fine-tuning guides for [NER](/guides/fine-tune-ner), [classification](/guides/fine-tune-classification), and [structured extraction](/guides/fine-tune-extraction).
+Use `GET /base-models?supports_training=true` immediately before submitting a
+job. It is the live source of truth for the training targets and algorithms
+available to your workspace.
 
 ## Serverless inference for base models
 
-If you want to run inference on a base model without fine-tuning, several models are available as serverless endpoints with no startup latency:
+If you want to run inference on a base model without fine-tuning, use one of
+the supported inference families:
 
 | Model ID | Label | Context |
 |---|---|---|
-| `Qwen/Qwen3-235B-A22B-Instruct-2507` | Qwen3 235B A22B Instruct | 262K |
-| `Qwen/Qwen3-8B` | Qwen3 8B | 131K |
-| `deepseek-ai/DeepSeek-V3.1` | DeepSeek V3.1 | 163K |
-| `openai/gpt-oss-120b` | GPT-OSS 120B | 131K |
-| `meta-llama/Llama-3.3-70B-Instruct` | Llama 3.3 70B Instruct | 131K |
-| `moonshotai/Kimi-K2.6` | Kimi K2.6 | 262K |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | Nemotron 3.5 Lightning 30B-A3B | 8K |
+| `deepseek-ai/DeepSeek-V4-Flash` | DeepSeek V4 Flash | See live catalog |
+| `zai-org/GLM-5.2` | GLM 5.2 | See live catalog |
+| `claude-opus-5` | Claude Opus 5 | See live catalog |
+| `claude-sonnet-5` | Claude Sonnet 5 | See live catalog |
+| `claude-haiku-5` | Claude Haiku 5 | See live catalog |
+| `gpt-5.5` | GPT-5.5 | See live catalog |
+| `gpt-5.6-terra` | GPT-5.6 Terra | See live catalog |
 
 Use `GET /base-models?task_type=decoder&supports_inference=true` to see the current serverless catalog.
 

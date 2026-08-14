@@ -1,6 +1,6 @@
 ---
 title: "Hermes Agent"
-description: "Configure Hermes Agent with Pioneer using a one-time setup command that imports a filtered model catalog and defaults to pioneer/auto routing."
+description: "Configure Hermes Agent with Pioneer using a one-time setup command that imports a filtered model catalog and defaults to Claude Opus 5."
 ---
 
 Steps to integrate Hermes Agent with Pioneer:
@@ -12,7 +12,7 @@ Steps to integrate Hermes Agent with Pioneer:
 export PIONEER_API_KEY="<Your Pioneer API key>"
 ```
 
-3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, filters out Claude Code discovery aliases, stores your Pioneer API key in Hermes' local environment file at `~/.hermes/.env`, writes the filtered Pioneer provider to `~/.hermes/config.yaml`, and sets `pioneer/auto` as the default model so Pioneer can route each request automatically.
+3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, filters out Claude Code discovery aliases, stores your Pioneer API key in Hermes' local environment file at `~/.hermes/.env`, writes the filtered Pioneer provider to `~/.hermes/config.yaml`, and sets Claude Opus 5 as the default model.
 
 The command requires `jq` and `ruby`. It creates a timestamped backup of your existing Hermes config before updating the Pioneer section.
 
@@ -46,15 +46,14 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
     def model_id:
       .slug // .id;
 
-    (["pioneer/auto"] + [
+    [
       catalog_models[]
       | select(.deprecated != true)
       | model_id
       | select(type == "string" and length > 0)
       # Hide Claude Code discovery aliases so Hermes does not show every model twice.
       | select(startswith("anthropic/") | not)
-      | select(. != "pioneer/auto" and . != "auto")
-    ]) | dedupe
+    ] | dedupe
   ' > "$MODELS_JSON"
 
 ruby -ryaml -rjson -e '
@@ -70,13 +69,13 @@ ruby -ryaml -rjson -e '
     "key_env" => "PIONEER_API_KEY",
     "api_mode" => "chat_completions",
     "discover_models" => false,
-    "default_model" => "pioneer/auto",
+    "default_model" => "claude-opus-5",
     "models" => models
   }
 
   cfg["model"] = {} unless cfg["model"].is_a?(Hash)
   cfg["model"]["provider"] = "pioneer"
-  cfg["model"]["default"] = "pioneer/auto"
+  cfg["model"]["default"] = "claude-opus-5"
   cfg["model"]["base_url"] = "https://api.pioneer.ai/v1"
   cfg["model"]["api_mode"] = "chat_completions"
 
@@ -97,9 +96,8 @@ hermes
 
 ```text
 /model
-/model claude-opus-4-8 --provider pioneer
+/model claude-opus-5 --provider pioneer
 /model gpt-5.5 --provider pioneer --global
-/model pioneer/auto --provider pioneer --global
 ```
 
 <Note>
