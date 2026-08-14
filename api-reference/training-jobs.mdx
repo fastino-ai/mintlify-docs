@@ -4,10 +4,10 @@ sidebarTitle: "Training Jobs"
 description: "Submit Pioneer fine-tuning jobs, poll status, stream logs, list checkpoints, download weights, and stop or delete jobs. Supports LoRA and full fine-tuning."
 ---
 
-Training jobs are the core of Pioneer's fine-tuning platform. You submit a job with a base model and one or more datasets, and Pioneer handles the rest — provisioning compute, training the model, and making checkpoints available for download or deployment. Both LoRA and full fine-tuning are supported for encoder and decoder architectures.
+Training jobs are the core of Pioneer's fine-tuning platform. You submit a job with a base model and one or more datasets, and Pioneer handles the rest — provisioning compute, training the model, and making checkpoints available for download or deployment. Decoder training uses LoRA; GLiNER encoders support both LoRA and full fine-tuning.
 
 <Warning>
-  `base_model` is required when starting a training job. Omitting it returns a `422 Unprocessable Entity` error. Supply a model ID from `GET /base-models` (e.g. `fastino/gliner2-base-v1`, `Qwen/Qwen3-8B`) or a checkpoint UUID from a previous training job.
+  `base_model` is required when starting a training job. Omitting it returns a `422 Unprocessable Entity` error. Supply a supported target from `GET /base-models` (for example `fastino/gliner2-base-v1` or `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`) or a checkpoint UUID from a previous training job.
 </Warning>
 
 ---
@@ -53,44 +53,6 @@ Submits a new fine-tuning job. Returns immediately with a job ID and `requested`
   Fine-tuning method to use. Accepted values: `lora`, `full`. Defaults to `lora`. Decoder LLM training is LoRA-only; `full` is reserved for GLiNER encoder models.
 </ParamField>
 
-<ParamField body="training_algorithm" type="string">
-  Post-training algorithm. Accepted values: `sft` (default), `grpo`, `dpo`. `sft` is supervised fine-tuning; `grpo` and `dpo` are reinforcement-learning methods that require `rl_config`. See the [LLM fine-tuning guide](/guides/fine-tune-llm) for algorithm selection, dataset formats, and the supported-model matrix. Submitting `grpo`/`dpo` for a model that hasn't been verified for RL returns a `422`.
-</ParamField>
-
-<ParamField body="rl_config" type="object">
-  Reinforcement-learning hyperparameters. **Required when** `training_algorithm` is `grpo` or `dpo`; must be omitted for `sft`. Every key inside is optional (TRL-aligned server defaults are applied) except `reward_type`, which is required for GRPO.
-
-  <Expandable title="rl_config keys">
-    <ParamField body="reward_type" type="string">
-      **GRPO, required.** Built-in reward function: `exact_match`, `contains_substring`, `numeric_match`, `choice_match`, `regex_match`, `json_match`, `json_loose_match`, `rougeL_match`, or `llm_as_judge`.
-    </ParamField>
-    <ParamField body="max_steps" type="number">
-      GRPO, DPO. Total optimizer steps.
-    </ParamField>
-    <ParamField body="group_size" type="number">
-      GRPO. Completions sampled per prompt.
-    </ParamField>
-    <ParamField body="kl_beta" type="number">
-      GRPO. KL penalty coefficient.
-    </ParamField>
-    <ParamField body="sampling_temperature" type="number">
-      GRPO. Sampling temperature for rollouts.
-    </ParamField>
-    <ParamField body="max_completion_length" type="number">
-      GRPO. Max generated tokens per completion.
-    </ParamField>
-    <ParamField body="dpo_beta" type="number">
-      DPO. Preference sharpness (β).
-    </ParamField>
-    <ParamField body="loss_type" type="string">
-      DPO. DPO loss variant.
-    </ParamField>
-    <ParamField body="logging_steps" type="number">
-      GRPO, DPO. Defaults to 25; lower for short smoke runs.
-    </ParamField>
-  </Expandable>
-</ParamField>
-
 <ParamField body="nr_epochs" type="number">
   Number of training epochs. Defaults vary by base model.
 </ParamField>
@@ -121,37 +83,9 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs \
   -H "Content-Type: application/json" \
   -d '{
     "model_name": "my-sft-model",
-    "base_model": "Qwen/Qwen3-8B",
+    "base_model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
     "datasets": [{"name": "my-dataset"}],
     "training_type": "lora"
-  }'
-```
-
-```bash GRPO
-curl -X POST https://api.pioneer.ai/felix/training-jobs \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_name": "my-grpo-model",
-    "base_model": "Qwen/Qwen3-4B-Instruct-2507",
-    "datasets": [{"name": "gsm8k-grpo"}],
-    "training_type": "lora",
-    "training_algorithm": "grpo",
-    "rl_config": {"reward_type": "numeric_match", "max_steps": 100, "group_size": 8}
-  }'
-```
-
-```bash DPO
-curl -X POST https://api.pioneer.ai/felix/training-jobs \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_name": "my-dpo-model",
-    "base_model": "meta-llama/Llama-3.1-8B-Instruct",
-    "datasets": [{"name": "my-preferences"}],
-    "training_type": "lora",
-    "training_algorithm": "dpo",
-    "rl_config": {"dpo_beta": 0.1}
   }'
 ```
 
