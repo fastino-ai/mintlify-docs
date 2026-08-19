@@ -1,0 +1,227 @@
+---
+title: "Evaluate Pioneer models with Braintrust"
+sidebarTitle: "Braintrust evals"
+description: "Point Braintrust at your Pioneer models. Pioneer speaks the OpenAI API, so you only change base_url and your API key — no adapters or proxies."
+---
+
+Pioneer serves an OpenAI-compatible API, so [Braintrust](https://www.braintrust.dev) evaluates your models without any adapter. Set `base_url` to `https://api.pioneer.ai/v1`, pass your Pioneer API key, and put a model ID in the `model` field. Everything else in your eval harness stays the same.
+
+<Tip>
+  You can run the LLM-as-judge scorer on Pioneer too. That means you don't need an OpenAI or Anthropic key anywhere in your eval pipeline.
+</Tip>
+
+## Choosing a model ID
+
+The `model` field accepts any of these, so comparing a fine-tune against its base model is a one-value change:
+
+| Value | Example | Use |
+|---|---|---|
+| Catalog slug | `Qwen/Qwen3-8B` | Baseline before fine-tuning |
+| Training job ID | `YOUR_TRAINING_JOB_ID` | One of your fine-tuned models |
+| Project name or ID | `my-extraction-project` | Whatever the project currently has deployed |
+
+A project name is the one identifier that keeps working after you ship a new model. Pioneer resolves it to whatever that project currently has deployed, so promoting a new fine-tune retargets it with no change on your side. A training job ID does the opposite — it pins one checkpoint forever, which is what you want when comparing two models side by side but not what you want for tracking production.
+
+## Register Pioneer as a provider in Braintrust
+
+Passing `base_url` in code works, but registering Pioneer once puts your models in the Braintrust model dropdown, so they're available in the playground, in prompts, and in any eval without per-script configuration.
+
+Go to **Settings** > **AI providers**, choose **Custom providers** > **New**, and configure:
+
+| Field | Value |
+|---|---|
+| Provider name | `Pioneer` |
+| Endpoint URL | `https://api.pioneer.ai/v1` |
+| Format | `openai` |
+| Flavor | `chat` |
+| Headers | `Authorization: Bearer YOUR_PIONEER_API_KEY` |
+| Model name | One entry per model — use your project names |
+
+Enable **This endpoint supports streaming**, since Pioneer streams natively.
+
+<Tip>
+  Enter your **project names** as the model names. Because Pioneer resolves a project to its currently deployed model, every future deployment is picked up automatically and you never have to touch the Braintrust configuration again. Add explicit catalog slugs or training job IDs alongside them only when you need to pin a specific model for comparison.
+</Tip>
+
+If you fill in the optional input and output cost fields with your Pioneer per-token rates, Braintrust's experiment cost estimates will be accurate. Note that Pioneer echoes back the model string you sent, so a request routed through a project reports the project name rather than the underlying checkpoint.
+
+## Install
+
+```bash
+pip install braintrust autoevals openai
+```
+
+## Write the eval
+
+Braintrust discovers Python files named `eval_*.py`. Create `evals/eval_pioneer.py`:
+
+<CodeGroup>
+
+```python evals/eval_pioneer.py
+import os
+
+import autoevals
+from braintrust import Eval, wrap_openai
+from openai import AsyncOpenAI, OpenAI
+
+BASE_URL = os.environ.get("PIONEER_BASE_URL", "https://api.pioneer.ai/v1")
+API_KEY = os.environ["PIONEER_API_KEY"]
+MODEL = os.environ.get("PIONEER_MODEL", "Qwen/Qwen3-8B")
+
+# wrap_openai records each call as a span, so prompts, completions, token
+# usage, and latency appear in the Braintrust UI.
+pioneer = wrap_openai(OpenAI(base_url=BASE_URL, api_key=API_KEY))
+
+# Run the judge on Pioneer as well. Scorers are awaited, so this client
+# must be the async variant.
+autoevals.init(client=AsyncOpenAI(base_url=BASE_URL, api_key=API_KEY))
+
+DATA = [
+    {"input": "What is 17 * 23?", "expected": "391"},
+    {"input": "What is the capital of France?", "expected": "Paris"},
+]
+
+
+def task(question: str) -> str:
+    response = pioneer.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": "Answer with the shortest possible answer."},
+            {"role": "user", "content": question},
+        ],
+        max_tokens=1024,
+        temperature=0,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+Eval(
+    "pioneer-decoder-eval",
+    data=lambda: DATA,
+    task=task,
+    scores=[autoevals.Levenshtein, autoevals.Factuality(model=MODEL)],
+    metadata={"model": MODEL, "base_url": BASE_URL},
+    max_concurrency=4,
+)
+```
+
+```typescript pioneer.eval.ts
+import { Factuality, Levenshtein } from "autoevals";
+import { Eval, wrapOpenAI } from "braintrust";
+import OpenAI from "openai";
+
+const baseURL = process.env.PIONEER_BASE_URL ?? "https://api.pioneer.ai/v1";
+const apiKey = process.env.PIONEER_API_KEY!;
+const model = process.env.PIONEER_MODEL ?? "Qwen/Qwen3-8B";
+
+const pioneer = wrapOpenAI(new OpenAI({ baseURL, apiKey }));
+
+Eval("pioneer-decoder-eval", {
+  data: () => [
+    { input: "What is 17 * 23?", expected: "391" },
+    { input: "What is the capital of France?", expected: "Paris" },
+  ],
+  task: async (question: string) => {
+    const response = await pioneer.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: "Answer with the shortest possible answer." },
+        { role: "user", content: question },
+      ],
+      max_tokens: 1024,
+      temperature: 0,
+    });
+    return response.choices[0].message.content?.trim() ?? "";
+  },
+  scores: [
+    Levenshtein,
+    async ({ input, output, expected }) =>
+      Factuality({ input, output, expected, model, client: pioneer as never }),
+  ],
+  metadata: { model, baseURL },
+  maxConcurrency: 4,
+});
+```
+
+</CodeGroup>
+
+## Run it
+
+Check that your model responds before you sign up for anything. The `--no-send-logs` flag runs the eval locally and prints a summary without a Braintrust account:
+
+```bash
+export PIONEER_API_KEY=YOUR_API_KEY
+braintrust eval --no-send-logs evals/
+```
+
+Once that works, add your Braintrust key to log the run as a tracked experiment:
+
+```bash
+export BRAINTRUST_API_KEY=YOUR_BRAINTRUST_KEY
+export PIONEER_API_KEY=YOUR_API_KEY
+braintrust eval evals/
+```
+
+For TypeScript, use `npx braintrust eval pioneer.eval.ts` with the same environment variables.
+
+## Compare a fine-tune against its base model
+
+Run the same file twice with a different `PIONEER_MODEL`. Braintrust stores each run as a separate experiment, so you can diff them side by side:
+
+```bash
+PIONEER_MODEL="Qwen/Qwen3-8B"        braintrust eval evals/
+PIONEER_MODEL="YOUR_TRAINING_JOB_ID" braintrust eval evals/
+```
+
+## Things to watch for
+
+<AccordionGroup>
+
+<Accordion title="Set max_tokens to at least 512">
+  Reasoning-style models write out their working before the final answer. With a tight `max_tokens`, the response gets cut off mid-thought and the harness scores an empty or partial string as wrong. If a model suddenly scores near zero, raise `max_tokens` before assuming the model is broken.
+</Accordion>
+
+<Accordion title="Don't test your API key against GET /v1/models">
+  That endpoint is public and returns `200` even without valid credentials, so it can't tell you whether your key works. Verify with a real `POST /v1/chat/completions` request instead.
+</Accordion>
+
+<Accordion title="Your key must start with pio_sk_">
+  Pioneer detects that prefix on the `Authorization: Bearer` header and treats the value as an API key rather than a session token. This is what lets the standard OpenAI SDK work unchanged. Keys in other formats are rejected with a `401`.
+</Accordion>
+
+<Accordion title="braintrust eval --list needs an account key">
+  `braintrust eval --list` authenticates before it enumerates evaluators, so it fails without `BRAINTRUST_API_KEY`. Use `--no-send-logs` for credential-free local runs.
+</Accordion>
+
+<Accordion title="The endpoint URL must end in /v1">
+  Braintrust builds the request URL by appending the route to whatever you entered, so `https://api.pioneer.ai` becomes `https://api.pioneer.ai/chat/completions` and returns a `404`. Enter `https://api.pioneer.ai/v1`.
+</Accordion>
+
+<Accordion title="A provider you just added can 404 on the first call">
+  Braintrust caches provider configuration for a short period, so the first request after you add or edit a custom provider can fail with `no provider configured for '<model>'`. Wait a few seconds and retry before you start changing settings.
+</Accordion>
+
+<Accordion title="Register every model you intend to call">
+  A custom provider only serves the models listed in its configuration. Registering the endpoint without adding any model names leaves it inert — every request fails with `no provider configured`, even though the provider looks correctly set up.
+</Accordion>
+
+<Accordion title="A pinned training job needs a live deployment">
+  A training job ID routes only while that job still has an active inference deployment. An old checkpoint whose deployment has been torn down returns `409` with `has no active inference deployment`, which is a deployment problem rather than a wrong model ID. Pin training job IDs for a point-in-time comparison, and use the project name when you want something that keeps working.
+</Accordion>
+
+</AccordionGroup>
+
+## Encoder models
+
+This guide covers decoder models — the text-in, text-out case Braintrust expects. GLiNER encoder tasks such as extraction and classification return structured JSON and need a `schema` in the request, so an off-the-shelf scorer won't work on them directly. Use [Pioneer's own evaluation API](/concepts/evaluations) for encoder models, which reports F1, precision, and recall with a per-entity breakdown.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="OpenAI-compatible API" icon="sparkle" href="/api-reference/inference/openai-compatible">
+    Full endpoint reference for the compatibility layer.
+  </Card>
+  <Card title="Pioneer evaluations" icon="chart-bar" href="/concepts/evaluations">
+    Native evaluations with F1, precision, and recall.
+  </Card>
+</CardGroup>
