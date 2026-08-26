@@ -40,23 +40,49 @@ The endpoint returns `202` immediately with a `job_id`; generation itself runs a
 
 ## Uploading your own dataset
 
-Uploading your own data: Use `POST/felix/datasets/upload/url` if you already have labeled data. This is a three-step process:
+Use `POST /felix/datasets/upload/url` if you already have labeled data. This is a three-step process.
+
+Two fields control how Pioneer treats the file:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `dataset_type` | `ner` (default), `classification`, `custom`, `decoder` | Task format. Decoder uploads are chat JSONL: each row is `{"messages": [{"role": "user" or "assistant" or "system", "content": "..."}]}`. |
+| `type` | `training` (default), `evaluation` | Purpose. Training datasets are trainable (`POST /felix/training-jobs`). Evaluation datasets are held-out sets for `POST /felix/evaluations` and are not trainable. `benchmark` is system-managed (FewNERD, MTEB) and returns `403` on this endpoint. |
+
+Optional `project_id` (UUID) assigns the dataset to a project. You can flip purpose later with `PATCH /felix/datasets/{dataset_id}/type` (`training` ↔ `evaluation`).
 
 #### Step 1. Get a presigned upload URL
 
+Training NER example:
+
 ```bash
- curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \                                                                               
-    -d '{
-      "dataset_name": "my-ner-dataset",                                                                                 
-      "dataset_type": "ner",
-      "type": "training",
-      "filename": "data.jsonl"
-    }'      
+curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_name": "my-ner-dataset",
+    "dataset_type": "ner",
+    "type": "training",
+    "filename": "data.jsonl"
+  }'
 ```
 
-Only `dataset_name` is required — `dataset_type` defaults to `"ner"` if omitted, and accepts `"ner"`, `"classification"`, `"custom"`, or `"decoder"` (the `type` field is `"training"` by default; `"benchmark"` is rejected here since benchmark datasets are system-managed). The response includes 'presigned\_url', 'dataset\_id', and 'version\_number'.
+Decoder evaluation example (held-out chat JSONL for `POST /felix/evaluations`):
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_name": "my-decoder-eval",
+    "dataset_type": "decoder",
+    "type": "evaluation",
+    "filename": "eval.jsonl",
+    "project_id": "YOUR_PROJECT_UUID"
+  }'
+```
+
+Only `dataset_name` is required. The response includes `presigned_url`, `dataset_id`, and `version_number`.
 
 #### Step 2. Upload the file directly to S3
 
