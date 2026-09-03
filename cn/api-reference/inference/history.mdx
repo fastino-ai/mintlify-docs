@@ -1,0 +1,238 @@
+---
+title: "Pioneer 上的推理历史与反馈端点"
+sidebarTitle: "历史与反馈"
+description: "列出 Pioneer 推理历史,按模型或项目过滤,获取单条结果,并提交更正以通过 Adaptive Inference 改进您的模型。"
+---
+
+Pioneer 会存储每一次推理调用，您可以按 ID 或批量获取结果。您还可以针对单条推理提交更正反馈。这些反馈标示出模型出错的地方，并驱动 Adaptive Inference，它会基于来自线上流量的已更正样本自动重新训练您的模型。
+
+## 端点
+
+| Method | Path | 说明 |
+|---|---|---|
+| `GET` | `/inferences` | 列出过往推理 |
+| `GET` | `/inferences/:id` | 获取推理详情 |
+| `POST` | `/inferences/:id/feedback` | 提交反馈 |
+| `GET` | `/inferences/:id/feedback` | 获取已存储的反馈 |
+
+## 列出过往推理
+
+`GET /inferences` 返回过往推理调用的分页列表。使用下方的查询参数过滤结果。
+
+### 查询参数
+
+<ParamField query="limit" type="number">
+  每页返回结果的最大数量。
+</ParamField>
+
+<ParamField query="offset" type="number">
+  在返回结果前跳过的结果数量。与 `limit` 搭配使用可对结果进行分页。
+</ParamField>
+
+<ParamField query="model_id" type="string">
+  按模型 ID 过滤。接受训练任务 ID 或基础模型 ID。
+</ParamField>
+
+<ParamField query="task" type="string">
+  按任务类型过滤（例如 `ner`、`classification`、`generate`）。
+</ParamField>
+
+<ParamField query="project_id" type="string">
+  按项目 ID 过滤，只查看归属于特定项目的推理。
+</ParamField>
+
+<ParamField query="training_job_id" type="string">
+  按训练任务 ID 过滤，只查看针对特定微调模型运行的推理。
+</ParamField>
+
+<ParamField query="latency_min" type="number">
+  最小端到端延迟，单位为毫秒（含端点值）。必须 &gt;= 0。
+</ParamField>
+
+<ParamField query="latency_max" type="number">
+  最大端到端延迟，单位为毫秒（含端点值）。必须 &gt;= 0；若两者都设置，则必须 &gt;= `latency_min`。
+</ParamField>
+
+<ParamField query="llmaj_score_min" type="number">
+  最小 LLM-as-Judge 分数（含端点值），范围为 `0.0`–`1.0`。
+</ParamField>
+
+<ParamField query="llmaj_score_max" type="number">
+  最大 LLM-as-Judge 分数（含端点值），范围为 `0.0`–`1.0`。若两者都设置，则必须 &gt;= `llmaj_score_min`。
+</ParamField>
+
+<ParamField query="since" type="string">
+  `created_at` 的包含下界，为 ISO 8601 UTC 时间戳。
+</ParamField>
+
+<ParamField query="until" type="string">
+  `created_at` 的不包含上界，为 ISO 8601 UTC 时间戳。
+</ParamField>
+
+<Note>
+  对于 `latency_min`/`latency_max` 和 `llmaj_score_min`/`llmaj_score_max`，如果 `min` 值大于对应的 `max` 值，都会返回 `422`。
+</Note>
+
+### 示例
+
+<CodeGroup>
+
+```bash cURL
+curl "https://api.pioneer.ai/inferences?limit=20&offset=0&model_id=job_abc123" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences",
+    headers={"X-API-Key": "YOUR_API_KEY"},
+    params={
+        "limit": 20,
+        "offset": 0,
+        "model_id": "job_abc123"
+    }
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## 获取推理详情
+
+`GET /inferences/:id` 返回单条过往推理的完整记录，包括输入文本、schema、模型响应和时间戳。
+
+<CodeGroup>
+
+```bash cURL
+curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID",
+    headers={"X-API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## 提交反馈
+
+`POST /inferences/:id/feedback` 允许您将一条过往推理标记为正确或不正确，并可选择附上更正后的输出。带有更正内容的“不正确”判定会被用作 Adaptive Inference 的标注训练样本。
+
+<Note>
+  在此提交的反馈会驱动 Adaptive Inference。这是 Pioneer 的持续改进闭环，会基于从线上流量收集到的更正自动重新训练您的模型。有关工作原理的详情，请参阅 [Adaptive Inference 指南](/guides/adaptive-inference)。
+</Note>
+
+### 请求参数
+
+<ParamField body="verdict" type="string" required>
+  对该推理的人工判定：`correct` 或 `incorrect`。
+</ParamField>
+
+<ParamField body="corrected_output" type="object">
+  预期输出，其形状与原推理的输出相同（例如，对 NER 推理提供更正后的 `entities` 列表）。当 `verdict` 为 `incorrect` 时**必填**；当 `verdict` 为 `correct` 时必须省略或为 `null`。发送不正确的组合会返回 `422`。
+</ParamField>
+
+<ParamField body="notes" type="string">
+  可选的自由文本审阅者备注。最多 5000 个字符。
+</ParamField>
+
+### 示例
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verdict": "incorrect",
+    "corrected_output": {
+      "entities": [
+        {"text": "Apple", "label": "organization", "start": 0, "end": 5},
+        {"text": "iPhone", "label": "product", "start": 18, "end": 24}
+      ]
+    },
+    "notes": "Missed the product entity."
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID/feedback",
+    headers={
+        "X-API-Key": "YOUR_API_KEY",
+        "Content-Type": "application/json"
+    },
+    json={
+        "verdict": "incorrect",
+        "corrected_output": {
+            "entities": [
+                {"text": "Apple", "label": "organization", "start": 0, "end": 5},
+                {"text": "iPhone", "label": "product", "start": 18, "end": 24}
+            ]
+        },
+        "notes": "Missed the product entity."
+    }
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+**响应**
+
+<ResponseField name="inference_id" type="string">
+  被标注的推理。
+</ResponseField>
+
+<ResponseField name="human_verdict" type="string">
+  已存储的判定。
+</ResponseField>
+
+<ResponseField name="human_feedback_at" type="string">
+  反馈提交时间的 ISO 8601 时间戳。
+</ResponseField>
+
+## 获取反馈
+
+`GET /inferences/:id/feedback` 返回之前针对特定推理提交的反馈。如果尚未提交任何反馈，则返回 `404`。
+
+<CodeGroup>
+
+```bash cURL
+curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID/feedback",
+    headers={"X-API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+**响应**：形状与上文的[提交反馈](#提交反馈)响应相同。
+
+## 相关内容
+
+- [Pioneer 原生推理](/api-reference/inference/pioneer)：运行新的推理
+- [Adaptive Inference 指南](/guides/adaptive-inference)：基于线上流量的持续模型改进

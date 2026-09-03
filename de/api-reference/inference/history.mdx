@@ -1,0 +1,238 @@
+---
+title: "Inferenz-Historie- und Feedback-Endpunkte auf Pioneer"
+sidebarTitle: "Historie & Feedback"
+description: "Listen Sie die Pioneer-Inferenz-Historie auf, filtern Sie nach Modell oder Projekt, rufen Sie einzelne Ergebnisse ab und reichen Sie Korrekturen ein, um Ihr Modell über Adaptive Inference zu verbessern."
+---
+
+Pioneer speichert jeden Inferenzaufruf und lässt Sie Ergebnisse per ID oder gesammelt abrufen. Sie können außerdem Korrektur-Feedback zu einzelnen Inferenzen einreichen. Dieses Feedback signalisiert, was das Modell falsch gemacht hat, und treibt Adaptive Inference an, das Ihr Modell automatisch mit korrigierten Beispielen aus dem Live-Traffic nachtrainiert.
+
+## Endpunkte
+
+| Method | Path | Beschreibung |
+|---|---|---|
+| `GET` | `/inferences` | Vergangene Inferenzen auflisten |
+| `GET` | `/inferences/:id` | Inferenzdetails abrufen |
+| `POST` | `/inferences/:id/feedback` | Feedback einreichen |
+| `GET` | `/inferences/:id/feedback` | Gespeichertes Feedback abrufen |
+
+## Vergangene Inferenzen auflisten
+
+`GET /inferences` gibt eine paginierte Liste vergangener Inferenzaufrufe zurück. Verwenden Sie die folgenden Query-Parameter, um die Ergebnisse zu filtern.
+
+### Query-Parameter
+
+<ParamField query="limit" type="number">
+  Maximale Anzahl an Ergebnissen, die pro Seite zurückgegeben werden.
+</ParamField>
+
+<ParamField query="offset" type="number">
+  Anzahl der Ergebnisse, die vor der Rückgabe übersprungen werden. Verwenden Sie diesen Parameter zusammen mit `limit`, um durch die Ergebnisse zu paginieren.
+</ParamField>
+
+<ParamField query="model_id" type="string">
+  Nach Modell-ID filtern. Akzeptiert eine Trainingsjob-ID oder eine Basismodell-ID.
+</ParamField>
+
+<ParamField query="task" type="string">
+  Nach Aufgabentyp filtern (z. B. `ner`, `classification`, `generate`).
+</ParamField>
+
+<ParamField query="project_id" type="string">
+  Nach Projekt-ID filtern, um nur Inferenzen zu sehen, die einem bestimmten Projekt zugeordnet sind.
+</ParamField>
+
+<ParamField query="training_job_id" type="string">
+  Nach Trainingsjob-ID filtern, um nur Inferenzen zu sehen, die gegen ein bestimmtes feinabgestimmtes Modell ausgeführt wurden.
+</ParamField>
+
+<ParamField query="latency_min" type="number">
+  Minimale End-to-End-Latenz in Millisekunden (inklusive). Muss &gt;= 0 sein.
+</ParamField>
+
+<ParamField query="latency_max" type="number">
+  Maximale End-to-End-Latenz in Millisekunden (inklusive). Muss &gt;= 0 sein und &gt;= `latency_min`, wenn beide gesetzt sind.
+</ParamField>
+
+<ParamField query="llmaj_score_min" type="number">
+  Minimaler LLM-as-Judge-Score (inklusive), im Bereich `0.0`–`1.0`.
+</ParamField>
+
+<ParamField query="llmaj_score_max" type="number">
+  Maximaler LLM-as-Judge-Score (inklusive), im Bereich `0.0`–`1.0`. Muss &gt;= `llmaj_score_min` sein, wenn beide gesetzt sind.
+</ParamField>
+
+<ParamField query="since" type="string">
+  Inklusive Untergrenze für `created_at`, als ISO-8601-UTC-Zeitstempel.
+</ParamField>
+
+<ParamField query="until" type="string">
+  Exklusive Obergrenze für `created_at`, als ISO-8601-UTC-Zeitstempel.
+</ParamField>
+
+<Note>
+  `latency_min`/`latency_max` und `llmaj_score_min`/`llmaj_score_max` geben jeweils `422` zurück, wenn der `min`-Wert größer als der zugehörige `max`-Wert ist.
+</Note>
+
+### Beispiel
+
+<CodeGroup>
+
+```bash cURL
+curl "https://api.pioneer.ai/inferences?limit=20&offset=0&model_id=job_abc123" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences",
+    headers={"X-API-Key": "YOUR_API_KEY"},
+    params={
+        "limit": 20,
+        "offset": 0,
+        "model_id": "job_abc123"
+    }
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## Inferenzdetails abrufen
+
+`GET /inferences/:id` gibt den vollständigen Record für eine einzelne vergangene Inferenz zurück, einschließlich Eingabetext, Schema, Modellantwort und Zeitstempel.
+
+<CodeGroup>
+
+```bash cURL
+curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID",
+    headers={"X-API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+## Feedback einreichen
+
+Mit `POST /inferences/:id/feedback` können Sie eine vergangene Inferenz als korrekt oder inkorrekt markieren und optional die korrigierte Ausgabe anhängen. Inkorrekt-Verdicts mit einer Korrektur werden als gelabelte Trainingsbeispiele für Adaptive Inference verwendet.
+
+<Note>
+  Das hier eingereichte Feedback treibt Adaptive Inference an. Das ist Pioneers kontinuierliche Verbesserungsschleife, die Ihr Modell automatisch mit Korrekturen nachtrainiert, die aus dem Live-Traffic gesammelt wurden. Details zur Funktionsweise finden Sie im [Adaptive-Inference-Leitfaden](/guides/adaptive-inference).
+</Note>
+
+### Request-Parameter
+
+<ParamField body="verdict" type="string" required>
+  Menschliches Urteil über die Inferenz: `correct` oder `incorrect`.
+</ParamField>
+
+<ParamField body="corrected_output" type="object">
+  Die erwartete Ausgabe, in derselben Form wie die Ausgabe der ursprünglichen Inferenz (zum Beispiel eine korrigierte `entities`-Liste für eine NER-Inferenz). **Erforderlich**, wenn `verdict` `incorrect` ist; muss weggelassen oder `null` sein, wenn `verdict` `correct` ist. Das Senden einer inkorrekten Kombination gibt `422` zurück.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Optionale Freitext-Notizen des Reviewers. Maximal 5000 Zeichen.
+</ParamField>
+
+### Beispiel
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verdict": "incorrect",
+    "corrected_output": {
+      "entities": [
+        {"text": "Apple", "label": "organization", "start": 0, "end": 5},
+        {"text": "iPhone", "label": "product", "start": 18, "end": 24}
+      ]
+    },
+    "notes": "Missed the product entity."
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID/feedback",
+    headers={
+        "X-API-Key": "YOUR_API_KEY",
+        "Content-Type": "application/json"
+    },
+    json={
+        "verdict": "incorrect",
+        "corrected_output": {
+            "entities": [
+                {"text": "Apple", "label": "organization", "start": 0, "end": 5},
+                {"text": "iPhone", "label": "product", "start": 18, "end": 24}
+            ]
+        },
+        "notes": "Missed the product entity."
+    }
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+**Antwort**
+
+<ResponseField name="inference_id" type="string">
+  Die Inferenz, die annotiert wurde.
+</ResponseField>
+
+<ResponseField name="human_verdict" type="string">
+  Das gespeicherte Verdict.
+</ResponseField>
+
+<ResponseField name="human_feedback_at" type="string">
+  ISO-8601-Zeitstempel des Zeitpunkts, zu dem das Feedback eingereicht wurde.
+</ResponseField>
+
+## Feedback abrufen
+
+`GET /inferences/:id/feedback` gibt das Feedback zurück, das zuvor für eine bestimmte Inferenz eingereicht wurde. Gibt `404` zurück, wenn noch kein Feedback eingereicht wurde.
+
+<CodeGroup>
+
+```bash cURL
+curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID/feedback",
+    headers={"X-API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+**Antwort**: dieselbe Form wie die oben beschriebene Antwort von [Feedback einreichen](#feedback-einreichen).
+
+## Verwandte Themen
+
+- [Pioneer native Inferenz](/api-reference/inference/pioneer): neue Inferenzen ausführen
+- [Adaptive-Inference-Leitfaden](/guides/adaptive-inference): kontinuierliche Modellverbesserung aus Live-Traffic
