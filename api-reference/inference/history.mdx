@@ -12,7 +12,8 @@ Pioneer stores every inference call and lets you retrieve results by ID or in bu
 |---|---|---|
 | `GET` | `/inferences` | List past inferences |
 | `GET` | `/inferences/:id` | Get inference details |
-| `POST` | `/inferences/:id/feedback` | Submit correction feedback |
+| `POST` | `/inferences/:id/feedback` | Submit feedback |
+| `GET` | `/inferences/:id/feedback` | Get stored feedback |
 
 ## List past inferences
 
@@ -43,6 +44,34 @@ Pioneer stores every inference call and lets you retrieve results by ID or in bu
 <ParamField query="training_job_id" type="string">
   Filter by training job ID to see only inferences run against a specific fine-tuned model.
 </ParamField>
+
+<ParamField query="latency_min" type="number">
+  Minimum end-to-end latency in milliseconds (inclusive). Must be &gt;= 0.
+</ParamField>
+
+<ParamField query="latency_max" type="number">
+  Maximum end-to-end latency in milliseconds (inclusive). Must be &gt;= 0 and &gt;= `latency_min` if both are set.
+</ParamField>
+
+<ParamField query="llmaj_score_min" type="number">
+  Minimum LLM-as-Judge score (inclusive), in the range `0.0`–`1.0`.
+</ParamField>
+
+<ParamField query="llmaj_score_max" type="number">
+  Maximum LLM-as-Judge score (inclusive), in the range `0.0`–`1.0`. Must be &gt;= `llmaj_score_min` if both are set.
+</ParamField>
+
+<ParamField query="since" type="string">
+  Inclusive lower bound on `created_at`, as an ISO 8601 UTC timestamp.
+</ParamField>
+
+<ParamField query="until" type="string">
+  Exclusive upper bound on `created_at`, as an ISO 8601 UTC timestamp.
+</ParamField>
+
+<Note>
+  `latency_min`/`latency_max` and `llmaj_score_min`/`llmaj_score_max` each return `422` if the `min` value is greater than the paired `max` value.
+</Note>
 
 ### Example
 
@@ -95,9 +124,9 @@ print(response.json())
 
 </CodeGroup>
 
-## Submit correction feedback
+## Submit feedback
 
-`POST /inferences/:id/feedback` lets you submit a corrected version of what the model should have predicted. Corrections are used as labeled training examples for Adaptive Inference.
+`POST /inferences/:id/feedback` lets you mark a past inference as correct or incorrect, optionally attaching the corrected output. Incorrect verdicts with a correction are used as labeled training examples for Adaptive Inference.
 
 <Note>
   Feedback submitted here powers Adaptive Inference — Pioneer's continuous improvement loop that automatically retrains your model on corrections collected from live traffic. See the [Adaptive Inference guide](/guides/adaptive-inference) for details on how this works.
@@ -105,8 +134,16 @@ print(response.json())
 
 ### Request parameters
 
-<ParamField body="correction" type="object" required>
-  The corrected output. The shape should match the schema used in the original inference — for example, a corrected `entities` list for an NER inference.
+<ParamField body="verdict" type="string" required>
+  Human judgment on the inference: `correct` or `incorrect`.
+</ParamField>
+
+<ParamField body="corrected_output" type="object">
+  The expected output, in the same shape as the original inference's output (for example, a corrected `entities` list for an NER inference). **Required** when `verdict` is `incorrect`; must be omitted or `null` when `verdict` is `correct`. Sending an incorrect combination returns `422`.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Optional free-text reviewer notes. Maximum 5000 characters.
 </ParamField>
 
 ### Example
@@ -118,12 +155,14 @@ curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "correction": {
+    "verdict": "incorrect",
+    "corrected_output": {
       "entities": [
         {"text": "Apple", "label": "organization", "start": 0, "end": 5},
         {"text": "iPhone", "label": "product", "start": 18, "end": 24}
       ]
-    }
+    },
+    "notes": "Missed the product entity."
   }'
 ```
 
@@ -137,12 +176,14 @@ response = requests.post(
         "Content-Type": "application/json"
     },
     json={
-        "correction": {
+        "verdict": "incorrect",
+        "corrected_output": {
             "entities": [
                 {"text": "Apple", "label": "organization", "start": 0, "end": 5},
                 {"text": "iPhone", "label": "product", "start": 18, "end": 24}
             ]
-        }
+        },
+        "notes": "Missed the product entity."
     }
 )
 
@@ -150,6 +191,46 @@ print(response.json())
 ```
 
 </CodeGroup>
+
+**Response**
+
+<ResponseField name="inference_id" type="string">
+  The inference that was annotated.
+</ResponseField>
+
+<ResponseField name="human_verdict" type="string">
+  The stored verdict.
+</ResponseField>
+
+<ResponseField name="human_feedback_at" type="string">
+  ISO 8601 timestamp of when the feedback was submitted.
+</ResponseField>
+
+## Get feedback
+
+`GET /inferences/:id/feedback` returns the feedback previously submitted for a specific inference. Returns `404` if no feedback has been submitted yet.
+
+<CodeGroup>
+
+```bash cURL
+curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.pioneer.ai/inferences/INFERENCE_ID/feedback",
+    headers={"X-API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
+
+</CodeGroup>
+
+**Response** — same shape as the [submit feedback](#submit-feedback) response above.
 
 ## Related
 
