@@ -1,10 +1,10 @@
 ---
 title: "OpenClaw"
-description: "Configure OpenClaw to use Pioneer's OpenAI-compatible endpoint, discover models via /v1/models, and run the local gateway with Pioneer Auto."
+description: "Configure OpenClaw to use Fastino's OpenAI-compatible endpoint, discover models via /v1/models, and run the local gateway with Fastino Auto."
 hidden: true
 ---
 
-Pioneer exposes an OpenAI-compatible inference endpoint, so OpenClaw can use Pioneer as a custom provider today. This guide covers the custom-provider setup until Pioneer is available as an official OpenClaw provider.
+Fastino exposes an OpenAI-compatible inference endpoint, so OpenClaw can use Fastino as a custom provider today. This guide covers the custom-provider setup until Fastino is available as an official OpenClaw provider.
 
 <Warning>
   OpenClaw is a third-party local agent tool. Keep the gateway bound to loopback unless you have intentionally hardened remote access, channel allowlists, and tool permissions.
@@ -18,8 +18,8 @@ Pioneer exposes an OpenAI-compatible inference endpoint, so OpenClaw can use Pio
 npm install -g openclaw@latest
 ```
 
-- A Pioneer API key from the Pioneer dashboard.
-- `jq` installed for converting the live Pioneer model catalog into OpenClaw config.
+- A Fastino API key from the Fastino dashboard.
+- `jq` installed for converting the live Fastino model catalog into OpenClaw config.
 - Check to see if OpenClaw is available:
 
 ```shellscript
@@ -28,17 +28,17 @@ openclaw --version
 
 ### Setup steps
 
-1. Save Pioneer auth in OpenClaw
-   - Paste your Pioneer API key once. OpenClaw stores it in the local auth profile store and the gateway reuses it across terminal sessions.
+1. Save Fastino auth in OpenClaw
+   - Paste your Fastino API key once. OpenClaw stores it in the local auth profile store and the gateway reuses it across terminal sessions.
      ```shellscript
      openclaw models auth paste-api-key --provider pioneer
      ```
      <Note>
        Do not paste real API keys into docs, screenshots, shared shell history, or issue trackers. Rotate the key if it has been exposed.
      </Note>
-2. Discover and register Pioneer models
-   - Pioneer's supported inference models can change over time. Use the OpenAI-compatible `GET /v1/models` catalog as the source of truth and convert it directly into OpenClaw model config.
-   - This command reads the Pioneer key from the OpenClaw auth profile saved in step 1, uses it for the catalog fetch, and writes the discovered model catalog into `~/.openclaw/openclaw.json`.
+2. Discover and register Fastino models
+   - Fastino's supported inference models can change over time. Use the OpenAI-compatible `GET /v1/models` catalog as the source of truth and convert it directly into OpenClaw model config.
+   - This command reads the Fastino key from the OpenClaw auth profile saved in step 1, uses it for the catalog fetch, and writes the discovered model catalog into `~/.openclaw/openclaw.json`.
      ```shellscript
      AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
      case "$AUTH_DB" in
@@ -108,7 +108,7 @@ openclaw --version
            [
              {
                id: "pioneer/auto",
-               name: "Pioneer Auto",
+               name: "Fastino Auto",
                input: ["text"],
                contextWindow: 1000000,
                maxTokens: 16000
@@ -165,9 +165,9 @@ openclaw --version
            --replace-path models.providers.pioneer.models \
            --replace-path agents.defaults.models
      ```
-   - The command manually adds `pioneer/auto` for Pioneer Auto, then reads the top-level `.models[]` catalog when present and falls back to `.data[]`, deduplicates by `id`, filters `anthropic/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Pioneer model under `agents.defaults.models` for the model picker and `openclaw models status`.
-   - OpenClaw uses `/think` for reasoning controls. Models that advertise `supported_reasoning_levels`, `reasoning`, `supports_reasoning`, or `thinking` metadata are registered with `reasoning: true`; when Pioneer advertises exact reasoning levels, the command also writes `compat.supportedReasoningEfforts` so OpenClaw can include levels such as `xhigh`.
-   - To refresh the catalog later, re-run the same command. It replaces the Pioneer provider models and Pioneer agent allowlist while preserving non-Pioneer agent model entries.
+   - The command manually adds `pioneer/auto` for Fastino Auto, then reads the top-level `.models[]` catalog when present and falls back to `.data[]`, deduplicates by `id`, filters `anthropic/*` Claude Code discovery aliases so OpenClaw does not show duplicate models, and exposes every Fastino model under `agents.defaults.models` for the model picker and `openclaw models status`.
+   - OpenClaw uses `/think` for reasoning controls. Models that advertise `supported_reasoning_levels`, `reasoning`, `supports_reasoning`, or `thinking` metadata are registered with `reasoning: true`; when Fastino advertises exact reasoning levels, the command also writes `compat.supportedReasoningEfforts` so OpenClaw can include levels such as `xhigh`.
+   - To refresh the catalog later, re-run the same command. It replaces the Fastino provider models and Fastino agent allowlist while preserving non-Fastino agent model entries.
 3. Start the local gateway and open the Web UI
    - The model-discovery command already sets `pioneer/auto` as the default model. You do not need to run `openclaw models set pioneer/auto` separately.
    - Use the LaunchAgent service for normal local setup. Do not run `openclaw gateway run` unless you are intentionally debugging in the foreground.
@@ -183,9 +183,9 @@ openclaw --version
      openclaw dashboard
      unset GATEWAY_TOKEN
      ```
-   - This avoids the noisy full `openclaw doctor` flow during normal setup. `openclaw gateway install --force` keeps the macOS LaunchAgent service definition current, including the service environment. `openclaw gateway restart` then applies the Pioneer model config and gateway token.
+   - This avoids the noisy full `openclaw doctor` flow during normal setup. `openclaw gateway install --force` keeps the macOS LaunchAgent service definition current, including the service environment. `openclaw gateway restart` then applies the Fastino model config and gateway token.
    - `openclaw dashboard` may print a clean URL such as `http://127.0.0.1:18789/` while copying a token-authenticated URL to your clipboard.
-   - In the Web UI, choose a reasoning-capable Pioneer model and use the thinking selector to switch levels. From the CLI or chat input, send `/think low`, `/think medium`, `/think high`, or `/think off`. Send `/think` with no argument to see the current effective level.
+   - In the Web UI, choose a reasoning-capable Fastino model and use the thinking selector to switch levels. From the CLI or chat input, send `/think low`, `/think medium`, `/think high`, or `/think off`. Send `/think` with no argument to see the current effective level.
 4. Verify the setup **(optional)**
    - These checks are useful when validating a fresh setup or debugging a user report:
      ```shellscript
@@ -193,8 +193,8 @@ openclaw --version
        | jq '{defaultModel, allowed_count: (.allowed | length), first_allowed: .allowed[0:5]}'
      openclaw models status --probe --probe-provider pioneer
      ```
-   - Expected result: `defaultModel` is `pioneer/auto`, `allowed_count` is greater than `1`, and the Pioneer auth probe succeeds.
-   - OpenClaw may probe only the default/effective target even when the agent allowlist contains many Pioneer models. That is fine as long as the configured model count is greater than `1` and `pioneer/auto` probes successfully.
+   - Expected result: `defaultModel` is `pioneer/auto`, `allowed_count` is greater than `1`, and the Fastino auth probe succeeds.
+   - OpenClaw may probe only the default/effective target even when the agent allowlist contains many Fastino models. That is fine as long as the configured model count is greater than `1` and `pioneer/auto` probes successfully.
 5. Run a first agent message from the CLI **(optional)**
    - OpenClaw needs a target session for agent messages. A plain `--message` is not enough.
      ```shellscript
@@ -213,7 +213,7 @@ openclaw --version
 
 <AccordionGroup>
   <Accordion title="Missing auth - pioneer" icon="key-round">
-    OpenClaw does not have a Pioneer auth profile. Run:
+    OpenClaw does not have a Fastino auth profile. Run:
 
     ```shellscript
     openclaw models auth paste-api-key --provider pioneer
@@ -222,7 +222,7 @@ openclaw --version
   </Accordion>
 
   <Accordion title="Only pioneer/auto appears in OpenClaw" icon="list-filter">
-    The catalog fetch likely did not read the saved OpenClaw auth profile. Confirm the Pioneer profile exists, then rerun the discovery command.
+    The catalog fetch likely did not read the saved OpenClaw auth profile. Confirm the Fastino profile exists, then rerun the discovery command.
 
     Confirm the saved auth profile exists:
 
@@ -230,7 +230,7 @@ openclaw --version
     openclaw models auth list --provider pioneer
     ```
 
-    Confirm the catalog exposes the expected Pioneer router models before rerunning the discovery command:
+    Confirm the catalog exposes the expected Fastino router models before rerunning the discovery command:
 
     ```shellscript
     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"

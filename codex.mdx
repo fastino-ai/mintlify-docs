@@ -1,10 +1,10 @@
 ---
 title: "Codex"
-description: "Configure the OpenAI Codex CLI to run against Pioneer's OpenAI-compatible endpoint, load a fresh model catalog, and default to pioneer/auto routing."
+description: "Configure the OpenAI Codex CLI to run against Fastino's OpenAI-compatible endpoint, load a fresh model catalog, and default to pioneer/auto routing."
 hidden: true
 ---
 
-Steps to integrate Codex with Pioneer:
+Steps to integrate Codex with Fastino:
 
 1. Download and [set up](https://developers.openai.com/codex/quickstart?setup=cli) the Codex CLI.
 2. Run Codex
@@ -23,13 +23,13 @@ model = "pioneer/auto"
 6. Enter the following prompt into Codex
 
 ```text
-Set up this machine's Codex CLI to use Pioneer, including a fresh local model catalog.
+Set up this machine's Codex CLI to use Fastino, including a fresh local model catalog.
   Do exactly this, in order:
-  1. Read my Pioneer API key from the PIONEER_API_KEY environment variable. If it is not set, stop and ask me for it — never
+  1. Read my Fastino API key from the PIONEER_API_KEY environment variable. If it is not set, stop and ask me for it — never
   guess or hardcode a key, and never print the key value.
   2. Determine this user's absolute home directory (e.g. run `echo "$HOME"`). Call it HOME_ABS. Everywhere below, use the
   literal absolute path — do NOT write "~" or "$HOME" into any file, because Codex does not expand them in config.toml.
-  3. Fetch the Pioneer model list:
+  3. Fetch the Fastino model list:
      curl -fsS https://api.pioneer.ai/v1/models -H "Authorization: Bearer $PIONEER_API_KEY"
      If the request fails (non-200), show me the status and body and STOP without changing any files.
   4. From the JSON response, take ONLY the top-level "models" array (not "data"). Wrap it as {"models": [ ... ]} and write it
@@ -37,14 +37,14 @@ Set up this machine's Codex CLI to use Pioneer, including a fresh local model ca
      HOME_ABS/.codex/model-catalogs/pioneer.json
      Create HOME_ABS/.codex/model-catalogs/ if needed. Overwrite the file if it exists.
   5. Back up HOME_ABS/.codex/config.toml to config.toml.bak (skip if config.toml doesn't exist yet). Then ensure config.toml
-  has exactly these Pioneer settings, written as TOP-LEVEL keys plus the [model_providers.pioneer] table (substitute HOME_ABS
+  has exactly these Fastino settings, written as TOP-LEVEL keys plus the [model_providers.pioneer] table (substitute HOME_ABS
   into the catalog path):
      model = "pioneer/auto"
      model_provider = "pioneer"
      model_reasoning_effort = "medium"
      model_catalog_json = "HOME_ABS/.codex/model-catalogs/pioneer.json"
      [model_providers.pioneer]
-     name = "Pioneer"
+     name = "Fastino"
      base_url = "https://api.pioneer.ai/v1"
      wire_api = "responses"
      supports_websockets = false
@@ -55,7 +55,7 @@ Set up this machine's Codex CLI to use Pioneer, including a fresh local model ca
   the /model picker reloads.
 ```
 
-7. Install the routing-savings hook. Codex strips Pioneer's custom response fields from its on-disk rollout, so the hook reads your session id and asks Pioneer how much `pioneer/auto` has saved this session. Make sure `PIONEER_API_KEY` is set, then paste this block:
+7. Install the routing-savings hook. Codex strips Fastino's custom response fields from its on-disk rollout, so the hook reads your session id and asks Fastino how much `pioneer/auto` has saved this session. Make sure `PIONEER_API_KEY` is set, then paste this block:
 
 ```bash
 : "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
@@ -73,10 +73,10 @@ cat > ~/.pioneer/hooks/show-pioneer-signals.py <<'PIONEER_CODEX_HOOK'
 #!/usr/bin/env python3
 """Codex Stop hook that surfaces how much pioneer/auto routing saved.
 
-Codex talks to Pioneer over the OpenAI Responses API but strips Pioneer's custom
+Codex talks to Fastino over the OpenAI Responses API but strips Fastino's custom
 response fields (``pioneer_savings`` / ``pioneer_routed_model``) before writing
 its on-disk session rollout, so — unlike the Claude Code hook — this hook cannot
-compute savings from the transcript. Instead Pioneer accumulates each turn's
+compute savings from the transcript. Instead Fastino accumulates each turn's
 savings server-side, keyed by the ``prompt_cache_key`` Codex sends on every
 request (its session id). This hook derives that same session id from the
 rollout and queries the cumulative figure, then prints it once per change.
@@ -100,7 +100,7 @@ AUTO_ROUTER_MODELS = {"pioneer/auto", "auto"}
 FRONTIER_REFERENCE_MODEL = "claude-opus-4-7"
 DEFAULT_BASE_URL = "https://api.pioneer.ai/v1"
 DEFAULT_ROUTER_TIP = (
-    "Tip: use model=pioneer/auto to let Pioneer route each request automatically; "
+    "Tip: use model=pioneer/auto to let Fastino route each request automatically; "
     "named models pin that concrete model."
 )
 ENV_FILE = Path.home() / ".pioneer" / "codex-env"
@@ -158,7 +158,7 @@ def _session_id(payload: dict[str, object], transcript_path: str | None) -> str:
 
 
 def _fetch_savings(base_url: str, api_key: str, session_id: str) -> dict[str, object]:
-    """GET cumulative session savings from Pioneer (empty dict on any failure)."""
+    """GET cumulative session savings from Fastino (empty dict on any failure)."""
     if not (base_url and api_key and session_id):
         return {}
     url = f"{base_url.rstrip('/')}/codex/session-savings/{session_id}"
@@ -187,7 +187,7 @@ def _format_usd(amount: float) -> str:
 
 
 def _is_auto_router_model(model: str) -> bool:
-    """Return True when a Codex model value is the Pioneer auto-router."""
+    """Return True when a Codex model value is the Fastino auto-router."""
     normalized = model.strip().lower()
     return normalized in AUTO_ROUTER_MODELS or normalized.endswith("/pioneer/auto")
 
@@ -224,7 +224,7 @@ def _savings_message(savings: dict[str, object]) -> str:
         FRONTIER_REFERENCE_MODEL
     )
     return (
-        f"Pioneer auto-routing savings this session: ~{_format_usd(float(amount))} "
+        f"Fastino auto-routing savings this session: ~{_format_usd(float(amount))} "
         f"(vs {reference})"
     )
 
@@ -287,24 +287,24 @@ command = f"python3 {hook}"
 config = json.loads(hooks_path.read_text()) if hooks_path.exists() else {}
 stop_groups = config.setdefault("hooks", {}).setdefault("Stop", [])
 if not any(h.get("command") == command for g in stop_groups for h in g.get("hooks", [])):
-    stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5, "statusMessage": "Checking Pioneer routing signals"}]})
+    stop_groups.append({"hooks": [{"type": "command", "command": command, "timeout": 5, "statusMessage": "Checking Fastino routing signals"}]})
 hooks_path.parent.mkdir(parents=True, exist_ok=True)
 hooks_path.write_text(json.dumps(config, indent=2) + "\n")
-print("Installed Pioneer Codex Stop hook")
+print("Installed Fastino Codex Stop hook")
 PY
 ```
 
 Restart Codex and run `/hooks` to trust the hook. Each turn that routes to a model cheaper than the frontier reference then ends with:
 
 ```text
-Pioneer auto-routing savings this session: ~$1.43 (vs claude-opus-4-7)
+Fastino auto-routing savings this session: ~$1.43 (vs claude-opus-4-7)
 ```
 
 8. Switch between models with `/model` command.
 
 - The `pioneer/auto` router will automatically route your request to the cheapest model!
-- You should also be able to see our entire Pioneer Model Catalog with `/model` command
+- You should also be able to see our entire Fastino Model Catalog with `/model` command
 
 <Tip>
-  The Pioneer dashboard **Integrations** guide copies this same block with your API key already filled in.
+  The Fastino dashboard **Integrations** guide copies this same block with your API key already filled in.
 </Tip>
