@@ -1,0 +1,240 @@
+---
+title: "Pioneer-Schnellstart: von der Registrierung zur ersten Inferenz"
+description: "Kommen Sie in wenigen Minuten von null zu einem funktionierenden Pioneer-Inferenzaufruf. Erstellen Sie einen API-Schlüssel, durchsuchen Sie verfügbare Modelle und führen Sie Ihre erste NER-Vorhersage aus."
+sidebarTitle: "Schnellstart"
+---
+
+Dieser Leitfaden führt Sie auf dem schnellsten Weg zu einer funktionierenden Pioneer-Integration. Am Ende haben Sie einen erfolgreichen Inferenzaufruf getätigt und verstehen den Aufbau der API. Alles, was Sie benötigen, ist ein Pioneer-Konto und ein Terminal.
+
+<Steps>
+  <Step title="Registrieren und Ihren API-Schlüssel abrufen">
+    Erstellen Sie ein Konto unter [pioneer.ai](https://pioneer.ai).
+
+    Sobald Sie angemeldet sind, gehen Sie zu **Settings → API Keys** und generieren Sie einen neuen Schlüssel. Kopieren Sie ihn an einen sicheren Ort — nach dem Schließen des Dialogs können Sie ihn nicht mehr einsehen.
+
+    <Warning>
+      Halten Sie Ihren API-Schlüssel aus der Versionskontrolle heraus. Verwenden Sie eine Umgebungsvariable oder einen Secrets-Manager, anstatt ihn in Ihren Quelldateien fest zu codieren.
+    </Warning>
+
+    Setzen Sie Ihren Schlüssel als Umgebungsvariable, damit die folgenden Beispiele unverändert funktionieren:
+
+    ```bash
+    export PIONEER_API_KEY="your_api_key_here"
+    ```
+  </Step>
+  <Step title="Verfügbare Basismodelle auflisten">
+    Bevor Sie Inferenz ausführen, können Sie die in Pioneer verfügbaren Modelle durchsuchen. Verwenden Sie `GET /base-models`, um den vollständigen Katalog zu sehen. Übergeben Sie `?supports_inference=true`, um auf Modelle zu filtern, die Sie sofort aufrufen können, oder `?task_type=decoder`, um nur LLMs zu sehen.
+
+    <CodeGroup>
+
+    ```bash curl
+    curl https://api.pioneer.ai/base-models?supports_inference=true \
+      -H "X-API-Key: $PIONEER_API_KEY"
+    ```
+
+    ```python Python
+    import os
+    import requests
+    
+    response = requests.get(
+        "https://api.pioneer.ai/base-models",
+        params={"supports_inference": "true"},
+        headers={"X-API-Key": os.environ["PIONEER_API_KEY"]}
+    )
+    print(response.json())
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch(
+      "https://api.pioneer.ai/base-models?supports_inference=true",
+      {
+        headers: {
+          "X-API-Key": process.env.PIONEER_API_KEY
+        }
+      }
+    );
+    const data = await response.json();
+    console.log(data);
+    ```
+
+    </CodeGroup>
+
+    Die Antwort listet Modell-IDs auf, die Sie an `/v1/chat/completions` übergeben können. Zum Beispiel ist `fastino/gliner2-base-v1` das GLiNER-Basismodell für NER-Aufgaben.
+  </Step>
+  <Step title="Ihren ersten Inferenzaufruf ausführen">
+    Rufen Sie `POST /v1/chat/completions` mit einem Modell, einer Nachricht und einem Schema auf, das definiert, was Sie extrahieren möchten. Das folgende Beispiel verwendet das GLiNER-Basismodell, um benannte Entitäten aus einem Satz zu extrahieren.
+
+    <CodeGroup>
+
+    ```bash curl
+    curl -X POST https://api.pioneer.ai/v1/chat/completions \
+      -H "X-API-Key: $PIONEER_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "fastino/gliner2-base-v1",
+        "messages": [
+          {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+        ],
+        "schema": {
+          "entities": ["organization", "product", "event", "location"]
+        },
+        "threshold": 0.5
+      }'
+    ```
+
+    ```python Python
+    import os
+    import requests
+    
+    response = requests.post(
+        "https://api.pioneer.ai/v1/chat/completions",
+        headers={
+            "X-API-Key": os.environ["PIONEER_API_KEY"],
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "fastino/gliner2-base-v1",
+            "messages": [{
+                "role": "user",
+                "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+            }],
+            "schema": {
+                "entities": ["organization", "product", "event", "location"]
+            },
+            "threshold": 0.5
+        }
+    )
+    print(response.json())
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch("https://api.pioneer.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "X-API-Key": process.env.PIONEER_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "fastino/gliner2-base-v1",
+        messages: [{
+          role: "user",
+          content: "Apple announced the MacBook Pro at WWDC in Cupertino."
+        }],
+        schema: {
+          entities: ["organization", "product", "event", "location"]
+        },
+        threshold: 0.5
+      })
+    });
+    const data = await response.json();
+    console.log(data);
+    ```
+
+    </CodeGroup>
+
+    Das Feld `schema` teilt dem Modell mit, wonach es suchen soll. Für Encoder-Modelle (GLiNER) können Sie Folgendes angeben:
+
+    - `entities` — eine Liste von Entitätstyp-Strings für NER
+    - `classifications` — eine Liste von `{task, labels}`-Objekten für Textklassifikation
+    - `structures` — ein Dictionary mit Strukturdefinitionen für die JSON-Extraktion
+    - `relations` — eine Liste von Relationsdefinitionen
+
+    Für Decoder-Modelle (LLMs) lassen Sie `schema` weg und senden Sie eine normale Chat-Nachricht.
+
+    <Note>
+      `model` kann eine Basismodell-ID wie `fastino/gliner2-base-v1` oder die ID eines abgeschlossenen Trainingsjobs sein. Sobald Sie ein Modell feinabgestimmt haben, ersetzen Sie die Basismodell-ID durch Ihre Job-ID, um Vorhersagen aus Ihrem benutzerdefinierten Modell auszuliefern.
+    </Note>
+  </Step>
+  <Step title="Anthropic-kompatiblen Endpunkt verwenden (optional)">
+    Wenn Sie bereits das Anthropic-SDK verwenden, richten Sie es auf `https://api.pioneer.ai` und verwenden Sie Ihren Pioneer-API-Schlüssel.
+
+    <CodeGroup>
+
+    ```bash curl (Anthropic-compatible)
+    curl -X POST https://api.pioneer.ai/v1/messages \
+      -H "X-API-Key: $PIONEER_API_KEY" \
+      -H "anthropic-version: 2023-06-01" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "fastino/gliner2-base-v1",
+        "max_tokens": 1024,
+        "messages": [
+          {"role": "user", "content": "Extract entities from: Apple launched the iPhone in San Francisco."}
+        ],
+        "schema": {"entities": ["organization", "product", "location"]}
+      }'
+    ```
+
+    </CodeGroup>
+
+    Übergeben Sie Pioneer-spezifische Felder wie `schema` über die Extra-Body-Option des SDKs.
+  </Step>
+  <Step title="Einen Trainingsjob starten (optional)">
+    Wenn Sie bereit sind, mit Ihren eigenen Daten feinabzustimmen, starten Sie einen Trainingsjob. Sie benötigen einen bereits hochgeladenen oder erstellten Datensatz — siehe [Datensätze](/de/concepts/datasets), um zu erfahren, wie Sie einen erstellen.
+
+    <CodeGroup>
+
+    ```bash curl
+    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+      -H "X-API-Key: $PIONEER_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-ner-model",
+        "base_model": "fastino/gliner2-base-v1",
+        "datasets": [{"name": "my-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 5,
+        "learning_rate": 5e-5
+      }'
+    ```
+
+    ```python Python
+    import os
+    import requests
+    
+    response = requests.post(
+        "https://api.pioneer.ai/felix/training-jobs",
+        headers={
+            "X-API-Key": os.environ["PIONEER_API_KEY"],
+            "Content-Type": "application/json"
+        },
+        json={
+            "model_name": "my-ner-model",
+            "base_model": "fastino/gliner2-base-v1",
+            "datasets": [{"name": "my-dataset"}],
+            "training_type": "lora",
+            "nr_epochs": 5,
+            "learning_rate": 5e-5
+        }
+    )
+    print(response.json())
+    # {"id": "uuid-of-training-job", "status": "requested"}
+    ```
+
+    </CodeGroup>
+
+    Die Antwort enthält eine Job-`id`. Fragen Sie `GET /felix/training-jobs/{id}` ab, um den Status zu prüfen. Sobald der Job den Status `complete` erreicht, verwenden Sie die Job-ID als `model` in `/v1/chat/completions`-Aufrufen.
+
+    Job-Statuswerte: `requested` → `running` → `complete` (oder `failed` / `stopped`).
+  </Step>
+</Steps>
+
+## Nächste Schritte
+
+<CardGroup cols={2}>
+  <Card title="NER-Modell feinabstimmen" icon="tag" href="/guides/fine-tune-ner">
+    End-to-End-Anleitung: Datensatz-Upload, Training, Evaluierung und Inferenz.
+  </Card>
+
+  <Card title="LLM feinabstimmen" icon="brain" href="/guides/fine-tune-llm">
+    Feinabstimmung von Nemotron 3.5 Lightning auf Ihren Domänendaten mit LoRA.
+  </Card>
+
+  <Card title="Synthetische Daten" icon="wand-magic-sparkles" href="/guides/synthetic-data">
+    Generieren Sie gelabelte Trainingsdaten ohne manuelle Annotation.
+  </Card>
+
+  <Card title="API-Referenz" icon="code" href="/de/api-reference/overview">
+    Vollständige Referenz für jeden Endpunkt mit Request- und Response-Schemas.
+  </Card>
+</CardGroup>
