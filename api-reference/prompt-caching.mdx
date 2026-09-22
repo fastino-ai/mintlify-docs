@@ -1,7 +1,7 @@
 ---
 title: "Prompt Caching on Inference"
 sidebarTitle: "Prompt Caching"
-description: "How prompt caching works on Pioneer's inference API — what qualifies for caching, how cached input tokens are billed, and where to view cache hit rates."
+description: "How prompt caching works on Fastino's inference API — what qualifies for caching, how cached input tokens are billed, and where to view cache hit rates."
 noindex: true
 ---
 
@@ -9,7 +9,7 @@ A short guide to getting consistent prompt-cache hits from any client or agent h
 
 ## The one thing to know
 
-**For Claude / Anthropic-style models, caching is opt-in at the API level, so whether it happens depends on your client.** Pioneer forwards your request as-is and never adds cache markers for you. If the request does not include a `cache_control` marker, the stable prefix is **not** cached and you pay full input price on every turn. Some clients opt in for you — Claude Code, for example, uses Anthropic's endpoints (which require `cache_control`), so it sends markers automatically. A bare custom client that sends plain-string prompts does not, and gets no caching.
+**For Claude / Anthropic-style models, caching is opt-in at the API level, so whether it happens depends on your client.** Fastino forwards your request as-is and never adds cache markers for you. If the request does not include a `cache_control` marker, the stable prefix is **not** cached and you pay full input price on every turn. Some clients opt in for you — Claude Code, for example, uses Anthropic's endpoints (which require `cache_control`), so it sends markers automatically. A bare custom client that sends plain-string prompts does not, and gets no caching.
 
 Models that cache automatically (the OpenAI/GPT family) do so transparently and **reject** explicit markers — for those you don't need to do anything, and you should not add `cache_control`.
 
@@ -30,7 +30,7 @@ Markers are honored on every message-based endpoint and normalized identically:
 - `POST /v1/chat/completions` (OpenAI-compatible) — mark a `system`/`user` message content block.
 - `POST /v1/messages` (Anthropic-compatible) — mark a `system` block, message block, or tools block.
 - `POST /v1/responses` (OpenAI Responses) — mark a content block on an input message. The stable prefix is marked via a `system`/`developer` input message block (the plain `instructions` string has no place for a marker).
-- `POST /inference` (Pioneer native, decoder generation) — send a message `content` as a content-block array and mark a block.
+- `POST /inference` (Fastino native, decoder generation) — send a message `content` as a content-block array and mark a block.
 
 <Note>
   `POST /v1/completions` (legacy text completions) sends a single opaque `prompt` string with no content blocks, so it has no place to attach a marker. Caching there depends entirely on the upstream's automatic caching.
@@ -81,7 +81,7 @@ Caching only kicks in once the cacheable prefix is large enough — on the order
 
 ## Configuring an agent harness
 
-Most harnesses can emit this shape but need to be told to use Anthropic-style cache control for Pioneer's Claude models. When configuring a custom Pioneer provider, make sure the client is set to:
+Most harnesses can emit this shape but need to be told to use Anthropic-style cache control for Fastino's Claude models. When configuring a custom Fastino provider, make sure the client is set to:
 
 - Send the system prompt as a **content block with `cache_control`** (not a bare string), and
 - Keep the stable instruction on `role: "system"`.

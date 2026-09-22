@@ -1,19 +1,19 @@
 ---
-title: "Inferenz auf Pioneer: native, OpenAI- und Anthropic-APIs"
-description: "Führen Sie Inferenz auf Pioneer über den nativen /inference-Endpunkt, OpenAI-kompatible Chat-Completions oder Anthropic-kompatible Messages aus."
+title: "Inferenz auf Fastino: native, OpenAI- und Anthropic-APIs"
+description: "Führen Sie Inferenz auf Fastino über den nativen /inference-Endpunkt, OpenAI-kompatible Chat-Completions oder Anthropic-kompatible Messages aus."
 ---
 
-Sobald Sie ein trainiertes Modell haben oder ein Basismodell direkt verwenden möchten, führen Sie Inferenz aus, indem Sie eine Anfrage an die Pioneer-API senden. Das Feld `model_id` akzeptiert entweder eine Basismodell-ID (wie `fastino/gliner2-base-v1`) oder die Job-ID (eine UUID), die von einem abgeschlossenen Trainingsjob zurückgegeben wurde (wie `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Pioneer leitet die Anfrage automatisch an das richtige Deployment weiter.
+Sobald Sie ein trainiertes Modell haben oder ein Basismodell direkt verwenden möchten, führen Sie Inferenz aus, indem Sie eine Anfrage an die Fastino-API senden. Das Feld `model_id` akzeptiert entweder eine Basismodell-ID (wie `fastino/gliner2-base-v1`) oder die Job-ID (eine UUID), die von einem abgeschlossenen Trainingsjob zurückgegeben wurde (wie `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Fastino leitet die Anfrage automatisch an das richtige Deployment weiter.
 
-Pioneer unterstützt drei Anfrageformate: ein eigenes natives Format, ein OpenAI-kompatibles Format und ein Anthropic-kompatibles Format. Alle drei erreichen dieselben zugrunde liegenden Modelle und akzeptieren Ihren API-Key auf dieselbe Weise: entweder über einen `X-API-Key`-Header oder einen `Authorization: Bearer <key>`-Header. Was auch immer Ihr SDK standardmäßig sendet, funktioniert. Es ist keine formatspezifische Konfiguration nötig.
+Fastino unterstützt drei Anfrageformate: ein eigenes natives Format, ein OpenAI-kompatibles Format und ein Anthropic-kompatibles Format. Alle drei erreichen dieselben zugrunde liegenden Modelle und akzeptieren Ihren API-Key auf dieselbe Weise: entweder über einen `X-API-Key`-Header oder einen `Authorization: Bearer <key>`-Header. Was auch immer Ihr SDK standardmäßig sendet, funktioniert. Es ist keine formatspezifische Konfiguration nötig.
 
 <Note>
   Die Chat-förmigen Endpunkte (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`) lehnen Anfragen für ein vortrainiertes (nicht-instruct) Decoder-Basismodell mit `400` ab. Verwenden Sie die `-Instruct`-Variante des Modells oder rufen Sie stattdessen `/v1/completions` mit einem rohen `prompt` auf.
 </Note>
 
-## Pioneer natives Format
+## Fastino natives Format
 
-Verwenden Sie `POST /inference` mit dem Pioneer-Schemaformat. Dies ist die ausdrucksstärkste Option und gibt Ihnen die volle Kontrolle über Extraktionsaufgaben.
+Verwenden Sie `POST /inference` mit dem Fastino-Schemaformat. Dies ist die ausdrucksstärkste Option und gibt Ihnen die volle Kontrolle über Extraktionsaufgaben.
 
 ```bash
 curl -X POST https://api.pioneer.ai/inference \
@@ -59,7 +59,7 @@ curl -X POST https://api.pioneer.ai/inference \
 
 ## OpenAI-kompatibles Format
 
-Pioneer stellt einen OpenAI-kompatiblen Endpunkt unter `https://api.pioneer.ai/v1` bereit. Zeigen Sie jedes vorhandene OpenAI-SDK oder jede vorhandene Integration auf diese Basis-URL und verwenden Sie Ihren Pioneer-API-Key. Weitere Änderungen sind nicht erforderlich.
+Fastino stellt einen OpenAI-kompatiblen Endpunkt unter `https://api.pioneer.ai/v1` bereit. Zeigen Sie jedes vorhandene OpenAI-SDK oder jede vorhandene Integration auf diese Basis-URL und verwenden Sie Ihren Fastino-API-Key. Weitere Änderungen sind nicht erforderlich.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/chat/completions \
@@ -88,7 +88,7 @@ Verfügbare OpenAI-kompatible Endpunkte:
 `/v1/models` und `/v1/models/:model_id` sind gemeinsam genutzte Infrastruktur. Dieselben zwei Routen bedienen auch die `models.retrieve(...)`-Aufrufe des Anthropic-kompatiblen SDKs.
 
 <Tip>
-  Wenn Sie das OpenAI Python- oder Node-SDK verwenden, übergeben Sie Pioneer-spezifische Felder wie `schema` über den Parameter `extra_body`. Zum Beispiel:
+  Wenn Sie das OpenAI Python- oder Node-SDK verwenden, übergeben Sie Fastino-spezifische Felder wie `schema` über den Parameter `extra_body`. Zum Beispiel:
 
   ```python
   client.chat.completions.create(
@@ -101,7 +101,7 @@ Verfügbare OpenAI-kompatible Endpunkte:
 
 ## Anthropic-kompatibles Format
 
-Pioneer stellt außerdem einen Anthropic-kompatiblen Endpunkt bereit. Setzen Sie die `base_url` Ihres SDKs auf `https://api.pioneer.ai/v1` und verwenden Sie Ihren Pioneer-API-Key anstelle eines Anthropic-Keys. Das Anthropic-SDK sendet ihn als `x-api-key`, was Pioneer genauso akzeptiert wie bei den anderen beiden Formaten.
+Fastino stellt außerdem einen Anthropic-kompatiblen Endpunkt bereit. Setzen Sie die `base_url` Ihres SDKs auf `https://api.pioneer.ai/v1` und verwenden Sie Ihren Fastino-API-Key anstelle eines Anthropic-Keys. Das Anthropic-SDK sendet ihn als `x-api-key`, was Fastino genauso akzeptiert wie bei den anderen beiden Formaten.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/messages \
@@ -124,7 +124,7 @@ Sowohl die OpenAI-kompatiblen als auch die Anthropic-kompatiblen Endpunkte unter
 Prompt-Caching senkt Kosten und Latenz bei wiederholten Prompt-Präfixen. Wie Sie es aktivieren, hängt jedoch von der Modellfamilie ab:
 
 - **OpenAI / GPT-Familie**: Caching ist **automatisch**. Sie müssen nichts tun. Jedes `cache_control`, das Sie senden, wird stillschweigend ignoriert statt angewendet. Sie müssen es also nicht entfernen, wenn Sie einen Client von Claude umstellen.
-- **Claude / Anthropic-Stil**: Caching ist standardmäßig **Opt-in**. Pioneer leitet Ihre Anfrage unverändert weiter und fügt keine Cache-Marker für Sie hinzu. Solange Sie also keinen `cache_control`-Marker auf dem stabilen Teil Ihres Prompts setzen, wird das Präfix nicht gecached und Sie zahlen bei jedem Turn den vollen Input-Preis.
+- **Claude / Anthropic-Stil**: Caching ist standardmäßig **Opt-in**. Fastino leitet Ihre Anfrage unverändert weiter und fügt keine Cache-Marker für Sie hinzu. Solange Sie also keinen `cache_control`-Marker auf dem stabilen Teil Ihres Prompts setzen, wird das Präfix nicht gecached und Sie zahlen bei jedem Turn den vollen Input-Preis.
 
 Um das stabile Präfix bei einem Claude-Modell zu cachen, senden Sie den Inhalt als Block-Array und markieren Sie ihn. Dies funktioniert auch auf `/v1/chat/completions` und `/v1/responses`, nicht nur auf dem Anthropic-kompatiblen Endpunkt:
 
@@ -156,7 +156,7 @@ Siehe [Prompt-Caching](/api-reference/prompt-caching) für Informationen dazu, w
 
 ## Persistenz der Inferenz deaktivieren
 
-Standardmäßig speichert Pioneer jede Inferenz (Input, Output und Metadaten), damit sie Evaluierung, Use-Case-Clustering und Adapter-Training antreiben kann. Übergeben Sie `store: false`, um die Persistenz für eine bestimmte Anfrage zu überspringen.
+Standardmäßig speichert Fastino jede Inferenz (Input, Output und Metadaten), damit sie Evaluierung, Use-Case-Clustering und Adapter-Training antreiben kann. Übergeben Sie `store: false`, um die Persistenz für eine bestimmte Anfrage zu überspringen.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/chat/completions \
@@ -197,7 +197,7 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
 
 ## Inferenz-Historie
 
-Pioneer zeichnet jeden Inferenzaufruf auf. Sie können vergangene Ergebnisse abrufen und Korrekturen einreichen, um zukünftige Trainingsdaten zu verbessern.
+Fastino zeichnet jeden Inferenzaufruf auf. Sie können vergangene Ergebnisse abrufen und Korrekturen einreichen, um zukünftige Trainingsdaten zu verbessern.
 
 ```bash
 # Aktuelle Inferenzen auflisten

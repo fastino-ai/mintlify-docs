@@ -1,21 +1,21 @@
 ---
-title: "Inference on Pioneer: native, OpenAI, and Anthropic APIs"
-description: "Run inference on Pioneer via the native /inference endpoint, OpenAI-compatible chat completions, or Anthropic-compatible messages — all reach the same models."
+title: "Inference on Fastino: native, OpenAI, and Anthropic APIs"
+description: "Run inference on Fastino via the native /inference endpoint, OpenAI-compatible chat completions, or Anthropic-compatible messages — all reach the same models."
 hidden: true
 noindex: true
 ---
 
-Once you have a trained model — or want to use a base model directly — you run inference by sending a request to the Pioneer API. The `model_id` field accepts either a base model ID (like `fastino/gliner2-base-v1`) or the job ID (a UUID) returned from a completed training job (like `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Pioneer routes the request to the right deployment automatically.
+Once you have a trained model — or want to use a base model directly — you run inference by sending a request to the Fastino API. The `model_id` field accepts either a base model ID (like `fastino/gliner2-base-v1`) or the job ID (a UUID) returned from a completed training job (like `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Fastino routes the request to the right deployment automatically.
 
-Pioneer supports three request formats: its own native format, an OpenAI-compatible format, and an Anthropic-compatible format. All three reach the same underlying models, and all three accept your API key the same way: either an `X-API-Key` header or an `Authorization: Bearer <key>` header — whichever your SDK sends by default works, no per-format configuration needed.
+Fastino supports three request formats: its own native format, an OpenAI-compatible format, and an Anthropic-compatible format. All three reach the same underlying models, and all three accept your API key the same way: either an `X-API-Key` header or an `Authorization: Bearer <key>` header — whichever your SDK sends by default works, no per-format configuration needed.
 
 <Note>
   The chat-shaped endpoints (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`) reject requests for a pretrained (non-instruct) base decoder model with a `400` — use the model's `-Instruct` variant, or call `/v1/completions` with a raw `prompt` instead.
 </Note>
 
-## Pioneer native format
+## Fastino native format
 
-Use `POST /inference` with the Pioneer schema format. This is the most expressive option and gives you full control over extraction tasks.
+Use `POST /inference` with the Fastino schema format. This is the most expressive option and gives you full control over extraction tasks.
 
 ```bash
 curl -X POST https://api.pioneer.ai/inference \
@@ -61,7 +61,7 @@ curl -X POST https://api.pioneer.ai/inference \
 
 ## OpenAI-compatible format
 
-Pioneer exposes an OpenAI-compatible endpoint at `https://api.pioneer.ai/v1`. Point any existing OpenAI SDK or integration at this base URL and use your Pioneer API key — no other changes required.
+Fastino exposes an OpenAI-compatible endpoint at `https://api.pioneer.ai/v1`. Point any existing OpenAI SDK or integration at this base URL and use your Fastino API key — no other changes required.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/chat/completions \
@@ -90,7 +90,7 @@ Available OpenAI-compatible endpoints:
 `/v1/models` and `/v1/models/:model_id` are shared infrastructure — the same two routes also serve the Anthropic-compatible SDK's `models.retrieve(...)` calls.
 
 <Tip>
-  When using the OpenAI Python or Node SDK, pass Pioneer-specific fields like `schema` via the `extra_body` parameter. For example:
+  When using the OpenAI Python or Node SDK, pass Fastino-specific fields like `schema` via the `extra_body` parameter. For example:
 
   ```python
   client.chat.completions.create(
@@ -103,7 +103,7 @@ Available OpenAI-compatible endpoints:
 
 ## Anthropic-compatible format
 
-Pioneer also exposes an Anthropic-compatible endpoint. Set your SDK's `base_url` to `https://api.pioneer.ai/v1` and use your Pioneer API key in place of an Anthropic key — the Anthropic SDK sends it as `x-api-key`, which Pioneer accepts the same as the other two formats.
+Fastino also exposes an Anthropic-compatible endpoint. Set your SDK's `base_url` to `https://api.pioneer.ai/v1` and use your Fastino API key in place of an Anthropic key — the Anthropic SDK sends it as `x-api-key`, which Fastino accepts the same as the other two formats.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/messages \
@@ -126,7 +126,7 @@ The OpenAI-compatible and Anthropic-compatible endpoints both support streaming 
 Prompt caching cuts cost and latency on repeated prompt prefixes, but how you enable it depends on the model family:
 
 - **OpenAI / GPT family** — caching is **automatic**. You don't need to do anything; any `cache_control` you send is silently ignored rather than applied, so there's no need to strip it if you're switching a client over from Claude.
-- **Claude / Anthropic-style** — caching is **opt-in by default**. Pioneer forwards your request as-is and does not add cache markers for you, so unless you add a `cache_control` marker on the stable part of your prompt, the prefix is not cached and you pay full input price every turn.
+- **Claude / Anthropic-style** — caching is **opt-in by default**. Fastino forwards your request as-is and does not add cache markers for you, so unless you add a `cache_control` marker on the stable part of your prompt, the prefix is not cached and you pay full input price every turn.
 
 To cache the stable prefix on a Claude model, send the content as a block array and mark it — this works on `/v1/chat/completions` and `/v1/responses` too, not just the Anthropic-compatible endpoint:
 
@@ -158,7 +158,7 @@ See [Prompt Caching](/api-reference/prompt-caching) for where to place markers, 
 
 ## Opting out of inference persistence
 
-By default, Pioneer stores every inference — the input, output, and metadata — so it can drive evaluation, use-case clustering, and adapter training. Pass `store: false` to skip persistence for a specific request.
+By default, Fastino stores every inference — the input, output, and metadata — so it can drive evaluation, use-case clustering, and adapter training. Pass `store: false` to skip persistence for a specific request.
 
 ```bash
 curl -X POST https://api.pioneer.ai/v1/chat/completions \
@@ -197,7 +197,7 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
 
 ## Inference history
 
-Pioneer records every inference call. You can retrieve past results and submit corrections to improve future training data.
+Fastino records every inference call. You can retrieve past results and submit corrections to improve future training data.
 
 ```bash
 # List recent inferences
