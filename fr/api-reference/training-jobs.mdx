@@ -1,0 +1,68 @@
+---
+title: "API des jobs d'entraînement"
+sidebarTitle: "Vue d'ensemble"
+description: "Créez et gérez les jobs d'entraînement Fastino, de la soumission jusqu'à la livraison des artefacts."
+noindex: true
+---
+
+L'API Training Jobs gère le cycle de vie complet d'un job de fine-tuning. Tous les endpoints utilisent la famille de routes `/felix/training-jobs` et requièrent une clé API dans l'en-tête `X-API-Key`.
+
+```bash
+-H "X-API-Key: YOUR_API_KEY"
+```
+
+Utilisez `GET /base-models?supports_training=true` juste avant de créer un job. C'est la source de vérité en temps réel pour les ID de modèles entraînables.
+
+Le [document OpenAPI de production](https://api.pioneer.ai/openapi.json) est la source de vérité lisible par machine pour les schémas de requête et de réponse actuels.
+
+## Workflow typique
+
+<Steps>
+  <Step title="Créer un job">
+    Soumettez un dataset prêt et un `base_model` actuellement pris en charge.
+  </Step>
+  <Step title="Interroger le job">
+    Lisez `normalized_status` et arrêtez l'interrogation lorsque `is_terminal_status` vaut `true`.
+  </Step>
+  <Step title="Inspecter le résultat">
+    Consultez les logs instantanés, les métriques d'entraînement, la facturation et les checkpoints.
+  </Step>
+  <Step title="Livrer l'artefact">
+    Déployez un checkpoint déployable ou téléchargez les poids.
+  </Step>
+</Steps>
+
+## Cycle de vie des statuts
+
+Le `status` persisté peut inclure `requested`, `running`, `complete`, `normalizing`, `artifact_ready`, `deployed`, `paused`, `errored`, `stopped` et `terminated`.
+
+Pour l'automatisation, préférez :
+
+- `normalized_status` : statut de compatibilité stable tel que `requested`, `running`, `complete`, `deployed`, `failed` ou `cancelled`.
+- `is_terminal_status` : indique si une boucle d'interrogation peut s'arrêter.
+- `error_message` : détails de l'échec lorsqu'ils sont disponibles.
+- `is_deployable` et `deployability_reason` : décision du serveur quant à la disponibilité du déploiement.
+
+<Note>
+  L'objet `metrics` peut contenir `final_training_loss`, `final_validation_loss` et `best_validation_loss`. Les métriques de qualité d'évaluation sont distinctes et leur présence n'est pas garantie.
+</Note>
+
+## Endpoints
+
+| Méthode | Endpoint | Objectif |
+| --- | --- | --- |
+| `POST` | [`/felix/training-jobs`](/fr/api-reference/training-jobs/create) | Créer un job d'entraînement |
+| `GET` | [`/felix/training-jobs`](/fr/api-reference/training-jobs/list) | Lister les jobs d'entraînement |
+| `GET` | [`/felix/training-jobs/{job_id}`](/fr/api-reference/training-jobs/get) | Obtenir le statut, la configuration et les métriques |
+| `PATCH` | [`/felix/training-jobs/{job_id}`](/fr/api-reference/training-jobs/update-project) | Affecter ou désaffecter un projet |
+| `PATCH` | [`/felix/training-jobs/{job_id}/model-name`](/fr/api-reference/training-jobs/update-model-name) | Renommer le modèle entraîné |
+| `GET` | [`/felix/training-jobs/{job_id}/logs`](/fr/api-reference/training-jobs/logs) | Obtenir un instantané des logs d'entraînement |
+| `GET` | [`/felix/training-jobs/{job_id}/billing`](/fr/api-reference/training-jobs/billing) | Obtenir le résultat de facturation |
+| `POST` | [`/felix/training-jobs/{job_id}/stop`](/fr/api-reference/training-jobs/stop) | Arrêter un job en conservant les checkpoints |
+| `POST` | [`/felix/training-jobs/{job_id}/terminate`](/fr/api-reference/training-jobs/terminate) | Arrêter un job et supprimer les checkpoints |
+| `GET` | [`/felix/training-jobs/{job_id}/checkpoints`](/fr/api-reference/training-jobs/checkpoints) | Lister les checkpoints |
+| `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/fr/api-reference/training-jobs/deploy-checkpoint) | Déployer un checkpoint |
+| `GET` | [`/felix/training-jobs/{job_id}/download`](/fr/api-reference/training-jobs/download) | Obtenir une URL temporaire de téléchargement des poids |
+| `DELETE` | [`/felix/training-jobs/{job_id}`](/fr/api-reference/training-jobs/delete) | Supprimer un job et ses checkpoints |
+
+La route dépréciée `GET /felix/training-jobs/{job_id}/deployments` ne fait pas partie de cette référence. Utilisez `/projects/{project_id}/deployments` à la place.

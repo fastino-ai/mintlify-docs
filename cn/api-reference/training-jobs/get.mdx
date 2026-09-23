@@ -1,0 +1,94 @@
+---
+title: "获取训练任务"
+sidebarTitle: "获取任务状态"
+description: "获取训练任务的状态、配置、指标以及工件就绪情况。"
+noindex: true
+---
+
+`GET /felix/training-jobs/{job_id}`
+
+返回一个对调用者所在团队可见的训练任务。
+
+## 请求
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  训练任务 UUID。
+</ParamField>
+
+```bash
+curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+## 响应
+
+<ResponseField name="id" type="string">
+  训练任务 UUID。
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  持久化的生命周期状态。
+</ResponseField>
+
+<ResponseField name="normalized_status" type="string | null">
+  用于客户端兼容性的稳定状态。
+</ResponseField>
+
+<ResponseField name="is_terminal_status" type="boolean | null">
+  轮询是否可以停止。
+</ResponseField>
+
+<ResponseField name="progress_percent" type="integer | null">
+  当前完成百分比,取值从 `0` 到 `100`。
+</ResponseField>
+
+<ResponseField name="current_epoch" type="integer | null">
+  当前 epoch(从 1 开始计数)。
+</ResponseField>
+
+<ResponseField name="error_message" type="string | null">
+  失败详情(如有)。
+</ResponseField>
+
+<ResponseField name="metrics" type="object | null">
+  可用的训练指标。常见键包括 `final_training_loss`、`final_validation_loss` 和 `best_validation_loss`。评估指标是独立的,不保证一定存在。
+</ResponseField>
+
+<ResponseField name="artifact_ready" type="boolean | null">
+  是否有可用的工件位置。
+</ResponseField>
+
+<ResponseField name="is_deployable" type="boolean | null">
+  权威的部署就绪性判定。
+</ResponseField>
+
+<ResponseField name="deployability_reason" type="string | null">
+  任务不可部署的原因。
+</ResponseField>
+
+该记录还会返回已提交的训练配置、时间戳、数据集引用、提供方详情、标签以及工件元数据。
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "status": "running",
+  "normalized_status": "running",
+  "is_terminal_status": false,
+  "progress_percent": 40,
+  "current_epoch": 2,
+  "metrics": {
+    "final_training_loss": 0.12,
+    "final_validation_loss": 0.18,
+    "best_validation_loss": 0.15
+  },
+  "artifact_ready": false,
+  "is_deployable": false,
+  "deployability_reason": "job_incomplete"
+}
+```
+
+未知或无法访问的任务返回 `404`。路径值无效则返回 `422`。

@@ -1,0 +1,68 @@
+---
+title: "训练任务 API"
+sidebarTitle: "概览"
+description: "创建和管理 Fastino 训练任务，从提交到工件交付的完整流程。"
+noindex: true
+---
+
+训练任务 API 管理微调任务的完整生命周期。所有端点都使用 `/felix/training-jobs` 路由族，并要求在 `X-API-Key` 头中提供 API 密钥。
+
+```bash
+-H "X-API-Key: YOUR_API_KEY"
+```
+
+在创建任务之前，请立即调用 `GET /base-models?supports_training=true`。它是可训练模型 ID 的实时权威来源。
+
+[生产环境 OpenAPI 文档](https://api.pioneer.ai/openapi.json) 是当前请求和响应结构的机器可读权威来源。
+
+## 典型工作流
+
+<Steps>
+  <Step title="创建任务">
+    提交一个就绪的数据集和一个当前支持的 `base_model`。
+  </Step>
+  <Step title="轮询任务">
+    读取 `normalized_status`，当 `is_terminal_status` 为 `true` 时停止轮询。
+  </Step>
+  <Step title="检查结果">
+    读取日志快照、训练指标、计费信息和检查点。
+  </Step>
+  <Step title="交付工件">
+    部署可部署的检查点，或下载权重。
+  </Step>
+</Steps>
+
+## 状态生命周期
+
+持久化的 `status` 可以包含 `requested`、`running`、`complete`、`normalizing`、`artifact_ready`、`deployed`、`paused`、`errored`、`stopped` 和 `terminated`。
+
+对于自动化场景，建议使用：
+
+- `normalized_status`：稳定的兼容性状态，例如 `requested`、`running`、`complete`、`deployed`、`failed` 或 `cancelled`。
+- `is_terminal_status`：轮询循环是否可以停止。
+- `error_message`：失败详情（如有）。
+- `is_deployable` 和 `deployability_reason`：服务端对部署就绪性的判定。
+
+<Note>
+  `metrics` 对象可能包含 `final_training_loss`、`final_validation_loss` 和 `best_validation_loss`。评估质量指标是独立的，不保证一定存在。
+</Note>
+
+## 端点
+
+| 方法 | 端点 | 用途 |
+| --- | --- | --- |
+| `POST` | [`/felix/training-jobs`](/cn/api-reference/training-jobs/create) | 创建训练任务 |
+| `GET` | [`/felix/training-jobs`](/cn/api-reference/training-jobs/list) | 列出训练任务 |
+| `GET` | [`/felix/training-jobs/{job_id}`](/cn/api-reference/training-jobs/get) | 获取状态、配置和指标 |
+| `PATCH` | [`/felix/training-jobs/{job_id}`](/cn/api-reference/training-jobs/update-project) | 分配或取消分配项目 |
+| `PATCH` | [`/felix/training-jobs/{job_id}/model-name`](/cn/api-reference/training-jobs/update-model-name) | 重命名训练后的模型 |
+| `GET` | [`/felix/training-jobs/{job_id}/logs`](/cn/api-reference/training-jobs/logs) | 获取训练日志快照 |
+| `GET` | [`/felix/training-jobs/{job_id}/billing`](/cn/api-reference/training-jobs/billing) | 获取计费结果 |
+| `POST` | [`/felix/training-jobs/{job_id}/stop`](/cn/api-reference/training-jobs/stop) | 停止任务并保留检查点 |
+| `POST` | [`/felix/training-jobs/{job_id}/terminate`](/cn/api-reference/training-jobs/terminate) | 停止任务并删除检查点 |
+| `GET` | [`/felix/training-jobs/{job_id}/checkpoints`](/cn/api-reference/training-jobs/checkpoints) | 列出检查点 |
+| `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/cn/api-reference/training-jobs/deploy-checkpoint) | 部署检查点 |
+| `GET` | [`/felix/training-jobs/{job_id}/download`](/cn/api-reference/training-jobs/download) | 获取临时的权重下载 URL |
+| `DELETE` | [`/felix/training-jobs/{job_id}`](/cn/api-reference/training-jobs/delete) | 删除任务及其检查点 |
+
+已弃用的 `GET /felix/training-jobs/{job_id}/deployments` 路由不属于本参考文档。请改用 `/projects/{project_id}/deployments`。
