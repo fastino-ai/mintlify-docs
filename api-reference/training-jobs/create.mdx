@@ -2,6 +2,7 @@
 title: "Create a training job"
 sidebarTitle: "Create a job"
 description: "Submit a Fastino fine-tuning job."
+api: "POST /felix/training-jobs"
 noindex: true
 ---
 
@@ -166,27 +167,33 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model_name": "my-domain-model",
-    "base_model": "MODEL_ID_FROM_BASE_MODELS",
+    "model_name": "my-model-name",
+    "base_model": "fastino/gliner2-multi-v1",
     "datasets": [{"name": "my-ready-dataset"}],
     "training_type": "lora",
-    "nr_epochs": 5
+    "nr_epochs": 5,
+    "learning_rate": 5e-5,
+    "validation_data_percentage": 0.2
   }'
 ```
 
 ## Response
 
-Returns `200` with the full training-job record. Save its `id` and poll [`GET /felix/training-jobs/{job_id}`](/api-reference/training-jobs/get).
+Returns `200` with the full training-job record, including a UUID `id` and initial status.
 
 ```json
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "model_name": "my-domain-model",
-  "base_model": "MODEL_ID_FROM_BASE_MODELS",
+  "model_name": "my-model-name",
+  "base_model": "fastino/gliner2-multi-v1",
   "status": "requested",
-  "normalized_status": "requested",
-  "is_terminal_status": false
+  "training_type": "lora",
+  "nr_epochs": 5,
+  "learning_rate": 5e-5,
+  "validation_data_percentage": 0.2
 }
 ```
+
+Save the `id` from this response. You will use it to poll status, retrieve metrics and artifacts, and run inference against the trained model.
 
 A malformed body returns `422`. A valid but unavailable model, dataset, training type, or provider combination returns a request-specific `4xx` error.
