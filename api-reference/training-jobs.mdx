@@ -13,39 +13,31 @@ The Training Jobs API manages the full lifecycle of a fine-tuning job. All endpo
 
 Use `GET /base-models?supports_training=true` immediately before creating a job. It is the live source of truth for trainable model IDs.
 
-The [production OpenAPI document](https://api.pioneer.ai/openapi.json) is the machine-readable source of truth for the current request and response schemas.
-
-## Typical workflow
-
-<Steps>
-  <Step title="Create a job">
-    Submit a ready dataset and a currently supported `base_model`.
-  </Step>
-  <Step title="Poll the job">
-    Read `normalized_status` and stop polling when `is_terminal_status` is `true`.
-  </Step>
-  <Step title="Inspect the result">
-    Read snapshot logs, training metrics, billing, and checkpoints.
-  </Step>
-  <Step title="Deliver the artifact">
-    Deploy a deployable checkpoint or download the weights.
-  </Step>
-</Steps>
-
 ## Status lifecycle
 
-The persisted `status` can include `requested`, `running`, `complete`, `normalizing`, `artifact_ready`, `deployed`, `paused`, `errored`, `stopped`, and `terminated`.
+Training-job responses include:
 
-For automation, prefer:
+- `status`: persisted job status.
+- `normalized_status`: stable status intended for client polling.
+- `is_terminal_status`: whether polling can stop.
+- `error_message`: failure information when available.
+- `is_deployable`: whether the completed artifact passes deployment validation.
+- `deployability_reason`: why the artifact is not deployable.
 
-- `normalized_status`: stable compatibility status such as `requested`, `running`, `complete`, `deployed`, `failed`, or `cancelled`.
-- `is_terminal_status`: whether a polling loop can stop.
-- `error_message`: failure details when available.
-- `is_deployable` and `deployability_reason`: the server's deployment-readiness decision.
+Prefer `normalized_status` and `is_terminal_status` in polling clients.
 
-<Note>
-  The `metrics` object may contain `final_training_loss`, `final_validation_loss`, and `best_validation_loss`. Evaluation quality metrics are separate and are not guaranteed to be present.
-</Note>
+| Persisted status | Description |
+| --- | --- |
+| `requested` | Job was accepted and is awaiting dispatch or provisioning. |
+| `running` | Training is actively running. |
+| `complete` | Training completed successfully. Artifact preparation may continue. |
+| `normalizing` | Fastino is preparing the trained artifact. |
+| `artifact_ready` | The trained artifact is ready. |
+| `deployed` | The artifact has been deployed. |
+| `paused` | The job or its pipeline is paused. |
+| `errored` | Training, dispatch, or artifact preparation failed. |
+| `stopped` | The job was stopped while preserving existing checkpoints. |
+| `terminated` | The job was terminated and its checkpoints were deleted. |
 
 ## Endpoints
 
@@ -64,5 +56,3 @@ For automation, prefer:
 | `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/api-reference/training-jobs/deploy-checkpoint) | Deploy a checkpoint |
 | `GET` | [`/felix/training-jobs/{job_id}/download`](/api-reference/training-jobs/download) | Get a temporary weights download URL |
 | `DELETE` | [`/felix/training-jobs/{job_id}`](/api-reference/training-jobs/delete) | Delete a job and its checkpoints |
-
-The deprecated `GET /felix/training-jobs/{job_id}/deployments` route is not part of this reference. Use `/projects/{project_id}/deployments` instead.
