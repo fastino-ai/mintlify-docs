@@ -13,39 +13,31 @@ La API de trabajos de entrenamiento gestiona el ciclo de vida completo de un tra
 
 Usa `GET /base-models?supports_training=true` inmediatamente antes de crear un trabajo. Es la fuente de verdad en tiempo real para los IDs de modelos entrenables.
 
-El [documento OpenAPI de producción](https://api.pioneer.ai/openapi.json) es la fuente de verdad legible por máquina para los esquemas actuales de solicitud y respuesta.
-
-## Flujo de trabajo típico
-
-<Steps>
-  <Step title="Crear un trabajo">
-    Envía un dataset listo (`ready`) y un `base_model` actualmente soportado.
-  </Step>
-  <Step title="Consultar el trabajo">
-    Lee `normalized_status` y detén la consulta cuando `is_terminal_status` sea `true`.
-  </Step>
-  <Step title="Inspeccionar el resultado">
-    Lee los logs de la instantánea, las métricas de entrenamiento, la facturación y los checkpoints.
-  </Step>
-  <Step title="Entregar el artefacto">
-    Despliega un checkpoint desplegable o descarga los pesos.
-  </Step>
-</Steps>
-
 ## Ciclo de vida del estado
 
-El `status` persistido puede incluir `requested`, `running`, `complete`, `normalizing`, `artifact_ready`, `deployed`, `paused`, `errored`, `stopped` y `terminated`.
+Las respuestas de los trabajos de entrenamiento incluyen:
 
-Para la automatización, prefiere:
+- `status`: estado persistido del trabajo.
+- `normalized_status`: estado estable pensado para la consulta desde el cliente.
+- `is_terminal_status`: indica si la consulta puede detenerse.
+- `error_message`: información del fallo cuando esté disponible.
+- `is_deployable`: indica si el artefacto completado pasa la validación de despliegue.
+- `deployability_reason`: motivo por el que el artefacto no es desplegable.
 
-- `normalized_status`: estado estable de compatibilidad, como `requested`, `running`, `complete`, `deployed`, `failed` o `cancelled`.
-- `is_terminal_status`: si un bucle de consulta puede detenerse.
-- `error_message`: detalles del fallo cuando estén disponibles.
-- `is_deployable` y `deployability_reason`: la decisión del servidor sobre si el modelo está listo para desplegarse.
+En los clientes que consultan, prefiere `normalized_status` e `is_terminal_status`.
 
-<Note>
-  El objeto `metrics` puede contener `final_training_loss`, `final_validation_loss` y `best_validation_loss`. Las métricas de calidad de evaluación son independientes y no se garantiza que estén presentes.
-</Note>
+| Estado persistido | Descripción |
+| --- | --- |
+| `requested` | El trabajo se aceptó y está a la espera de despacho o aprovisionamiento. |
+| `running` | El entrenamiento está en curso. |
+| `complete` | El entrenamiento se completó con éxito. La preparación del artefacto puede continuar. |
+| `normalizing` | Fastino está preparando el artefacto entrenado. |
+| `artifact_ready` | El artefacto entrenado está listo. |
+| `deployed` | El artefacto se ha desplegado. |
+| `paused` | El trabajo o su pipeline está en pausa. |
+| `errored` | El entrenamiento, el despacho o la preparación del artefacto falló. |
+| `stopped` | El trabajo se detuvo conservando los checkpoints existentes. |
+| `terminated` | El trabajo se terminó y sus checkpoints se eliminaron. |
 
 ## Endpoints
 
@@ -64,5 +56,3 @@ Para la automatización, prefiere:
 | `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/es/api-reference/training-jobs/deploy-checkpoint) | Desplegar un checkpoint |
 | `GET` | [`/felix/training-jobs/{job_id}/download`](/es/api-reference/training-jobs/download) | Obtener una URL temporal de descarga de pesos |
 | `DELETE` | [`/felix/training-jobs/{job_id}`](/es/api-reference/training-jobs/delete) | Eliminar un trabajo y sus checkpoints |
-
-La ruta obsoleta `GET /felix/training-jobs/{job_id}/deployments` no forma parte de esta referencia. Usa `/projects/{project_id}/deployments` en su lugar.
