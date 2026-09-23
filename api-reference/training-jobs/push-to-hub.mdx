@@ -1,0 +1,65 @@
+---
+title: "Push a trained model to Hugging Face"
+sidebarTitle: "Push to Hub"
+description: "Upload a completed Fastino training artifact to Hugging Face Hub."
+noindex: true
+---
+
+`POST /felix/training-jobs/{job_id}/push-to-hub`
+
+Pushes a completed training artifact to a Hugging Face repository.
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  Training-job UUID.
+</ParamField>
+
+<ParamField body="repo_id" type="string" required>
+  Target repository in `owner/model-name` form.
+</ParamField>
+
+<ParamField body="hf_token" type="string" required>
+  Hugging Face token with permission to write to the target repository.
+</ParamField>
+
+<ParamField body="private" type="boolean" default="true">
+  Whether the target repository is private.
+</ParamField>
+
+<ParamField body="commit_message" type="string">
+  Optional commit message.
+</ParamField>
+
+```bash
+jq -n \
+  --arg repo_id "YOUR_HF_USERNAME/my-model" \
+  --arg hf_token "$HF_TOKEN" \
+  '{repo_id: $repo_id, hf_token: $hf_token, private: true}' |
+curl -X POST https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/push-to-hub \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data-binary @-
+```
+
+<Warning>
+  Supply `HF_TOKEN` through your secret manager or a protected environment. Do not put the token in source control, logs, command history, or shared transcripts.
+</Warning>
+
+## Response
+
+```json
+{
+  "success": true,
+  "url": "https://huggingface.co/YOUR_HF_USERNAME/my-model",
+  "repo_id": "YOUR_HF_USERNAME/my-model",
+  "job_id": "YOUR_TRAINING_JOB_ID",
+  "message": "Model pushed to Hugging Face Hub"
+}
+```
+
+Validation, permission, lookup, conflict, and upload failures return `400`, `403`, `404`, `409`, or `500` as applicable.
