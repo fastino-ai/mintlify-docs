@@ -1,0 +1,311 @@
+---
+title: "API d'inférence"
+sidebarTitle: "API d'inférence"
+description: "Exécutez des prédictions GLiNER basées sur un schéma via l'API d'inférence de Fastino."
+noindex: true
+---
+
+Exécutez l'inférence GLiNER hébergée avec `POST /v1/chat/completions`. Le endpoint utilise
+une enveloppe de requête compatible OpenAI ainsi que l'extension `schema` de premier niveau
+de Fastino.
+
+Cette page documente uniquement l'API HTTP brute. Elle ne couvre pas l'utilisation du SDK,
+l'entraînement des modèles, l'évaluation, l'historique d'inférence ni le feedback.
+
+<Warning>
+  `POST /inference` a été supprimé. N'envoyez pas ses champs hérités tels que `model_id`,
+  `text`, `task`, `format_results` ou `is_warmup`.
+</Warning>
+
+## Endpoint
+
+```text
+POST https://api.pioneer.ai/v1/chat/completions
+```
+
+## Authentification
+
+Envoyez une clé d'API Fastino en tant que bearer token :
+
+```bash
+export PIONEER_API_KEY="pio_sk_..."
+```
+
+```http
+Authorization: Bearer $PIONEER_API_KEY
+Content-Type: application/json
+```
+
+## Requête
+
+<ParamField body="model" type="string" required>
+  Un identifiant de modèle de base compatible avec l'inférence ou l'UUID d'une tâche
+  d'entraînement Fastino terminée et déployable.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Une liste de messages non vide. Pour l'inférence GLiNER, placez le texte à analyser dans le
+  `content` d'un message utilisateur.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Définit des tâches d'encodeur personnalisées. Fournissez un dictionnaire contenant une ou
+  plusieurs des clés `entities`, `classifications`, `structures` ou `relations`. Ne l'omettez
+  que lorsque le modèle sélectionné a une tâche par défaut configurée.
+
+  Un tableau plat d'étiquettes d'entités est déprécié. Utilisez toujours la forme dictionnaire.
+</ParamField>
+
+<ParamField body="threshold" type="number" default="0.5">
+  Seuil de confiance de `0` à `1`. Les valeurs plus basses favorisent le rappel ; les plus
+  élevées favorisent la précision.
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean" default="true">
+  Inclut les valeurs de confiance dans les résultats extraits.
+</ParamField>
+
+<ParamField body="include_spans" type="boolean" default="true">
+  Inclut les décalages de caractères en intervalle semi-ouvert (`start`, `end`) dans les
+  résultats d'entités.
+</ParamField>
+
+<ParamField body="store" type="boolean" default="true">
+  Persiste l'inférence. Définissez sur `false` pour ne pas la conserver.
+</ParamField>
+
+### Schéma d'entités
+
+Utilisez des définitions d'entités descriptives lorsque c'est possible :
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ]
+}
+```
+
+### Schéma de classification
+
+```json
+{
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+### Schéma d'extraction structurée
+
+Les champs de structure utilisent des spécifications `field::type::description` :
+
+```json
+{
+  "structures": {
+    "product": [
+      "name::str::product name",
+      "price::str::listed price",
+      "features::list::named features"
+    ]
+  }
+}
+```
+
+### Schéma de relations
+
+Le schéma de relations le plus simple est une liste plate de noms de relations :
+
+```json
+{
+  "relations": ["works_for", "lives_in"]
+}
+```
+
+Vous pouvez également utiliser un dictionnaire pour ajouter des descriptions ou une
+configuration par relation :
+
+```json
+{
+  "relations": {
+    "works_for": {
+      "description": "employment relationship",
+      "threshold": 0.6
+    }
+  }
+}
+```
+
+N'envoyez pas d'objets de relation contenant des définitions head et tail.
+
+### Schéma combiné
+
+Exécutez plusieurs tâches sur le même texte en combinant les clés :
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ],
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+Le schéma identifie l'opération automatiquement. N'envoyez pas `task` ni `task_type`.
+
+## Exemple
+
+```bash
+curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+      }
+    ],
+    "schema": {
+      "entities": [
+        {
+          "name": "organization",
+          "description": "business or institution name"
+        },
+        {
+          "name": "product",
+          "description": "named commercial product"
+        },
+        {
+          "name": "event",
+          "description": "named conference or event"
+        },
+        {
+          "name": "location",
+          "description": "city, region, or place"
+        }
+      ]
+    },
+    "threshold": 0.5
+  }'
+```
+
+La valeur de `model` doit actuellement prendre en charge l'inférence hébergée. Utilisez le
+catalogue de modèles en direct plutôt que de supposer que chaque checkpoint Hugging Face est
+disponible :
+
+```bash
+curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encoder"
+```
+
+## Réponse
+
+Le endpoint renvoie une enveloppe de chat completion. Le résultat GLiNER est sérialisé sous
+forme de chaîne JSON dans `choices[0].message.content` :
+
+```json
+{
+  "id": "chatcmpl_...",
+  "object": "chat.completion",
+  "created": 1790123456,
+  "model": "fastino/gliner2.5-multi-v1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"entities\":[{\"organization\":[{\"text\":\"Apple\",\"confidence\":0.99,\"start\":0,\"end\":5}],\"product\":[{\"text\":\"MacBook Pro\",\"confidence\":0.98,\"start\":20,\"end\":31}],\"event\":[{\"text\":\"WWDC\",\"confidence\":0.97,\"start\":35,\"end\":39}],\"location\":[{\"text\":\"Cupertino\",\"confidence\":0.99,\"start\":43,\"end\":52}]}],\"classifications\":{},\"structures\":{},\"relations\":{}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "x_pioneer": {
+    "inference_id": "..."
+  }
+}
+```
+
+Analysez `choices[0].message.content` comme JSON avant de lire les résultats de la tâche.
+Lorsque `store=true`, `x_pioneer.inference_id` identifie l'inférence persistée.
+
+## Entrées répétées
+
+Le endpoint accepte une conversation par requête. Il ne prend pas en charge la forme de lot
+`text: string[]` de l'endpoint natif supprimé. Envoyez des requêtes séparées en simultané
+lors du traitement de plusieurs entrées.
+
+## Démarrages à froid et nouvelles tentatives
+
+Un modèle inactif ou récemment déployé peut subir un démarrage à froid. Utilisez un délai de
+lecture d'au moins 300 secondes et retentez les réponses `425`, `429` et `503`. Respectez
+l'en-tête de réponse `Retry-After` lorsqu'il est présent.
+
+Une requête expirée peut tout de même réchauffer le déploiement, permettant à la requête
+suivante d'aboutir. Ne retentez pas les erreurs d'authentification, de facturation, de
+validation, de modèle inconnu ou de tâche non déployable sans corriger le problème sous-jacent.
+
+```bash
+curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @request.json
+```
+
+## Erreurs
+
+| Statut | Cause probable | Action |
+| --- | --- | --- |
+| `400` | Requête ou schéma invalide | Corrigez les champs de la requête ou le schéma |
+| `401` | Clé d'API manquante, mal formée ou invalide | Exportez une clé `pio_sk_...` valide |
+| `402` | Crédits insuffisants, financement requis ou plafond de dépense quotidien/mensuel défini par le propriétaire | Ajoutez des crédits ou ajustez le plafond de dépense |
+| `403` | Refus lié au moyen de paiement, à la vérification de la carte, au plafond de crédit ou à la politique du compte | Résolvez l'exigence de facturation ou de compte |
+| `404` | Modèle inconnu ou non pris en charge | Utilisez un identifiant de catalogue compatible avec l'inférence ou l'UUID d'une tâche déployable |
+| `409` | Le modèle affiné existe mais n'est pas déployé | Attendez le déploiement ou réparez-le |
+| `422` | Échec de validation de la requête | Lisez et corrigez les détails de validation au niveau du champ |
+| `425` | Le déploiement affiné est en cours de préchauffage | Retentez après le délai indiqué |
+| `429` | Limite de débit ou de capacité | Respectez `Retry-After` et retentez avec un backoff |
+| `503` | Démarrage à froid ou problème temporaire de capacité du fournisseur | Retentez avant de considérer l'erreur comme définitive |
+
+## Migration des requêtes héritées
+
+| Champ `/inference` supprimé | Champ actuel |
+| --- | --- |
+| `model_id` | `model` |
+| `text` | `messages: [{"role": "user", "content": "..."}]` |
+| Liste plate d'entités dans `schema` | Dictionnaire `schema` |
+| `task` ou `task_type` | À supprimer ; le schéma identifie l'opération |
+| `text: string[]` | Envoyer des requêtes séparées |
+| `format_results` ou `is_warmup` | À supprimer |
+| Corps de résultat natif | Analyser `choices[0].message.content` |

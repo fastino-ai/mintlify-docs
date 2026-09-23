@@ -1,0 +1,297 @@
+---
+title: "推理 API"
+sidebarTitle: "推理 API"
+description: "通过 Fastino 的推理 API 运行基于 schema 的 GLiNER 预测。"
+noindex: true
+---
+
+使用 `POST /v1/chat/completions` 运行托管的 GLiNER 推理。该端点采用与 OpenAI 兼容的请求信封，
+并附加 Fastino 的顶层 `schema` 扩展。
+
+本页仅记录原始 HTTP API。不涉及 SDK 使用、模型训练、评估、推理历史或反馈。
+
+<Warning>
+  `POST /inference` 已被移除。请勿再发送其旧版字段，例如 `model_id`、`text`、
+  `task`、`format_results` 或 `is_warmup`。
+</Warning>
+
+## 端点
+
+```text
+POST https://api.pioneer.ai/v1/chat/completions
+```
+
+## 身份验证
+
+将 Fastino API 密钥作为 bearer token 发送：
+
+```bash
+export PIONEER_API_KEY="pio_sk_..."
+```
+
+```http
+Authorization: Bearer $PIONEER_API_KEY
+Content-Type: application/json
+```
+
+## 请求
+
+<ParamField body="model" type="string" required>
+  支持推理的基础模型 ID，或已完成、可部署的 Fastino 训练作业的 UUID。
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  非空消息列表。对于 GLiNER 推理，请将待分析的文本放入用户消息的 `content` 中。
+</ParamField>
+
+<ParamField body="schema" type="object">
+  定义自定义编码器任务。提供一个包含 `entities`、`classifications`、`structures` 或 `relations`
+  中一个或多个键的字典。仅当所选模型已配置默认任务时才可省略。
+
+  已弃用扁平的实体标签数组，请始终使用字典形式。
+</ParamField>
+
+<ParamField body="threshold" type="number" default="0.5">
+  置信度阈值，取值范围为 `0` 到 `1`。较低的值更偏向召回率；较高的值更偏向精确率。
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean" default="true">
+  在提取结果中包含置信度值。
+</ParamField>
+
+<ParamField body="include_spans" type="boolean" default="true">
+  在实体结果中包含半开区间的字符偏移（`start`、`end`）。
+</ParamField>
+
+<ParamField body="store" type="boolean" default="true">
+  持久化本次推理。设置为 `false` 可选择不保存。
+</ParamField>
+
+### 实体 schema
+
+尽量使用带描述的实体定义：
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ]
+}
+```
+
+### 分类 schema
+
+```json
+{
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+### 结构化提取 schema
+
+结构字段使用 `field::type::description` 规范：
+
+```json
+{
+  "structures": {
+    "product": [
+      "name::str::product name",
+      "price::str::listed price",
+      "features::list::named features"
+    ]
+  }
+}
+```
+
+### 关系 schema
+
+最简单的关系 schema 是关系名称的扁平列表：
+
+```json
+{
+  "relations": ["works_for", "lives_in"]
+}
+```
+
+也可以使用字典来添加描述或按关系配置：
+
+```json
+{
+  "relations": {
+    "works_for": {
+      "description": "employment relationship",
+      "threshold": 0.6
+    }
+  }
+}
+```
+
+不要发送包含 head 和 tail 定义的关系对象。
+
+### 组合 schema
+
+通过组合键在同一段文本上运行多个任务：
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ],
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+schema 会自动识别操作类型。请勿发送 `task` 或 `task_type`。
+
+## 示例
+
+```bash
+curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+      }
+    ],
+    "schema": {
+      "entities": [
+        {
+          "name": "organization",
+          "description": "business or institution name"
+        },
+        {
+          "name": "product",
+          "description": "named commercial product"
+        },
+        {
+          "name": "event",
+          "description": "named conference or event"
+        },
+        {
+          "name": "location",
+          "description": "city, region, or place"
+        }
+      ]
+    },
+    "threshold": 0.5
+  }'
+```
+
+`model` 值必须当前支持托管推理。请使用实时模型目录，而不要假设每个 Hugging Face 检查点都可用：
+
+```bash
+curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encoder"
+```
+
+## 响应
+
+该端点返回聊天补全信封。GLiNER 结果以 JSON 字符串形式序列化在 `choices[0].message.content` 中：
+
+```json
+{
+  "id": "chatcmpl_...",
+  "object": "chat.completion",
+  "created": 1790123456,
+  "model": "fastino/gliner2.5-multi-v1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"entities\":[{\"organization\":[{\"text\":\"Apple\",\"confidence\":0.99,\"start\":0,\"end\":5}],\"product\":[{\"text\":\"MacBook Pro\",\"confidence\":0.98,\"start\":20,\"end\":31}],\"event\":[{\"text\":\"WWDC\",\"confidence\":0.97,\"start\":35,\"end\":39}],\"location\":[{\"text\":\"Cupertino\",\"confidence\":0.99,\"start\":43,\"end\":52}]}],\"classifications\":{},\"structures\":{},\"relations\":{}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "x_pioneer": {
+    "inference_id": "..."
+  }
+}
+```
+
+在读取任务结果之前，请将 `choices[0].message.content` 解析为 JSON。当 `store=true` 时，
+`x_pioneer.inference_id` 标识已持久化的推理。
+
+## 重复输入
+
+该端点每个请求接受一段会话。它不支持已移除的原生端点的 `text: string[]` 批量形式。
+处理多个输入时，请并发发送多个独立请求。
+
+## 冷启动与重试
+
+空闲或新部署的模型可能会冷启动。请将读取超时设置为至少 300 秒，并对 `425`、`429` 和 `503`
+响应进行重试。当响应头中包含 `Retry-After` 时，请遵循该值。
+
+已超时的请求仍可能预热部署，从而让下一次请求成功。对于身份验证、计费、校验、未知模型或
+不可部署作业等错误，请在解决根本问题之前不要重试。
+
+```bash
+curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @request.json
+```
+
+## 错误
+
+| 状态码 | 可能原因 | 处理措施 |
+| --- | --- | --- |
+| `400` | 请求或 schema 无效 | 修正请求字段或 schema |
+| `401` | 缺少、格式错误或无效的 API 密钥 | 导出有效的 `pio_sk_...` 密钥 |
+| `402` | 额度不足、需要充值，或所有者设置了每日/每月的支出上限 | 添加额度或调整支出上限 |
+| `403` | 支付方式、卡片验证、信用额度或账户策略拒绝 | 解决相应的计费或账户要求 |
+| `404` | 未知或不受支持的模型 | 使用支持推理的目录 ID 或可部署作业的 UUID |
+| `409` | 微调模型存在但未部署 | 等待部署完成或修复模型部署 |
+| `422` | 请求校验失败 | 阅读并修正字段级别的校验详情 |
+| `425` | 微调部署正在预热 | 按提示的延迟时间后重试 |
+| `429` | 触发速率或容量限制 | 遵循 `Retry-After` 并使用退避机制重试 |
+| `503` | 冷启动或提供方暂时性容量问题 | 视为终止之前先重试 |
+
+## 旧版请求迁移
+
+| 已移除的 `/inference` 字段 | 当前字段 |
+| --- | --- |
+| `model_id` | `model` |
+| `text` | `messages: [{"role": "user", "content": "..."}]` |
+| 扁平的 `schema` 实体列表 | `schema` 字典 |
+| `task` 或 `task_type` | 删除；schema 会识别操作类型 |
+| `text: string[]` | 发送多个独立请求 |
+| `format_results` 或 `is_warmup` | 删除 |
+| 原生结果体 | 解析 `choices[0].message.content` |
