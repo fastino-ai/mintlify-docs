@@ -16,6 +16,8 @@ ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
 )
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
+METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
+RoutePatterns = dict[str, list[re.Pattern[str]]]
 
 
 def _operations(spec: dict[str, object]) -> set[tuple[str, str]]:
@@ -42,36 +44,64 @@ def _english_docs(root: Path) -> list[Path]:
     ]
 
 
-def _route_patterns(manifest: dict[str, object]) -> list[re.Pattern[str]]:
+def _route_patterns(manifest: dict[str, object]) -> RoutePatterns:
     routes = manifest.get("routes")
     if not isinstance(routes, list):
         raise TypeError("route manifest has no routes list")
-    patterns: list[re.Pattern[str]] = []
+    patterns: RoutePatterns = {}
     for route in routes:
         if not isinstance(route, dict):
             continue
         target = route.get("target_path")
-        if not isinstance(target, str):
+        methods = route.get("methods")
+        environments = route.get("environments")
+        if (
+            not isinstance(target, str)
+            or not isinstance(methods, list)
+            or route.get("classification") == "tombstone"
+            or not isinstance(environments, list)
+            or "prod" not in environments
+        ):
             continue
         expression = re.escape(target)
         expression = re.sub(r"\\\{[^}]+\\\}", r"[^/?#]+", expression)
-        patterns.append(re.compile(f"^{expression}/?$"))
+        pattern = re.compile(f"^{expression}/?$")
+        for method in methods:
+            if isinstance(method, str):
+                patterns.setdefault(method, []).append(pattern)
     return patterns
 
 
-def _url_matches_route(url_path: str, patterns: list[re.Pattern[str]]) -> bool:
+def _path_matches_route(
+    url_path: str,
+    patterns: RoutePatterns,
+    method: str | None = None,
+) -> bool:
     path = url_path.split("?", maxsplit=1)[0].rstrip(".,)")
     if "$" in path or path in {"", "/v1"}:
         return True
     concrete_path = re.sub(r"(\{[^}]+\}|YOUR_[A-Z_]+|[A-Z_]{2,}|:[a-z_]+)", "VALUE", path)
-    return any(pattern.fullmatch(concrete_path) or pattern.fullmatch(path) for pattern in patterns)
+    candidates = patterns.get(method, []) if method is not None else [
+        pattern for method_patterns in patterns.values() for pattern in method_patterns
+    ]
+    if path.endswith("/*"):
+        escaped_prefix = f"^{re.escape(path[:-1])}"
+        return any(pattern.pattern.startswith(escaped_prefix) for pattern in candidates)
+    return any(
+        pattern.fullmatch(concrete_path) or pattern.fullmatch(path)
+        for pattern in candidates
+    )
+
+
+def _is_migration_line(line: str) -> bool:
+    return any(word in line.lower() for word in ("legacy", "migrat", "removed"))
 
 
 def _line_findings(
     root: Path,
     path: Path,
     text: str,
-    route_patterns: list[re.Pattern[str]],
+    route_patterns: RoutePatterns,
 ) -> list[str]:
     findings: list[str] = []
     relative = path.relative_to(root)
@@ -90,7 +120,7 @@ def _line_findings(
             relative == Path("api-reference/overview.mdx") and "not" in line
         ):
             findings.append(f"{relative}:{number}: doubled /v1 prefix")
-        if "/v1/completions" in line:
+        if "/v1/completions" in line and not _is_migration_line(line):
             findings.append(f"{relative}:{number}: removed /v1/completions route")
         if "/v1/felix/evaluations" in line:
             findings.append(f"{relative}:{number}: removed legacy evaluation route")
@@ -104,16 +134,21 @@ def _line_findings(
             )
         if any(pattern.search(line) for pattern in ACTIVE_LEGACY_INFERENCE):
             findings.append(f"{relative}:{number}: active removed POST /inference route")
-        if "POST /inference" in line and not any(
-            word in line.lower() for word in ("legacy", "migrat", "removed")
-        ):
+        if "POST /inference" in line and not _is_migration_line(line):
             findings.append(f"{relative}:{number}: active removed POST /inference text")
         for match in FASTINO_URL.finditer(line):
-            if not _url_matches_route(match.group(1), route_patterns):
+            if not _path_matches_route(match.group(1), route_patterns):
                 findings.append(
                     f"{relative}:{number}: Fastino URL is absent from route manifest: "
                     f"{match.group(0)}"
                 )
+        if not _is_migration_line(line):
+            for method, documented_path in METHOD_PATH.findall(line):
+                if not _path_matches_route(documented_path, route_patterns, method):
+                    findings.append(
+                        f"{relative}:{number}: documented operation is absent from the "
+                        f"production route manifest: {method} {documented_path}"
+                    )
     return findings
 
 

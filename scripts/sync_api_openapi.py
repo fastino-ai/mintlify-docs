@@ -56,7 +56,15 @@ def _route_index(
         source = route.get("source_path")
         target = route.get("target_path")
         methods = route.get("methods")
+        classification = route.get("classification")
+        environments = route.get("environments")
         if not isinstance(source, str) or not isinstance(target, str) or not isinstance(methods, list):
+            continue
+        if (
+            classification == "tombstone"
+            or not isinstance(environments, list)
+            or "prod" not in environments
+        ):
             continue
         for method in methods:
             if not isinstance(method, str):
@@ -135,10 +143,12 @@ def build_spec(docs_root: Path, pioneer_root: Path) -> dict[str, object]:
     operations = [*_training_operations(docs_root), *INFERENCE_OPERATIONS]
     paths: dict[str, dict[str, object]] = {}
     for method, documented_path in operations:
-        source_path, target_path = route_index.get(
-            (method, documented_path),
-            (documented_path, documented_path),
-        )
+        try:
+            source_path, target_path = route_index[(method, documented_path)]
+        except KeyError as error:
+            raise ValueError(
+                f"production route manifest is missing {method} {documented_path}"
+            ) from error
         paths.setdefault(target_path, {})[method.lower()] = _operation(
             source_spec,
             method,
