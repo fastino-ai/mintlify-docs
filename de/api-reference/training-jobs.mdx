@@ -1,0 +1,68 @@
+---
+title: "Trainingsjobs-API"
+sidebarTitle: "Übersicht"
+description: "Erstellen und verwalten Sie Fastino-Trainingsjobs von der Einreichung bis zur Auslieferung des Artefakts."
+noindex: true
+---
+
+Die Trainingsjobs-API verwaltet den gesamten Lebenszyklus eines Fine-Tuning-Jobs. Alle Endpunkte verwenden die Routenfamilie `/felix/training-jobs` und erfordern einen API-Schlüssel im Header `X-API-Key`.
+
+```bash
+-H "X-API-Key: YOUR_API_KEY"
+```
+
+Rufen Sie `GET /base-models?supports_training=true` unmittelbar vor dem Erstellen eines Jobs auf. Dies ist die verbindliche Quelle für aktuell trainierbare Modell-IDs.
+
+Das [produktive OpenAPI-Dokument](https://api.pioneer.ai/openapi.json) ist die maschinenlesbare Referenz für die aktuellen Request- und Response-Schemata.
+
+## Typischer Ablauf
+
+<Steps>
+  <Step title="Job erstellen">
+    Reichen Sie einen bereiten Datensatz und ein derzeit unterstütztes `base_model` ein.
+  </Step>
+  <Step title="Job abfragen">
+    Lesen Sie `normalized_status` und beenden Sie das Polling, wenn `is_terminal_status` `true` ist.
+  </Step>
+  <Step title="Ergebnis prüfen">
+    Rufen Sie Log-Snapshots, Trainingsmetriken, Abrechnung und Checkpoints ab.
+  </Step>
+  <Step title="Artefakt ausliefern">
+    Stellen Sie einen bereitstellbaren Checkpoint bereit oder laden Sie die Gewichte herunter.
+  </Step>
+</Steps>
+
+## Statuslebenszyklus
+
+Der gespeicherte `status` kann `requested`, `running`, `complete`, `normalizing`, `artifact_ready`, `deployed`, `paused`, `errored`, `stopped` und `terminated` enthalten.
+
+Für Automatisierungen bevorzugen Sie:
+
+- `normalized_status`: stabiler Kompatibilitätsstatus wie `requested`, `running`, `complete`, `deployed`, `failed` oder `cancelled`.
+- `is_terminal_status`: gibt an, ob eine Polling-Schleife beendet werden kann.
+- `error_message`: Fehlerdetails, sofern verfügbar.
+- `is_deployable` und `deployability_reason`: die Entscheidung des Servers über die Bereitstellungsfähigkeit.
+
+<Note>
+  Das `metrics`-Objekt kann `final_training_loss`, `final_validation_loss` und `best_validation_loss` enthalten. Evaluationsqualitätsmetriken sind separat und nicht garantiert vorhanden.
+</Note>
+
+## Endpunkte
+
+| Method | Endpoint | Zweck |
+| --- | --- | --- |
+| `POST` | [`/felix/training-jobs`](/de/api-reference/training-jobs/create) | Trainingsjob erstellen |
+| `GET` | [`/felix/training-jobs`](/de/api-reference/training-jobs/list) | Trainingsjobs auflisten |
+| `GET` | [`/felix/training-jobs/{job_id}`](/de/api-reference/training-jobs/get) | Status, Konfiguration und Metriken abrufen |
+| `PATCH` | [`/felix/training-jobs/{job_id}`](/de/api-reference/training-jobs/update-project) | Projekt zuweisen oder Zuweisung aufheben |
+| `PATCH` | [`/felix/training-jobs/{job_id}/model-name`](/de/api-reference/training-jobs/update-model-name) | Trainiertes Modell umbenennen |
+| `GET` | [`/felix/training-jobs/{job_id}/logs`](/de/api-reference/training-jobs/logs) | Snapshot der Trainingslogs abrufen |
+| `GET` | [`/felix/training-jobs/{job_id}/billing`](/de/api-reference/training-jobs/billing) | Abrechnungsergebnis abrufen |
+| `POST` | [`/felix/training-jobs/{job_id}/stop`](/de/api-reference/training-jobs/stop) | Job stoppen und Checkpoints erhalten |
+| `POST` | [`/felix/training-jobs/{job_id}/terminate`](/de/api-reference/training-jobs/terminate) | Job stoppen und Checkpoints löschen |
+| `GET` | [`/felix/training-jobs/{job_id}/checkpoints`](/de/api-reference/training-jobs/checkpoints) | Checkpoints auflisten |
+| `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/de/api-reference/training-jobs/deploy-checkpoint) | Checkpoint bereitstellen |
+| `GET` | [`/felix/training-jobs/{job_id}/download`](/de/api-reference/training-jobs/download) | Temporäre Download-URL für Gewichte abrufen |
+| `DELETE` | [`/felix/training-jobs/{job_id}`](/de/api-reference/training-jobs/delete) | Job und seine Checkpoints löschen |
+
+Die veraltete Route `GET /felix/training-jobs/{job_id}/deployments` ist nicht Teil dieser Referenz. Verwenden Sie stattdessen `/projects/{project_id}/deployments`.

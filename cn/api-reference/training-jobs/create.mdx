@@ -1,0 +1,192 @@
+---
+title: "创建训练任务"
+sidebarTitle: "创建任务"
+description: "提交一个 Fastino 微调任务。"
+noindex: true
+---
+
+`POST /felix/training-jobs`
+
+创建一个异步训练任务并返回其任务记录。此端点限制为每个用户每分钟 20 次请求。
+
+## 请求
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField body="model_name" type="string" required>
+  训练模型的显示名称。长度：1–100 个字符。
+</ParamField>
+
+<ParamField body="base_model" type="string" required>
+  来自 `GET /base-models?supports_training=true` 的可训练模型 ID，或受支持的检查点 UUID。
+</ParamField>
+
+<ParamField body="datasets" type="object[]" required>
+  一个或多个数据集引用。每项需要 `name`，可包含 `version`；省略 version 时会解析为最新版本。
+</ParamField>
+
+<ParamField body="training_type" type="string" default="lora">
+  `lora` 或 `full`。所选基础模型必须支持所请求的训练类型。
+</ParamField>
+
+<ParamField body="validation_data_percentage" type="number" default="0.2">
+  用于验证的留出比例，取值范围从 `0` 到 `1`。
+</ParamField>
+
+<ParamField body="nr_epochs" type="integer" default="100">
+  最大 epoch 数。必须至少为 `1`；早停可能会更早结束。
+</ParamField>
+
+<ParamField body="learning_rate" type="number">
+  正的峰值学习率。省略时使用所选模型的训练配方。
+</ParamField>
+
+<ParamField body="batch_size" type="integer" default="4">
+  单设备批大小。建议省略此项，让训练服务应用或安全地限制到模型特定的默认值。
+</ParamField>
+
+<ParamField body="seed" type="integer">
+  可选的可复现性种子，取值从 `0` 到 `2147483647`。使用时请将 `provider_name` 设为 `modal`。种子可以减少一种变化源，但并不保证 GPU 运行结果按位一致。
+</ParamField>
+
+<ParamField body="project_id" type="string">
+  项目 UUID。省略时，Fastino 会将任务关联到调用者的默认项目。
+</ParamField>
+
+<Expandable title="其他训练参数">
+  <ParamField body="save_steps" type="integer" default="100">
+    每 N 步保存一次检查点。
+  </ParamField>
+
+  <ParamField body="profile_training" type="boolean" default="false">
+    持久化一个结构化的训练性能剖析工件。
+  </ParamField>
+
+  <ParamField body="wandb_api_key" type="string">
+    可选的 Weights & Biases API 密钥。请将其视为机密信息，切勿放入源代码、日志或示例中。
+  </ParamField>
+
+  <ParamField body="lora_r" type="integer">
+    LoRA 秩。省略时使用模型配方。
+  </ParamField>
+
+  <ParamField body="lora_alpha" type="integer">
+    LoRA alpha。省略时使用模型配方。
+  </ParamField>
+
+  <ParamField body="lora_dropout" type="number">
+    LoRA dropout。省略时使用模型配方。
+  </ParamField>
+
+  <ParamField body="packing" type="boolean">
+    为兼容的 decoder LoRA 任务打包短样本。
+  </ParamField>
+
+  <ParamField body="mask_history" type="boolean" default="false">
+    Decoder 损失掩码选项。不受支持的组合将被拒绝。
+  </ParamField>
+
+  <ParamField body="warmup_ratio" type="number">
+    预热比例，取值从 `0` 到 `1`。`warmup_steps` 优先生效。
+  </ParamField>
+
+  <ParamField body="warmup_steps" type="integer">
+    正整数的绝对预热步数。
+  </ParamField>
+
+  <ParamField body="lr_scheduler_type" type="string" default="cosine">
+    学习率调度：`constant`、`linear` 或 `cosine`。
+  </ParamField>
+
+  <ParamField body="weight_decay" type="number" default="0.01">
+    非负的 AdamW 权重衰减。
+  </ParamField>
+
+  <ParamField body="early_stopping_patience" type="integer" default="3">
+    停止前允许验证 epoch 未改进的次数。设为 `0` 可禁用。
+  </ParamField>
+
+  <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
+    视为有进展的最小验证损失改进量。
+  </ParamField>
+
+  <ParamField body="provider_name" type="string">
+    锁定兼容的训练提供方。省略时会自动选择。
+  </ParamField>
+
+  <ParamField body="system_prompt" type="string">
+    用于兼容 decoder 训练的规范化系统提示词。
+  </ParamField>
+
+  <ParamField body="encoder_learning_rate" type="number">
+    GLiNER 编码器学习率。缺省时回退到 `learning_rate`。
+  </ParamField>
+
+  <ParamField body="task_learning_rate" type="number">
+    GLiNER 任务头学习率。缺省时回退到 `learning_rate`。
+  </ParamField>
+
+  <ParamField body="gradient_accumulation_steps" type="integer">
+    正整数的小批量累积次数。
+  </ParamField>
+
+  <ParamField body="auto_data_sizing" type="boolean">
+    启用 GLiNER 数据集自动调整规模。
+  </ParamField>
+
+  <ParamField body="min_samples_per_dataset" type="integer">
+    GLiNER 自动调整规模下限。
+  </ParamField>
+
+  <ParamField body="max_samples_per_dataset" type="integer">
+    GLiNER 自动调整规模上限。
+  </ParamField>
+
+  <ParamField body="samples_per_label" type="integer">
+    GLiNER 每个标签的自动调整规模系数。
+  </ParamField>
+
+  <ParamField body="min_training_steps" type="integer">
+    GLiNER 最小优化器步数。
+  </ParamField>
+
+  <ParamField body="training_algorithm" type="string" default="sft">
+    `sft`、`grpo` 或 `dpo`。GRPO 需要 `rl_config.reward_type`。DPO 数据集需要 `prompt`、`chosen` 和 `rejected` 列。
+  </ParamField>
+
+  <ParamField body="rl_config" type="object">
+    算法特定设置。共享的键包括 `max_steps` 和 `logging_steps`。GRPO 支持 `reward_type`、`kl_beta`、`group_size`、`sampling_temperature` 和 `max_completion_length`。DPO 支持 `dpo_beta` 和 `loss_type`。`llm_as_judge` 类型的 GRPO 奖励还支持 `llm_judge_model`、`llm_judge_rubric`、`llm_judge_score_scale`、`llm_judge_timeout_s`、`llm_judge_max_concurrent`、`llm_judge_max_retries` 和 `llm_judge_retry_backoff_s`。
+  </ParamField>
+</Expandable>
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-domain-model",
+    "base_model": "MODEL_ID_FROM_BASE_MODELS",
+    "datasets": [{"name": "my-ready-dataset"}],
+    "training_type": "lora",
+    "nr_epochs": 5
+  }'
+```
+
+## 响应
+
+返回 `200` 及完整的训练任务记录。请保存其 `id` 并轮询 [`GET /felix/training-jobs/{job_id}`](/cn/api-reference/training-jobs/get)。
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "model_name": "my-domain-model",
+  "base_model": "MODEL_ID_FROM_BASE_MODELS",
+  "status": "requested",
+  "normalized_status": "requested",
+  "is_terminal_status": false
+}
+```
+
+请求体格式错误会返回 `422`。有效但不可用的模型、数据集、训练类型或提供方组合会返回请求相关的 `4xx` 错误。

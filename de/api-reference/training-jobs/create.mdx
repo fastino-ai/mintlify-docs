@@ -1,0 +1,192 @@
+---
+title: "Trainingsjob erstellen"
+sidebarTitle: "Job erstellen"
+description: "Reichen Sie einen Fastino-Fine-Tuning-Job ein."
+noindex: true
+---
+
+`POST /felix/training-jobs`
+
+Erstellt einen asynchronen Trainingsjob und gibt dessen Job-Datensatz zurück. Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Ihr Fastino-API-Schlüssel.
+</ParamField>
+
+<ParamField body="model_name" type="string" required>
+  Anzeigename für das trainierte Modell. Länge: 1–100 Zeichen.
+</ParamField>
+
+<ParamField body="base_model" type="string" required>
+  Eine trainierbare Modell-ID aus `GET /base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID.
+</ParamField>
+
+<ParamField body="datasets" type="object[]" required>
+  Eine oder mehrere Datensatzreferenzen. Jeder Eintrag benötigt `name` und kann `version` enthalten; ausgelassene Versionen werden auf die neueste Version aufgelöst.
+</ParamField>
+
+<ParamField body="training_type" type="string" default="lora">
+  `lora` oder `full`. Das ausgewählte Basismodell muss den angeforderten Typ unterstützen.
+</ParamField>
+
+<ParamField body="validation_data_percentage" type="number" default="0.2">
+  Für die Validierung zurückgehaltener Anteil, von `0` bis `1`.
+</ParamField>
+
+<ParamField body="nr_epochs" type="integer" default="100">
+  Maximale Anzahl an Epochen. Muss mindestens `1` sein; Early Stopping kann früher beenden.
+</ParamField>
+
+<ParamField body="learning_rate" type="number">
+  Positive maximale Lernrate. Lassen Sie das Feld weg, um das Trainingsrezept des ausgewählten Modells zu verwenden.
+</ParamField>
+
+<ParamField body="batch_size" type="integer" default="4">
+  Batch-Größe pro Gerät. Am besten weglassen, damit der Trainingsdienst den modellspezifischen Standardwert anwenden oder sicher begrenzen kann.
+</ParamField>
+
+<ParamField body="seed" type="integer">
+  Optionaler Reproduzierbarkeits-Seed von `0` bis `2147483647`. Setzen Sie `provider_name` auf `modal`, wenn Sie ihn verwenden. Ein Seed reduziert eine Quelle von Variation, garantiert jedoch keine bit-identischen GPU-Läufe.
+</ParamField>
+
+<ParamField body="project_id" type="string">
+  UUID des Projekts. Wird das Feld weggelassen, ordnet Fastino den Job dem Standardprojekt des Aufrufers zu.
+</ParamField>
+
+<Expandable title="Zusätzliche Trainingsparameter">
+  <ParamField body="save_steps" type="integer" default="100">
+    Speichert alle N Schritte einen Checkpoint.
+  </ParamField>
+
+  <ParamField body="profile_training" type="boolean" default="false">
+    Persistiert ein strukturiertes Trainingsprofil als Artefakt.
+  </ParamField>
+
+  <ParamField body="wandb_api_key" type="string">
+    Optionaler Weights-&-Biases-API-Schlüssel. Behandeln Sie ihn als Secret und legen Sie ihn niemals in der Versionskontrolle, in Logs oder in Beispielen ab.
+  </ParamField>
+
+  <ParamField body="lora_r" type="integer">
+    LoRA-Rang. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
+  </ParamField>
+
+  <ParamField body="lora_alpha" type="integer">
+    LoRA-Alpha. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
+  </ParamField>
+
+  <ParamField body="lora_dropout" type="number">
+    LoRA-Dropout. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
+  </ParamField>
+
+  <ParamField body="packing" type="boolean">
+    Packt kurze Beispiele für kompatible Decoder-LoRA-Jobs.
+  </ParamField>
+
+  <ParamField body="mask_history" type="boolean" default="false">
+    Option zur Loss-Maskierung im Decoder. Nicht unterstützte Kombinationen werden abgelehnt.
+  </ParamField>
+
+  <ParamField body="warmup_ratio" type="number">
+    Warmup-Anteil von `0` bis `1`. `warmup_steps` hat Vorrang.
+  </ParamField>
+
+  <ParamField body="warmup_steps" type="integer">
+    Positive absolute Anzahl an Warmup-Schritten.
+  </ParamField>
+
+  <ParamField body="lr_scheduler_type" type="string" default="cosine">
+    Zeitplan für die Lernrate: `constant`, `linear` oder `cosine`.
+  </ParamField>
+
+  <ParamField body="weight_decay" type="number" default="0.01">
+    Nicht-negativer AdamW-Weight-Decay.
+  </ParamField>
+
+  <ParamField body="early_stopping_patience" type="integer" default="3">
+    Validierungs-Epochen ohne Verbesserung, bevor gestoppt wird. Auf `0` setzen, um es zu deaktivieren.
+  </ParamField>
+
+  <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
+    Minimale Verbesserung des Validierungs-Loss, die als Fortschritt zählt.
+  </ParamField>
+
+  <ParamField body="provider_name" type="string">
+    Fixiert einen kompatiblen Trainingsanbieter. Weglassen für automatische Auswahl.
+  </ParamField>
+
+  <ParamField body="system_prompt" type="string">
+    Kanonischer System-Prompt für kompatibles Decoder-Training.
+  </ParamField>
+
+  <ParamField body="encoder_learning_rate" type="number">
+    Lernrate des GLiNER-Encoders. Fällt auf `learning_rate` zurück.
+  </ParamField>
+
+  <ParamField body="task_learning_rate" type="number">
+    Lernrate des GLiNER-Task-Head. Fällt auf `learning_rate` zurück.
+  </ParamField>
+
+  <ParamField body="gradient_accumulation_steps" type="integer">
+    Positive Anzahl an Mini-Batch-Akkumulationen.
+  </ParamField>
+
+  <ParamField body="auto_data_sizing" type="boolean">
+    Aktiviert die automatische Größenanpassung des GLiNER-Datensatzes.
+  </ParamField>
+
+  <ParamField body="min_samples_per_dataset" type="integer">
+    Untere Schranke der GLiNER-Auto-Größenanpassung.
+  </ParamField>
+
+  <ParamField body="max_samples_per_dataset" type="integer">
+    Obere Schranke der GLiNER-Auto-Größenanpassung.
+  </ParamField>
+
+  <ParamField body="samples_per_label" type="integer">
+    Skalierungsfaktor pro Label bei der GLiNER-Auto-Größenanpassung.
+  </ParamField>
+
+  <ParamField body="min_training_steps" type="integer">
+    Minimale Anzahl an GLiNER-Optimizer-Schritten.
+  </ParamField>
+
+  <ParamField body="training_algorithm" type="string" default="sft">
+    `sft`, `grpo` oder `dpo`. GRPO erfordert `rl_config.reward_type`. DPO-Datensätze benötigen die Spalten `prompt`, `chosen` und `rejected`.
+  </ParamField>
+
+  <ParamField body="rl_config" type="object">
+    Algorithmusspezifische Einstellungen. Gemeinsame Schlüssel sind `max_steps` und `logging_steps`. GRPO unterstützt `reward_type`, `kl_beta`, `group_size`, `sampling_temperature` und `max_completion_length`. DPO unterstützt `dpo_beta` und `loss_type`. Der GRPO-Reward `llm_as_judge` unterstützt außerdem `llm_judge_model`, `llm_judge_rubric`, `llm_judge_score_scale`, `llm_judge_timeout_s`, `llm_judge_max_concurrent`, `llm_judge_max_retries` und `llm_judge_retry_backoff_s`.
+  </ParamField>
+</Expandable>
+
+```bash
+curl -X POST https://api.pioneer.ai/felix/training-jobs \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "my-domain-model",
+    "base_model": "MODEL_ID_FROM_BASE_MODELS",
+    "datasets": [{"name": "my-ready-dataset"}],
+    "training_type": "lora",
+    "nr_epochs": 5
+  }'
+```
+
+## Response
+
+Gibt `200` mit dem vollständigen Trainingsjob-Datensatz zurück. Speichern Sie die `id` und pollen Sie [`GET /felix/training-jobs/{job_id}`](/de/api-reference/training-jobs/get).
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "model_name": "my-domain-model",
+  "base_model": "MODEL_ID_FROM_BASE_MODELS",
+  "status": "requested",
+  "normalized_status": "requested",
+  "is_terminal_status": false
+}
+```
+
+Ein fehlerhaft aufgebauter Body gibt `422` zurück. Eine gültige, aber nicht verfügbare Kombination aus Modell, Datensatz, Trainingstyp oder Anbieter gibt einen anfragespezifischen `4xx`-Fehler zurück.
