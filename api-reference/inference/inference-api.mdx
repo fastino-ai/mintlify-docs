@@ -1,0 +1,306 @@
+---
+title: "Inference API"
+sidebarTitle: "Inference API"
+description: "Run schema-based GLiNER predictions through Fastino's inference API."
+noindex: true
+---
+
+Run hosted GLiNER inference with `POST /v1/chat/completions`. The endpoint uses an
+OpenAI-compatible request envelope plus Fastino's top-level `schema` extension.
+
+This page documents the raw HTTP API only. It does not cover SDK usage, model training,
+evaluation, inference history, or feedback.
+
+<Warning>
+  `POST /inference` has been removed. Do not send its legacy fields such as `model_id`, `text`,
+  `task`, `format_results`, or `is_warmup`.
+</Warning>
+
+## Endpoint
+
+```text
+POST https://api.pioneer.ai/v1/chat/completions
+```
+
+## Authentication
+
+Send a Fastino API key as a bearer token:
+
+```bash
+export PIONEER_API_KEY="pio_sk_..."
+```
+
+```http
+Authorization: Bearer $PIONEER_API_KEY
+Content-Type: application/json
+```
+
+## Request
+
+<ParamField body="model" type="string" required>
+  An inference-capable base-model ID or the UUID of a completed, deployable Fastino training
+  job.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  A non-empty list of messages. For GLiNER inference, put the text to analyze in a user
+  message's `content`.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Defines custom encoder tasks. Supply a dictionary containing one or more of `entities`,
+  `classifications`, `structures`, or `relations`. Omit it only when the selected model has
+  a configured default task.
+
+  A flat array of entity labels is deprecated. Always use the dictionary shape.
+</ParamField>
+
+<ParamField body="threshold" type="number" default="0.5">
+  Confidence threshold from `0` to `1`. Lower values favor recall; higher values favor
+  precision.
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean" default="true">
+  Include confidence values in extracted results.
+</ParamField>
+
+<ParamField body="include_spans" type="boolean" default="true">
+  Include half-open character offsets (`start`, `end`) in entity results.
+</ParamField>
+
+<ParamField body="store" type="boolean" default="true">
+  Persist the inference. Set to `false` to opt out.
+</ParamField>
+
+### Entity schema
+
+Use descriptive entity definitions when possible:
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ]
+}
+```
+
+### Classification schema
+
+```json
+{
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+### Structured extraction schema
+
+Structure fields use `field::type::description` specifications:
+
+```json
+{
+  "structures": {
+    "product": [
+      "name::str::product name",
+      "price::str::listed price",
+      "features::list::named features"
+    ]
+  }
+}
+```
+
+### Relation schema
+
+The simplest relation schema is a flat list of relation names:
+
+```json
+{
+  "relations": ["works_for", "lives_in"]
+}
+```
+
+You can also use a dictionary to add descriptions or per-relation configuration:
+
+```json
+{
+  "relations": {
+    "works_for": {
+      "description": "employment relationship",
+      "threshold": 0.6
+    }
+  }
+}
+```
+
+Do not send relation objects containing head and tail definitions.
+
+### Combined schema
+
+Run multiple tasks over the same text by combining keys:
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ],
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+The schema identifies the operation automatically. Do not send `task` or `task_type`.
+
+## Example
+
+```bash
+curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+      }
+    ],
+    "schema": {
+      "entities": [
+        {
+          "name": "organization",
+          "description": "business or institution name"
+        },
+        {
+          "name": "product",
+          "description": "named commercial product"
+        },
+        {
+          "name": "event",
+          "description": "named conference or event"
+        },
+        {
+          "name": "location",
+          "description": "city, region, or place"
+        }
+      ]
+    },
+    "threshold": 0.5
+  }'
+```
+
+The `model` value must currently support hosted inference. Use the live model catalog rather
+than assuming every Hugging Face checkpoint is available:
+
+```bash
+curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encoder"
+```
+
+## Response
+
+The endpoint returns a chat-completion envelope. The GLiNER result is serialized as a JSON
+string in `choices[0].message.content`:
+
+```json
+{
+  "id": "chatcmpl_...",
+  "object": "chat.completion",
+  "created": 1790123456,
+  "model": "fastino/gliner2.5-multi-v1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"entities\":[{\"organization\":[{\"text\":\"Apple\",\"confidence\":0.99,\"start\":0,\"end\":5}],\"product\":[{\"text\":\"MacBook Pro\",\"confidence\":0.98,\"start\":20,\"end\":31}],\"event\":[{\"text\":\"WWDC\",\"confidence\":0.97,\"start\":35,\"end\":39}],\"location\":[{\"text\":\"Cupertino\",\"confidence\":0.99,\"start\":43,\"end\":52}]}],\"classifications\":{},\"structures\":{},\"relations\":{}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "x_pioneer": {
+    "inference_id": "..."
+  }
+}
+```
+
+Parse `choices[0].message.content` as JSON before reading task results. When `store=true`,
+`x_pioneer.inference_id` identifies the persisted inference.
+
+## Repeated inputs
+
+The endpoint accepts one conversation per request. It does not support the removed native
+endpoint's `text: string[]` batch shape. Send separate requests concurrently when processing
+multiple inputs.
+
+## Cold starts and retries
+
+An idle or newly deployed model may cold-start. Use a read timeout of at least 300 seconds and
+retry `425`, `429`, and `503` responses. Respect the `Retry-After` response header when present.
+
+A timed-out request can still warm the deployment, allowing the next request to succeed. Do
+not retry authentication, billing, validation, unknown-model, or non-deployable-job errors
+without correcting the underlying problem.
+
+```bash
+curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @request.json
+```
+
+## Errors
+
+| Status | Likely cause | Action |
+| --- | --- | --- |
+| `400` | Invalid request or schema | Correct the request fields or schema |
+| `401` | Missing, malformed, or invalid API key | Export a valid `pio_sk_...` key |
+| `402` | Insufficient credits, funding required, or an owner-set daily/monthly spend limit | Add credits or adjust the spend limit |
+| `403` | Payment method, card verification, credit ceiling, or account policy denial | Resolve the billing or account requirement |
+| `404` | Unknown or unsupported model | Use an inference-capable catalog ID or deployable job UUID |
+| `409` | Fine-tuned model exists but is not deployed | Wait for or repair the model deployment |
+| `422` | Request validation failed | Read and correct the field-level validation details |
+| `425` | Fine-tuned deployment is warming | Retry after the indicated delay |
+| `429` | Rate or capacity limit | Respect `Retry-After` and retry with backoff |
+| `503` | Cold start or temporary provider capacity issue | Retry before treating it as terminal |
+
+## Legacy request migration
+
+| Removed `/inference` field | Current field |
+| --- | --- |
+| `model_id` | `model` |
+| `text` | `messages: [{"role": "user", "content": "..."}]` |
+| Flat `schema` entity list | `schema` dictionary |
+| `task` or `task_type` | Remove; the schema identifies the operation |
+| `text: string[]` | Send separate requests |
+| `format_results` or `is_warmup` | Remove |
+| Native result body | Parse `choices[0].message.content` |
