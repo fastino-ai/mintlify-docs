@@ -94,6 +94,14 @@ def _line_findings(
             findings.append(f"{relative}:{number}: removed /v1/completions route")
         if "/v1/felix/evaluations" in line:
             findings.append(f"{relative}:{number}: removed legacy evaluation route")
+        if (
+            relative == Path("api-reference/inference/anthropic-compatible.mdx")
+            and "base_url" in line
+            and "https://api.fastino.ai/v1" in line
+        ):
+            findings.append(
+                f"{relative}:{number}: Anthropic SDK base URL would double the /v1 prefix"
+            )
         if any(pattern.search(line) for pattern in ACTIVE_LEGACY_INFERENCE):
             findings.append(f"{relative}:{number}: active removed POST /inference route")
         if "POST /inference" in line and not any(
