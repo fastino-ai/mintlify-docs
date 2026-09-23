@@ -1,0 +1,308 @@
+---
+title: "API de inferencia"
+sidebarTitle: "API de inferencia"
+description: "Ejecuta predicciones GLiNER basadas en esquemas a través de la API de inferencia de Fastino."
+noindex: true
+---
+
+Ejecuta inferencia GLiNER alojada con `POST /v1/chat/completions`. El endpoint utiliza un
+envoltorio de solicitud compatible con OpenAI más la extensión `schema` de nivel superior de Fastino.
+
+Esta página documenta únicamente la API HTTP en crudo. No cubre el uso del SDK, el entrenamiento
+de modelos, la evaluación, el historial de inferencia ni el feedback.
+
+<Warning>
+  `POST /inference` se ha eliminado. No envíes sus campos heredados como `model_id`, `text`,
+  `task`, `format_results` o `is_warmup`.
+</Warning>
+
+## Endpoint
+
+```text
+POST https://api.pioneer.ai/v1/chat/completions
+```
+
+## Autenticación
+
+Envía una clave de API de Fastino como bearer token:
+
+```bash
+export PIONEER_API_KEY="pio_sk_..."
+```
+
+```http
+Authorization: Bearer $PIONEER_API_KEY
+Content-Type: application/json
+```
+
+## Solicitud
+
+<ParamField body="model" type="string" required>
+  Un ID de modelo base con capacidad de inferencia o el UUID de un trabajo de entrenamiento
+  de Fastino completado y desplegable.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Una lista de mensajes no vacía. Para la inferencia GLiNER, coloca el texto a analizar en
+  el `content` de un mensaje de usuario.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Define tareas personalizadas del codificador. Proporciona un diccionario que contenga una
+  o varias de las claves `entities`, `classifications`, `structures` o `relations`. Omítelo
+  solo cuando el modelo seleccionado tenga una tarea predeterminada configurada.
+
+  Una lista plana de etiquetas de entidad está obsoleta. Utiliza siempre la forma de diccionario.
+</ParamField>
+
+<ParamField body="threshold" type="number" default="0.5">
+  Umbral de confianza de `0` a `1`. Los valores más bajos favorecen la exhaustividad; los más
+  altos favorecen la precisión.
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean" default="true">
+  Incluye los valores de confianza en los resultados extraídos.
+</ParamField>
+
+<ParamField body="include_spans" type="boolean" default="true">
+  Incluye los desplazamientos de caracteres semiabiertos (`start`, `end`) en los resultados
+  de entidades.
+</ParamField>
+
+<ParamField body="store" type="boolean" default="true">
+  Persiste la inferencia. Establécelo en `false` para no guardarla.
+</ParamField>
+
+### Esquema de entidades
+
+Utiliza definiciones de entidades descriptivas cuando sea posible:
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ]
+}
+```
+
+### Esquema de clasificación
+
+```json
+{
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+### Esquema de extracción estructurada
+
+Los campos de estructura usan especificaciones `field::type::description`:
+
+```json
+{
+  "structures": {
+    "product": [
+      "name::str::product name",
+      "price::str::listed price",
+      "features::list::named features"
+    ]
+  }
+}
+```
+
+### Esquema de relaciones
+
+El esquema de relaciones más simple es una lista plana de nombres de relación:
+
+```json
+{
+  "relations": ["works_for", "lives_in"]
+}
+```
+
+También puedes usar un diccionario para añadir descripciones o configuración por relación:
+
+```json
+{
+  "relations": {
+    "works_for": {
+      "description": "employment relationship",
+      "threshold": 0.6
+    }
+  }
+}
+```
+
+No envíes objetos de relación que contengan definiciones de head y tail.
+
+### Esquema combinado
+
+Ejecuta varias tareas sobre el mismo texto combinando claves:
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ],
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+El esquema identifica la operación automáticamente. No envíes `task` ni `task_type`.
+
+## Ejemplo
+
+```bash
+curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+      }
+    ],
+    "schema": {
+      "entities": [
+        {
+          "name": "organization",
+          "description": "business or institution name"
+        },
+        {
+          "name": "product",
+          "description": "named commercial product"
+        },
+        {
+          "name": "event",
+          "description": "named conference or event"
+        },
+        {
+          "name": "location",
+          "description": "city, region, or place"
+        }
+      ]
+    },
+    "threshold": 0.5
+  }'
+```
+
+El valor de `model` debe soportar actualmente la inferencia alojada. Usa el catálogo de modelos
+en vivo en lugar de asumir que todos los checkpoints de Hugging Face están disponibles:
+
+```bash
+curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encoder"
+```
+
+## Respuesta
+
+El endpoint devuelve un envoltorio de chat completion. El resultado GLiNER se serializa como
+una cadena JSON en `choices[0].message.content`:
+
+```json
+{
+  "id": "chatcmpl_...",
+  "object": "chat.completion",
+  "created": 1790123456,
+  "model": "fastino/gliner2.5-multi-v1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"entities\":[{\"organization\":[{\"text\":\"Apple\",\"confidence\":0.99,\"start\":0,\"end\":5}],\"product\":[{\"text\":\"MacBook Pro\",\"confidence\":0.98,\"start\":20,\"end\":31}],\"event\":[{\"text\":\"WWDC\",\"confidence\":0.97,\"start\":35,\"end\":39}],\"location\":[{\"text\":\"Cupertino\",\"confidence\":0.99,\"start\":43,\"end\":52}]}],\"classifications\":{},\"structures\":{},\"relations\":{}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "x_pioneer": {
+    "inference_id": "..."
+  }
+}
+```
+
+Analiza `choices[0].message.content` como JSON antes de leer los resultados de la tarea. Cuando
+`store=true`, `x_pioneer.inference_id` identifica la inferencia persistida.
+
+## Entradas repetidas
+
+El endpoint acepta una conversación por solicitud. No soporta la forma de lote `text: string[]`
+del endpoint nativo eliminado. Envía solicitudes separadas de forma concurrente cuando proceses
+varias entradas.
+
+## Arranques en frío y reintentos
+
+Un modelo inactivo o recién desplegado puede tener un arranque en frío. Usa un tiempo de espera
+de lectura de al menos 300 segundos y reintenta las respuestas `425`, `429` y `503`. Respeta la
+cabecera de respuesta `Retry-After` cuando esté presente.
+
+Una solicitud que agota el tiempo aún puede calentar el despliegue, lo que permite que la
+siguiente solicitud tenga éxito. No reintentes errores de autenticación, facturación, validación,
+modelo desconocido ni de trabajo no desplegable sin corregir el problema subyacente.
+
+```bash
+curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $PIONEER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @request.json
+```
+
+## Errores
+
+| Estado | Causa probable | Acción |
+| --- | --- | --- |
+| `400` | Solicitud o esquema no válidos | Corrige los campos de la solicitud o el esquema |
+| `401` | Clave de API ausente, mal formada o no válida | Exporta una clave `pio_sk_...` válida |
+| `402` | Créditos insuficientes, se requiere financiación o límite de gasto diario/mensual fijado por el propietario | Añade créditos o ajusta el límite de gasto |
+| `403` | Método de pago, verificación de tarjeta, techo de crédito o denegación por política de la cuenta | Resuelve el requisito de facturación o de la cuenta |
+| `404` | Modelo desconocido o no soportado | Usa un ID del catálogo con capacidad de inferencia o el UUID de un trabajo desplegable |
+| `409` | El modelo ajustado existe pero no está desplegado | Espera al despliegue o repáralo |
+| `422` | Validación de la solicitud fallida | Lee y corrige los detalles de validación a nivel de campo |
+| `425` | El despliegue ajustado se está calentando | Reintenta tras el retraso indicado |
+| `429` | Límite de tasa o de capacidad | Respeta `Retry-After` y reintenta con retroceso |
+| `503` | Arranque en frío o problema temporal de capacidad del proveedor | Reintenta antes de tratarlo como terminal |
+
+## Migración de solicitudes heredadas
+
+| Campo eliminado de `/inference` | Campo actual |
+| --- | --- |
+| `model_id` | `model` |
+| `text` | `messages: [{"role": "user", "content": "..."}]` |
+| Lista plana de entidades en `schema` | Diccionario `schema` |
+| `task` o `task_type` | Elimínalo; el esquema identifica la operación |
+| `text: string[]` | Envía solicitudes separadas |
+| `format_results` o `is_warmup` | Elimínalos |
+| Cuerpo de resultado nativo | Analiza `choices[0].message.content` |
