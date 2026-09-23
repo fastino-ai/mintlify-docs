@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build the public training/inference OpenAPI from Pioneer's contract."""
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ def _route_index(
     index: dict[tuple[str, str], tuple[str, str]] = {}
     routes = manifest.get("routes")
     if not isinstance(routes, list):
-        raise ValueError("route manifest has no routes list")
+        raise TypeError("route manifest has no routes list")
     for route in routes:
         if not isinstance(route, dict):
             continue
@@ -75,7 +74,7 @@ def _operation(
 ) -> dict[str, object]:
     paths = source_spec.get("paths")
     if not isinstance(paths, dict):
-        raise ValueError("Pioneer OpenAPI has no paths object")
+        raise TypeError("Pioneer OpenAPI has no paths object")
     for candidate in (target_path, source_path):
         path_item = paths.get(candidate)
         if isinstance(path_item, dict):

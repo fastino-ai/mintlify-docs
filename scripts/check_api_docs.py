@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check public API docs against the curated and authoritative contracts."""
 
 from __future__ import annotations
@@ -9,7 +8,6 @@ import re
 from pathlib import Path
 
 from sync_api_openapi import INFERENCE_OPERATIONS, build_spec
-
 
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 LOCALES = {"cn", "de", "es", "fr"}
