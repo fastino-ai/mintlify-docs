@@ -138,21 +138,21 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
 
     Job status values: `requested` → `running` → `complete` (or `failed` / `stopped`).
 
-    When the job reaches `"complete"`, the response includes evaluation metrics:
+    When the job reaches `"complete"`, the response includes training loss metrics:
 
     ```json
     {
       "id": "YOUR_JOB_ID",
       "status": "complete",
       "metrics": {
-        "f1": 0.91,
-        "precision": 0.93,
-        "recall": 0.89
+        "final_training_loss": 0.22,
+        "final_validation_loss": 0.27,
+        "best_validation_loss": 0.25
       }
     }
     ```
 
-    For extraction, the metrics are computed per field across all structure instances. A high F1 score (above 0.85) generally indicates a model ready for production. If a particular field is dragging the score down, the most common fix is adding more training examples that contain that field — especially examples where the value is phrased differently from what you've already labelled.
+    A low validation loss is a good first signal, but the headline F1 / precision / recall numbers come from running an evaluation on a held-out dataset (next step). Once you've run one, those scores are merged into the same `metrics` field as `eval_f1_score`, `eval_precision`, and `eval_recall`.
   </Step>
   <Step title="Run an evaluation">
     Evaluate your trained model against a held-out dataset for a more rigorous read on performance before deploying.
@@ -171,7 +171,7 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
 
     </CodeGroup>
 
-    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1`, `precision`, `recall`, and a per-field breakdown so you can see which fields are accurate and which need more training data.
+    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1_score`, `precision_score`, `recall_score`, and `accuracy`, computed per field across all structure instances. A high F1 score (above 0.85) generally indicates a model ready for production. If a particular field is dragging the score down, the most common fix is adding more training examples that contain that field — especially examples where the value is phrased differently from what you've already labelled.
   </Step>
   <Step title="Run inference with your trained model">
     Use your job ID as the `model_id` to run predictions. Extraction lives under the `structures` key of the `schema` field — at inference time you describe each structure with a list of typed fields, and the model returns the values it extracts from the text.
