@@ -132,6 +132,12 @@ def _line_findings(
             findings.append(f"{relative}:{number}: doubled /v1 prefix")
         if "/v1/completions" in line and not _is_migration_line(line):
             findings.append(f"{relative}:{number}: removed /v1/completions route")
+        if "/v1/embeddings" in line and not _is_migration_line(line):
+            findings.append(f"{relative}:{number}: removed /v1/embeddings route")
+        if "/v1/felix" in line and not _is_migration_line(line):
+            findings.append(f"{relative}:{number}: retired /v1/felix route prefix")
+        if "pio_sk_" in line and not _is_migration_line(line):
+            findings.append(f"{relative}:{number}: retired pio_sk_ API key prefix")
         if "/v1/felix/evaluations" in line:
             findings.append(f"{relative}:{number}: removed legacy evaluation route")
         if (

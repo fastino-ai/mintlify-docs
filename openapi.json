@@ -257,15 +257,15 @@
         ]
       }
     },
-    "/v1/embeddings": {
+    "/v1/gliner-2": {
       "post": {
-        "description": "Generate embeddings for one or more inputs in the OpenAI response shape.",
-        "operationId": "create_embeddings_v1_embeddings_post",
+        "description": "Process text using GLiNER-2 base model via InferenceService.\n\n``task`` is optional \u2014 when omitted the unified schema path is used.\nLegacy task names are still accepted but deprecated.",
+        "operationId": "gliner2_process_gliner_2_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EmbeddingRequest"
+                "$ref": "#/components/schemas/GlinerRequest"
               }
             }
           },
@@ -276,7 +276,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmbeddingResponse"
+                  "$ref": "#/components/schemas/GlinerResponse"
                 }
               }
             },
@@ -293,653 +293,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Embeddings",
+        "summary": "Gliner2 Process",
         "tags": [
-          "openai-compat"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs": {
-      "post": {
-        "description": "Create a new training job.\n\nThe provider is resolved from the registry based on\n``(base_model, training_type)``.\n\nArgs:\n    request: Incoming FastAPI request (required by SlowAPI key function).\n    training_request: Training configuration with dataset references and base_model.\n    auth: Authenticated user context.",
-        "operationId": "create_training_job_felix_training_jobs_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TrainingJobCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TrainingJobResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Training Job",
-        "tags": [
-          "felix"
-        ]
-      },
-      "get": {
-        "description": "List training jobs for the authenticated user.\n\nSupports pagination via ``limit`` and ``offset`` query parameters.\nOptionally filter by status (requested, running, complete, deployed, errored).",
-        "operationId": "list_training_jobs_felix_training_jobs_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "in": "query",
-            "name": "project_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Project Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 200,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TrainingJobListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Training Jobs",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}": {
-      "delete": {
-        "description": "Delete a training job and associated checkpoints.",
-        "operationId": "delete_training_job_felix_training_jobs__job_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteTrainingJobResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Training Job",
-        "tags": [
-          "felix"
-        ]
-      },
-      "get": {
-        "description": "Get a training job by ID if it is visible to the caller's team.\n\nRead visibility matches the other ``training-jobs/{job_id}`` read routes\nthat already use ``_get_visible_job`` (logs, checkpoints, download): a\njob on a team-visible project, or a project-less shared job, is\nreturned even when the caller is not the creator. Mutating routes keep\ntheir own owner-scoped service calls.",
-        "operationId": "get_training_job_felix_training_jobs__job_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TrainingJobResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Training Job",
-        "tags": [
-          "felix"
-        ]
-      },
-      "patch": {
-        "description": "Patch a training job. Currently exposes only ``project_id``.\n\nDelegates to :func:`services.projects.movement.assign_resource_to_project`\nwhich owns the visibility check, target-project gating, and the\nservice-role ``UPDATE``. Send ``project_id: null`` to unassign the job\nfrom its project.\n\nMovement is **label-only**: only ``training_jobs.project_id`` changes.\nDependent rows that carry their own ``project_id`` (``deployments``,\n``inferences``, ``project_evaluation_runs``) are intentionally not cascaded.\nCallers needing aggregate-model movement must update dependents\nexplicitly.",
-        "operationId": "update_training_job_felix_training_jobs__job_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TrainingJobUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateResourceProjectResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Training Job",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/billing": {
-      "get": {
-        "description": "Get the billing outcome for a specific training job, by job ID.\n\nCloses the API gap in ENG-6131: reports whether a job was billed and,\nif so, for how much and how long, so a billing-correctness fix like\nENG-6068 can be verified live without direct database access. Read\nvisibility matches ``get_training_job`` and the other\n``training-jobs/{job_id}`` read routes.",
-        "operationId": "get_training_job_billing_felix_training_jobs__job_id__billing_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TrainingJobBillingResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Training Job Billing",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/checkpoints": {
-      "get": {
-        "description": "List all checkpoints for a training job visible to the caller's team.",
-        "operationId": "list_training_job_checkpoints_felix_training_jobs__job_id__checkpoints_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CheckpointListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Training Job Checkpoints",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy": {
-      "post": {
-        "description": "Deploy a specific checkpoint to the Multi-Model Endpoint.",
-        "operationId": "deploy_checkpoint_to_mme_felix_training_jobs__job_id__checkpoints__checkpoint_id__deploy_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "checkpoint_id",
-            "required": true,
-            "schema": {
-              "title": "Checkpoint Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeployCheckpointResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Deploy Checkpoint To Mme",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/download": {
-      "get": {
-        "description": "Generate a presigned S3 URL to download a trained model.",
-        "operationId": "download_trained_model_felix_training_jobs__job_id__download_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelDownloadResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get download URL for trained model",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/logs": {
-      "get": {
-        "description": "Get training output logs (stdout/stderr) for a specific job.",
-        "operationId": "get_training_job_logs_felix_training_jobs__job_id__logs_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TrainingLogsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Training Job Logs",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/model-name": {
-      "patch": {
-        "description": "Update the model_name for a training job.\n\nThin wrapper: visibility scoping, validation, the UPDATE, and the\nactivity-event side effect all live in\n:meth:`TrainingJobService.update_model_name`. The router only owns\nHTTP concerns (status codes, request/response shaping) per\n``brain/CLAUDE.md``.",
-        "operationId": "update_training_job_model_name_felix_training_jobs__job_id__model_name_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateModelNameRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateModelNameResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Training Job Model Name",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/stop": {
-      "post": {
-        "description": "Stop a running training job.",
-        "operationId": "stop_training_job_felix_training_jobs__job_id__stop_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/StopJobRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StopJobResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Stop Training Job",
-        "tags": [
-          "felix"
-        ]
-      }
-    },
-    "/v1/felix/training-jobs/{job_id}/terminate": {
-      "post": {
-        "description": "Terminate a training job and delete all artifacts.\n\nStops the provider job if running, deletes all checkpoints, and marks\nthe job as terminated. This operation is irreversible.",
-        "operationId": "terminate_training_job_felix_training_jobs__job_id__terminate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TerminateJobResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Terminate Training Job",
-        "tags": [
-          "felix"
+          "gliner"
         ]
       }
     },
@@ -1527,6 +883,650 @@
         "summary": "Responses",
         "tags": [
           "openai-compat"
+        ]
+      }
+    },
+    "/v1/training-jobs": {
+      "post": {
+        "description": "Create a new training job.\n\nThe provider is resolved from the registry based on\n``(base_model, training_type)``.\n\nArgs:\n    request: Incoming FastAPI request (required by SlowAPI key function).\n    training_request: Training configuration with dataset references and base_model.\n    auth: Authenticated user context.",
+        "operationId": "create_training_job_felix_training_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingJobCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Training Job",
+        "tags": [
+          "training-jobs"
+        ]
+      },
+      "get": {
+        "description": "List training jobs for the authenticated user.\n\nSupports pagination via ``limit`` and ``offset`` query parameters.\nOptionally filter by status (requested, running, complete, deployed, errored).",
+        "operationId": "list_training_jobs_felix_training_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingJobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Training Jobs",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}": {
+      "delete": {
+        "description": "Delete a training job and associated checkpoints.",
+        "operationId": "delete_training_job_felix_training_jobs__job_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteTrainingJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Training Job",
+        "tags": [
+          "training-jobs"
+        ]
+      },
+      "get": {
+        "description": "Get a training job by ID if it is visible to the caller's team.\n\nRead visibility matches the other ``training-jobs/{job_id}`` read routes\nthat already use ``_get_visible_job`` (logs, checkpoints, download): a\njob on a team-visible project, or a project-less shared job, is\nreturned even when the caller is not the creator. Mutating routes keep\ntheir own owner-scoped service calls.",
+        "operationId": "get_training_job_felix_training_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Training Job",
+        "tags": [
+          "training-jobs"
+        ]
+      },
+      "patch": {
+        "description": "Patch a training job. Currently exposes only ``project_id``.\n\nDelegates to :func:`services.projects.movement.assign_resource_to_project`\nwhich owns the visibility check, target-project gating, and the\nservice-role ``UPDATE``. Send ``project_id: null`` to unassign the job\nfrom its project.\n\nMovement is **label-only**: only ``training_jobs.project_id`` changes.\nDependent rows that carry their own ``project_id`` (``deployments``,\n``inferences``, ``project_evaluation_runs``) are intentionally not cascaded.\nCallers needing aggregate-model movement must update dependents\nexplicitly.",
+        "operationId": "update_training_job_felix_training_jobs__job_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingJobUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResourceProjectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Training Job",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/billing": {
+      "get": {
+        "description": "Get the billing outcome for a specific training job, by job ID.\n\nCloses the API gap in ENG-6131: reports whether a job was billed and,\nif so, for how much and how long, so a billing-correctness fix like\nENG-6068 can be verified live without direct database access. Read\nvisibility matches ``get_training_job`` and the other\n``training-jobs/{job_id}`` read routes.",
+        "operationId": "get_training_job_billing_felix_training_jobs__job_id__billing_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingJobBillingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Training Job Billing",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/checkpoints": {
+      "get": {
+        "description": "List all checkpoints for a training job visible to the caller's team.",
+        "operationId": "list_training_job_checkpoints_felix_training_jobs__job_id__checkpoints_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Training Job Checkpoints",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy": {
+      "post": {
+        "description": "Deploy a specific checkpoint to the Multi-Model Endpoint.",
+        "operationId": "deploy_checkpoint_to_mme_felix_training_jobs__job_id__checkpoints__checkpoint_id__deploy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "checkpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Checkpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployCheckpointResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deploy Checkpoint To Mme",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/download": {
+      "get": {
+        "description": "Generate a presigned S3 URL to download a trained model.",
+        "operationId": "download_trained_model_felix_training_jobs__job_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDownloadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get download URL for trained model",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/logs": {
+      "get": {
+        "description": "Get training output logs (stdout/stderr) for a specific job.",
+        "operationId": "get_training_job_logs_felix_training_jobs__job_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingLogsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Training Job Logs",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/model-name": {
+      "patch": {
+        "description": "Update the model_name for a training job.\n\nThin wrapper: visibility scoping, validation, the UPDATE, and the\nactivity-event side effect all live in\n:meth:`TrainingJobService.update_model_name`. The router only owns\nHTTP concerns (status codes, request/response shaping) per\n``brain/CLAUDE.md``.",
+        "operationId": "update_training_job_model_name_felix_training_jobs__job_id__model_name_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateModelNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateModelNameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Training Job Model Name",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/stop": {
+      "post": {
+        "description": "Stop a running training job.",
+        "operationId": "stop_training_job_felix_training_jobs__job_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StopJobRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Training Job",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-jobs/{job_id}/terminate": {
+      "post": {
+        "description": "Terminate a training job and delete all artifacts.\n\nStops the provider job if running, deletes all checkpoints, and marks\nthe job as terminated. This operation is irreversible.",
+        "operationId": "terminate_training_job_felix_training_jobs__job_id__terminate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminateJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Terminate Training Job",
+        "tags": [
+          "training-jobs"
         ]
       }
     }
@@ -3202,115 +3202,102 @@
         "title": "ContentBlock",
         "type": "object"
       },
-      "EmbeddingResponse": {
-        "description": "OpenAI-compatible embeddings response payload.",
+      "GlinerResponse": {
+        "description": "Response from GLiNER-2 processing.",
         "properties": {
-          "data": {
-            "description": "One entry per input.",
-            "items": {
-              "$ref": "#/components/schemas/EmbeddingObject"
-            },
-            "title": "Data",
-            "type": "array"
-          },
-          "model": {
-            "description": "Model that produced the embeddings.",
-            "title": "Model",
-            "type": "string"
-          },
-          "object": {
-            "const": "list",
-            "default": "list",
-            "title": "Object",
-            "type": "string"
-          },
-          "usage": {
-            "$ref": "#/components/schemas/EmbeddingUsage",
-            "description": "Token usage for the request."
-          }
-        },
-        "required": [
-          "data",
-          "model",
-          "usage"
-        ],
-        "title": "EmbeddingResponse",
-        "type": "object"
-      },
-      "EmbeddingUsage": {
-        "description": "Token accounting reported by the provider.",
-        "properties": {
-          "prompt_tokens": {
-            "description": "Tokens consumed by the input.",
-            "title": "Prompt Tokens",
-            "type": "integer"
-          },
-          "total_tokens": {
-            "description": "Total tokens billed for the request.",
-            "title": "Total Tokens",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "prompt_tokens",
-          "total_tokens"
-        ],
-        "title": "EmbeddingUsage",
-        "type": "object"
-      },
-      "EmbeddingObject": {
-        "description": "A single embedding vector and its position in the input list.",
-        "properties": {
-          "embedding": {
-            "description": "The embedding vector.",
-            "items": {
-              "type": "number"
-            },
-            "title": "Embedding",
-            "type": "array"
-          },
-          "index": {
-            "description": "Position of this embedding in the input list.",
-            "title": "Index",
-            "type": "integer"
-          },
-          "object": {
-            "const": "embedding",
-            "default": "embedding",
-            "title": "Object",
-            "type": "string"
-          }
-        },
-        "required": [
-          "index",
-          "embedding"
-        ],
-        "title": "EmbeddingObject",
-        "type": "object"
-      },
-      "EmbeddingRequest": {
-        "description": "OpenAI-compatible embeddings request payload.",
-        "properties": {
-          "dimensions": {
+          "result": {
             "anyOf": [
               {
-                "type": "integer"
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "title": "Result"
+          },
+          "token_usage": {
+            "title": "Token Usage",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "result",
+          "token_usage"
+        ],
+        "title": "GlinerResponse",
+        "type": "object"
+      },
+      "GlinerRequest": {
+        "description": "Request for GLiNER-2 processing (sync).",
+        "properties": {
+          "format_results": {
+            "anyOf": [
+              {
+                "type": "boolean"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Optional output dimensionality, when the model supports it.",
-            "title": "Dimensions"
+            "default": true,
+            "title": "Format Results"
           },
-          "encoding_format": {
-            "const": "float",
-            "default": "float",
-            "description": "Format of the returned embeddings. Only float is supported.",
-            "title": "Encoding Format",
-            "type": "string"
+          "include_confidence": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Include Confidence"
           },
-          "input": {
+          "include_spans": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Include Spans"
+          },
+          "schema": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Extraction schema. The flat ``list[str]`` of entity labels is deprecated; use the unified dict shape (``entities`` / ``classifications`` / ``structures`` / ``relations``) for forward compatibility. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
+            "title": "Schema"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "**Deprecated** legacy task hint. One of: 'extract_entities', 'classify_text', 'extract_json', 'schema'. Omit for the unified GLiNER2 path. Submitting a legacy task value still succeeds but the response carries ``Deprecation: true`` and a ``Sunset`` header.",
+            "title": "Task"
+          },
+          "text": {
             "anyOf": [
               {
                 "type": "string"
@@ -3322,32 +3309,26 @@
                 "type": "array"
               }
             ],
-            "description": "Text or list of texts to embed.",
-            "title": "Input"
+            "title": "Text"
           },
-          "model": {
-            "description": "Embedding model identifier.",
-            "title": "Model",
-            "type": "string"
-          },
-          "user": {
+          "threshold": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Opaque end-user identifier for abuse monitoring.",
-            "title": "User"
+            "default": 0.5,
+            "title": "Threshold"
           }
         },
         "required": [
-          "input",
-          "model"
+          "text",
+          "schema"
         ],
-        "title": "EmbeddingRequest",
+        "title": "GlinerRequest",
         "type": "object"
       },
       "ChatCompletionResponse": {
@@ -5493,14 +5474,14 @@
     },
     "securitySchemes": {
       "ApiKeyAuth": {
-        "description": "Pioneer API key supplied in the X-API-Key header.",
+        "description": "Fastino API key supplied in the X-API-Key header.",
         "in": "header",
         "name": "X-API-Key",
         "type": "apiKey"
       },
       "BearerAuth": {
         "bearerFormat": "JWT",
-        "description": "Supabase access token or Pioneer API key supplied as a Bearer token.",
+        "description": "Supabase access token or Fastino API key supplied as a Bearer token.",
         "scheme": "bearer",
         "type": "http"
       }
