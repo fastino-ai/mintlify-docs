@@ -6,7 +6,7 @@ description: "API REST de Fastino: URL base, autenticación, flujo recomendado e
 
 La API REST de Fastino te permite ejecutar inferencia, gestionar datasets, iniciar trabajos de entrenamiento y evaluar modelos de forma programática. Todos los recursos residen bajo una única URL base, y cada solicitud se autentica con tu clave de API. Fastino también expone endpoints compatibles con OpenAI y Anthropic, por lo que puedes integrarlo con cualquier herramienta que ya admita esos formatos.
 
-**URL base:** `https://api.pioneer.ai`
+**URL base:** `https://api.fastino.ai`
 
 ## Autenticación
 
@@ -18,27 +18,27 @@ Sigue esta secuencia cuando estés construyendo un modelo ajustado de principio 
 
 <Steps>
   <Step title="Crear o subir un dataset">
-    Usa `POST /generate` para generar datos etiquetados sintéticos. La respuesta incluye un `job_id`; consulta `GET /generate/jobs/{job_id}` hasta que el estado devuelva `ready`.
+    Usa `POST /v1/generate` para generar datos etiquetados sintéticos. La respuesta incluye un `job_id`; consulta `GET /v1/generate/jobs/{job_id}` hasta que el estado devuelva `ready`.
 
     Para subir tus propios datos etiquetados, utiliza el flujo de subida en tres pasos:
 
-    1. Llama a `POST /felix/datasets/upload/url` para obtener una URL prefirmada de S3,
+    1. Llama a `POST /v1/felix/datasets/upload/url` para obtener una URL prefirmada de S3,
     2. Envía tu archivo con `PUT` directamente a S3
-    3. Llama a `POST /felix/datasets/upload/process` para iniciar el procesamiento.
+    3. Llama a `POST /v1/felix/datasets/upload/process` para iniciar el procesamiento.
 
-    Consulta `GET /felix/datasets/{name}/{version}` hasta que el estado sea `ready`.<br />Consulta la página de [Datasets](/api-reference/datasets) para más detalles.
+    Consulta `GET /v1/felix/datasets/{name}/{version}` hasta que el estado sea `ready`.<br />Consulta la página de [Datasets](/api-reference/datasets) para más detalles.
   </Step>
   <Step title="Iniciar un trabajo de entrenamiento">
-    Llama a `POST /felix/training-jobs` con tu model\_name, datasets y base\_model. La respuesta incluye un `job_id`. Guárdalo para los siguientes pasos.
+    Llama a `POST /v1/felix/training-jobs` con tu model\_name, datasets y base\_model. La respuesta incluye un `job_id`. Guárdalo para los siguientes pasos.
   </Step>
   <Step title="Consultar el estado del entrenamiento">
-    Llama a `GET /felix/training-jobs/:id` repetidamente hasta que el campo de estado sea `complete`. Los trabajos completados incluyen métricas de F1, precisión y recall.
+    Llama a `GET /v1/felix/training-jobs/:id` repetidamente hasta que el campo de estado sea `complete`. Los trabajos completados incluyen métricas de F1, precisión y recall.
   </Step>
   <Step title="Ejecutar una evaluación">
-    Llama a `POST /felix/evaluations` con el ID de tu trabajo de entrenamiento y el nombre de un dataset reservado para validar el rendimiento antes de servir tráfico.
+    Crea una suite de evaluación con `POST /v1/projects/{project_id}/evaluation-suites` y ejecútala contra el modelo seleccionado antes de servir tráfico.
   </Step>
   <Step title="Ejecutar inferencia">
-    Llama a `POST /inference` con `base_model` configurado como el ID de tu trabajo de entrenamiento y dataset\_name configurado como tu dataset reservado. También puedes usar cualquier ID de modelo base (por ejemplo `fastino/gliner2-base-v1`) sin ajuste fino.
+    Llama a `POST /v1/chat/completions` con el ID del trabajo de entrenamiento en `model` y pasa la entrada en `messages`. También puedes usar un ID de modelo base compatible sin ajuste fino.
   </Step>
 </Steps>
 
@@ -49,7 +49,7 @@ Sigue esta secuencia cuando estés construyendo un modelo ajustado de principio 
 ## Grupos de endpoints
 
 <CardGroup cols={2}>
-  <Card title="Inferencia" icon="bolt" href="/api-reference/inference/pioneer">
+  <Card title="Inferencia" icon="bolt" href="/es/inference">
     Ejecuta predicciones contra modelos ajustados o modelos base usando el formato de Fastino, o mediante endpoints compatibles con OpenAI y Anthropic listos para usar.
   </Card>
 
@@ -68,11 +68,23 @@ Sigue esta secuencia cuando estés construyendo un modelo ajustado de principio 
 
 ## Compatibilidad con OpenAI y Anthropic
 
-Fastino ofrece reemplazos directos para los SDK de OpenAI y Anthropic. Apunta tu cliente existente a `https://api.pioneer.ai/v1` y utiliza tu clave de API de Fastino. No se requieren otros cambios.
+Fastino ofrece reemplazos directos para los SDK de OpenAI y Anthropic. Apunta tu cliente existente a `https://api.fastino.ai/v1` y utiliza tu clave de API de Fastino. No se requieren otros cambios.
 
 | SDK | URL base | Notas |
 | --- | --- | --- |
-| OpenAI | `https://api.pioneer.ai/v1` | Configura `base_url`; pasa los campos específicos de Fastino mediante `extra_body` |
-| Anthropic | `https://api.pioneer.ai/v1` | Configura `base_url`; admite streaming |
+| OpenAI | `https://api.fastino.ai/v1` | Configura `base_url`; pasa los campos específicos de Fastino mediante `extra_body` |
+| Anthropic | `https://api.fastino.ai/v1` | Configura `base_url`; admite streaming |
 
 Pasa los campos específicos de Fastino como `schema` usando `extra_body` (SDK de OpenAI) o el mecanismo equivalente de parámetros adicionales para tu biblioteca cliente.
+
+## `/v1` y excepciones de rutas raíz
+
+Las rutas nativas del producto usan el prefijo `/v1`. Las rutas compatibles con OpenAI y Anthropic conservan sus rutas `/v1` actuales. Los recursos de protocolo y operación permanecen en la raíz, incluidos `/health`, `/openapi.json` y `/.well-known/*`.
+
+No antepongas `/v1` sin comprobarlo. Usa la ruta exacta de esta referencia o del documento OpenAPI seleccionado.
+
+## Migración desde el origen de la API de Pioneer
+
+Si una integración existente llama a `https://api.pioneer.ai`, actualiza su URL base a `https://api.fastino.ai`. Las rutas nativas de datasets, entrenamiento, proyectos, catálogo de modelos e historial de inferencias ahora usan el prefijo `/v1`. Por ejemplo, `/felix/training-jobs` ahora es `/v1/felix/training-jobs`.
+
+Las rutas compatibles con OpenAI y Anthropic ya comienzan por `/v1` y conservan sus rutas actuales. No añadas un segundo prefijo: `/v1/chat/completions` sigue siendo `/v1/chat/completions`, no `/v1/v1/chat/completions`. Las integraciones directas con la API deben usar `FASTINO_API_KEY`; los valores de claves y encabezados de autenticación existentes siguen siendo válidos. La CLI de Fastino continúa leyendo `PIONEER_API_KEY` hasta que se publique su migración de configuración independiente.

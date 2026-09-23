@@ -10,10 +10,10 @@ Dans Fastino, les datasets sont des collections d'exemples étiquetés utilisée
 
 Vous créez des datasets de deux manières :
 
-**Génération de données synthétiques** — Utilisez `POST /generate` pour que Fastino produise des exemples étiquetés à partir d'une description de votre domaine et des labels qui vous intéressent. C'est le moyen le plus rapide d'amorcer un dataset sans aucune donnée étiquetée existante.
+**Génération de données synthétiques** — Utilisez `POST /v1/generate` pour que Fastino produise des exemples étiquetés à partir d'une description de votre domaine et des labels qui vous intéressent. C'est le moyen le plus rapide d'amorcer un dataset sans aucune donnée étiquetée existante.
 
 ```bash
-curl -X POST https://api.pioneer.ai/generate \
+curl -X POST https://api.fastino.ai/v1/generate \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -25,7 +25,7 @@ curl -X POST https://api.pioneer.ai/generate \
   }'
 ```
 
-`POST /generate` prend également en charge des types de tâches au-delà de la NER. Passez un `task_type` différent et le champ requis correspondant :
+`POST /v1/generate` prend également en charge des types de tâches au-delà de la NER. Passez un `task_type` différent et le champ requis correspondant :
 
 | `task_type` | Champ requis | Produit |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ curl -X POST https://api.pioneer.ai/generate \
 | `records` | `fields` | Enregistrements structurés |
 | `fields` | `input_fields` et `output_fields` | Enregistrements structurés avec schémas d'entrée/sortie séparés |
 
-L'endpoint renvoie immédiatement `202` avec un `job_id` ; la génération elle-même s'exécute de manière asynchrone. Une fois générés ou étiquetés, les exemples sont stockés automatiquement dans votre dataset. Interrogez `GET /generate/jobs/:job_id` jusqu'à ce que `status` soit `ready` (ou `failed`, auquel cas consultez le champ `error`) avant de démarrer l'entraînement.
+L'endpoint renvoie immédiatement `202` avec un `job_id` ; la génération elle-même s'exécute de manière asynchrone. Une fois générés ou étiquetés, les exemples sont stockés automatiquement dans votre dataset. Interrogez `GET /v1/generate/jobs/:job_id` jusqu'à ce que `status` soit `ready` (ou `failed`, auquel cas consultez le champ `error`) avant de démarrer l'entraînement.
 
 ## Charger votre propre dataset
 
@@ -45,7 +45,7 @@ Charger vos propres données : utilisez `POST/felix/datasets/upload/url` si vous
 #### Étape 1. Obtenir une URL d'upload présignée
 
 ```bash
- curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+ curl -X POST https://api.fastino.ai/v1/felix/datasets/upload/url \
     -H "X-API-Key: YOUR_API_KEY" \
     -H "Content-Type: application/json" \                                                                               
     -d '{
@@ -70,7 +70,7 @@ Il s'agit d'un HTTP PUT direct vers S3. N'incluez pas votre clé API ici.
 #### Étape 3. Déclencher le traitement
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
+curl -X POST https://api.fastino.ai/v1/felix/datasets/upload/process \
     -H "X-API-Key: YOUR_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{                                                                                                               
@@ -80,14 +80,14 @@ curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
 
 Cet appel renvoie immédiatement (`202`) avec le statut `uploading` ; le dataset passe ensuite par les statuts restants en arrière-plan : initialized → uploading → converting → validating → ready
 
-Interrogez `GET /felix/datasets/{name}/{version}` jusqu'à ce que `status` soit `ready` (ou `failed`, auquel cas consultez `processing_error`) avant de démarrer une tâche d'entraînement. Vous pouvez également passer `latest` à la place d'un numéro de version pour toujours récupérer la version la plus récente.
+Interrogez `GET /v1/felix/datasets/{name}/{version}` jusqu'à ce que `status` soit `ready` (ou `failed`, auquel cas consultez `processing_error`) avant de démarrer une tâche d'entraînement. Vous pouvez également passer `latest` à la place d'un numéro de version pour toujours récupérer la version la plus récente.
 
 ## Lister vos datasets
 
 Récupérez tous les datasets de votre compte :
 
 ```bash
-curl https://api.pioneer.ai/felix/datasets \
+curl https://api.fastino.ai/v1/felix/datasets \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -98,7 +98,7 @@ La réponse liste chaque dataset par nom ainsi que des métadonnées telles que 
 Pour voir les versions et les détails d'un dataset spécifique, passez son nom :
 
 ```bash
-curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+curl https://api.fastino.ai/v1/felix/datasets/my-ner-dataset \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -107,7 +107,7 @@ Cela renvoie l'historique des versions et le nombre d'exemples, ce qui est utile
 ## Supprimer un dataset
 
 ```bash
-curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+curl -X DELETE https://api.fastino.ai/v1/felix/datasets/my-ner-dataset \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -121,23 +121,23 @@ La suppression d'un dataset par nom effectue une suppression logique de celui-ci
 
 | Méthode | Endpoint | Description |
 | --- | --- | --- |
-| `GET` | `/felix/datasets` | Lister tous les datasets |
-| `GET` | `/felix/datasets/:name` | Obtenir toutes les versions d'un dataset |
-| `GET` | `/felix/datasets/:name/:version` | Obtenir le statut et les métadonnées d'une version spécifique (`:version` accepte aussi `latest`) |
-| `GET` | `/felix/datasets/:name/:version/preview` | Prévisualiser un échantillon de lignes sans télécharger le fichier complet |
-| `GET` | `/felix/datasets/:name/:version/download` | Télécharger une version au format `jsonl`, `csv` ou `parquet` |
-| `DELETE` | `/felix/datasets/:name` | Suppression logique d'un dataset et de toutes ses versions (rejetée avec `409` si une tâche ou une évaluation l'utilise activement) |
-| `DELETE` | `/felix/datasets/:name/:version` | Suppression logique d'une version spécifique |
-| `POST` | `/felix/datasets/upload/url` | Obtenir une URL S3 présignée pour l'upload direct |
-| `POST` | `/felix/datasets/upload/process` | Déclencher le traitement après l'upload S3 |
-| `POST` | `/felix/datasets/merge` | Fusionner plusieurs datasets du même type en un nouveau dataset |
-| `POST` | `/felix/datasets/:name/:version/push-to-hub` | Pousser une version de dataset vers HuggingFace Hub |
-| `POST` | `/felix/datasets/pull-from-hub` | Importer un dataset depuis HuggingFace Hub |
-| `POST` | `/felix/datasets/preview-from-hub` | Prévisualiser un dataset HuggingFace Hub avant de l'importer |
-| `POST` | `/generate` | Démarrer une tâche de génération de données synthétiques (`202` + `job_id`, asynchrone) |
-| `GET` | `/generate/jobs/:job_id` | Interroger le statut d'une tâche de génération |
-| `POST` | `/generate/ner/label-existing` | Auto-étiqueter du texte brut pour la NER (synchrone, renvoie les résultats directement, pas de `job_id`) |
-| `POST` | `/generate/classification/label-existing` | Auto-classifier du texte brut (synchrone, renvoie les résultats directement, pas de `job_id`) |
+| `GET` | `/v1/felix/datasets` | Lister tous les datasets |
+| `GET` | `/v1/felix/datasets/:name` | Obtenir toutes les versions d'un dataset |
+| `GET` | `/v1/felix/datasets/:name/:version` | Obtenir le statut et les métadonnées d'une version spécifique (`:version` accepte aussi `latest`) |
+| `GET` | `/v1/felix/datasets/:name/:version/preview` | Prévisualiser un échantillon de lignes sans télécharger le fichier complet |
+| `GET` | `/v1/felix/datasets/:name/:version/download` | Télécharger une version au format `jsonl`, `csv` ou `parquet` |
+| `DELETE` | `/v1/felix/datasets/:name` | Suppression logique d'un dataset et de toutes ses versions (rejetée avec `409` si une tâche ou une évaluation l'utilise activement) |
+| `DELETE` | `/v1/felix/datasets/:name/:version` | Suppression logique d'une version spécifique |
+| `POST` | `/v1/felix/datasets/upload/url` | Obtenir une URL S3 présignée pour l'upload direct |
+| `POST` | `/v1/felix/datasets/upload/process` | Déclencher le traitement après l'upload S3 |
+| `POST` | `/v1/felix/datasets/merge` | Fusionner plusieurs datasets du même type en un nouveau dataset |
+| `POST` | `/v1/felix/datasets/:name/:version/push-to-hub` | Pousser une version de dataset vers HuggingFace Hub |
+| `POST` | `/v1/felix/datasets/pull-from-hub` | Importer un dataset depuis HuggingFace Hub |
+| `POST` | `/v1/felix/datasets/preview-from-hub` | Prévisualiser un dataset HuggingFace Hub avant de l'importer |
+| `POST` | `/v1/generate` | Démarrer une tâche de génération de données synthétiques (`202` + `job_id`, asynchrone) |
+| `GET` | `/v1/generate/jobs/:job_id` | Interroger le statut d'une tâche de génération |
+| `POST` | `/v1/generate/ner/label-existing` | Auto-étiqueter du texte brut pour la NER (synchrone, renvoie les résultats directement, pas de `job_id`) |
+| `POST` | `/v1/generate/classification/label-existing` | Auto-classifier du texte brut (synchrone, renvoie les résultats directement, pas de `job_id`) |
 
 <Note>
   **Confidentialité des données :** si vous souhaitez refuser que vos données soient utilisées dans l'entraînement des modèles de Fastino, veuillez écrire à [support@fastino.ai](mailto:support@fastino.ai) et nous veillerons à ce que vos données soient exclues de nos pipelines d'entraînement.

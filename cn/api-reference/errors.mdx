@@ -21,7 +21,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 - **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非 `detail`——参见下方的 [402](#402-payment-required) 和 [403](#403-forbidden)。
 - **速率限制响应**（`429`）在 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头——参见下方的 [429](#429-too-many-requests)。
 - **未处理的服务器错误**（`500`）返回 `{"error", "message"}` 而不是 `detail`。
-- 针对 OpenAI 兼容端点（`/v1/chat/completions`、`/v1/completions`、`/v1/responses`、`/v1/embeddings`）的请求会收到 OpenAI 格式的 `{"error": {"code", "type", "param", "message"}}` 封装，而携带 `anthropic-version` 请求头的请求则会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装，而非上述通用格式。
+- 针对 OpenAI 兼容端点（`/v1/chat/completions`、`/v1/responses`、`/v1/embeddings`）的请求会收到 OpenAI 格式的 `{"error": {"code", "type", "param", "message"}}` 封装，而携带 `anthropic-version` 请求头的请求则会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装，而非上述通用格式。
 
 ## 状态代码
 
@@ -65,7 +65,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 您请求的资源不存在。当数据集名称、训练任务 ID、评估 ID、项目 ID 或模型 ID 拼写错误或已被删除时，可能会出现这种情况。
 
-**如何修复：** 请仔细核对请求路径或主体中的 ID 或名称。使用相应的 `GET` 列表端点（例如 `GET /felix/training-jobs`、`GET /base-models`）确认资源存在。
+**如何修复：** 请仔细核对请求路径或主体中的 ID 或名称。使用相应的 `GET` 列表端点（例如 `GET /v1/felix/training-jobs`、`GET /v1/base-models`）确认资源存在。
 
 ---
 
@@ -73,7 +73,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 模型在目录中存在但当前无法提供服务——例如，仅可用于训练的基础模型被请求用于直接推理，或者训练任务完成后按需部署尚未完成配置。
 
-**如何修复：** 通过 `GET /base-models` 查看模型的 `supports_inference` 和 `supports_on_demand_inference`，或等待部署完成配置后重试。
+**如何修复：** 通过 `GET /v1/base-models` 查看模型的 `supports_inference` 和 `supports_on_demand_inference`，或等待部署完成配置后重试。
 
 ---
 
@@ -91,13 +91,13 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 **如何修复：** 查看错误 `message` 中失败的具体字段。常见原因包括：
 
-- 在 `POST /felix/training-jobs` 中省略了 `base_model`
-- 向 `POST /generate` 传入了不受支持的 `task_type`
+- 在 `POST /v1/felix/training-jobs` 中省略了 `base_model`
+- 向 `POST /v1/generate` 传入了不受支持的 `task_type`
 - 在 label-existing 端点的 `inputs` 数组中发送的字符串少于 1 个或多于 1,000 个
 
 ```json
 {
-    "detail": "For 'POST /felix/training-jobs', ...",
+    "detail": "For 'POST /v1/felix/training-jobs', ...",
     "errors": [...]
 }
 ```

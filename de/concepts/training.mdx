@@ -30,14 +30,14 @@ Das `status`-Feld eines Trainingsjobs durchläuft mehrere Zustände. Der Hauptpf
   </Step>
 </Steps>
 
-Ein Job kann auch in **`errored`** (ein Fehler ist während des Trainings aufgetreten), **`stopped`** (Sie haben ihn mit `POST /felix/training-jobs/:id/stop` sauber angehalten, Checkpoints bleiben erhalten), **`terminated`** (Sie haben `POST /felix/training-jobs/:id/terminate` aufgerufen, was den Job stoppt *und* seine Checkpoints permanent löscht, was unumkehrbar ist) oder **`paused`** enden.
+Ein Job kann auch in **`errored`** (ein Fehler ist während des Trainings aufgetreten), **`stopped`** (Sie haben ihn mit `POST /v1/felix/training-jobs/:id/stop` sauber angehalten, Checkpoints bleiben erhalten), **`terminated`** (Sie haben `POST /v1/felix/training-jobs/:id/terminate` aufgerufen, was den Job stoppt *und* seine Checkpoints permanent löscht, was unumkehrbar ist) oder **`paused`** enden.
 
 ## Wichtige Parameter
 
 | Parameter | Erforderlich | Beschreibung |
 |---|---|---|
 | `model_name` | Ja | Ein Name für Ihr trainiertes Modell, mit dem es in Ihrem Konto identifiziert wird. |
-| `base_model` | Ja | Die Modell-ID, die feinabgestimmt werden soll. Verwenden Sie einen Wert aus `GET /base-models` oder eine Checkpoint-UUID aus einem früheren Job. |
+| `base_model` | Ja | Die Modell-ID, die feinabgestimmt werden soll. Verwenden Sie einen Wert aus `GET /v1/base-models` oder eine Checkpoint-UUID aus einem früheren Job. |
 | `datasets` | Ja | Ein Array von Dataset-Objekten: `[{"name": "your-dataset-name"}]`. |
 | `training_type` | Nein | `"lora"` (Standard, parametereffizient) oder `"full"` (alle Gewichte). Decoder-LLM-Training ist ausschließlich LoRA. |
 | `nr_epochs` | Nein | Anzahl der Trainings-Epochen. Standard ist 100, außer bei Decoder-Basismodellen, wo der Standard 10 ist, wenn weggelassen. |
@@ -50,7 +50,7 @@ Ein Job kann auch in **`errored`** (ein Fehler ist während des Trainings aufget
 ## Einen Trainingsjob starten
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs \
+curl -X POST https://api.fastino.ai/v1/felix/training-jobs \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -83,7 +83,7 @@ Speichern Sie die `id`. Sie verwenden sie, um den Status abzufragen, Metriken ab
 Fragen Sie den Job-Endpunkt ab, bis `status` einen Endzustand erreicht: `complete`, `deployed`, `errored`, `stopped` oder `terminated`:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
+curl https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -108,7 +108,7 @@ Das `metrics`-Feld enthält immer Loss-Werte, sobald das Training beginnt, sowie
 Um strukturierte stdout/stderr-Log-Zeilen für den Job abzurufen:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
+curl https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -119,7 +119,7 @@ Dies gibt eine JSON-Liste von Log-Einträgen zurück (`{id, timestamp, level, me
 Um einen laufenden Job sauber anzuhalten und dabei seine Checkpoints zu bewahren:
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
+curl -X POST https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -128,7 +128,7 @@ Der Job-Status wechselt zu `stopped`. Vor dem Stop gespeicherte Checkpoints blei
 Um einen Job permanent zu beenden und seine Checkpoints zu löschen, verwenden Sie stattdessen `/terminate`:
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
+curl -X POST https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -141,21 +141,21 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-
 Fastino speichert während des Trainings Checkpoints. Sie können sie jederzeit nach dem Start des Jobs auflisten:
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
+curl https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 Jeder Checkpoint trägt die Flags `is_best`, `is_final` und `is_deployable`. Sie können jeden deploybaren Checkpoint auf einen Live-Inferenz-Endpunkt deployen, nicht nur den finalen:
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
+curl -X POST https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 Um stattdessen Gewichte herunterzuladen, fordern Sie eine Presigned-URL an (erfordert einen Pro-Plan oder höher; andernfalls gibt dieser Aufruf `403` zurück):
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
+curl https://api.fastino.ai/v1/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -176,13 +176,13 @@ Sie können auch eine Checkpoint-UUID als `base_model`-Wert in einem neuen Train
 
 | Methode | Endpunkt | Beschreibung |
 |---|---|---|
-| `POST` | `/felix/training-jobs` | Einen neuen Trainingsjob starten |
-| `GET` | `/felix/training-jobs` | Trainingsjobs auflisten (nach `project_id`, `status` filtern; mit `limit`/`offset` paginieren) |
-| `GET` | `/felix/training-jobs/:id` | Job-Status und Metriken abrufen |
-| `GET` | `/felix/training-jobs/:id/logs` | Strukturierte Trainings-Log-Einträge abrufen |
-| `GET` | `/felix/training-jobs/:id/checkpoints` | Gespeicherte Checkpoints auflisten |
-| `POST` | `/felix/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | Einen bestimmten Checkpoint für Inferenz deployen |
-| `GET` | `/felix/training-jobs/:id/download` | Eine Presigned-URL zum Herunterladen trainierter Gewichte abrufen (Pro-Plan+) |
-| `POST` | `/felix/training-jobs/:id/stop` | Einen laufenden Job sauber stoppen und Checkpoints bewahren |
-| `POST` | `/felix/training-jobs/:id/terminate` | Den Job stoppen und seine Checkpoints permanent löschen (unumkehrbar) |
-| `DELETE` | `/felix/training-jobs/:id` | Den Job-Record löschen. Stoppt ihn auch, wenn er aktiv ist, und löscht seine Checkpoints |
+| `POST` | `/v1/felix/training-jobs` | Einen neuen Trainingsjob starten |
+| `GET` | `/v1/felix/training-jobs` | Trainingsjobs auflisten (nach `project_id`, `status` filtern; mit `limit`/`offset` paginieren) |
+| `GET` | `/v1/felix/training-jobs/:id` | Job-Status und Metriken abrufen |
+| `GET` | `/v1/felix/training-jobs/:id/logs` | Strukturierte Trainings-Log-Einträge abrufen |
+| `GET` | `/v1/felix/training-jobs/:id/checkpoints` | Gespeicherte Checkpoints auflisten |
+| `POST` | `/v1/felix/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | Einen bestimmten Checkpoint für Inferenz deployen |
+| `GET` | `/v1/felix/training-jobs/:id/download` | Eine Presigned-URL zum Herunterladen trainierter Gewichte abrufen (Pro-Plan+) |
+| `POST` | `/v1/felix/training-jobs/:id/stop` | Einen laufenden Job sauber stoppen und Checkpoints bewahren |
+| `POST` | `/v1/felix/training-jobs/:id/terminate` | Den Job stoppen und seine Checkpoints permanent löschen (unumkehrbar) |
+| `DELETE` | `/v1/felix/training-jobs/:id` | Den Job-Record löschen. Stoppt ihn auch, wenn er aktiv ist, und löscht seine Checkpoints |

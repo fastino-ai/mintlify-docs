@@ -12,22 +12,18 @@ Jede Anfrage an die Fastino API muss Ihren API-Schlüssel enthalten. Fastino ver
 2. Gehen Sie zu **Settings** → **API Keys**.
 3. Klicken Sie auf **Create key**, vergeben Sie einen Namen und kopieren Sie den angezeigten Wert.
 
-Speichern Sie Ihren Schlüssel in einer Umgebungsvariable (zum Beispiel `PIONEER_API_KEY`), statt ihn in Quelldateien fest zu hinterlegen.
+Speichern Sie Ihren Schlüssel in einer Umgebungsvariable (zum Beispiel `FASTINO_API_KEY`), statt ihn in Quelldateien fest zu hinterlegen.
 
 ## Übergabe Ihres API-Schlüssels
 
-Fügen Sie Ihren Schlüssel bei jeder Anfrage in den `X-API-Key`-Header ein:
+Senden Sie Ihren Schlüssel bei nativen Fastino-Anfragen im Header `X-API-Key`:
 
 ```bash cURL
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "YOUR_TRAINING_JOB_ID",
-    "text": "Apple announced the MacBook Pro.",
-    "schema": {"entities": ["organization", "product"]}
-  }'
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
 ```
+
+OpenAI- und Anthropic-kompatible SDKs senden denselben Schlüssel üblicherweise als Bearer-Token. Setzen Sie deren Option `api_key` auf `$FASTINO_API_KEY`; das SDK fügt `Authorization: Bearer ...` automatisch hinzu.
 
 ## Schlüssel verwalten
 
@@ -35,14 +31,14 @@ Erstellen Sie neue API-Schlüssel unter **Settings** -> **API Keys** im Fastino-
 
 ### Einen Schlüssel erstellen
 
-`POST /create-api-key` wird vom Web-Dashboard verwendet und erfordert eine Browser-Sitzung. Mit `X-API-Key` authentifizierte Aufrufe geben `403 Forbidden` mit der Meldung `API key creation is only allowed from the web dashboard.` zurück.
+`POST /v1/create-api-key` wird vom Web-Dashboard verwendet und erfordert eine Browser-Sitzung. Mit `X-API-Key` authentifizierte Aufrufe geben `403 Forbidden` mit der Meldung `API key creation is only allowed from the web dashboard.` zurück.
 
 Die Antwort auf die Erstellung enthält den neuen `secret_key`-Wert. Kopieren Sie ihn sofort. Er wird kein zweites Mal angezeigt.
 
 ### Schlüssel auflisten
 
 ```bash cURL
-curl https://api.pioneer.ai/list-api-keys \
+curl https://api.fastino.ai/v1/list-api-keys \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -51,7 +47,7 @@ Gibt alle Ihrem Konto zugeordneten Schlüssel zurück, einschließlich Namen und
 ### Einen Schlüssel widerrufen
 
 ```bash cURL
-curl -X DELETE https://api.pioneer.ai/delete-api-key \
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -66,7 +62,7 @@ Widerrufene Schlüssel werden bei der nächsten Anfrage sofort abgelehnt. Ein R�
 Um während der Integration zu prüfen, ob Ihr Netzwerk die Fastino API erreichen kann, senden Sie eine Anfrage mit einem Platzhalterschlüssel. Sie erhalten ein `401` zurück. Das bestätigt, dass der Endpunkt erreichbar und Ihre Anfrage korrekt verdrahtet ist.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
+curl -X POST https://api.fastino.ai/v1/messages \
   -H "X-API-Key: pio_sk_test" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'

@@ -6,7 +6,7 @@ description: "Fastino REST API 概览:基础 URL、身份验证、从数据集�
 
 Fastino REST API 允许您以编程方式运行推理、管理数据集、启动训练任务并评估模型。所有资源都位于同一个基础 URL 下,每个请求都使用您的 API 密钥进行身份验证。Fastino 还提供与 OpenAI 和 Anthropic 兼容的端点,因此您可以与任何已支持这些格式的工具集成。
 
-**基础 URL:** `https://api.pioneer.ai`
+**基础 URL:** `https://api.fastino.ai`
 
 ## 身份验证
 
@@ -18,27 +18,27 @@ Fastino REST API 允许您以编程方式运行推理、管理数据集、启动
 
 <Steps>
   <Step title="创建或上传数据集">
-    使用 `POST /generate` 生成合成标注数据。响应中包含一个 `job_id`,请轮询 `GET /generate/jobs/{job_id}` 直到状态返回 `ready`。
+    使用 `POST /v1/generate` 生成合成标注数据。响应中包含一个 `job_id`,请轮询 `GET /v1/generate/jobs/{job_id}` 直到状态返回 `ready`。
 
     要上传您自己的标注数据,请使用三步上传流程:
 
-    1. 调用 `POST /felix/datasets/upload/url` 获取预签名的 S3 URL,
+    1. 调用 `POST /v1/felix/datasets/upload/url` 获取预签名的 S3 URL,
     2. 将文件直接 `PUT` 到 S3,
-    3. 调用 `POST /felix/datasets/upload/process` 触发处理。
+    3. 调用 `POST /v1/felix/datasets/upload/process` 触发处理。
 
-    轮询 `GET /felix/datasets/{name}/{version}` 直到状态为 `ready`。<br />有关完整详情,请参阅[数据集](/api-reference/datasets)页面。
+    轮询 `GET /v1/felix/datasets/{name}/{version}` 直到状态为 `ready`。<br />有关完整详情,请参阅[数据集](/api-reference/datasets)页面。
   </Step>
   <Step title="启动训练任务">
-    使用您的 model\_name、datasets 和 base\_model 调用 `POST /felix/training-jobs`。响应中包含一个 `job_id`,请为后续步骤保存它。
+    使用您的 model\_name、datasets 和 base\_model 调用 `POST /v1/felix/training-jobs`。响应中包含一个 `job_id`,请为后续步骤保存它。
   </Step>
   <Step title="轮询训练状态">
-    反复调用 `GET /felix/training-jobs/:id`,直到 status 字段为 `complete`。已完成的任务会包含 F1、精确率和召回率指标。
+    反复调用 `GET /v1/felix/training-jobs/:id`,直到 status 字段为 `complete`。已完成的任务会包含 F1、精确率和召回率指标。
   </Step>
   <Step title="运行评估">
-    使用您的训练任务 ID 和一个留出的数据集名称调用 `POST /felix/evaluations`,以在正式提供服务前验证性能。
+    使用 `POST /v1/projects/{project_id}/evaluation-suites` 创建评估套件，然后在正式提供流量之前，针对选定模型运行评估。
   </Step>
   <Step title="运行推理">
-    调用 `POST /inference`,将 `base_model` 设置为您的训练任务 ID,将 dataset\_name 设置为您的留出数据集。您也可以使用任何基础模型 ID(例如 `fastino/gliner2-base-v1`)而无需微调。
+    调用 `POST /v1/chat/completions`，将 `model` 设置为训练任务 ID，并在 `messages` 中传入输入。您也可以直接使用受支持的基础模型 ID，无需微调。
   </Step>
 </Steps>
 
@@ -49,7 +49,7 @@ Fastino REST API 允许您以编程方式运行推理、管理数据集、启动
 ## 端点分组
 
 <CardGroup cols={2}>
-  <Card title="推理" icon="bolt" href="/api-reference/inference/pioneer">
+  <Card title="推理" icon="bolt" href="/cn/inference">
     使用 Fastino 格式,或通过即插即用的 OpenAI 和 Anthropic 兼容端点,对微调模型或基础模型运行预测。
   </Card>
 
@@ -68,11 +68,23 @@ Fastino REST API 允许您以编程方式运行推理、管理数据集、启动
 
 ## OpenAI 和 Anthropic 兼容性
 
-Fastino 提供了 OpenAI 和 Anthropic SDK 的即插即用替代方案。将您现有的客户端指向 `https://api.pioneer.ai/v1` 并使用您的 Fastino API 密钥即可,无需其他更改。
+Fastino 提供了 OpenAI 和 Anthropic SDK 的即插即用替代方案。将您现有的客户端指向 `https://api.fastino.ai/v1` 并使用您的 Fastino API 密钥即可,无需其他更改。
 
 | SDK | 基础 URL | 说明 |
 | --- | --- | --- |
-| OpenAI | `https://api.pioneer.ai/v1` | 设置 `base_url`;通过 `extra_body` 传递 Fastino 特定字段 |
-| Anthropic | `https://api.pioneer.ai/v1` | 设置 `base_url`;支持流式传输 |
+| OpenAI | `https://api.fastino.ai/v1` | 设置 `base_url`;通过 `extra_body` 传递 Fastino 特定字段 |
+| Anthropic | `https://api.fastino.ai/v1` | 设置 `base_url`;支持流式传输 |
 
 使用 `extra_body`(OpenAI SDK)或您客户端库中的等效额外参数机制传递诸如 `schema` 之类的 Fastino 特定字段。
+
+## `/v1` 与根路由例外
+
+原生产品路由使用 `/v1` 前缀。兼容 OpenAI 和 Anthropic 的路由保留现有的 `/v1` 路径。协议与运维资源继续位于根路径，包括 `/health`、`/openapi.json` 和 `/.well-known/*`。
+
+请勿盲目添加 `/v1`。请使用本参考文档或精选 OpenAPI 文档中列出的准确路径。
+
+## 从 Pioneer API 源迁移
+
+如果现有集成调用 `https://api.pioneer.ai`，请将基础 URL 更新为 `https://api.fastino.ai`。原生数据集、训练、项目、模型目录和推理历史路由现在使用 `/v1` 前缀。例如，`/felix/training-jobs` 现在是 `/v1/felix/training-jobs`。
+
+兼容 OpenAI 和 Anthropic 的路由已经以 `/v1` 开头，并保持现有路径。请勿添加第二个前缀：`/v1/chat/completions` 仍为 `/v1/chat/completions`，而不是 `/v1/v1/chat/completions`。直接 API 集成应使用 `FASTINO_API_KEY`；现有 API 密钥值和认证标头仍然有效。Fastino CLI 将继续读取 `PIONEER_API_KEY`，直到其独立配置迁移发布。

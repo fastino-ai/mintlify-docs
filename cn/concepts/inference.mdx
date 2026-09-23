@@ -1,76 +1,35 @@
 ---
-title: "Fastino 推理请求格式"
-description: "通过 Fastino 原生 /inference、兼容 OpenAI 或兼容 Anthropic 的三种请求格式调用同一批底层模型。"
+title: "Fastino 推理：OpenAI 和 Anthropic API"
+description: "通过兼容 OpenAI 的聊天补全或兼容 Anthropic 的消息在 Fastino 上运行推理。"
 ---
 
-有了训练完成的模型（或希望直接使用基础模型）之后，您可以向 Fastino API 发送请求来运行推理。`model_id` 字段既接受基础模型 ID（如 `fastino/gliner2-base-v1`），也接受已完成的训练任务返回的任务 ID（一个 UUID，例如 `3fa85f64-5717-4562-b3fc-2c963f66afa6`）。Fastino 会自动把请求路由到正确的部署。
+获得训练模型后（或希望直接使用基础模型时），请在 `model` 字段中发送模型 ID 或已完成训练任务的 UUID。Fastino 会自动将请求路由到正确的部署。
 
-Fastino 支持三种请求格式：自有的原生格式、兼容 OpenAI 的格式，以及兼容 Anthropic 的格式。三者都指向同一批底层模型，且都以相同方式接受您的 API 密钥：`X-API-Key` 请求头或 `Authorization: Bearer <key>` 请求头均可，您的 SDK 默认发送哪一种都能工作，无需按格式做额外配置。
+Fastino 提供兼容 OpenAI 和 Anthropic 的接口。对于 GLiNER 抽取和分类，请使用 `POST /v1/chat/completions`，并发送 `model`、`messages` 和 Fastino 的顶层 `schema` 扩展。规范的请求和响应格式请参阅[推理 API](/cn/inference)。
 
 <Note>
-  对话形状的端点（`/v1/chat/completions`、`/v1/responses`、`/v1/messages`）会以 `400` 拒绝对预训练（非 instruct）基础解码器模型的请求，请改用该模型的 `-Instruct` 变体，或调用 `/v1/completions` 并传入原始 `prompt`。
+  对话形状的端点（`/v1/chat/completions`、`/v1/responses`、`/v1/messages`）会以 `400` 拒绝对预训练（非 instruct）基础解码器模型的请求，请改用该模型的 `-Instruct` 变体。
 </Note>
-
-## Fastino 原生格式
-
-使用 `POST /inference` 搭配 Fastino 的 schema 格式。这是最具表达力的选项，能让您对提取任务拥有完整控制。
-
-```bash
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
-    "schema": {
-      "entities": ["organization", "product", "event", "location"]
-    },
-    "threshold": 0.5
-  }'
-```
-
-### Schema 结构
-
-`schema` 字段是一个包含可选键的字典。只需包含适用于您任务的键。
-
-| 键 | 类型 | 说明 |
-| --- | --- | --- |
-| `entities` | `string[]` | 用于命名实体识别 (NER) 的实体类型标签。 |
-| `classifications` | `object[]` | 分类任务，每个任务包含一个 `task` 名称和 `labels` 列表。 |
-| `structures` | `object` | 用于 JSON 提取的命名结构定义。 |
-| `relations` | `object[]` | 连接已提取实体的关系定义。 |
-
-### 解码器模型
-
-对于解码器模型 (LLM)，将 `schema` 替换为 `"task": "generate"`：
-
-```bash
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
-    "task": "generate",
-    "messages": [                                                                                                     
-        {"role": "user", "content": "Summarize the following article in two sentences."}
-      ]
-  }'
-```
 
 ## 兼容 OpenAI 的格式
 
-Fastino 在 `https://api.pioneer.ai/v1` 提供一个兼容 OpenAI 的端点。将任何现有的 OpenAI SDK 或集成的 base URL 指向该地址，并使用您的 Fastino API 密钥，无需任何其他修改。
+Fastino 在 `https://api.fastino.ai/v1` 提供一个兼容 OpenAI 的端点。将任何现有的 OpenAI SDK 或集成的 base URL 指向该地址，并使用您的 Fastino API 密钥，无需任何其他修改。
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "messages": [
       {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
     ],
-    "schema": {"entities": ["organization", "product"]}
+    "schema": {
+      "entities": [
+        {"name": "organization", "description": "business or institution name"},
+        {"name": "product", "description": "named commercial product"}
+      ]
+    }
   }'
 ```
 
@@ -79,7 +38,6 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
 | 方法 | 端点 | 说明 |
 | --- | --- | --- |
 | `POST` | `/v1/chat/completions` | 聊天补全 |
-| `POST` | `/v1/completions` | 文本补全 |
 | `POST` | `/v1/responses` | Responses API |
 | `POST` | `/v1/embeddings` | 创建嵌入 |
 | `GET` | `/v1/models` | 列出可用模型（对于公开目录，可无需鉴权调用） |
@@ -101,10 +59,10 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
 
 ## 兼容 Anthropic 的格式
 
-Fastino 也提供一个兼容 Anthropic 的端点。将 SDK 的 `base_url` 设置为 `https://api.pioneer.ai/v1`，并用 Fastino API 密钥代替 Anthropic 密钥。Anthropic SDK 会以 `x-api-key` 头发送它，Fastino 与其他两种格式一样能接受。
+Fastino 也提供一个兼容 Anthropic 的端点。将 SDK 的 `base_url` 设置为 `https://api.fastino.ai/v1`，并用 Fastino API 密钥代替 Anthropic 密钥。Anthropic SDK 会以 `x-api-key` 头发送它，Fastino 与其他两种格式一样能接受。
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
+curl -X POST https://api.fastino.ai/v1/messages \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -117,7 +75,7 @@ curl -X POST https://api.pioneer.ai/v1/messages \
   }'
 ```
 
-OpenAI 兼容端点和 Anthropic 兼容端点都支持流式（`stream: true`）。原生 `/inference` 端点不支持流式，如果您需要逐 token 的输出，请使用其中一种兼容格式。
+OpenAI 兼容端点和 Anthropic 兼容端点都支持流式传输（`stream: true`）。
 
 ## 提示缓存
 
@@ -129,7 +87,7 @@ OpenAI 兼容端点和 Anthropic 兼容端点都支持流式（`stream: true`）
 要在 Claude 模型上缓存稳定前缀，请以块数组形式发送内容并进行标记。这同样适用于 `/v1/chat/completions` 和 `/v1/responses`，并不局限于 Anthropic 兼容端点：
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -159,7 +117,7 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
 默认情况下，Fastino 会存储每一次推理的输入、输出和元数据，用于评估、用例聚类和适配器训练。传入 `store: false` 可对特定请求跳过持久化。
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
   -H "Authorization: Bearer pio_sk_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -171,7 +129,7 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
   }'
 ```
 
-`store: false` 在三种请求格式上均受支持：原生 `/inference`、`/v1/chat/completions` 和 `/v1/messages`，对于流式和非流式请求行为一致。
+`store: false` 在 `/v1/chat/completions` 和 `/v1/messages` 上均受支持，对流式和非流式请求的行为一致。
 
 ### `store: false` 会带来哪些变化
 
@@ -199,32 +157,32 @@ Fastino 会记录每一次推理调用。您可以获取过往结果，并提交
 
 ```bash
 # List recent inferences
-curl https://api.pioneer.ai/inferences \
+curl https://api.fastino.ai/v1/inferences \
   -H "X-API-Key: YOUR_API_KEY"
 
 # Get a specific inference result
-curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+curl https://api.fastino.ai/v1/inferences/INFERENCE_ID \
   -H "X-API-Key: YOUR_API_KEY"
 
 # Mark as correct
-curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+curl -X POST https://api.fastino.ai/v1/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"verdict": "correct"}'
 
 # Submit a correction
-curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+curl -X POST https://api.fastino.ai/v1/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"verdict": "incorrect", "corrected_output": {...}, "notes": "optional reviewer note"}'
 
 # Read back the feedback you (or a teammate) already submitted
-curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+curl https://api.fastino.ai/v1/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 如果尚未针对某次推理提交反馈，`GET .../feedback` 会返回 404。`POST .../feedback` 上的 `notes` 字段是可选的。
 
-`GET /inferences` 的可选查询过滤：`limit`、`offset`、`model_id`、`task`、`project_id`、`training_job_id`、`latency_min`、`latency_max`（ms）、`since`、`until`（对 `created_at` 的 ISO 8601 边界）。
+`GET /v1/inferences` 的可选查询过滤：`limit`、`offset`、`model_id`、`task`、`project_id`、`training_job_id`、`latency_min`、`latency_max`（ms）、`since`、`until`（对 `created_at` 的 ISO 8601 边界）。
 
-`GET /inferences/INFERENCE_ID` 也会在记录中一并返回已提交的人工反馈（`human_verdict`、`human_corrected_output`、`human_feedback_notes`）。
+`GET /v1/inferences/INFERENCE_ID` 也会在记录中一并返回已提交的人工反馈（`human_verdict`、`human_corrected_output`、`human_feedback_notes`）。
