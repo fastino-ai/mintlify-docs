@@ -23,7 +23,7 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
     <CodeGroup>
 
     ```bash cURL
-    curl "https://api.pioneer.ai/base-models?task_type=encoder&supports_training=true" \
+    curl "https://api.fastino.ai/v1/base-models?task_type=encoder&supports_training=true" \
       -H "X-API-Key: YOUR_API_KEY"
     ```
 
@@ -32,12 +32,12 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
   <Step title="Prepare your training data">
     You have two options: generate synthetic labeled examples with Fastino, or bring your own labeled data.
 
-    **Option A — Generate synthetic data.** If you don't have labeled examples yet, use the `/generate` endpoint. See the [Synthetic Data guide](/guides/synthetic-data) for full details.
+    **Option A — Generate synthetic data.** If you don't have labeled examples yet, use the `/v1/generate` endpoint. See the [Synthetic Data guide](/guides/synthetic-data) for full details.
 
     <CodeGroup>
 
     ```bash cURL
-    curl -X POST https://api.pioneer.ai/generate \
+    curl -X POST https://api.fastino.ai/v1/generate \
       -H "X-API-Key: YOUR_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
@@ -58,7 +58,7 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
     <CodeGroup>
 
     ```bash cURL
-    curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+    curl https://api.fastino.ai/v1/felix/datasets/my-ner-dataset \
       -H "X-API-Key: YOUR_API_KEY"
     ```
 
@@ -67,12 +67,12 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
     Wait until the dataset status is `ready` before proceeding.
   </Step>
   <Step title="Start a training job">
-    Submit your training job with `POST /felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`.
+    Submit your training job with `POST /v1/felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`.
 
     <CodeGroup>
 
     ```bash cURL
-    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+    curl -X POST https://api.fastino.ai/v1/felix/training-jobs \
       -H "X-API-Key: YOUR_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
@@ -101,7 +101,7 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
     <CodeGroup>
 
     ```bash cURL
-    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID \
+    curl https://api.fastino.ai/v1/felix/training-jobs/YOUR_JOB_ID \
       -H "X-API-Key: YOUR_API_KEY"
     ```
 
@@ -126,38 +126,38 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
     A high F1 score (above 0.85) generally indicates a model ready for production. If scores are lower, consider adding more training examples or adjusting your entity label definitions.
   </Step>
   <Step title="Run an evaluation">
-    Evaluate your trained model against a held-out dataset to get a more rigorous view of performance before deploying.
-
-    <CodeGroup>
-
-    ```bash cURL
-    curl -X POST https://api.pioneer.ai/felix/evaluations \
-      -H "X-API-Key: YOUR_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "base_model": "YOUR_JOB_ID",
-        "dataset_name": "my-eval-dataset"
-      }'
-    ```
-
-    </CodeGroup>
-
-    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1`, `precision`, `recall`, and a `per_entity` breakdown so you can see which entity types need more training data.
+    Pin the held-out cases in a project evaluation suite, then run that same suite against
+    the base model and your training job. See [Evaluations](/api-reference/evaluations) for
+    the current suite and run endpoints. Compare aggregate metrics and per-case entity
+    failures before deploying.
   </Step>
   <Step title="Run inference with your trained model">
-    Use your job ID as the `model_id` to run predictions. The `schema` field controls what Fastino extracts.
+    Use your job ID as the `model` to run predictions through
+    `POST /v1/chat/completions`. The top-level `schema` field controls what Fastino
+    extracts. See the [Inference API](/inference) for the full request and response
+    contract.
 
     <CodeGroup>
 
     ```bash cURL
-    curl -X POST https://api.pioneer.ai/inference \
-      -H "X-API-Key: YOUR_API_KEY" \
+    curl -X POST https://api.fastino.ai/v1/chat/completions \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
-        "model_id": "YOUR_JOB_ID",
-        "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+        "model": "YOUR_JOB_ID",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+          }
+        ],
         "schema": {
-          "entities": ["organization", "product", "event", "location"]
+          "entities": [
+            {"name": "organization", "description": "business or institution name"},
+            {"name": "product", "description": "named commercial product"},
+            {"name": "event", "description": "named conference or event"},
+            {"name": "location", "description": "city, region, or place"}
+          ]
         },
         "threshold": 0.5
       }'
@@ -171,12 +171,13 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
 
     | Key | Type | Description |
     | --- | --- | --- |
-    | `entities` | `string[]` | Entity type labels to extract (NER) |
+    | `entities` | `object[]` | Entity definitions with `name` and `description` |
     | `classifications` | `{task, labels}[]` | Text classification tasks with their label sets |
     | `structures` | `object` | Structure definitions for JSON extraction |
-    | `relations` | `object[]` | Relation definitions between entities |
+    | `relations` | `string[] \| object` | Relation names or configured relation definitions |
 
-    You can also call inference using the OpenAI-compatible endpoint. Set `base_url` to `https://api.pioneer.ai/v1` and pass Fastino fields via `extra_body`:
+    You can make the same request with the OpenAI SDK. Set `base_url` to
+    `https://api.fastino.ai/v1` and pass Fastino fields via `extra_body`:
 
     <CodeGroup>
 
@@ -185,7 +186,7 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
     
     client = OpenAI(
         api_key="YOUR_API_KEY",
-        base_url="https://api.pioneer.ai/v1"
+        base_url="https://api.fastino.ai/v1"
     )
     
     response = client.chat.completions.create(
@@ -196,7 +197,15 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
         }],
         extra_body={
             "schema": {
-                "entities": ["organization", "product", "event", "location"]
+                "entities": [
+                    {
+                        "name": "organization",
+                        "description": "business or institution name",
+                    },
+                    {"name": "product", "description": "named commercial product"},
+                    {"name": "event", "description": "named conference or event"},
+                    {"name": "location", "description": "city, region, or place"},
+                ]
             }
         }
     )
@@ -212,18 +221,25 @@ Named Entity Recognition (NER) lets you extract structured information — peopl
 
 ## Entity descriptions
 
-Instead of passing a plain list of entity type names, you can pass a dictionary mapping each entity type to a natural-language description. Descriptions give the model more context about what to extract, improving accuracy — especially for ambiguous or domain-specific entities.
-
-```json Basic (no descriptions)
-["medication", "dosage", "symptom"]
-```
+Use descriptive entity definitions rather than the deprecated flat array of names. Descriptions
+give the model more context about what to extract, improving accuracy — especially for
+ambiguous or domain-specific entities.
 
 ```json With descriptions (more accurate)
-{
-  "medication": "Names of drugs, medications, or pharmaceutical substances",
-  "dosage": "Specific amounts like '400mg', '2 tablets', or '5ml'",
-  "symptom": "Medical symptoms, conditions, or patient complaints"
-}
+[
+  {
+    "name": "medication",
+    "description": "Names of drugs, medications, or pharmaceutical substances"
+  },
+  {
+    "name": "dosage",
+    "description": "Specific amounts like '400mg', '2 tablets', or '5ml'"
+  },
+  {
+    "name": "symptom",
+    "description": "Medical symptoms, conditions, or patient complaints"
+  }
+]
 ```
 
 **When to use descriptions:**
@@ -238,7 +254,7 @@ Instead of passing a plain list of entity type names, you can pass a dictionary 
 - Include examples inline (e.g. "like '400mg' or '2 tablets'")
 - Keep them to one sentence — concise beats verbose
 
-The output format is identical whether or not you use descriptions — descriptions purely influence what the model decides to extract.
+Descriptions influence what the model decides to extract.
 
 ## Next steps
 

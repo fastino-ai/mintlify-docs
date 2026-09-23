@@ -44,15 +44,15 @@ openclaw --version
      case "$AUTH_DB" in
        "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;;
      esac
-     PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
-     : "${PIONEER_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
+     FASTINO_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+     : "${FASTINO_API_KEY:?Run openclaw models auth paste-api-key --provider pioneer first}"
      CONFIG_FILE="$(openclaw config file)"
      case "$CONFIG_FILE" in
        "~/"*) CONFIG_FILE="$HOME/${CONFIG_FILE#"~/"}" ;;
      esac
      [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
-     curl -fsS "https://api.pioneer.ai/v1/models" \
-       -H "Authorization: Bearer $PIONEER_API_KEY" \
+     curl -fsS "https://api.fastino.ai/v1/models" \
+       -H "Authorization: Bearer $FASTINO_API_KEY" \
        | jq --slurpfile current "$CONFIG_FILE" -c '
          def dedupe:
            reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
@@ -140,7 +140,7 @@ openclaw --version
              models: {
                providers: {
                  pioneer: {
-                   baseUrl: "https://api.pioneer.ai/v1",
+                   baseUrl: "https://api.fastino.ai/v1",
                    api: "openai-completions",
                    models: $pioneer_models
                  }
@@ -235,17 +235,17 @@ openclaw --version
     ```shellscript
     AUTH_DB="$(openclaw models auth list --provider pioneer --json | jq -r '.authStatePath')"
     case "$AUTH_DB" in "~/"*) AUTH_DB="$HOME/${AUTH_DB#"~/"}" ;; esac
-    PIONEER_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
+    FASTINO_API_KEY="$(sqlite3 "$AUTH_DB" "select json_extract(store_json, '$.profiles.\"pioneer:manual\".key') from auth_profile_store where store_key = 'primary';")"
     
-    curl -fsS "https://api.pioneer.ai/v1/models" \
-      -H "Authorization: Bearer $PIONEER_API_KEY" \
+    curl -fsS "https://api.fastino.ai/v1/models" \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
       | jq -r '.data[].id | select(test("^pioneer/(auto|auto_v1|general)$"))'
     ```
 
     Expected output includes at least `pioneer/auto`. Versioned router entries such as `pioneer/auto_v1.1`, `pioneer/auto_v1.2`, and `pioneer/general` appear when they are exposed by the production catalog for your key. If the catalog output is correct, rerun the discovery command and restart the gateway.
   </Accordion>
 
-  <Accordion title='Missing env var "PIONEER_API_KEY"' icon="terminal">
+  <Accordion title='Missing env var "FASTINO_API_KEY"' icon="terminal">
     This usually means the config points at an environment variable that is not visible to the OpenClaw process or gateway service. Prefer the auth-profile setup:
 
     ```shellscript
@@ -255,7 +255,7 @@ openclaw --version
     If you intentionally use an env reference, confirm the variable is visible to the process that runs OpenClaw:
 
     ```shellscript
-    test -n "$PIONEER_API_KEY" && echo "set" || echo "not set"
+    test -n "$FASTINO_API_KEY" && echo "set" || echo "not set"
     ```
 
     For launchd, `launchctl setenv` does not persist across reboots and may not be enough if OpenClaw uses a generated service environment wrapper.

@@ -10,7 +10,7 @@ Steps to integrate Hermes Agent with Fastino:
 2. Set your Fastino API key for the one-time setup command:
 
 ```bash
-export PIONEER_API_KEY="<Your Fastino API key>"
+export FASTINO_API_KEY="<Your Fastino API key>"
 ```
 
 3. Run this one-time setup command. It fetches the live `GET /v1/models` catalog, filters out Claude Code discovery aliases, stores your Fastino API key in Hermes' local environment file at `~/.hermes/.env`, writes the filtered Fastino provider to `~/.hermes/config.yaml`, and sets Claude Opus 5 as the default model.
@@ -18,7 +18,7 @@ export PIONEER_API_KEY="<Your Fastino API key>"
 The command requires `jq` and `ruby`. It creates a timestamped backup of your existing Hermes config before updating the Fastino section.
 
 ```bash
-: "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
+: "${FASTINO_API_KEY:?Set FASTINO_API_KEY first}"
 
 command -v jq >/dev/null || { echo "jq is required"; exit 1; }
 command -v ruby >/dev/null || { echo "ruby is required"; exit 1; }
@@ -32,10 +32,10 @@ mkdir -p "$(dirname "$CONFIG_FILE")"
 [ -f "$CONFIG_FILE" ] || printf '{}\n' > "$CONFIG_FILE"
 cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
 
-hermes config set PIONEER_API_KEY "$PIONEER_API_KEY"
+hermes config set FASTINO_API_KEY "$FASTINO_API_KEY"
 
-curl -fsS "https://api.pioneer.ai/v1/models" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
+curl -fsS "https://api.fastino.ai/v1/models" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   | jq '
     def dedupe:
       reduce .[] as $item ([]; if index($item) then . else . + [$item] end);
@@ -66,8 +66,8 @@ ruby -ryaml -rjson -e '
   cfg["providers"] = {} unless cfg["providers"].is_a?(Hash)
   cfg["providers"]["pioneer"] = {
     "name" => "Fastino",
-    "base_url" => "https://api.pioneer.ai/v1",
-    "key_env" => "PIONEER_API_KEY",
+    "base_url" => "https://api.fastino.ai/v1",
+    "key_env" => "FASTINO_API_KEY",
     "api_mode" => "chat_completions",
     "discover_models" => false,
     "default_model" => "claude-opus-5",
@@ -77,7 +77,7 @@ ruby -ryaml -rjson -e '
   cfg["model"] = {} unless cfg["model"].is_a?(Hash)
   cfg["model"]["provider"] = "pioneer"
   cfg["model"]["default"] = "claude-opus-5"
-  cfg["model"]["base_url"] = "https://api.pioneer.ai/v1"
+  cfg["model"]["base_url"] = "https://api.fastino.ai/v1"
   cfg["model"]["api_mode"] = "chat_completions"
 
   File.write(out_path, YAML.dump(cfg))
@@ -120,8 +120,8 @@ hermes chat -q "Reply with exactly PIONEER_HERMES_OK"
 Or inspect the filtered catalog directly:
 
 ```bash
-curl -fsS "https://api.pioneer.ai/v1/models" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
+curl -fsS "https://api.fastino.ai/v1/models" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   | jq -r '
     def catalog_models:
       (.models // []) as $models
@@ -136,7 +136,7 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
 ```
 
 <Note>
-  After setup, Hermes reads `PIONEER_API_KEY` from `~/.hermes/.env`, so you do not need to export it in every terminal. Keep exporting it only when you want to run shell commands like the catalog check above.
+  After setup, Hermes reads `FASTINO_API_KEY` from `~/.hermes/.env`, so you do not need to export it in every terminal. Keep exporting it only when you want to run shell commands like the catalog check above.
 </Note>
 
 ## Troubleshooting
@@ -162,8 +162,8 @@ curl -fsS "https://api.pioneer.ai/v1/models" \
     Store the key again:
 
     ```bash
-    export PIONEER_API_KEY="<Your Fastino API key>"
-    hermes config set PIONEER_API_KEY "$PIONEER_API_KEY"
+    export FASTINO_API_KEY="<Your Fastino API key>"
+    hermes config set FASTINO_API_KEY "$FASTINO_API_KEY"
     ```
 
     Hermes stores API keys in `~/.hermes/.env`, not directly in `config.yaml`.

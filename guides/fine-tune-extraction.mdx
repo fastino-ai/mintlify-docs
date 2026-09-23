@@ -23,7 +23,7 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
     <CodeGroup>
 
     ```bash cURL
-    curl "https://api.pioneer.ai/base-models?task_type=encoder&supports_training=true" \
+    curl "https://api.fastino.ai/v1/base-models?task_type=encoder&supports_training=true" \
       -H "X-API-Key: YOUR_API_KEY"
     ```
 
@@ -88,7 +88,7 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
     <CodeGroup>
 
     ```bash cURL
-    curl https://api.pioneer.ai/felix/datasets/my-extraction-dataset \
+    curl https://api.fastino.ai/v1/felix/datasets/my-extraction-dataset \
       -H "X-API-Key: YOUR_API_KEY"
     ```
 
@@ -97,12 +97,12 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
     Wait until the dataset status is `ready` before proceeding.
   </Step>
   <Step title="Start a training job">
-    Submit your training job with `POST /felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`. The training endpoint is shared with NER and classification — Fastino infers the task heads from the dataset columns.
+    Submit your training job with `POST /v1/felix/training-jobs`. Set `base_model` to the GLiNER model you chose in step 1 and `training_type` to `"lora"`. The training endpoint is shared with NER and classification — Fastino infers the task heads from the dataset columns.
 
     <CodeGroup>
 
     ```bash cURL
-    curl -X POST https://api.pioneer.ai/felix/training-jobs \
+    curl -X POST https://api.fastino.ai/v1/felix/training-jobs \
       -H "X-API-Key: YOUR_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
@@ -131,7 +131,7 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
     <CodeGroup>
 
     ```bash cURL
-    curl https://api.pioneer.ai/felix/training-jobs/YOUR_JOB_ID \
+    curl https://api.fastino.ai/v1/felix/training-jobs/YOUR_JOB_ID \
       -H "X-API-Key: YOUR_API_KEY"
     ```
 
@@ -156,47 +156,39 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
     For extraction, the metrics are computed per field across all structure instances. A high F1 score (above 0.85) generally indicates a model ready for production. If a particular field is dragging the score down, the most common fix is adding more training examples that contain that field — especially examples where the value is phrased differently from what you've already labelled.
   </Step>
   <Step title="Run an evaluation">
-    Evaluate your trained model against a held-out dataset for a more rigorous read on performance before deploying.
-
-    <CodeGroup>
-
-    ```bash cURL
-    curl -X POST https://api.pioneer.ai/felix/evaluations \
-      -H "X-API-Key: YOUR_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "base_model": "YOUR_JOB_ID",
-        "dataset_name": "my-eval-dataset"
-      }'
-    ```
-
-    </CodeGroup>
-
-    Retrieve evaluation results with `GET /felix/evaluations/:id`. Results include `f1`, `precision`, `recall`, and a per-field breakdown so you can see which fields are accurate and which need more training data.
+    Pin the held-out cases in a project evaluation suite, then run that same suite against
+    the base model and your training job. See [Evaluations](/api-reference/evaluations) for
+    the current suite and run endpoints. Inspect per-case field failures before deploying.
   </Step>
   <Step title="Run inference with your trained model">
-    Use your job ID as the `model_id` to run predictions. Extraction lives under the `structures` key of the `schema` field — at inference time you describe each structure with a list of typed fields, and the model returns the values it extracts from the text.
+    Use your job ID as the `model` to run predictions through
+    `POST /v1/chat/completions`. Extraction lives under the `structures` key of the
+    top-level `schema` field. See the [Inference API](/inference) for the full request and
+    response contract.
 
     <CodeGroup>
 
     ```bash cURL
-    curl -X POST https://api.pioneer.ai/inference \
-      -H "X-API-Key: YOUR_API_KEY" \
+    curl -X POST https://api.fastino.ai/v1/chat/completions \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
-        "model_id": "YOUR_JOB_ID",
-        "text": "Invoice INV-2024-0042 from Acme Corp for $1,250.00 USD. Items: Widget x 10, Premium support, 1 month.",
+        "model": "YOUR_JOB_ID",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Invoice INV-2024-0042 from Acme Corp for $1,250.00 USD. Items: Widget x 10, Premium support, 1 month."
+          }
+        ],
         "schema": {
           "structures": {
-            "invoice": {
-              "fields": [
-                {"name": "vendor", "dtype": "str"},
-                {"name": "invoice_number", "dtype": "str"},
-                {"name": "amount", "dtype": "str", "description": "Total amount due, including currency symbol if present"},
-                {"name": "currency", "dtype": "str", "choices": ["USD", "EUR", "GBP"]},
-                {"name": "line_items", "dtype": "list", "description": "Each line on the invoice"}
-              ]
-            }
+            "invoice": [
+              "vendor::str::company issuing the invoice",
+              "invoice_number::str::invoice identifier",
+              "amount::str::total amount due including currency symbol",
+              "currency::str::three-letter currency code",
+              "line_items::list::each listed invoice item"
+            ]
           }
         },
         "threshold": 0.5
@@ -205,20 +197,15 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
 
     </CodeGroup>
 
-    **Field options**
+    **Field specifications**
 
-    Each entry in `fields` accepts these keys:
-
-    | Key | Type | Description |
-    | --- | --- | --- |
-    | `name` | `string` | Field name returned in the response. |
-    | `dtype` | `string` | `"str"` for a single value, `"list"` for multiple values. |
-    | `choices` | `string[]` | Optional closed enum. Predictions outside the list are dropped. |
-    | `description` | `string` | Optional natural-language hint about what to extract. |
+    Define each field as `name::type::description`, using `str` for one value or `list` for
+    multiple values.
 
     You can request multiple structures in a single call by adding more entries to the `structures` dict, and you can combine extraction with NER (`entities`), classification (`classifications`), or relations (`relations`) in the same request — the response carries each head independently.
 
-    You can also call inference using the OpenAI-compatible endpoint. Set `base_url` to `https://api.pioneer.ai/v1` and pass Fastino fields via `extra_body`:
+    You can make the same request with the OpenAI SDK. Set `base_url` to
+    `https://api.fastino.ai/v1` and pass Fastino fields via `extra_body`:
 
     <CodeGroup>
 
@@ -227,7 +214,7 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
 
     client = OpenAI(
         api_key="YOUR_API_KEY",
-        base_url="https://api.pioneer.ai/v1"
+        base_url="https://api.fastino.ai/v1"
     )
 
     response = client.chat.completions.create(
@@ -239,14 +226,12 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
         extra_body={
             "schema": {
                 "structures": {
-                    "invoice": {
-                        "fields": [
-                            {"name": "vendor", "dtype": "str"},
-                            {"name": "invoice_number", "dtype": "str"},
-                            {"name": "amount", "dtype": "str"},
-                            {"name": "currency", "dtype": "str", "choices": ["USD", "EUR", "GBP"]}
-                        ]
-                    }
+                    "invoice": [
+                        "vendor::str::company issuing the invoice",
+                        "invoice_number::str::invoice identifier",
+                        "amount::str::total amount due including currency symbol",
+                        "currency::str::three-letter currency code",
+                    ]
                 }
             }
         }
@@ -264,8 +249,7 @@ Structured extraction pulls JSON-shaped records — invoices, contracts, product
 ## Tips for higher-quality extractions
 
 - **Cover the surface forms.** If a field can appear in multiple ways — `$1,250.00`, `USD 1,250`, `one thousand two hundred fifty dollars` — include examples of each. The model extracts spans verbatim, so it can only learn the patterns it has seen.
-- **Use `choices` for closed enums.** Currency codes, status flags, country codes — anything with a fixed vocabulary benefits from `choices`. Predictions outside the list are dropped at inference time.
-- **Write descriptions for ambiguous fields.** `{"name": "date", "dtype": "str", "description": "Date the invoice was issued, not the due date"}` is materially more accurate than a bare `{"name": "date", "dtype": "str"}` when both dates appear in the document.
+- **Write descriptions for ambiguous fields.** `date::str::date the invoice was issued, not the due date` is more precise than `date::str` when both dates appear in the document.
 - **Treat list fields as their own labelling decisions.** Each entry in a `list` field has to be a verbatim span. Splitting a comma-separated string yourself ("Widget x 10, Premium support, 1 month" → `["Widget x 10", "Premium support, 1 month"]`) is more reliable than asking the model to do the splitting.
 
 ## Next steps

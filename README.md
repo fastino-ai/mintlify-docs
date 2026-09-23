@@ -40,6 +40,17 @@ mint dev
 
 View your local preview at `http://localhost:3000`.
 
+## API contract maintenance
+
+The checked-in `openapi.json` is a curated projection of the public training and inference operations from Pioneer. Regenerate and verify it against a local Pioneer checkout:
+
+```bash
+python3 scripts/sync_api_openapi.py --pioneer-root ../Pioneer
+python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
+```
+
+The check also enforces two-way parity with the existing public endpoint pages and rejects stale Pioneer API origins, retired inference routes, and doubled `/v1` prefixes.
+
 ## Publishing changes
 
 Install our GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app) to propagate changes from your repo to your deployment. Changes are deployed to production automatically after pushing to the default branch.

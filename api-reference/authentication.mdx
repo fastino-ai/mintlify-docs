@@ -13,22 +13,18 @@ Every request to the Fastino API must include your API key. Fastino uses a simpl
 2. Go to **Settings** → **API Keys**.
 3. Click **Create key**, give it a name, and copy the value shown.
 
-Store your key in an environment variable (for example `PIONEER_API_KEY`) rather than hard-coding it in source files.
+Store your key in an environment variable (for example `FASTINO_API_KEY`) rather than hard-coding it in source files.
 
 ## Passing your API key
 
-Include your key in the `X-API-Key` header on every request:
+Include your key in the `X-API-Key` header on native Fastino requests:
 
 ```bash cURL
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "YOUR_TRAINING_JOB_ID",
-    "text": "Apple announced the MacBook Pro.",
-    "schema": {"entities": ["organization", "product"]}
-  }'
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
 ```
+
+OpenAI- and Anthropic-compatible SDKs conventionally send the same key as a Bearer token. Set their `api_key` option to `$FASTINO_API_KEY`; the SDK adds `Authorization: Bearer ...` for you.
 
 ## Managing keys
 
@@ -36,14 +32,14 @@ Create new API keys from **Settings** -> **API Keys** in the Fastino dashboard. 
 
 ### Create a key
 
-`POST /create-api-key` is used by the web dashboard and requires a browser session. Calls authenticated with `X-API-Key` return `403 Forbidden` with the message `API key creation is only allowed from the web dashboard.`
+`POST /v1/create-api-key` is used by the web dashboard and requires a browser session. Calls authenticated with `X-API-Key` return `403 Forbidden` with the message `API key creation is only allowed from the web dashboard.`
 
 The creation response includes the new `secret_key` value. Copy it immediately — it is not shown again.
 
 ### List keys
 
 ```bash cURL
-curl https://api.pioneer.ai/list-api-keys \
+curl https://api.fastino.ai/v1/list-api-keys \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -52,7 +48,7 @@ Returns all keys associated with your account, including their names and creatio
 ### Revoke a key
 
 ```bash cURL
-curl -X DELETE https://api.pioneer.ai/delete-api-key \
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -67,7 +63,7 @@ Revoked keys are rejected immediately on the next request. There is no undo.
 To verify your network can reach the Fastino API during integration, send a request with a placeholder key. You'll get a `401` back — which confirms the endpoint is reachable and your request is wired correctly.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
+curl -X POST https://api.fastino.ai/v1/messages \
   -H "X-API-Key: pio_sk_test" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
