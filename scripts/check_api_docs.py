@@ -36,11 +36,11 @@ def _operations(spec: dict[str, object]) -> set[tuple[str, str]]:
     return result
 
 
-def _english_docs(root: Path) -> list[Path]:
+def _documentation_files(root: Path, *, include_locales: bool) -> list[Path]:
     return [
         path
         for path in root.rglob("*.mdx")
-        if path.relative_to(root).parts[0] not in LOCALES
+        if include_locales or path.relative_to(root).parts[0] not in LOCALES
     ]
 
 
@@ -94,7 +94,19 @@ def _path_matches_route(
 
 
 def _is_migration_line(line: str) -> bool:
-    return any(word in line.lower() for word in ("legacy", "migrat", "removed"))
+    return any(
+        word in line.lower()
+        for word in (
+            "legacy",
+            "migrat",
+            "removed",
+            "supprim",
+            "elimin",
+            "entfernt",
+            "旧版",
+            "移除",
+        )
+    )
 
 
 def _line_findings(
@@ -105,20 +117,18 @@ def _line_findings(
 ) -> list[str]:
     findings: list[str] = []
     relative = path.relative_to(root)
+    is_overview = relative.as_posix().endswith("api-reference/overview.mdx")
+    is_cli = relative.name == "CLI-Installation.mdx"
     for number, line in enumerate(text.splitlines(), start=1):
         if "api.pioneer.ai" in line and not (
-            relative == Path("api-reference/overview.mdx")
-            and "update its base URL" in line
+            is_overview and "api.fastino.ai" in line
         ):
             findings.append(f"{relative}:{number}: stale api.pioneer.ai origin")
         if "PIONEER_API_KEY" in line and not (
-            (relative == Path("api-reference/overview.mdx") and "Fastino CLI" in line)
-            or relative == Path("CLI-Installation.mdx")
+            is_overview or is_cli
         ):
             findings.append(f"{relative}:{number}: stale PIONEER_API_KEY name")
-        if "/v1/v1/" in line and not (
-            relative == Path("api-reference/overview.mdx") and "not" in line
-        ):
+        if "/v1/v1/" in line and not is_overview:
             findings.append(f"{relative}:{number}: doubled /v1 prefix")
         if "/v1/completions" in line and not _is_migration_line(line):
             findings.append(f"{relative}:{number}: removed /v1/completions route")
@@ -155,6 +165,7 @@ def _line_findings(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pioneer-root", type=Path, required=True)
+    parser.add_argument("--include-locales", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     destination = json.loads((root / "openapi.json").read_text(encoding="utf-8"))
@@ -176,7 +187,7 @@ def main() -> int:
     if destination != generated:
         findings.append("openapi.json content is stale; run scripts/sync_api_openapi.py")
 
-    docs = _english_docs(root)
+    docs = _documentation_files(root, include_locales=args.include_locales)
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
     for method, path in INFERENCE_OPERATIONS:
         visible_path = path.replace("{inference_id}", ":id")
