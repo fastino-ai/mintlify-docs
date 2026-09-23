@@ -2,6 +2,7 @@
 title: "Download trained weights"
 sidebarTitle: "Download weights"
 description: "Generate a temporary URL for downloading a Fastino training artifact."
+api: "GET /felix/training-jobs/{job_id}/download"
 noindex: true
 ---
 
@@ -52,7 +53,7 @@ curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/download \
   "job_id": "YOUR_TRAINING_JOB_ID",
   "download_url": "https://...",
   "expires_in_seconds": 3600,
-  "file_name": "my-model-weights.zip",
+  "file_name": "my-model-name-weights.zip",
   "message": "Download URL generated successfully"
 }
 ```
@@ -60,5 +61,19 @@ curl https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/download \
 <Warning>
   The presigned URL is a temporary bearer credential. Do not log, commit, persist, or share it. Download the artifact promptly and store it according to your data-handling policy.
 </Warning>
+
+To request the URL and download the artifact in one workflow:
+
+```bash
+response=$(curl -fsS \
+  https://api.pioneer.ai/felix/training-jobs/YOUR_TRAINING_JOB_ID/download \
+  -H "X-API-Key: YOUR_API_KEY")
+
+curl -fL \
+  -o "$(jq -r '.file_name' <<<"$response")" \
+  "$(jq -r '.download_url' <<<"$response")"
+```
+
+This example requires `jq`.
 
 An unknown job or a job without a downloadable artifact returns a request-specific `4xx` error.
