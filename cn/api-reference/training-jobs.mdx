@@ -13,39 +13,31 @@ noindex: true
 
 在创建任务之前，请立即调用 `GET /base-models?supports_training=true`。它是可训练模型 ID 的实时权威来源。
 
-[生产环境 OpenAPI 文档](https://api.pioneer.ai/openapi.json) 是当前请求和响应结构的机器可读权威来源。
-
-## 典型工作流
-
-<Steps>
-  <Step title="创建任务">
-    提交一个就绪的数据集和一个当前支持的 `base_model`。
-  </Step>
-  <Step title="轮询任务">
-    读取 `normalized_status`，当 `is_terminal_status` 为 `true` 时停止轮询。
-  </Step>
-  <Step title="检查结果">
-    读取日志快照、训练指标、计费信息和检查点。
-  </Step>
-  <Step title="交付工件">
-    部署可部署的检查点，或下载权重。
-  </Step>
-</Steps>
-
 ## 状态生命周期
 
-持久化的 `status` 可以包含 `requested`、`running`、`complete`、`normalizing`、`artifact_ready`、`deployed`、`paused`、`errored`、`stopped` 和 `terminated`。
+训练任务响应包含：
 
-对于自动化场景，建议使用：
+- `status`：持久化的任务状态。
+- `normalized_status`：用于客户端轮询的稳定状态。
+- `is_terminal_status`：是否可以停止轮询。
+- `error_message`：可用时的失败信息。
+- `is_deployable`：训练完成的工件是否通过部署校验。
+- `deployability_reason`：工件不可部署的原因。
 
-- `normalized_status`：稳定的兼容性状态，例如 `requested`、`running`、`complete`、`deployed`、`failed` 或 `cancelled`。
-- `is_terminal_status`：轮询循环是否可以停止。
-- `error_message`：失败详情（如有）。
-- `is_deployable` 和 `deployability_reason`：服务端对部署就绪性的判定。
+在轮询客户端中优先使用 `normalized_status` 和 `is_terminal_status`。
 
-<Note>
-  `metrics` 对象可能包含 `final_training_loss`、`final_validation_loss` 和 `best_validation_loss`。评估质量指标是独立的，不保证一定存在。
-</Note>
+| 持久化状态 | 说明 |
+| --- | --- |
+| `requested` | 任务已被接受，正在等待调度或资源预置。 |
+| `running` | 训练正在进行中。 |
+| `complete` | 训练已成功完成。工件准备可能仍在继续。 |
+| `normalizing` | Fastino 正在准备训练好的工件。 |
+| `artifact_ready` | 训练工件已就绪。 |
+| `deployed` | 工件已完成部署。 |
+| `paused` | 任务或其流水线已暂停。 |
+| `errored` | 训练、调度或工件准备失败。 |
+| `stopped` | 任务已停止，同时保留现有检查点。 |
+| `terminated` | 任务已终止，其检查点已被删除。 |
 
 ## 端点
 
@@ -64,5 +56,3 @@ noindex: true
 | `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/cn/api-reference/training-jobs/deploy-checkpoint) | 部署检查点 |
 | `GET` | [`/felix/training-jobs/{job_id}/download`](/cn/api-reference/training-jobs/download) | 获取临时的权重下载 URL |
 | `DELETE` | [`/felix/training-jobs/{job_id}`](/cn/api-reference/training-jobs/delete) | 删除任务及其检查点 |
-
-已弃用的 `GET /felix/training-jobs/{job_id}/deployments` 路由不属于本参考文档。请改用 `/projects/{project_id}/deployments`。

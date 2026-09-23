@@ -13,43 +13,35 @@ Die Trainingsjobs-API verwaltet den gesamten Lebenszyklus eines Fine-Tuning-Jobs
 
 Rufen Sie `GET /base-models?supports_training=true` unmittelbar vor dem Erstellen eines Jobs auf. Dies ist die verbindliche Quelle für aktuell trainierbare Modell-IDs.
 
-Das [produktive OpenAPI-Dokument](https://api.pioneer.ai/openapi.json) ist die maschinenlesbare Referenz für die aktuellen Request- und Response-Schemata.
-
-## Typischer Ablauf
-
-<Steps>
-  <Step title="Job erstellen">
-    Reichen Sie einen bereiten Datensatz und ein derzeit unterstütztes `base_model` ein.
-  </Step>
-  <Step title="Job abfragen">
-    Lesen Sie `normalized_status` und beenden Sie das Polling, wenn `is_terminal_status` `true` ist.
-  </Step>
-  <Step title="Ergebnis prüfen">
-    Rufen Sie Log-Snapshots, Trainingsmetriken, Abrechnung und Checkpoints ab.
-  </Step>
-  <Step title="Artefakt ausliefern">
-    Stellen Sie einen bereitstellbaren Checkpoint bereit oder laden Sie die Gewichte herunter.
-  </Step>
-</Steps>
-
 ## Statuslebenszyklus
 
-Der gespeicherte `status` kann `requested`, `running`, `complete`, `normalizing`, `artifact_ready`, `deployed`, `paused`, `errored`, `stopped` und `terminated` enthalten.
+Antworten von Trainingsjobs enthalten:
 
-Für Automatisierungen bevorzugen Sie:
+- `status`: gespeicherter Job-Status.
+- `normalized_status`: stabiler Status, der für das Polling im Client vorgesehen ist.
+- `is_terminal_status`: gibt an, ob das Polling beendet werden kann.
+- `error_message`: Fehlerinformationen, sofern verfügbar.
+- `is_deployable`: gibt an, ob das fertige Artefakt die Bereitstellungsprüfung besteht.
+- `deployability_reason`: Grund, warum das Artefakt nicht bereitstellbar ist.
 
-- `normalized_status`: stabiler Kompatibilitätsstatus wie `requested`, `running`, `complete`, `deployed`, `failed` oder `cancelled`.
-- `is_terminal_status`: gibt an, ob eine Polling-Schleife beendet werden kann.
-- `error_message`: Fehlerdetails, sofern verfügbar.
-- `is_deployable` und `deployability_reason`: die Entscheidung des Servers über die Bereitstellungsfähigkeit.
+Bevorzugen Sie in Polling-Clients `normalized_status` und `is_terminal_status`.
 
-<Note>
-  Das `metrics`-Objekt kann `final_training_loss`, `final_validation_loss` und `best_validation_loss` enthalten. Evaluationsqualitätsmetriken sind separat und nicht garantiert vorhanden.
-</Note>
+| Gespeicherter Status | Beschreibung |
+| --- | --- |
+| `requested` | Der Job wurde angenommen und wartet auf die Zuweisung oder Bereitstellung. |
+| `running` | Das Training läuft. |
+| `complete` | Das Training wurde erfolgreich abgeschlossen. Die Vorbereitung des Artefakts kann noch andauern. |
+| `normalizing` | Fastino bereitet das trainierte Artefakt vor. |
+| `artifact_ready` | Das trainierte Artefakt ist bereit. |
+| `deployed` | Das Artefakt wurde bereitgestellt. |
+| `paused` | Der Job oder seine Pipeline ist angehalten. |
+| `errored` | Training, Zuweisung oder Artefaktvorbereitung ist fehlgeschlagen. |
+| `stopped` | Der Job wurde gestoppt, während vorhandene Checkpoints erhalten blieben. |
+| `terminated` | Der Job wurde beendet und seine Checkpoints wurden gelöscht. |
 
 ## Endpunkte
 
-| Method | Endpoint | Zweck |
+| Methode | Endpunkt | Zweck |
 | --- | --- | --- |
 | `POST` | [`/felix/training-jobs`](/de/api-reference/training-jobs/create) | Trainingsjob erstellen |
 | `GET` | [`/felix/training-jobs`](/de/api-reference/training-jobs/list) | Trainingsjobs auflisten |
@@ -64,5 +56,3 @@ Für Automatisierungen bevorzugen Sie:
 | `POST` | [`/felix/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/de/api-reference/training-jobs/deploy-checkpoint) | Checkpoint bereitstellen |
 | `GET` | [`/felix/training-jobs/{job_id}/download`](/de/api-reference/training-jobs/download) | Temporäre Download-URL für Gewichte abrufen |
 | `DELETE` | [`/felix/training-jobs/{job_id}`](/de/api-reference/training-jobs/delete) | Job und seine Checkpoints löschen |
-
-Die veraltete Route `GET /felix/training-jobs/{job_id}/deployments` ist nicht Teil dieser Referenz. Verwenden Sie stattdessen `/projects/{project_id}/deployments`.
