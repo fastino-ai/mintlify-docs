@@ -15,6 +15,7 @@ ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"https://api\.fastino\.ai/inference(?:\b|[/?#])"),
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
 )
+FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 
 
 def _operations(spec: dict[str, object]) -> set[tuple[str, str]]:
@@ -41,7 +42,37 @@ def _english_docs(root: Path) -> list[Path]:
     ]
 
 
-def _line_findings(root: Path, path: Path, text: str) -> list[str]:
+def _route_patterns(manifest: dict[str, object]) -> list[re.Pattern[str]]:
+    routes = manifest.get("routes")
+    if not isinstance(routes, list):
+        raise TypeError("route manifest has no routes list")
+    patterns: list[re.Pattern[str]] = []
+    for route in routes:
+        if not isinstance(route, dict):
+            continue
+        target = route.get("target_path")
+        if not isinstance(target, str):
+            continue
+        expression = re.escape(target)
+        expression = re.sub(r"\\\{[^}]+\\\}", r"[^/?#]+", expression)
+        patterns.append(re.compile(f"^{expression}/?$"))
+    return patterns
+
+
+def _url_matches_route(url_path: str, patterns: list[re.Pattern[str]]) -> bool:
+    path = url_path.split("?", maxsplit=1)[0].rstrip(".,)")
+    if "$" in path or path in {"", "/v1"}:
+        return True
+    concrete_path = re.sub(r"(\{[^}]+\}|YOUR_[A-Z_]+|[A-Z_]{2,}|:[a-z_]+)", "VALUE", path)
+    return any(pattern.fullmatch(concrete_path) or pattern.fullmatch(path) for pattern in patterns)
+
+
+def _line_findings(
+    root: Path,
+    path: Path,
+    text: str,
+    route_patterns: list[re.Pattern[str]],
+) -> list[str]:
     findings: list[str] = []
     relative = path.relative_to(root)
     for number, line in enumerate(text.splitlines(), start=1):
@@ -69,6 +100,12 @@ def _line_findings(root: Path, path: Path, text: str) -> list[str]:
             word in line.lower() for word in ("legacy", "migrat", "removed")
         ):
             findings.append(f"{relative}:{number}: active removed POST /inference text")
+        for match in FASTINO_URL.finditer(line):
+            if not _url_matches_route(match.group(1), route_patterns):
+                findings.append(
+                    f"{relative}:{number}: Fastino URL is absent from route manifest: "
+                    f"{match.group(0)}"
+                )
     return findings
 
 
@@ -78,7 +115,13 @@ def main() -> int:
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     destination = json.loads((root / "openapi.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (args.pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
     generated = build_spec(root, args.pioneer_root.resolve())
+    route_patterns = _route_patterns(manifest)
     findings: list[str] = []
 
     actual_operations = _operations(destination)
@@ -97,7 +140,14 @@ def main() -> int:
         if path not in corpus and visible_path not in corpus:
             findings.append(f"English docs do not mention {method} {path}")
     for path in docs:
-        findings.extend(_line_findings(root, path, path.read_text(encoding="utf-8")))
+        findings.extend(
+            _line_findings(
+                root,
+                path,
+                path.read_text(encoding="utf-8"),
+                route_patterns,
+            )
+        )
 
     if findings:
         print("\n".join(findings))
