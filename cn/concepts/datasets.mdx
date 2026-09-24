@@ -10,10 +10,10 @@ Fastino 中的数据集是用于训练和评估模型的带标签样例集合。
 
 您可以通过两种方式创建数据集：
 
-**合成数据生成** — 使用 `POST /generate`，让 Fastino 根据您对领域和关注标签的描述生成带标签的样例。这是在没有任何现成带标签数据的情况下最快速地启动数据集的方式。
+**合成数据生成** — 使用 `POST /v1/generate`，让 Fastino 根据您对领域和关注标签的描述生成带标签的样例。这是在没有任何现成带标签数据的情况下最快速地启动数据集的方式。
 
 ```bash
-curl -X POST https://api.pioneer.ai/generate \
+curl -X POST https://api.fastino.ai/v1/generate \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -25,7 +25,7 @@ curl -X POST https://api.pioneer.ai/generate \
   }'
 ```
 
-`POST /generate` 还支持 NER 以外的任务类型。传入不同的 `task_type` 及其必填字段：
+`POST /v1/generate` 还支持 NER 以外的任务类型。传入不同的 `task_type` 及其必填字段：
 
 | `task_type` | 必填字段 | 生成内容 |
 | --- | --- | --- |
@@ -36,16 +36,16 @@ curl -X POST https://api.pioneer.ai/generate \
 | `records` | `fields` | 结构化记录 |
 | `fields` | `input_fields` 和 `output_fields` | 具有独立输入/输出模式的结构化记录 |
 
-端点会立即返回 `202` 和一个 `job_id`，生成本身在后台异步执行。生成或打标签完成后，样例会自动存入您的数据集。在启动训练之前，请轮询 `GET /generate/jobs/:job_id`，直到 `status` 为 `ready`（若为 `failed`，请查看 `error` 字段）。
+端点会立即返回 `202` 和一个 `job_id`，生成本身在后台异步执行。生成或打标签完成后，样例会自动存入您的数据集。在启动训练之前，请轮询 `GET /v1/generate/jobs/:job_id`，直到 `status` 为 `ready`（若为 `failed`，请查看 `error` 字段）。
 
 ## 上传自己的数据集
 
-上传自有数据：如果您已有带标签的数据，请使用 `POST/felix/datasets/upload/url`。这是一个三步流程：
+上传自有数据：如果您已有带标签的数据，请使用 `POST/v1/datasets/upload/url`。这是一个三步流程：
 
 #### 第 1 步：获取预签名上传 URL
 
 ```bash
- curl -X POST https://api.pioneer.ai/felix/datasets/upload/url \
+ curl -X POST https://api.fastino.ai/v1/datasets/upload/url \
     -H "X-API-Key: YOUR_API_KEY" \
     -H "Content-Type: application/json" \                                                                               
     -d '{
@@ -70,7 +70,7 @@ curl -X PUT "<presigned_url from step 1 response>" \
 #### 第 3 步：触发处理
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
+curl -X POST https://api.fastino.ai/v1/datasets/upload/process \
     -H "X-API-Key: YOUR_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{                                                                                                               
@@ -80,14 +80,14 @@ curl -X POST https://api.pioneer.ai/felix/datasets/upload/process \
 
 该调用立即返回 `202`，状态为 `uploading`；数据集随后在后台依次经过其余状态：initialized → uploading → converting → validating → ready
 
-在启动训练任务之前，请轮询 `GET /felix/datasets/{name}/{version}`，直到 `status` 为 `ready`（若为 `failed`，请查看 `processing_error`）。您也可以传入 `latest` 代替版本号，以始终获取最新版本。
+在启动训练任务之前，请轮询 `GET /v1/datasets/{name}/{version}`，直到 `status` 为 `ready`（若为 `failed`，请查看 `processing_error`）。您也可以传入 `latest` 代替版本号，以始终获取最新版本。
 
 ## 列出您的数据集
 
 获取账户中的所有数据集：
 
 ```bash
-curl https://api.pioneer.ai/felix/datasets \
+curl https://api.fastino.ai/v1/datasets \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -98,7 +98,7 @@ curl https://api.pioneer.ai/felix/datasets \
 要查看某个数据集的版本和详细信息，传入其名称：
 
 ```bash
-curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+curl https://api.fastino.ai/v1/datasets/my-ner-dataset \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -107,7 +107,7 @@ curl https://api.pioneer.ai/felix/datasets/my-ner-dataset \
 ## 删除数据集
 
 ```bash
-curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
+curl -X DELETE https://api.fastino.ai/v1/datasets/my-ner-dataset \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -121,23 +121,23 @@ curl -X DELETE https://api.pioneer.ai/felix/datasets/my-ner-dataset \
 
 | 方法 | 端点 | 说明 |
 | --- | --- | --- |
-| `GET` | `/felix/datasets` | 列出所有数据集 |
-| `GET` | `/felix/datasets/:name` | 获取某数据集的所有版本 |
-| `GET` | `/felix/datasets/:name/:version` | 获取特定版本的状态和元数据（`:version` 也可传 `latest`） |
-| `GET` | `/felix/datasets/:name/:version/preview` | 预览若干行样本，无需下载完整文件 |
-| `GET` | `/felix/datasets/:name/:version/download` | 以 `jsonl`、`csv` 或 `parquet` 下载某个版本 |
-| `DELETE` | `/felix/datasets/:name` | 软删除数据集及其所有版本（当有任务/评估正在使用时，返回 `409` 拒绝） |
-| `DELETE` | `/felix/datasets/:name/:version` | 软删除特定版本 |
-| `POST` | `/felix/datasets/upload/url` | 获取用于直接上传的 S3 预签名 URL |
-| `POST` | `/felix/datasets/upload/process` | 在 S3 上传完成后触发处理 |
-| `POST` | `/felix/datasets/merge` | 将同类型的多个数据集合并为一个新数据集 |
-| `POST` | `/felix/datasets/:name/:version/push-to-hub` | 将某数据集版本推送到 HuggingFace Hub |
-| `POST` | `/felix/datasets/pull-from-hub` | 从 HuggingFace Hub 导入数据集 |
-| `POST` | `/felix/datasets/preview-from-hub` | 在导入前预览 HuggingFace Hub 上的数据集 |
-| `POST` | `/generate` | 启动一个合成数据生成任务（`202` + `job_id`，异步） |
-| `GET` | `/generate/jobs/:job_id` | 轮询生成任务状态 |
-| `POST` | `/generate/ner/label-existing` | 对原始文本进行 NER 自动打标签（同步，直接返回结果，不返回 `job_id`） |
-| `POST` | `/generate/classification/label-existing` | 对原始文本进行自动分类（同步，直接返回结果，不返回 `job_id`） |
+| `GET` | `/v1/datasets` | 列出所有数据集 |
+| `GET` | `/v1/datasets/:name` | 获取某数据集的所有版本 |
+| `GET` | `/v1/datasets/:name/:version` | 获取特定版本的状态和元数据（`:version` 也可传 `latest`） |
+| `GET` | `/v1/datasets/:name/:version/preview` | 预览若干行样本，无需下载完整文件 |
+| `GET` | `/v1/datasets/:name/:version/download` | 以 `jsonl`、`csv` 或 `parquet` 下载某个版本 |
+| `DELETE` | `/v1/datasets/:name` | 软删除数据集及其所有版本（当有任务/评估正在使用时，返回 `409` 拒绝） |
+| `DELETE` | `/v1/datasets/:name/:version` | 软删除特定版本 |
+| `POST` | `/v1/datasets/upload/url` | 获取用于直接上传的 S3 预签名 URL |
+| `POST` | `/v1/datasets/upload/process` | 在 S3 上传完成后触发处理 |
+| `POST` | `/v1/datasets/merge` | 将同类型的多个数据集合并为一个新数据集 |
+| `POST` | `/v1/datasets/:name/:version/push-to-hub` | 将某数据集版本推送到 HuggingFace Hub |
+| `POST` | `/v1/datasets/pull-from-hub` | 从 HuggingFace Hub 导入数据集 |
+| `POST` | `/v1/datasets/preview-from-hub` | 在导入前预览 HuggingFace Hub 上的数据集 |
+| `POST` | `/v1/generate` | 启动一个合成数据生成任务（`202` + `job_id`，异步） |
+| `GET` | `/v1/generate/jobs/:job_id` | 轮询生成任务状态 |
+| `POST` | `/v1/generate/ner/label-existing` | 对原始文本进行 NER 自动打标签（同步，直接返回结果，不返回 `job_id`） |
+| `POST` | `/v1/generate/classification/label-existing` | 对原始文本进行自动分类（同步，直接返回结果，不返回 `job_id`） |
 
 <Note>
   **数据隐私：** 如果您希望不让您的数据用于 Fastino 的模型训练，请发送邮件至 [support@fastino.ai](mailto:support@fastino.ai)，我们将确保将您的数据排除在训练流水线之外。

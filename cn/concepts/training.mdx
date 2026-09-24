@@ -30,14 +30,14 @@ Fastino 的新训练任务使用监督微调（SFT）。有关数据集格式和
   </Step>
 </Steps>
 
-任务也可能以以下状态结束：**`errored`**（训练过程中发生错误）、**`stopped`**（您通过 `POST /felix/training-jobs/:id/stop` 优雅地终止了任务，检查点保留）、**`terminated`**（您调用了 `POST /felix/training-jobs/:id/terminate`，它会停止任务*并*永久删除其检查点，不可逆），或 **`paused`**。
+任务也可能以以下状态结束：**`errored`**（训练过程中发生错误）、**`stopped`**（您通过 `POST /v1/training-jobs/:id/stop` 优雅地终止了任务，检查点保留）、**`terminated`**（您调用了 `POST /v1/training-jobs/:id/terminate`，它会停止任务*并*永久删除其检查点，不可逆），或 **`paused`**。
 
 ## 关键参数
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
 | `model_name` | 是 | 为您训练完成的模型指定的名称，用于在账户中标识它。 |
-| `base_model` | 是 | 要微调的模型 ID。使用 `GET /base-models` 中的取值，或某个先前任务返回的检查点 UUID。 |
+| `base_model` | 是 | 要微调的模型 ID。使用 `GET /v1/base-models` 中的取值，或某个先前任务返回的检查点 UUID。 |
 | `datasets` | 是 | 数据集对象数组：`[{"name": "your-dataset-name"}]`。 |
 | `training_type` | 否 | `"lora"`（默认，参数高效）或 `"full"`（全部权重）。解码器 LLM 训练仅支持 LoRA。 |
 | `nr_epochs` | 否 | 训练轮数。默认 100，解码器基础模型省略时默认为 10。 |
@@ -50,7 +50,7 @@ Fastino 的新训练任务使用监督微调（SFT）。有关数据集格式和
 ## 启动训练任务
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs \
+curl -X POST https://api.fastino.ai/v1/training-jobs \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -83,7 +83,7 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs \
 轮询任务端点，直到 `status` 达到终态：`complete`、`deployed`、`errored`、`stopped` 或 `terminated`：
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
+curl https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6 \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -108,7 +108,7 @@ curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66
 要获取该任务的结构化 stdout/stderr 日志行：
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
+curl https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/logs \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -119,7 +119,7 @@ curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66
 要在保留检查点的前提下优雅地停止正在运行的任务：
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
+curl -X POST https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/stop \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -128,7 +128,7 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-
 若要永久终止任务并删除其检查点，请改用 `/terminate`：
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
+curl -X POST https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/terminate \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -141,21 +141,21 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-
 Fastino 会在训练过程中保存检查点。任务开始后，您可以随时列出它们：
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
+curl https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 每个检查点带有 `is_best`、`is_final` 和 `is_deployable` 标志。您可以将任意可部署的检查点（不仅限于最终检查点）部署到实时推理端点：
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
+curl -X POST https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/checkpoints/CHECKPOINT_ID/deploy \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 若要下载权重，请请求一个预签名 URL（需要 Pro 及以上套餐，否则该调用返回 `403`）：
 
 ```bash
-curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
+curl https://api.fastino.ai/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6/download \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -176,13 +176,13 @@ curl https://api.pioneer.ai/felix/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `POST` | `/felix/training-jobs` | 启动新的训练任务 |
-| `GET` | `/felix/training-jobs` | 列出训练任务（可按 `project_id`、`status` 过滤，通过 `limit`/`offset` 分页） |
-| `GET` | `/felix/training-jobs/:id` | 获取任务状态和指标 |
-| `GET` | `/felix/training-jobs/:id/logs` | 获取结构化训练日志条目 |
-| `GET` | `/felix/training-jobs/:id/checkpoints` | 列出已保存的检查点 |
-| `POST` | `/felix/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | 部署指定检查点用于推理 |
-| `GET` | `/felix/training-jobs/:id/download` | 获取用于下载已训练权重的预签名 URL（Pro 及以上套餐） |
-| `POST` | `/felix/training-jobs/:id/stop` | 优雅地停止正在运行的任务，保留检查点 |
-| `POST` | `/felix/training-jobs/:id/terminate` | 停止任务并永久删除其检查点（不可逆） |
-| `DELETE` | `/felix/training-jobs/:id` | 删除任务记录（若任务仍活动则同时停止并删除其检查点） |
+| `POST` | `/v1/training-jobs` | 启动新的训练任务 |
+| `GET` | `/v1/training-jobs` | 列出训练任务（可按 `project_id`、`status` 过滤，通过 `limit`/`offset` 分页） |
+| `GET` | `/v1/training-jobs/:id` | 获取任务状态和指标 |
+| `GET` | `/v1/training-jobs/:id/logs` | 获取结构化训练日志条目 |
+| `GET` | `/v1/training-jobs/:id/checkpoints` | 列出已保存的检查点 |
+| `POST` | `/v1/training-jobs/:id/checkpoints/:checkpoint_id/deploy` | 部署指定检查点用于推理 |
+| `GET` | `/v1/training-jobs/:id/download` | 获取用于下载已训练权重的预签名 URL（Pro 及以上套餐） |
+| `POST` | `/v1/training-jobs/:id/stop` | 优雅地停止正在运行的任务，保留检查点 |
+| `POST` | `/v1/training-jobs/:id/terminate` | 停止任务并永久删除其检查点（不可逆） |
+| `DELETE` | `/v1/training-jobs/:id` | 删除任务记录（若任务仍活动则同时停止并删除其检查点） |
