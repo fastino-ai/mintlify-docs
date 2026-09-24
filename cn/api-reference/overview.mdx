@@ -1,90 +1,265 @@
 ---
-title: "Fastino REST API 概览"
-sidebarTitle: "概览"
-description: "Fastino REST API 概览:基础 URL、身份验证、从数据集到推理的推荐 5 步工作流,以及所有端点分组参考的链接。"
+title: "API 参考"
+sidebarTitle: "API 参考"
+description: "几分钟内完成账户设置并开始使用 Fastino。生成 API 密钥，浏览可用模型，并运行你的第一个推理或训练任务。"
+noindex: true
 ---
 
-Fastino REST API 允许您以编程方式运行推理、管理数据集、启动训练任务并评估模型。所有资源都位于同一个基础 URL 下。大多数操作都需要您的 API 密钥;明确公开的目录路由(例如 `GET /v1/models`)则不需要。Fastino 还提供与 OpenAI 和 Anthropic 兼容的端点,因此您可以与任何已支持这些格式的工具集成。
-
-**基础 URL:** `https://api.fastino.ai`
-
-## 身份验证
-
-需要身份验证的原生请求使用 `X-API-Key` 头。请在 Fastino 控制面板 [agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys) 创建密钥,或在登录后打开 **Settings** -> **API Keys**。请参阅[身份验证](/cn/api-reference/authentication)页面了解完整信息,包括密钥管理端点。
-
-## 推荐工作流
-
-在端到端构建微调模型时,请按以下顺序操作:
+本指南将带你以最快的方式完成可用的 Fastino 集成。完成后，你将成功发起一次推理调用，并了解 API 的整体结构。你只需要一个 Fastino 账户和一个终端。
 
 <Steps>
-  <Step title="创建或上传数据集">
-    使用 `POST /v1/generate` 生成合成标注数据。响应中包含一个 `job_id`,请轮询 `GET /v1/generate/jobs/{job_id}` 直到状态返回 `ready`。
+  <Step title="注册并获取 API 密钥">
+    在 [Fastino](https://fastino.ai) 创建账户。
 
-    要上传您自己的标注数据,请使用三步上传流程:
+    登录后，前往 **Settings → API Keys** 并生成新密钥。请将其复制并妥善保存，因为关闭对话框后将无法再次查看。
 
-    1. 调用 `POST /v1/datasets/upload/url` 获取预签名的 S3 URL,
-    2. 将文件直接 `PUT` 到 S3,
-    3. 调用 `POST /v1/datasets/upload/process` 触发处理。
+    <Warning>
+      请勿将 API 密钥提交到版本控制中。请使用环境变量或密钥管理工具，而不是在源文件中硬编码。
+    </Warning>
 
-    轮询 `GET /v1/datasets/{name}/{version}` 直到状态为 `ready`。<br />有关完整详情,请参阅[数据集](/api-reference/datasets)页面。
+    将密钥设置为环境变量，以便下面的示例可以直接运行：
+
+    ```bash
+    export FASTINO_API_KEY="your_api_key_here"
+    ```
   </Step>
-  <Step title="启动训练任务">
-    使用您的 model\_name、datasets 和 base\_model 调用 `POST /v1/training-jobs`。响应中包含一个 `job_id`,请为后续步骤保存它。
+
+  <Step title="列出可用的基础模型（可选）">
+    使用 `GET /v1/base-models` 浏览 Fastino 提供的模型。
+
+    <CodeGroup>
+
+    ```bash curl
+    curl https://api.fastino.ai/v1/base-models \
+      -H "X-API-Key: $FASTINO_API_KEY"
+    ```
+
+    ```python Python
+    import os
+    import requests
+
+    response = requests.get(
+        "https://api.fastino.ai/v1/base-models",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    )
+    response.raise_for_status()
+    print(response.json())
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch(
+      "https://api.fastino.ai/v1/base-models",
+      {
+        headers: {
+          "X-API-Key": process.env.FASTINO_API_KEY
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Model request failed: ${response.status}`);
+    }
+
+    console.log(await response.json());
+    ```
+
+    </CodeGroup>
+
+    响应会列出可传递给 `/v1/chat/completions` 的模型 ID。例如，`fastino/gliner2-base-v1` 是用于抽取任务的 GLiNER 基础模型。
   </Step>
-  <Step title="轮询训练状态">
-    反复调用 `GET /v1/training-jobs/:id`,直到 status 字段为 `complete`。已完成的任务会包含 F1、精确率和召回率指标。
+
+  <Step title="发起第一次推理调用">
+    调用 `POST /v1/chat/completions`，并传入模型、消息以及定义抽取内容的 schema。本示例使用 GLiNER 从一个句子中抽取命名实体。
+
+    <CodeGroup>
+
+    ```bash curl
+    curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "fastino/gliner2.5-multi-v1",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+          }
+        ],
+        "schema": {
+          "entities": [
+            {
+              "name": "organization",
+              "description": "business or institution name"
+            },
+            {
+              "name": "product",
+              "description": "named commercial product"
+            },
+            {
+              "name": "event",
+              "description": "named conference or event"
+            },
+            {
+              "name": "location",
+              "description": "city, region, or place"
+            }
+          ]
+        },
+        "threshold": 0.5
+      }'
+    ```
+
+    ```python Python
+    import json
+    import os
+
+    import requests
+
+    response = requests.post(
+        "https://api.fastino.ai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+                }
+            ],
+            "schema": {
+                "entities": [
+                    {"name": "organization", "description": "business or institution name"},
+                    {"name": "product", "description": "named commercial product"},
+                    {"name": "event", "description": "named conference or event"},
+                    {"name": "location", "description": "city, region, or place"},
+                ]
+            },
+            "threshold": 0.5,
+        },
+    )
+    response.raise_for_status()
+
+    result = response.json()
+    entities = json.loads(result["choices"][0]["message"]["content"])
+    print(json.dumps(entities, indent=2))
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch(
+      "https://api.fastino.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "fastino/gliner2.5-multi-v1",
+          messages: [
+            {
+              role: "user",
+              content: "Apple announced the MacBook Pro at WWDC in Cupertino.",
+            },
+          ],
+          schema: {
+            entities: [
+              { name: "organization", description: "business or institution name" },
+              { name: "product", description: "named commercial product" },
+              { name: "event", description: "named conference or event" },
+              { name: "location", description: "city, region, or place" },
+            ],
+          },
+          threshold: 0.5,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
+    }
+
+    const result = await response.json();
+    const entities = JSON.parse(result.choices[0].message.content);
+    console.log(JSON.stringify(entities, null, 2));
+    ```
+
+    </CodeGroup>
+
+    对于 GLiNER 等编码器模型，`schema` 对象用于定义任务，可包含：
+
+    - `entities` — 用于命名实体抽取的实体定义
+    - `classifications` — 用于文本分类的 `{task, labels}` 定义
+    - `structures` — 用于 JSON 抽取的结构化记录定义
+    - `relations` — 关系定义
+
+    对于解码器模型，请省略 `schema`，并发送普通的聊天消息。
+
+    <Note>
+      `model` 必须是支持推理的基础模型 ID，或者是已完成且可部署的训练任务的 UUID。训练完成后，请先部署所选工件，再使用该任务 UUID 进行推理。
+    </Note>
   </Step>
-  <Step title="运行评估">
-    使用 `POST /v1/projects/{project_id}/evaluation-suites` 创建评估套件,然后在正式提供服务前针对所选模型运行该套件。
-  </Step>
-  <Step title="运行推理">
-    调用 `POST /v1/chat/completions`,将 `model` 设置为您的训练任务 ID,并在 `messages` 中传入您的输入。您也可以使用受支持的基础模型 ID 而无需微调。
+
+  <Step title="启动训练任务（可选）">
+    当你准备好使用自己的数据进行微调时，请启动训练任务：
+
+    <CodeGroup>
+
+    ```bash curl
+    curl -X POST https://api.fastino.ai/v1/training-jobs \
+      -H "X-API-Key: $FASTINO_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model_name": "my-ner-model",
+        "base_model": "fastino/gliner2-base-v1",
+        "datasets": [{"name": "my-dataset"}],
+        "training_type": "lora",
+        "nr_epochs": 5,
+        "learning_rate": 5e-5
+      }'
+    ```
+
+    ```python Python
+    import os
+    import requests
+
+    response = requests.post(
+        "https://api.fastino.ai/v1/training-jobs",
+        headers={
+            "X-API-Key": os.environ["FASTINO_API_KEY"],
+            "Content-Type": "application/json",
+        },
+        json={
+            "model_name": "my-ner-model",
+            "base_model": "fastino/gliner2-base-v1",
+            "datasets": [{"name": "my-dataset"}],
+            "training_type": "lora",
+            "nr_epochs": 5,
+            "learning_rate": 5e-5,
+        },
+    )
+    response.raise_for_status()
+    print(response.json())
+    ```
+
+    </CodeGroup>
+
+    响应中包含任务 `id`。轮询 `GET /v1/training-jobs/{id}` 以检查其状态。任务达到 `complete` 后，请先部署所选工件，再将任务 ID 作为 `/v1/chat/completions` 中的 `model` 使用。
+
+    任务状态依次为 `requested` → `running` → `complete`，或以 `failed` 或 `stopped` 结束。
   </Step>
 </Steps>
 
-<Note>
-  在运行任何示例命令之前,请将 `YOUR_DATASET_NAME` 和 `YOUR_TRAINING_JOB_ID` 等占位符值替换为真实值。
-</Note>
-
-## 端点分组
+## 后续步骤
 
 <CardGroup cols={2}>
-  <Card title="推理" icon="bolt" href="/cn/inference">
-    使用 Fastino 格式,或通过即插即用的 OpenAI 和 Anthropic 兼容端点,对微调模型或基础模型运行预测。
+  <Card title="训练 API" icon="brain" href="/cn/training">
+    使用 Fastino 训练 API 端到端微调模型。
   </Card>
 
-  <Card title="训练与数据" icon="database" href="/api-reference/datasets">
-    管理数据集、生成合成训练数据、启动并监控训练任务,以及运行评估。
-  </Card>
-
-  <Card title="项目" icon="folder" href="/api-reference/projects">
-    将资源组织到项目中,部署训练后的模型,并对项目端点运行推理。
-  </Card>
-
-  <Card title="API 密钥" icon="key" href="/cn/api-reference/api-keys">
-    在控制面板中创建密钥,然后以编程方式列出和撤销现有密钥。
+  <Card title="推理 API" icon="bolt" href="/cn/inference">
+    通过 Fastino API 使用基础模型或微调模型运行推理。
   </Card>
 </CardGroup>
-
-## OpenAI 和 Anthropic 兼容性
-
-Fastino 提供了 OpenAI 和 Anthropic SDK 的即插即用替代方案。使用您的 Fastino API 密钥以及下方对应 SDK 的基础 URL 即可。
-
-| SDK | 基础 URL | 说明 |
-| --- | --- | --- |
-| OpenAI | `https://api.fastino.ai/v1` | 设置 `base_url`;通过 `extra_body` 传递 Fastino 特定字段 |
-| Anthropic | `https://api.fastino.ai` | 设置 `base_url`;SDK 会自动追加 `/v1/messages` |
-
-使用 `extra_body`(OpenAI SDK)或您客户端库中的等效额外参数机制传递诸如 `schema` 之类的 Fastino 特定字段。
-
-## `/v1` 与根路由例外
-
-原生产品路由使用 `/v1` 前缀。OpenAI 和 Anthropic 兼容路由保留其现有的 `/v1` 路径。协议和运维类资源仍位于根路径下,包括 `/health`、`/openapi.json` 和 `/.well-known/*`。
-
-请勿盲目添加 `/v1` 前缀。请使用本参考文档或精选 OpenAPI 文档中的确切路径。
-
-## 从 Pioneer API 源迁移
-
-如果现有集成调用的是 `https://api.pioneer.ai`,请将其基础 URL 更新为 `https://api.fastino.ai`。原生的数据集、训练、项目、模型目录和推理历史路由现在使用 `/v1` 前缀。例如,`/felix/training-jobs` 现在变为 `/v1/training-jobs`。
-
-OpenAI 和 Anthropic 兼容路由本身已以 `/v1` 开头,并保留其现有路径。请勿再添加第二个前缀:`/v1/chat/completions` 仍为 `/v1/chat/completions`,而不是 `/v1/v1/chat/completions`。直接 API 集成应使用 `FASTINO_API_KEY` 并搭配新生成的 `fast_sk_` 密钥;旧版 `pio_sk_` 密钥已停用。现有的 `X-API-Key` 和 Bearer 身份验证请求头形式仍然有效。在其独立的配置迁移发布之前,Fastino CLI 将继续读取 `PIONEER_API_KEY`。
