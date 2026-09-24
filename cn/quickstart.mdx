@@ -19,37 +19,37 @@ sidebarTitle: "快速入门"
     将密钥设置为环境变量，这样下面的示例可以直接运行：
 
     ```bash
-    export PIONEER_API_KEY="your_api_key_here"
+    export FASTINO_API_KEY="your_api_key_here"
     ```
   </Step>
   <Step title="列出可用的基础模型">
-    在运行推理之前，你可以浏览 Fastino 上可用的模型。使用 `GET /base-models` 查看完整目录。传入 `?supports_inference=true` 可筛选出可以直接调用的模型，或传入 `?task_type=decoder` 只查看 LLM。
+    在运行推理之前，你可以浏览 Fastino 上可用的模型。使用 `GET /v1/base-models` 查看完整目录。传入 `?supports_inference=true` 可筛选出可以直接调用的模型，或传入 `?task_type=decoder` 只查看 LLM。
 
     <CodeGroup>
 
     ```bash curl
-    curl https://api.pioneer.ai/base-models?supports_inference=true \
-      -H "X-API-Key: $PIONEER_API_KEY"
+    curl https://api.fastino.ai/v1/base-models?supports_inference=true \
+      -H "X-API-Key: $FASTINO_API_KEY"
     ```
 
     ```python Python
     import os
     import requests
-    
+
     response = requests.get(
-        "https://api.pioneer.ai/base-models",
+        "https://api.fastino.ai/v1/base-models",
         params={"supports_inference": "true"},
-        headers={"X-API-Key": os.environ["PIONEER_API_KEY"]}
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]}
     )
     print(response.json())
     ```
 
     ```javascript JavaScript
     const response = await fetch(
-      "https://api.pioneer.ai/base-models?supports_inference=true",
+      "https://api.fastino.ai/v1/base-models?supports_inference=true",
       {
         headers: {
-          "X-API-Key": process.env.PIONEER_API_KEY
+          "X-API-Key": process.env.FASTINO_API_KEY
         }
       }
     );
@@ -67,67 +67,118 @@ sidebarTitle: "快速入门"
     <CodeGroup>
 
     ```bash curl
-    curl -X POST https://api.pioneer.ai/v1/chat/completions \
-      -H "X-API-Key: $PIONEER_API_KEY" \
+    curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
-        "model": "fastino/gliner2-base-v1",
+        "model": "fastino/gliner2.5-multi-v1",
         "messages": [
-          {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+          {
+            "role": "user",
+            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+          }
         ],
         "schema": {
-          "entities": ["organization", "product", "event", "location"]
+          "entities": [
+            {
+              "name": "organization",
+              "description": "business or institution name"
+            },
+            {
+              "name": "product",
+              "description": "named commercial product"
+            },
+            {
+              "name": "event",
+              "description": "named conference or event"
+            },
+            {
+              "name": "location",
+              "description": "city, region, or place"
+            }
+          ]
         },
         "threshold": 0.5
       }'
     ```
 
     ```python Python
+    import json
     import os
+
     import requests
-    
+
     response = requests.post(
-        "https://api.pioneer.ai/v1/chat/completions",
+        "https://api.fastino.ai/v1/chat/completions",
         headers={
-            "X-API-Key": os.environ["PIONEER_API_KEY"],
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}",
+            "Content-Type": "application/json",
         },
         json={
-            "model": "fastino/gliner2-base-v1",
-            "messages": [{
-                "role": "user",
-                "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
-            }],
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+                }
+            ],
             "schema": {
-                "entities": ["organization", "product", "event", "location"]
+                "entities": [
+                    {"name": "organization", "description": "business or institution name"},
+                    {"name": "product", "description": "named commercial product"},
+                    {"name": "event", "description": "named conference or event"},
+                    {"name": "location", "description": "city, region, or place"},
+                ]
             },
-            "threshold": 0.5
-        }
+            "threshold": 0.5,
+        },
     )
-    print(response.json())
+
+    response.raise_for_status()
+    result = response.json()
+    entities = json.loads(result["choices"][0]["message"]["content"])
+
+    print(json.dumps(entities, indent=2))
     ```
 
     ```javascript JavaScript
-    const response = await fetch("https://api.pioneer.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "X-API-Key": process.env.PIONEER_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "fastino/gliner2-base-v1",
-        messages: [{
-          role: "user",
-          content: "Apple announced the MacBook Pro at WWDC in Cupertino."
-        }],
-        schema: {
-          entities: ["organization", "product", "event", "location"]
+    const response = await fetch(
+      "https://api.fastino.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+          "Content-Type": "application/json",
         },
-        threshold: 0.5
-      })
-    });
-    const data = await response.json();
-    console.log(data);
+        body: JSON.stringify({
+          model: "fastino/gliner2.5-multi-v1",
+          messages: [
+            {
+              role: "user",
+              content: "Apple announced the MacBook Pro at WWDC in Cupertino.",
+            },
+          ],
+          schema: {
+            entities: [
+              { name: "organization", description: "business or institution name" },
+              { name: "product", description: "named commercial product" },
+              { name: "event", description: "named conference or event" },
+              { name: "location", description: "city, region, or place" },
+            ],
+          },
+          threshold: 0.5,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
+    }
+
+    const result = await response.json();
+    const entities = JSON.parse(result.choices[0].message.content);
+
+    console.log(JSON.stringify(entities, null, 2));
     ```
 
     </CodeGroup>
@@ -145,38 +196,14 @@ sidebarTitle: "快速入门"
       `model` 可以是像 `fastino/gliner2-base-v1` 这样的基础模型 ID，也可以是某个已完成训练任务的 ID。在微调完模型后，将基础模型 ID 替换为你的任务 ID，就可以从你的自定义模型提供预测。
     </Note>
   </Step>
-  <Step title="使用 Anthropic 兼容端点（可选）">
-    如果你已经在使用 Anthropic SDK，将其指向 `https://api.pioneer.ai` 并使用你的 Fastino API 密钥即可。
-
-    <CodeGroup>
-
-    ```bash curl (Anthropic-compatible)
-    curl -X POST https://api.pioneer.ai/v1/messages \
-      -H "X-API-Key: $PIONEER_API_KEY" \
-      -H "anthropic-version: 2023-06-01" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model": "fastino/gliner2-base-v1",
-        "max_tokens": 1024,
-        "messages": [
-          {"role": "user", "content": "Extract entities from: Apple launched the iPhone in San Francisco."}
-        ],
-        "schema": {"entities": ["organization", "product", "location"]}
-      }'
-    ```
-
-    </CodeGroup>
-
-    通过 SDK 的 extra-body 选项传递像 `schema` 这样的 Fastino 特有字段。
-  </Step>
   <Step title="启动训练任务（可选）">
     当你准备用自己的数据进行微调时，可以启动一个训练任务。你需要先有一个已上传或已创建的数据集 — 参见[数据集](/cn/concepts/datasets)了解如何创建。
 
     <CodeGroup>
 
     ```bash curl
-    curl -X POST https://api.pioneer.ai/felix/training-jobs \
-      -H "X-API-Key: $PIONEER_API_KEY" \
+    curl -X POST https://api.fastino.ai/v1/training-jobs \
+      -H "X-API-Key: $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
         "model_name": "my-ner-model",
@@ -191,11 +218,11 @@ sidebarTitle: "快速入门"
     ```python Python
     import os
     import requests
-    
+
     response = requests.post(
-        "https://api.pioneer.ai/felix/training-jobs",
+        "https://api.fastino.ai/v1/training-jobs",
         headers={
-            "X-API-Key": os.environ["PIONEER_API_KEY"],
+            "X-API-Key": os.environ["FASTINO_API_KEY"],
             "Content-Type": "application/json"
         },
         json={
@@ -213,7 +240,7 @@ sidebarTitle: "快速入门"
 
     </CodeGroup>
 
-    响应中会包含任务的 `id`。轮询 `GET /felix/training-jobs/{id}` 以查看状态。任务状态到达 `complete` 后，就可以在 `/v1/chat/completions` 调用中把任务 ID 用作 `model`。
+    响应中会包含任务的 `id`。轮询 `GET /v1/training-jobs/{id}` 以查看状态。任务状态到达 `complete` 后，就可以在 `/v1/chat/completions` 调用中把任务 ID 用作 `model`。
 
     任务状态取值：`requested` → `running` → `complete`（或 `failed` / `stopped`）。
   </Step>
