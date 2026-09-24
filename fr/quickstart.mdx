@@ -1,6 +1,6 @@
 ---
-title: "Démarrage rapide Fastino : de l'inscription à l'inférence"
-description: "Générez une clé d'API Fastino, parcourez les modèles disponibles et exécutez votre première prédiction NER en quelques minutes avec un appel d'inférence."
+title: "Démarrage rapide Fastino : votre première inférence ou votre premier entraînement"
+description: "Créez une clé d'API Fastino, listez les modèles de base disponibles, exécutez votre premier appel d'inférence avec le modèle de base GLiNER et, si vous le souhaitez, lancez une tâche d'entraînement."
 sidebarTitle: "Démarrage rapide"
 ---
 
@@ -10,7 +10,7 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
   <Step title="Inscrivez-vous et récupérez votre clé d'API">
     Créez un compte sur [Fastino](https://fastino.ai).
 
-    Une fois connecté, rendez-vous dans **Paramètres → Clés d'API** et générez une nouvelle clé. Copiez-la dans un endroit sûr — vous ne pourrez plus la consulter après avoir fermé la boîte de dialogue.
+    Une fois connecté, rendez-vous dans **Settings → API Keys** et générez une nouvelle clé. Copiez-la dans un endroit sûr, car vous ne pourrez plus la consulter après avoir fermé la boîte de dialogue.
 
     <Warning>
       Ne versionnez pas votre clé d'API. Utilisez une variable d'environnement ou un gestionnaire de secrets plutôt que de l'inscrire en dur dans vos fichiers sources.
@@ -22,7 +22,7 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     export FASTINO_API_KEY="your_api_key_here"
     ```
   </Step>
-  <Step title="Listez les modèles de base disponibles (optionnel)">
+  <Step title="Listez les modèles de base disponibles (facultatif)">
     Vous pouvez parcourir les modèles proposés par Fastino. Utilisez `GET /v1/base-models` pour consulter le catalogue complet.
 
     <CodeGroup>
@@ -61,7 +61,7 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     La réponse liste les IDs de modèles que vous pouvez passer à `/v1/chat/completions`. Par exemple, `fastino/gliner2-base-v1` est le modèle de base GLiNER pour les tâches de NER.
   </Step>
   <Step title="Exécutez votre premier appel d'inférence">
-    Appelez `POST /v1/chat/completions` avec un modèle, un message et un schéma définissant ce que vous souhaitez extraire. L'exemple ci-dessous utilise le modèle de base GLiNER pour extraire des entités nommées à partir d'une phrase.
+    Appelez `POST /v1/chat/completions` avec un modèle, un message et un schéma définissant ce que vous souhaitez extraire. L'exemple ci-dessous utilise le modèle de base GLiNER pour extraire des entités nommées d'une phrase.
 
     <CodeGroup>
 
@@ -182,7 +182,7 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
 
     </CodeGroup>
 
-    Le champ `schema` indique au modèle ce qu'il doit rechercher. Pour les modèles encodeurs (GLiNER), vous pouvez fournir :
+    Pour les modèles encodeurs (GLiNER), l'objet `schema` définit la tâche et peut inclure `entities`, `classifications`, `structures` et `relations` :
 
     - `entities` — une liste de chaînes de types d'entités pour la NER
     - `classifications` — une liste d'objets `{task, labels}` pour la classification de texte
@@ -192,35 +192,11 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     Pour les modèles décodeurs (LLM), omettez `schema` et envoyez un message de chat classique.
 
     <Note>
-      `model` peut être un ID de modèle de base comme `fastino/gliner2-base-v1`, ou l'ID d'une tâche d'entraînement terminée. Une fois un modèle affiné, remplacez l'ID du modèle de base par l'ID de votre tâche pour servir les prédictions depuis votre modèle personnalisé.
+      `model` doit être l'ID d'un modèle de base compatible avec l'inférence ou l'UUID d'une tâche d'entraînement terminée et déployable. Après l'entraînement, déployez l'artefact sélectionné avant d'utiliser l'UUID de la tâche pour l'inférence.
     </Note>
   </Step>
-  <Step title="Utilisez l'endpoint compatible Anthropic (optionnel)">
-    Si vous utilisez déjà le SDK Anthropic, pointez-le vers `https://api.fastino.ai` et utilisez votre clé d'API Fastino.
-
-    <CodeGroup>
-
-    ```bash curl (Anthropic-compatible)
-    curl -X POST https://api.fastino.ai/v1/messages \
-      -H "X-API-Key: $FASTINO_API_KEY" \
-      -H "anthropic-version: 2023-06-01" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model": "fastino/gliner2-base-v1",
-        "max_tokens": 1024,
-        "messages": [
-          {"role": "user", "content": "Extract entities from: Apple launched the iPhone in San Francisco."}
-        ],
-        "schema": {"entities": ["organization", "product", "location"]}
-      }'
-    ```
-
-    </CodeGroup>
-
-    Passez les champs spécifiques à Fastino comme `schema` via l'option extra-body du SDK.
-  </Step>
-  <Step title="Lancez une tâche d'entraînement (optionnel)">
-    Lorsque vous êtes prêt à affiner sur vos propres données, lancez une tâche d'entraînement. Vous aurez besoin d'un jeu de données déjà téléversé ou créé — consultez [Jeux de données](/fr/concepts/datasets) pour savoir comment en créer un.
+  <Step title="Lancez une tâche d'entraînement (facultatif)">
+    Lorsque vous êtes prêt à affiner un modèle sur vos propres données, lancez une tâche d'entraînement.
 
     <CodeGroup>
 
@@ -263,28 +239,15 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
 
     </CodeGroup>
 
-    La réponse inclut un `id` de tâche. Interrogez `GET /v1/training-jobs/{id}` pour vérifier le statut. Une fois la tâche à `complete`, utilisez l'ID de la tâche comme `model` dans les appels à `/v1/chat/completions`.
+    La réponse inclut l'`id` de la tâche. Interrogez régulièrement `GET /v1/training-jobs/{id}` pour vérifier son statut. Une fois que la tâche atteint `complete`, utilisez son ID comme `model` dans vos appels à `/v1/chat/completions`.
 
-    Valeurs de statut de tâche : `requested` → `running` → `complete` (ou `failed` / `stopped`).
+    Valeurs de statut de la tâche : `requested` → `running` → `complete` (ou `failed` / `stopped`).
   </Step>
 </Steps>
 
 ## Étapes suivantes
 
-<CardGroup cols={2}>
-  <Card title="Affiner un modèle NER" icon="tag" href="/guides/fine-tune-ner">
-    Parcours de bout en bout : téléversement du jeu de données, entraînement, évaluation et inférence.
-  </Card>
-
-  <Card title="Affiner un LLM" icon="brain" href="/guides/fine-tune-llm">
-    Affinez Nemotron 3.5 Lightning sur vos données de domaine avec LoRA.
-  </Card>
-
-  <Card title="Données synthétiques" icon="wand-magic-sparkles" href="/guides/synthetic-data">
-    Générez des données d'entraînement labellisées sans annotation manuelle.
-  </Card>
-
-  <Card title="Référence de l'API" icon="code" href="/fr/api-reference/overview">
-    Référence complète pour chaque endpoint avec les schémas de requête et de réponse.
-  </Card>
-</CardGroup>
+- [API d'entraînement](/fr/training) : découvrez comment utiliser notre API d'entraînement pour affiner un modèle GLiNER de bout en bout.
+- [API d'inférence](/fr/inference) : découvrez comment déployer des modèles de base et des modèles affinés, et exécuter l'inférence avec eux via notre API.
+- [Skill pour agent](/fr/concepts/gliner-agent-skill) : utilisez ce skill pour exécuter l'inférence ou lancer une tâche d'entraînement, directement depuis votre agent de code.
+- [Exemples de cas d'usage](/example-use-cases) : en manque d'idées sur ce que vous pourriez construire ? Explorez nos exemples de cas d'usage.
