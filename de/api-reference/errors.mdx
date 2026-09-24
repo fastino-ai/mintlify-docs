@@ -21,7 +21,7 @@ Einige Antwortfamilien verwenden eine andere Struktur:
 - **Abrechnungsablehnungen** (`402`, einige `403`) geben `{"code", "message", "resolution_url"}` anstelle von `detail` zurück – siehe [402](#402-payment-required) und [403](#403-forbidden) unten.
 - **Rate-Limit-Antworten** (`429`) fügen neben `detail` die Felder `code` und `scope` sowie die Header `X-RateLimit-Scope` und `X-RateLimit-Code` hinzu – siehe [429](#429-too-many-requests) unten.
 - **Unbehandelte Serverfehler** (`500`) geben `{"error", "message"}` anstelle von `detail` zurück.
-- Anfragen an die OpenAI-kompatiblen Endpunkte (`/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/embeddings`) erhalten einen OpenAI-förmigen `{"error": {"code", "type", "param", "message"}}`-Umschlag, und Anfragen mit einem `anthropic-version`-Header erhalten stattdessen einen Anthropic-förmigen `{"type": "error", "error": {"type", "message"}}`-Umschlag anstelle der oben genannten generischen Strukturen.
+- Anfragen an die OpenAI-kompatiblen Endpunkte (`/v1/chat/completions`, `/v1/responses`) erhalten einen OpenAI-förmigen `{"error": {"code", "type", "param", "message"}}`-Umschlag, und Anfragen mit einem `anthropic-version`-Header erhalten stattdessen einen Anthropic-förmigen `{"type": "error", "error": {"type", "message"}}`-Umschlag anstelle der oben genannten generischen Strukturen.
 
 ## Statuscodes
 
@@ -65,7 +65,7 @@ Ihr Team hat die maximale monatliche Overage-Ausgabe seines Tarifs erreicht (`co
 
 Die angeforderte Ressource existiert nicht. Dies kann passieren, wenn ein Datensatzname, eine Trainingsjob-ID, eine Evaluations-ID, eine Projekt-ID oder eine Modell-ID falsch geschrieben oder gelöscht wurde.
 
-**Behebung:** Überprüfen Sie die ID oder den Namen im Anfragepfad oder -body sorgfältig. Verwenden Sie den entsprechenden `GET`-Listenendpunkt (zum Beispiel `GET /felix/training-jobs`, `GET /base-models`), um zu bestätigen, dass die Ressource existiert.
+**Behebung:** Überprüfen Sie die ID oder den Namen im Anfragepfad oder -body sorgfältig. Verwenden Sie den entsprechenden `GET`-Listenendpunkt (zum Beispiel `GET /v1/training-jobs`, `GET /v1/base-models`), um zu bestätigen, dass die Ressource existiert.
 
 ---
 
@@ -73,7 +73,7 @@ Die angeforderte Ressource existiert nicht. Dies kann passieren, wenn ein Datens
 
 Das Modell existiert im Katalog, kann aber derzeit nicht bedient werden – zum Beispiel ein reines Trainings-Basismodell, das für direkte Inferenz angefordert wurde, oder ein On-Demand-Deployment, dessen Bereitstellung nach Abschluss eines Trainingsjobs noch nicht abgeschlossen ist.
 
-**Behebung:** Prüfen Sie `supports_inference` und `supports_on_demand_inference` für das Modell über `GET /base-models` oder wiederholen Sie den Aufruf, nachdem das Deployment bereitgestellt wurde.
+**Behebung:** Prüfen Sie `supports_inference` und `supports_on_demand_inference` für das Modell über `GET /v1/base-models` oder wiederholen Sie den Aufruf, nachdem das Deployment bereitgestellt wurde.
 
 ---
 
@@ -91,13 +91,13 @@ Die Validierung des Anfrage-Bodys ist fehlgeschlagen. Ein erforderliches Feld fe
 
 **Behebung:** Prüfen Sie die `message` des Fehlers auf das jeweils fehlgeschlagene Feld. Häufige Ursachen sind:
 
-- Weglassen von `base_model` bei `POST /felix/training-jobs`
-- Übergabe eines nicht unterstützten `task_type` an `POST /generate`
+- Weglassen von `base_model` bei `POST /v1/training-jobs`
+- Übergabe eines nicht unterstützten `task_type` an `POST /v1/generate`
 - Senden von weniger als 1 oder mehr als 1.000 Strings im `inputs`-Array bei Endpunkten zum Labeln vorhandener Daten
 
 ```json
 {
-    "detail": "For 'POST /felix/training-jobs', ...",
+    "detail": "For 'POST /v1/training-jobs', ...",
     "errors": [...]
 }
 ```

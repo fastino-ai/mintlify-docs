@@ -6,11 +6,15 @@ hidden: true
 noindex: true
 ---
 
-Ejecuta inferencia GLiNER alojada con `POST /v1/chat/completions`. El endpoint utiliza un
-envoltorio de solicitud compatible con OpenAI más la extensión `schema` de nivel superior de Fastino.
+Fastino expone dos operaciones de inferencia GLiNER publicadas:
 
-Esta página documenta únicamente la API HTTP en crudo. No cubre el uso del SDK, el entrenamiento
-de modelos, la evaluación, el historial de inferencia ni el feedback.
+- `POST /v1/chat/completions` utiliza un envoltorio de solicitud compatible con OpenAI más
+  la extensión `schema` de nivel superior de Fastino.
+- `POST /v1/gliner-2` proporciona el contrato nativo de solicitud y respuesta de GLiNER
+  publicado en el [documento OpenAPI](https://api.fastino.ai/openapi.json).
+
+Esta página documenta el contrato HTTP en crudo de `/v1/chat/completions`. No cubre el uso del
+SDK, el entrenamiento de modelos, la evaluación, el historial de inferencia ni el feedback.
 
 <Warning>
   `POST /inference` se ha eliminado. No envíes sus campos heredados como `model_id`, `text`,
@@ -20,7 +24,7 @@ de modelos, la evaluación, el historial de inferencia ni el feedback.
 ## Endpoint
 
 ```text
-POST https://api.pioneer.ai/v1/chat/completions
+POST https://api.fastino.ai/v1/chat/completions
 ```
 
 ## Autenticación
@@ -28,11 +32,11 @@ POST https://api.pioneer.ai/v1/chat/completions
 Envía una clave de API de Fastino como bearer token:
 
 ```bash
-export PIONEER_API_KEY="pio_sk_..."
+export FASTINO_API_KEY="fast_sk_..."
 ```
 
 ```http
-Authorization: Bearer $PIONEER_API_KEY
+Authorization: Bearer $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
@@ -181,8 +185,8 @@ El esquema identifica la operación automáticamente. No envíes `task` ni `task
 ## Ejemplo
 
 ```bash
-curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "fastino/gliner2.5-multi-v1",
@@ -220,7 +224,7 @@ El valor de `model` debe soportar actualmente la inferencia alojada. Usa el cat�
 en vivo en lugar de asumir que todos los checkpoints de Hugging Face están disponibles:
 
 ```bash
-curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encoder"
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=encoder"
 ```
 
 ## Respuesta
@@ -275,8 +279,8 @@ siguiente solicitud tenga éxito. No reintentes errores de autenticación, factu
 modelo desconocido ni de trabajo no desplegable sin corregir el problema subyacente.
 
 ```bash
-curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
+curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d @request.json
 ```
@@ -286,7 +290,7 @@ curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
 | Estado | Causa probable | Acción |
 | --- | --- | --- |
 | `400` | Solicitud o esquema no válidos | Corrige los campos de la solicitud o el esquema |
-| `401` | Clave de API ausente, mal formada o no válida | Exporta una clave `pio_sk_...` válida |
+| `401` | Clave de API ausente, mal formada o no válida | Exporta una clave `fast_sk_...` válida |
 | `402` | Créditos insuficientes, se requiere financiación o límite de gasto diario/mensual fijado por el propietario | Añade créditos o ajusta el límite de gasto |
 | `403` | Método de pago, verificación de tarjeta, techo de crédito o denegación por política de la cuenta | Resuelve el requisito de facturación o de la cuenta |
 | `404` | Modelo desconocido o no soportado | Usa un ID del catálogo con capacidad de inferencia o el UUID de un trabajo desplegable |

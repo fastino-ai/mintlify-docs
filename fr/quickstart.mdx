@@ -19,17 +19,17 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     Définissez votre clé comme variable d'environnement afin que les exemples ci-dessous fonctionnent tels quels :
 
     ```bash
-    export PIONEER_API_KEY="your_api_key_here"
+    export FASTINO_API_KEY="your_api_key_here"
     ```
   </Step>
-  <Step title="Listez les modèles de base disponibles">
-    Avant d'exécuter une inférence, vous pouvez parcourir les modèles proposés par Fastino. Utilisez `GET /base-models` pour consulter le catalogue complet. Passez `?supports_inference=true` pour filtrer sur les modèles que vous pouvez appeler immédiatement, ou `?task_type=decoder` pour n'afficher que les LLM.
+  <Step title="Listez les modèles de base disponibles (optionnel)">
+    Vous pouvez parcourir les modèles proposés par Fastino. Utilisez `GET /v1/base-models` pour consulter le catalogue complet.
 
     <CodeGroup>
 
     ```bash curl
-    curl https://api.pioneer.ai/base-models?supports_inference=true \
-      -H "X-API-Key: $PIONEER_API_KEY"
+    curl https://api.fastino.ai/v1/base-models \
+      -H "X-API-Key: $FASTINO_API_KEY"
     ```
 
     ```python Python
@@ -37,19 +37,18 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     import requests
     
     response = requests.get(
-        "https://api.pioneer.ai/base-models",
-        params={"supports_inference": "true"},
-        headers={"X-API-Key": os.environ["PIONEER_API_KEY"]}
+        "https://api.fastino.ai/v1/base-models",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]}
     )
     print(response.json())
     ```
 
     ```javascript JavaScript
     const response = await fetch(
-      "https://api.pioneer.ai/base-models?supports_inference=true",
+      "https://api.fastino.ai/v1/base-models",
       {
         headers: {
-          "X-API-Key": process.env.PIONEER_API_KEY
+          "X-API-Key": process.env.FASTINO_API_KEY
         }
       }
     );
@@ -67,67 +66,118 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     <CodeGroup>
 
     ```bash curl
-    curl -X POST https://api.pioneer.ai/v1/chat/completions \
-      -H "X-API-Key: $PIONEER_API_KEY" \
+    curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
-        "model": "fastino/gliner2-base-v1",
+        "model": "fastino/gliner2.5-multi-v1",
         "messages": [
-          {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+          {
+            "role": "user",
+            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+          }
         ],
         "schema": {
-          "entities": ["organization", "product", "event", "location"]
+          "entities": [
+            {
+              "name": "organization",
+              "description": "business or institution name"
+            },
+            {
+              "name": "product",
+              "description": "named commercial product"
+            },
+            {
+              "name": "event",
+              "description": "named conference or event"
+            },
+            {
+              "name": "location",
+              "description": "city, region, or place"
+            }
+          ]
         },
         "threshold": 0.5
       }'
     ```
 
     ```python Python
+    import json
     import os
+    
     import requests
     
     response = requests.post(
-        "https://api.pioneer.ai/v1/chat/completions",
+        "https://api.fastino.ai/v1/chat/completions",
         headers={
-            "X-API-Key": os.environ["PIONEER_API_KEY"],
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}",
+            "Content-Type": "application/json",
         },
         json={
-            "model": "fastino/gliner2-base-v1",
-            "messages": [{
-                "role": "user",
-                "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
-            }],
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+                }
+            ],
             "schema": {
-                "entities": ["organization", "product", "event", "location"]
+                "entities": [
+                    {"name": "organization", "description": "business or institution name"},
+                    {"name": "product", "description": "named commercial product"},
+                    {"name": "event", "description": "named conference or event"},
+                    {"name": "location", "description": "city, region, or place"},
+                ]
             },
-            "threshold": 0.5
-        }
+            "threshold": 0.5,
+        },
     )
-    print(response.json())
+    
+    response.raise_for_status()
+    result = response.json()
+    entities = json.loads(result["choices"][0]["message"]["content"])
+    
+    print(json.dumps(entities, indent=2))
     ```
 
     ```javascript JavaScript
-    const response = await fetch("https://api.pioneer.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "X-API-Key": process.env.PIONEER_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "fastino/gliner2-base-v1",
-        messages: [{
-          role: "user",
-          content: "Apple announced the MacBook Pro at WWDC in Cupertino."
-        }],
-        schema: {
-          entities: ["organization", "product", "event", "location"]
+    const response = await fetch(
+      "https://api.fastino.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+          "Content-Type": "application/json",
         },
-        threshold: 0.5
-      })
-    });
-    const data = await response.json();
-    console.log(data);
+        body: JSON.stringify({
+          model: "fastino/gliner2.5-multi-v1",
+          messages: [
+            {
+              role: "user",
+              content: "Apple announced the MacBook Pro at WWDC in Cupertino.",
+            },
+          ],
+          schema: {
+            entities: [
+              { name: "organization", description: "business or institution name" },
+              { name: "product", description: "named commercial product" },
+              { name: "event", description: "named conference or event" },
+              { name: "location", description: "city, region, or place" },
+            ],
+          },
+          threshold: 0.5,
+        }),
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
+    }
+    
+    const result = await response.json();
+    const entities = JSON.parse(result.choices[0].message.content);
+    
+    console.log(JSON.stringify(entities, null, 2));
     ```
 
     </CodeGroup>
@@ -146,13 +196,13 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     </Note>
   </Step>
   <Step title="Utilisez l'endpoint compatible Anthropic (optionnel)">
-    Si vous utilisez déjà le SDK Anthropic, pointez-le vers `https://api.pioneer.ai` et utilisez votre clé d'API Fastino.
+    Si vous utilisez déjà le SDK Anthropic, pointez-le vers `https://api.fastino.ai` et utilisez votre clé d'API Fastino.
 
     <CodeGroup>
 
     ```bash curl (Anthropic-compatible)
-    curl -X POST https://api.pioneer.ai/v1/messages \
-      -H "X-API-Key: $PIONEER_API_KEY" \
+    curl -X POST https://api.fastino.ai/v1/messages \
+      -H "X-API-Key: $FASTINO_API_KEY" \
       -H "anthropic-version: 2023-06-01" \
       -H "Content-Type: application/json" \
       -d '{
@@ -175,8 +225,8 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     <CodeGroup>
 
     ```bash curl
-    curl -X POST https://api.pioneer.ai/felix/training-jobs \
-      -H "X-API-Key: $PIONEER_API_KEY" \
+    curl -X POST https://api.fastino.ai/v1/training-jobs \
+      -H "X-API-Key: $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
         "model_name": "my-ner-model",
@@ -193,9 +243,9 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
     import requests
     
     response = requests.post(
-        "https://api.pioneer.ai/felix/training-jobs",
+        "https://api.fastino.ai/v1/training-jobs",
         headers={
-            "X-API-Key": os.environ["PIONEER_API_KEY"],
+            "X-API-Key": os.environ["FASTINO_API_KEY"],
             "Content-Type": "application/json"
         },
         json={
@@ -213,7 +263,7 @@ Ce guide vous propose le chemin le plus rapide vers une intégration Fastino op�
 
     </CodeGroup>
 
-    La réponse inclut un `id` de tâche. Interrogez `GET /felix/training-jobs/{id}` pour vérifier le statut. Une fois la tâche à `complete`, utilisez l'ID de la tâche comme `model` dans les appels à `/v1/chat/completions`.
+    La réponse inclut un `id` de tâche. Interrogez `GET /v1/training-jobs/{id}` pour vérifier le statut. Une fois la tâche à `complete`, utilisez l'ID de la tâche comme `model` dans les appels à `/v1/chat/completions`.
 
     Valeurs de statut de tâche : `requested` → `running` → `complete` (ou `failed` / `stopped`).
   </Step>

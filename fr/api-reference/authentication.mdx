@@ -4,7 +4,10 @@ sidebarTitle: "Authentification"
 description: "Comment générer une clé API Fastino, la transmettre dans l'en-tête X-API-Key et lister ou révoquer des clés de manière programmatique."
 ---
 
-Chaque requête à l'API Fastino doit inclure votre clé API. Fastino utilise un schéma simple basé sur les en-têtes. Aucun flux OAuth ni échange de jeton n'est requis. Votre clé vous identifie et détermine les ressources et les limites de débit qui s'appliquent à vos requêtes.
+La plupart des opérations de l'API Fastino nécessitent votre clé API. Les routes de catalogue explicitement publiques, comme
+`GET /v1/models`, peuvent être appelées sans clé. Les opérations authentifiées utilisent un schéma simple basé sur les en-têtes.
+Aucun flux OAuth ni échange de jeton n'est requis. Votre clé vous identifie et détermine
+les ressources et les limites de débit qui s'appliquent à vos requêtes.
 
 ## Obtenir une clé API
 
@@ -12,22 +15,21 @@ Chaque requête à l'API Fastino doit inclure votre clé API. Fastino utilise un
 2. Allez dans **Settings** → **API Keys**.
 3. Cliquez sur **Create key**, donnez-lui un nom et copiez la valeur affichée.
 
-Stockez votre clé dans une variable d'environnement (par exemple `PIONEER_API_KEY`) plutôt que de la coder en dur dans les fichiers source.
+Stockez votre clé dans une variable d'environnement (par exemple `FASTINO_API_KEY`) plutôt que de la coder en dur dans les fichiers source.
+
+Les nouvelles clés Fastino commencent par `fast_sk_`. Les anciennes clés `pio_sk_` sont retirées ; créez une
+clé de remplacement dans le tableau de bord avant d'appeler l'API Fastino.
 
 ## Transmettre votre clé API
 
-Incluez votre clé dans l'en-tête `X-API-Key` de chaque requête :
+Incluez votre clé dans l'en-tête `X-API-Key` des requêtes Fastino natives :
 
 ```bash cURL
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "YOUR_TRAINING_JOB_ID",
-    "text": "Apple announced the MacBook Pro.",
-    "schema": {"entities": ["organization", "product"]}
-  }'
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
 ```
+
+Les SDK compatibles OpenAI et Anthropic envoient par convention la même clé sous forme de jeton Bearer. Définissez leur option `api_key` sur `$FASTINO_API_KEY` ; le SDK ajoute `Authorization: Bearer ...` pour vous.
 
 ## Gestion des clés
 
@@ -35,14 +37,14 @@ Créez de nouvelles clés API depuis **Settings** -> **API Keys** dans le tablea
 
 ### Créer une clé
 
-`POST /create-api-key` est utilisé par le tableau de bord web et nécessite une session de navigateur. Les appels authentifiés avec `X-API-Key` renvoient `403 Forbidden` avec le message `API key creation is only allowed from the web dashboard.`
+`POST /v1/create-api-key` est utilisé par le tableau de bord web et nécessite une session de navigateur. Les appels authentifiés avec `X-API-Key` renvoient `403 Forbidden` avec le message `API key creation is only allowed from the web dashboard.`
 
 La réponse de création inclut la nouvelle valeur `secret_key`. Copiez-la immédiatement, elle n'est plus affichée par la suite.
 
 ### Lister les clés
 
 ```bash cURL
-curl https://api.pioneer.ai/list-api-keys \
+curl https://api.fastino.ai/v1/list-api-keys \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -51,7 +53,7 @@ Renvoie toutes les clés associées à votre compte, y compris leurs noms et dat
 ### Révoquer une clé
 
 ```bash cURL
-curl -X DELETE https://api.pioneer.ai/delete-api-key \
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -66,12 +68,12 @@ Les clés révoquées sont rejetées immédiatement dès la requête suivante. I
 Pour vérifier que votre réseau peut atteindre l'API Fastino pendant l'intégration, envoyez une requête avec une clé fictive. Vous recevrez un `401` en retour, ce qui confirme que l'endpoint est accessible et que votre requête est correctement configurée.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
-  -H "X-API-Key: pio_sk_test" \
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: fast_sk_test" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
 
-# Expected: {"detail":"Invalid API key format. API keys must start with 'pio_sk_'. Please check your X-API-Key header."}
+# Expected: {"detail":"Invalid API key format. API keys must start with 'fast_sk_'. Please check your X-API-Key header."}
 # A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
 ```
 

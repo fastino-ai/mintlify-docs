@@ -6,10 +6,15 @@ hidden: true
 noindex: true
 ---
 
-使用 `POST /v1/chat/completions` 运行托管的 GLiNER 推理。该端点采用与 OpenAI 兼容的请求信封，
-并附加 Fastino 的顶层 `schema` 扩展。
+Fastino 提供两种已发布的 GLiNER 推理操作：
 
-本页仅记录原始 HTTP API。不涉及 SDK 使用、模型训练、评估、推理历史或反馈。
+- `POST /v1/chat/completions` 采用与 OpenAI 兼容的请求信封，
+  并附加 Fastino 的顶层 `schema` 扩展。
+- `POST /v1/gliner-2` 提供原生 GLiNER 请求与响应契约，
+  该契约发布在 [OpenAPI 文档](https://api.fastino.ai/openapi.json)中。
+
+本页记录 `/v1/chat/completions` 的原始 HTTP 契约。不涉及 SDK 使用、模型训练、评估、
+推理历史或反馈。
 
 <Warning>
   `POST /inference` 已被移除。请勿再发送其旧版字段，例如 `model_id`、`text`、
@@ -19,7 +24,7 @@ noindex: true
 ## 端点
 
 ```text
-POST https://api.pioneer.ai/v1/chat/completions
+POST https://api.fastino.ai/v1/chat/completions
 ```
 
 ## 身份验证
@@ -27,11 +32,11 @@ POST https://api.pioneer.ai/v1/chat/completions
 将 Fastino API 密钥作为 bearer token 发送：
 
 ```bash
-export PIONEER_API_KEY="pio_sk_..."
+export FASTINO_API_KEY="fast_sk_..."
 ```
 
 ```http
-Authorization: Bearer $PIONEER_API_KEY
+Authorization: Bearer $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
@@ -175,8 +180,8 @@ schema 会自动识别操作类型。请勿发送 `task` 或 `task_type`。
 ## 示例
 
 ```bash
-curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "fastino/gliner2.5-multi-v1",
@@ -213,7 +218,7 @@ curl -X POST "https://api.pioneer.ai/v1/chat/completions" \
 `model` 值必须当前支持托管推理。请使用实时模型目录，而不要假设每个 Hugging Face 检查点都可用：
 
 ```bash
-curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encoder"
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=encoder"
 ```
 
 ## 响应
@@ -264,8 +269,8 @@ curl "https://api.pioneer.ai/base-models?supports_inference=true&task_type=encod
 不可部署作业等错误，请在解决根本问题之前不要重试。
 
 ```bash
-curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $PIONEER_API_KEY" \
+curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d @request.json
 ```
@@ -275,7 +280,7 @@ curl --max-time 300 -X POST "https://api.pioneer.ai/v1/chat/completions" \
 | 状态码 | 可能原因 | 处理措施 |
 | --- | --- | --- |
 | `400` | 请求或 schema 无效 | 修正请求字段或 schema |
-| `401` | 缺少、格式错误或无效的 API 密钥 | 导出有效的 `pio_sk_...` 密钥 |
+| `401` | 缺少、格式错误或无效的 API 密钥 | 导出有效的 `fast_sk_...` 密钥 |
 | `402` | 额度不足、需要充值，或所有者设置了每日/每月的支出上限 | 添加额度或调整支出上限 |
 | `403` | 支付方式、卡片验证、信用额度或账户策略拒绝 | 解决相应的计费或账户要求 |
 | `404` | 未知或不受支持的模型 | 使用支持推理的目录 ID 或可部署作业的 UUID |
