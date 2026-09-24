@@ -11,11 +11,11 @@ Steps to integrate Codex with Fastino:
    ```shellscript
    codex
    ```
-3. Log in with option 3 and enter your `PIONEER_API_KEY`
+3. Log in with option 3 and enter your `FASTINO_API_KEY`
 4. Open `~/.codex/config.toml` and add these lines
 
 ```bash
-openai_base_url = "https://api.pioneer.ai/v1"
+openai_base_url = "https://api.fastino.ai/v1"
 model = "pioneer/auto"
 ```
 
@@ -25,12 +25,12 @@ model = "pioneer/auto"
 ```text
 Set up this machine's Codex CLI to use Fastino, including a fresh local model catalog.
   Do exactly this, in order:
-  1. Read my Fastino API key from the PIONEER_API_KEY environment variable. If it is not set, stop and ask me for it — never
+  1. Read my Fastino API key from the FASTINO_API_KEY environment variable. If it is not set, stop and ask me for it — never
   guess or hardcode a key, and never print the key value.
   2. Determine this user's absolute home directory (e.g. run `echo "$HOME"`). Call it HOME_ABS. Everywhere below, use the
   literal absolute path — do NOT write "~" or "$HOME" into any file, because Codex does not expand them in config.toml.
   3. Fetch the Fastino model list:
-     curl -fsS https://api.pioneer.ai/v1/models -H "Authorization: Bearer $PIONEER_API_KEY"
+     curl -fsS https://api.fastino.ai/v1/models -H "Authorization: Bearer $FASTINO_API_KEY"
      If the request fails (non-200), show me the status and body and STOP without changing any files.
   4. From the JSON response, take ONLY the top-level "models" array (not "data"). Wrap it as {"models": [ ... ]} and write it
   pretty-printed to:
@@ -45,7 +45,7 @@ Set up this machine's Codex CLI to use Fastino, including a fresh local model ca
      model_catalog_json = "HOME_ABS/.codex/model-catalogs/pioneer.json"
      [model_providers.pioneer]
      name = "Fastino"
-     base_url = "https://api.pioneer.ai/v1"
+     base_url = "https://api.fastino.ai/v1"
      wire_api = "responses"
      supports_websockets = false
      Preserve any unrelated existing sections (e.g. [projects.*], [tui.*], other providers). Only set/replace the keys above
@@ -55,16 +55,16 @@ Set up this machine's Codex CLI to use Fastino, including a fresh local model ca
   the /model picker reloads.
 ```
 
-7. Install the routing-savings hook. Codex strips Fastino's custom response fields from its on-disk rollout, so the hook reads your session id and asks Fastino how much `pioneer/auto` has saved this session. Make sure `PIONEER_API_KEY` is set, then paste this block:
+7. Install the routing-savings hook. Codex strips Fastino's custom response fields from its on-disk rollout, so the hook reads your session id and asks Fastino how much `pioneer/auto` has saved this session. Make sure `FASTINO_API_KEY` is set, then paste this block:
 
 ```bash
-: "${PIONEER_API_KEY:?Set PIONEER_API_KEY first}"
+: "${FASTINO_API_KEY:?Set FASTINO_API_KEY first}"
 mkdir -p ~/.pioneer/hooks ~/.pioneer/state
 
 # Credentials the hook reads (sourcing is optional - the hook also reads this file directly)
 cat > ~/.pioneer/codex-env <<EOF
-export PIONEER_API_KEY="$PIONEER_API_KEY"
-export PIONEER_BASE_URL="https://api.pioneer.ai/v1"
+export FASTINO_API_KEY="$FASTINO_API_KEY"
+export FASTINO_BASE_URL="https://api.fastino.ai/v1"
 EOF
 chmod 600 ~/.pioneer/codex-env
 
@@ -98,7 +98,7 @@ from pathlib import Path
 
 AUTO_ROUTER_MODELS = {"pioneer/auto", "auto"}
 FRONTIER_REFERENCE_MODEL = "claude-opus-4-7"
-DEFAULT_BASE_URL = "https://api.pioneer.ai/v1"
+DEFAULT_BASE_URL = "https://api.fastino.ai/v1"
 DEFAULT_ROUTER_TIP = (
     "Tip: use model=pioneer/auto to let Fastino route each request automatically; "
     "named models pin that concrete model."
@@ -252,8 +252,8 @@ def main() -> int:
 
     env_values = _read_env_file()
     savings = _fetch_savings(
-        base_url=_config("PIONEER_BASE_URL", env_values, DEFAULT_BASE_URL),
-        api_key=_config("PIONEER_API_KEY", env_values),
+        base_url=_config("FASTINO_BASE_URL", env_values, DEFAULT_BASE_URL),
+        api_key=_config("FASTINO_API_KEY", env_values),
         session_id=session_id,
     )
 

@@ -1,98 +1,44 @@
 ---
-title: "Model evaluations in Fastino: F1, precision, recall"
+title: "Model evaluations in Fastino"
 sidebarTitle: "Evaluations"
-description: "Run Fastino evaluations to measure F1, precision, and recall on a labeled dataset before deploying your fine-tuned model to production traffic."
+description: "Compare base and fine-tuned models on the same pinned evaluation suite before deploying."
 hidden: true
 noindex: true
 ---
 
-Before you put a fine-tuned model into production, you want to know how it performs on held-out data. Fastino's evaluation API runs your model against a labeled dataset and returns F1, precision, and recall — both as overall scores and broken down per entity type. This gives you a clear picture of where the model is strong and where it may need more training data.
+Before deploying a model, compare it against held-out labeled cases. Fastino evaluation suites pin those cases and their scorer configuration to a project so every selected model is measured consistently.
 
-## What evaluations measure
+## Evaluation suites and runs
 
-An evaluation compares your model's predictions against the ground-truth labels in your dataset. Fastino reports:
+An **evaluation suite** defines:
 
-- **F1** — the harmonic mean of precision and recall, the primary summary metric
-- **Precision** — of all predictions made, how many were correct
-- **Recall** — of all ground-truth labels, how many the model found
-- **Per-entity breakdown** — the same three metrics for each individual entity type, so you can identify which labels are underperforming
+- The project and source of the labeled cases
+- The task and field mapping
+- The scorer used for each case
+- An optional case limit
 
-## Running an evaluation
+An **evaluation run** applies that pinned suite to one selected model. Starting a suite run for several model IDs creates one run per model, which lets you compare a base model and fine-tuned candidates on identical inputs.
 
-Pass your training job ID as `base_model` and the name of your evaluation dataset as `dataset_name`:
+## Recommended workflow
 
-```bash
-curl -X POST https://api.pioneer.ai/felix/evaluations \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "base_model": "job_abc123",
-    "dataset_name": "my-eval-dataset"
-  }'
-```
+1. Create a suite with `POST /v1/projects/{project_id}/evaluation-suites`.
+2. Inspect or preview the pinned cases before spending inference credits.
+3. Start runs with `POST /v1/projects/{project_id}/evaluation-suites/{suite_id}/runs`.
+4. Poll each run at `GET /v1/projects/{project_id}/evaluation-runs/{run_id}`.
+5. Inspect case-level results at `GET /v1/projects/{project_id}/evaluation-runs/{run_id}/results`.
 
-The response returns an evaluation ID and queues the job:
+Use the same suite for every model in a comparison. Review aggregate metrics and individual failures; a single summary score can hide regressions on rare labels or difficult examples.
 
-```json
-{
-  "id": "eval_xyz789",
-  "status": "running"
-}
-```
-
-You can also pass a base model ID (instead of a training job ID) to evaluate an unmodified base model. This is useful for establishing a baseline before fine-tuning.
-
-## Retrieving results
-
-Poll the evaluation endpoint until results are ready:
-
-```bash
-curl https://api.pioneer.ai/felix/evaluations/eval_xyz789 \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-A completed evaluation includes overall metrics and a per-entity breakdown:
-
-```json
-{
-  "id": "eval_xyz789",
-  "status": "complete",
-  "metrics": {
-    "f1": 0.91,
-    "precision": 0.93,
-    "recall": 0.89,
-    "per_entity": {
-      "organization": {"f1": 0.95, "precision": 0.96, "recall": 0.94},
-      "product":      {"f1": 0.88, "precision": 0.91, "recall": 0.85},
-      "location":     {"f1": 0.90, "precision": 0.92, "recall": 0.88}
-    }
-  }
-}
-```
-
-## Managing evaluations
-
-List all evaluations in your account:
-
-```bash
-curl https://api.pioneer.ai/felix/evaluations \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Filter by project with the optional `project_id` query parameter.
-
-Delete an evaluation you no longer need:
-
-```bash
-curl -X DELETE https://api.pioneer.ai/felix/evaluations/eval_xyz789 \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-## Evaluations endpoint summary
+## Endpoint summary
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/felix/evaluations` | Run an evaluation |
-| `GET` | `/felix/evaluations` | List all evaluations |
-| `GET` | `/felix/evaluations/:id` | Get evaluation results |
-| `DELETE` | `/felix/evaluations/:id` | Delete an evaluation |
+| `GET` | `/v1/projects/{project_id}/evaluation-suites` | List project suites |
+| `POST` | `/v1/projects/{project_id}/evaluation-suites` | Create and pin a suite |
+| `GET` | `/v1/projects/{project_id}/evaluation-suites/{suite_id}/preview` | Preview pinned cases |
+| `GET` | `/v1/projects/{project_id}/evaluation-suites/{suite_id}/runs` | List suite runs |
+| `POST` | `/v1/projects/{project_id}/evaluation-suites/{suite_id}/runs` | Start model runs |
+| `GET` | `/v1/projects/{project_id}/evaluation-runs/{run_id}` | Read run status and metrics |
+| `GET` | `/v1/projects/{project_id}/evaluation-runs/{run_id}/results` | Read case-level results |
+
+See the [Evaluation API reference](/api-reference/evaluations) for request examples.

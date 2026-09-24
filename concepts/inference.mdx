@@ -1,78 +1,42 @@
 ---
-title: "Inference on Fastino: native, OpenAI, and Anthropic APIs"
-description: "Run inference on Fastino via the native /inference endpoint, OpenAI-compatible chat completions, or Anthropic-compatible messages — all reach the same models."
+title: "Inference on Fastino: OpenAI and Anthropic APIs"
+description: "Run inference on Fastino through OpenAI-compatible chat completions or Anthropic-compatible messages."
 hidden: true
 noindex: true
 ---
 
-Once you have a trained model — or want to use a base model directly — you run inference by sending a request to the Fastino API. The `model_id` field accepts either a base model ID (like `fastino/gliner2-base-v1`) or the job ID (a UUID) returned from a completed training job (like `3fa85f64-5717-4562-b3fc-2c963f66afa6`). Fastino routes the request to the right deployment automatically.
+Once you have a trained model — or want to use a base model directly — send its model ID
+or completed training job UUID in the `model` field. Fastino routes the request to the right
+deployment automatically.
 
-Fastino supports three request formats: its own native format, an OpenAI-compatible format, and an Anthropic-compatible format. All three reach the same underlying models, and all three accept your API key the same way: either an `X-API-Key` header or an `Authorization: Bearer <key>` header — whichever your SDK sends by default works, no per-format configuration needed.
+Fastino exposes OpenAI-compatible and Anthropic-compatible interfaces. For GLiNER
+extraction and classification, use `POST /v1/chat/completions` with `model`, `messages`, and
+Fastino's top-level `schema` extension. See the [Inference API](/inference) for the canonical
+request and response shapes.
 
 <Note>
-  The chat-shaped endpoints (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`) reject requests for a pretrained (non-instruct) base decoder model with a `400` — use the model's `-Instruct` variant, or call `/v1/completions` with a raw `prompt` instead.
+  The chat-shaped endpoints (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`) reject requests for a pretrained (non-instruct) base decoder model with a `400` — use the model's `-Instruct` variant instead.
 </Note>
-
-## Fastino native format
-
-Use `POST /inference` with the Fastino schema format. This is the most expressive option and gives you full control over extraction tasks.
-
-```bash
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
-    "schema": {
-      "entities": ["organization", "product", "event", "location"]
-    },
-    "threshold": 0.5
-  }'
-```
-
-### Schema structure
-
-The `schema` field is a dictionary with optional keys. Include only the keys that apply to your task.
-
-| Key | Type | Description |
-| --- | --- | --- |
-| `entities` | `string[]` | Entity type labels for named entity recognition (NER). |
-| `classifications` | `object[]` | Classification tasks, each with a `task` name and `labels` list. |
-| `structures` | `object` | Named structure definitions for JSON extraction. |
-| `relations` | `object[]` | Relation definitions linking extracted entities. |
-
-### Decoder models
-
-For decoder models (LLMs), replace `schema` with `"task": "generate"`:
-
-```bash
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
-    "task": "generate",
-    "messages": [                                                                                                     
-        {"role": "user", "content": "Summarize the following article in two sentences."}
-      ]
-  }'
-```
 
 ## OpenAI-compatible format
 
-Fastino exposes an OpenAI-compatible endpoint at `https://api.pioneer.ai/v1`. Point any existing OpenAI SDK or integration at this base URL and use your Fastino API key — no other changes required.
+Fastino exposes an OpenAI-compatible endpoint at `https://api.fastino.ai/v1`. Point any existing OpenAI SDK or integration at this base URL and use your Fastino API key — no other changes required.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "messages": [
       {"role": "user", "content": "Extract entities from: Apple launched the iPhone."}
     ],
-    "schema": {"entities": ["organization", "product"]}
+    "schema": {
+      "entities": [
+        {"name": "organization", "description": "business or institution name"},
+        {"name": "product", "description": "named commercial product"}
+      ]
+    }
   }'
 ```
 
@@ -81,9 +45,7 @@ Available OpenAI-compatible endpoints:
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `POST` | `/v1/chat/completions` | Chat completions |
-| `POST` | `/v1/completions` | Text completions |
 | `POST` | `/v1/responses` | Responses API |
-| `POST` | `/v1/embeddings` | Create embeddings |
 | `GET` | `/v1/models` | List available models (callable without auth for the public catalog) |
 | `GET` | `/v1/models/:model_id` | Retrieve a single model's metadata |
 
@@ -103,10 +65,10 @@ Available OpenAI-compatible endpoints:
 
 ## Anthropic-compatible format
 
-Fastino also exposes an Anthropic-compatible endpoint. Set your SDK's `base_url` to `https://api.pioneer.ai/v1` and use your Fastino API key in place of an Anthropic key — the Anthropic SDK sends it as `x-api-key`, which Fastino accepts the same as the other two formats.
+Fastino also exposes an Anthropic-compatible endpoint. Set your SDK's `base_url` to `https://api.fastino.ai` and use your Fastino API key in place of an Anthropic key. The SDK appends `/v1/messages` and sends the key as `x-api-key`, which Fastino accepts.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
+curl -X POST https://api.fastino.ai/v1/messages \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -119,7 +81,8 @@ curl -X POST https://api.pioneer.ai/v1/messages \
   }'
 ```
 
-The OpenAI-compatible and Anthropic-compatible endpoints both support streaming (`stream: true`). The native `/inference` endpoint does not support streaming — use one of the compatible formats if you need token-by-token output.
+The OpenAI-compatible and Anthropic-compatible endpoints both support streaming
+(`stream: true`).
 
 ## Prompt caching
 
@@ -131,7 +94,7 @@ Prompt caching cuts cost and latency on repeated prompt prefixes, but how you en
 To cache the stable prefix on a Claude model, send the content as a block array and mark it — this works on `/v1/chat/completions` and `/v1/responses` too, not just the Anthropic-compatible endpoint:
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -161,8 +124,8 @@ See [Prompt Caching](/api-reference/prompt-caching) for where to place markers, 
 By default, Fastino stores every inference — the input, output, and metadata — so it can drive evaluation, use-case clustering, and adapter training. Pass `store: false` to skip persistence for a specific request.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
-  -H "Authorization: Bearer pio_sk_..." \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer fast_sk_..." \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-opus-5",
@@ -173,7 +136,8 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
   }'
 ```
 
-`store: false` is supported on all three request formats — native `/inference`, `/v1/chat/completions`, and `/v1/messages` — and works identically for streaming and non-streaming requests.
+`store: false` is supported on `/v1/chat/completions` and `/v1/messages` and works
+identically for streaming and non-streaming requests.
 
 ### What changes with `store: false`
 
@@ -201,32 +165,32 @@ Fastino records every inference call. You can retrieve past results and submit c
 
 ```bash
 # List recent inferences
-curl https://api.pioneer.ai/inferences \
+curl https://api.fastino.ai/v1/inferences \
   -H "X-API-Key: YOUR_API_KEY"
 
 # Get a specific inference result
-curl https://api.pioneer.ai/inferences/INFERENCE_ID \
+curl https://api.fastino.ai/v1/inferences/INFERENCE_ID \
   -H "X-API-Key: YOUR_API_KEY"
 
 # Mark as correct
-curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+curl -X POST https://api.fastino.ai/v1/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"verdict": "correct"}'
 
 # Submit a correction
-curl -X POST https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+curl -X POST https://api.fastino.ai/v1/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"verdict": "incorrect", "corrected_output": {...}, "notes": "optional reviewer note"}'
 
 # Read back the feedback you (or a teammate) already submitted
-curl https://api.pioneer.ai/inferences/INFERENCE_ID/feedback \
+curl https://api.fastino.ai/v1/inferences/INFERENCE_ID/feedback \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 `GET .../feedback` returns 404 if no feedback has been submitted for that inference yet. The `notes` field on `POST .../feedback` is optional.
 
-Optional query filters for `GET /inferences`: `limit`, `offset`, `model_id`, `task`, `project_id`, `training_job_id`, `latency_min`, `latency_max` (ms), `since`, `until` (ISO 8601 bounds on `created_at`).
+Optional query filters for `GET /v1/inferences`: `limit`, `offset`, `model_id`, `task`, `project_id`, `training_job_id`, `latency_min`, `latency_max` (ms), `since`, `until` (ISO 8601 bounds on `created_at`).
 
-`GET /inferences/INFERENCE_ID` also surfaces any human feedback already submitted (`human_verdict`, `human_corrected_output`, `human_feedback_notes`) inline on the record.
+`GET /v1/inferences/INFERENCE_ID` also surfaces any human feedback already submitted (`human_verdict`, `human_corrected_output`, `human_feedback_notes`) inline on the record.

@@ -32,16 +32,16 @@ AI coding agents like Cursor and Claude Code can use your Fastino account direct
   </Step>
 
   <Step title="Set your API key as an environment variable">
-    Set `PIONEER_API_KEY` (or whichever variable name your agent reads) in the environment your agent runs in. For example:
+    Set `FASTINO_API_KEY` (or whichever variable name your agent reads) in the environment your agent runs in. For example:
 
     <CodeGroup>
 
     ```bash Shell
-    export PIONEER_API_KEY="your-api-key-here"
+    export FASTINO_API_KEY="your-api-key-here"
     ```
 
     ```bash .env file
-    PIONEER_API_KEY=your-api-key-here
+    FASTINO_API_KEY=your-api-key-here
     ```
 
     </CodeGroup>
@@ -66,59 +66,56 @@ description: Interact with the Fastino API to manage datasets, training jobs, ev
 
 # Fastino API
 
-Base URL: https://api.pioneer.ai
-Auth header: X-API-Key: YOUR_API_KEY
+Base URL: https://api.fastino.ai
+Auth header: Authorization: Bearer $FASTINO_API_KEY
 
-Get your API key: pioneer.ai → Settings → API Keys.
+Get your API key: agent.fastino.ai → Settings → API Keys.
 
-## Inference (Fastino format)
+## GLiNER inference
 
-POST /inference — run predictions against a fine-tuned or base model
-GET  /base-models — list available models (supports ?supports_inference=true&task_type=decoder filters)
+POST /v1/chat/completions — run predictions against a fine-tuned or base model
+GET  /v1/base-models — list available models (supports ?supports_inference=true&task_type=encoder filters)
 
 ```bash
-curl -X POST https://api.pioneer.ai/inference \
- -H "X-API-Key: YOUR_API_KEY" \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+ -H "Authorization: Bearer $FASTINO_API_KEY" \
  -H "Content-Type: application/json" \
  -d '{
- "model_id": "job_abc123",
- "text": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+ "model": "fastino/gliner2.5-multi-v1",
+ "messages": [
+   {
+     "role": "user",
+     "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+   }
+ ],
  "schema": {
- "entities": ["organization", "product", "event", "location"]
+   "entities": [
+     {"name": "organization", "description": "business or institution name"},
+     {"name": "product", "description": "named commercial product"}
+   ]
  },
  "threshold": 0.5
  }'
 ```
 
-The schema is a dict with optional keys:
-- entities        — list of entity type strings (NER)
+The schema is a dictionary with optional keys:
+- entities        — descriptive entity definitions (NER)
 - classifications — list of {task, labels} objects (text classification)
 - structures      — dict of structure definitions (JSON extraction)
-- relations       — list of relation definitions
+- relations       — relation definitions
 
-For decoder models, use "task": "generate" with a "messages" array instead of "text" and "schema": 
-{                                                                                                                     
-    "model_id": "job_abc123",                                                                                           
-    "task": "generate",                                                                                                 
-    "messages": [{"role": "user", "content": "Summarize this: ..."}]                                                    
-  }
+`model` can be the job ID returned from POST /v1/training-jobs or an
+inference-capable base model ID returned by GET /v1/base-models.
 
-model_id is the job_id returned from POST /felix/training-jobs,
-or a base model ID like "fastino/gliner2-base-v1".
-
-## Inference (OpenAI-compatible)
-
-POST /v1/chat/completions — OpenAI-compatible chat completions
-POST /v1/completions      — OpenAI-compatible text completions
+## Decoder inference
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
- -H "X-API-Key: YOUR_API_KEY" \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+ -H "Authorization: Bearer $FASTINO_API_KEY" \
  -H "Content-Type: application/json" \
  -d '{
  "model": "job_abc123",
- "messages": [{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
- "schema": {"entities": ["organization", "product"]}
+ "messages": [{"role": "user", "content": "Summarize this: ..."}]
  }'
 ```
 
@@ -127,7 +124,7 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
 POST /v1/messages — Anthropic-compatible messages
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
+curl -X POST https://api.fastino.ai/v1/messages \
  -H "X-API-Key: YOUR_API_KEY" \
  -H "Content-Type: application/json" \
  -d '{
@@ -140,30 +137,30 @@ curl -X POST https://api.pioneer.ai/v1/messages \
 
 ## Inference History
 
-GET  /inferences              — list past inferences
-GET  /inferences/:id          — get a specific inference result
-POST /inferences/:id/feedback — submit feedback on a result
+GET  /v1/inferences              — list past inferences
+GET  /v1/inferences/:id          — get a specific inference result
+POST /v1/inferences/:id/feedback — submit feedback on a result
 
 ## Datasets
 
-GET    /felix/datasets           — list all datasets
-GET    /felix/datasets/:name     — get dataset details
-DELETE /felix/datasets/:name     — delete a dataset
+GET    /v1/datasets           — list all datasets
+GET    /v1/datasets/:name     — get dataset details
+DELETE /v1/datasets/:name     — delete a dataset
 
 ```bash
-curl https://api.pioneer.ai/felix/datasets \
+curl https://api.fastino.ai/v1/datasets \
  -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ## Training Jobs
 
-POST   /felix/training-jobs          — start a training job
-GET    /felix/training-jobs          — list training jobs
-GET    /felix/training-jobs/:id      — get job status and metrics
-POST   /felix/training-jobs/:id/stop — stop a running job
+POST   /v1/training-jobs          — start a training job
+GET    /v1/training-jobs          — list training jobs
+GET    /v1/training-jobs/:id      — get job status and metrics
+POST   /v1/training-jobs/:id/stop — stop a running job
 
 ```bash
-curl -X POST https://api.pioneer.ai/felix/training-jobs \
+curl -X POST https://api.fastino.ai/v1/training-jobs \
  -H "X-API-Key: YOUR_API_KEY" \
  -H "Content-Type: application/json" \
  -d '{
@@ -176,7 +173,7 @@ curl -X POST https://api.pioneer.ai/felix/training-jobs \
  }'
 ```
 
-base_model is required. Valid values: a supported model ID returned by GET /base-models
+base_model is required. Valid values: a supported model ID returned by GET /v1/base-models
 (e.g. fastino/gliner2-base-v1 or nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16)
 or a checkpoint UUID from a previous training job.
 
@@ -187,21 +184,13 @@ Metrics (on COMPLETED): { "f1": 0.94, "precision": 0.96, "recall": 0.92 }
 
 ## Evaluations
 
-POST   /felix/evaluations      — run an evaluation
-GET    /felix/evaluations      — list evaluations
-GET    /felix/evaluations/:id  — get evaluation results
+POST /v1/projects/{project_id}/evaluation-suites
+POST /v1/projects/{project_id}/evaluation-suites/{suite_id}/runs
+GET  /v1/projects/{project_id}/evaluation-runs/{run_id}
+GET  /v1/projects/{project_id}/evaluation-runs/{run_id}/results
 
-```bash
-curl -X POST https://api.pioneer.ai/felix/evaluations \
- -H "X-API-Key: YOUR_API_KEY" \
- -H "Content-Type: application/json" \
- -d '{
- "base_model": "job_abc123",
- "dataset_name": "my-eval-dataset"
- }'
-```
-
-Results include: f1, precision, recall, per_entity breakdown
+Pin held-out cases in one evaluation suite, run the same suite against every model being
+compared, and inspect both aggregate metrics and per-case failures.
 
 ## Errors
 

@@ -5,7 +5,10 @@ description: "Authenticate Fastino API requests with the X-API-Key header. Gener
 noindex: true
 ---
 
-Every request to the Fastino API must include your API key. Fastino uses a simple header-based scheme — no OAuth flow or token exchange required. Your key identifies you and determines which resources and rate limits apply to your requests.
+Most Fastino API operations require your API key. Explicitly public catalog routes such as
+`GET /v1/models` can be called without one. Authenticated operations use a simple header-based
+scheme—no OAuth flow or token exchange is required. Your key identifies you and determines
+which resources and rate limits apply to your requests.
 
 ## Getting an API key
 
@@ -13,22 +16,21 @@ Every request to the Fastino API must include your API key. Fastino uses a simpl
 2. Go to **Settings** → **API Keys**.
 3. Click **Create key**, give it a name, and copy the value shown.
 
-Store your key in an environment variable (for example `PIONEER_API_KEY`) rather than hard-coding it in source files.
+Store your key in an environment variable (for example `FASTINO_API_KEY`) rather than hard-coding it in source files.
+
+New Fastino keys start with `fast_sk_`. Legacy `pio_sk_` keys are retired; create a
+replacement in the dashboard before calling the Fastino API.
 
 ## Passing your API key
 
-Include your key in the `X-API-Key` header on every request:
+Include your key in the `X-API-Key` header on native Fastino requests:
 
 ```bash cURL
-curl -X POST https://api.pioneer.ai/inference \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "YOUR_TRAINING_JOB_ID",
-    "text": "Apple announced the MacBook Pro.",
-    "schema": {"entities": ["organization", "product"]}
-  }'
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
 ```
+
+OpenAI- and Anthropic-compatible SDKs conventionally send the same key as a Bearer token. Set their `api_key` option to `$FASTINO_API_KEY`; the SDK adds `Authorization: Bearer ...` for you.
 
 ## Managing keys
 
@@ -36,14 +38,14 @@ Create new API keys from **Settings** -> **API Keys** in the Fastino dashboard. 
 
 ### Create a key
 
-`POST /create-api-key` is used by the web dashboard and requires a browser session. Calls authenticated with `X-API-Key` return `403 Forbidden` with the message `API key creation is only allowed from the web dashboard.`
+`POST /v1/create-api-key` is used by the web dashboard and requires a browser session. Calls authenticated with `X-API-Key` return `403 Forbidden` with the message `API key creation is only allowed from the web dashboard.`
 
 The creation response includes the new `secret_key` value. Copy it immediately — it is not shown again.
 
 ### List keys
 
 ```bash cURL
-curl https://api.pioneer.ai/list-api-keys \
+curl https://api.fastino.ai/v1/list-api-keys \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -52,7 +54,7 @@ Returns all keys associated with your account, including their names and creatio
 ### Revoke a key
 
 ```bash cURL
-curl -X DELETE https://api.pioneer.ai/delete-api-key \
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -67,12 +69,12 @@ Revoked keys are rejected immediately on the next request. There is no undo.
 To verify your network can reach the Fastino API during integration, send a request with a placeholder key. You'll get a `401` back — which confirms the endpoint is reachable and your request is wired correctly.
 
 ```bash
-curl -X POST https://api.pioneer.ai/v1/messages \
-  -H "X-API-Key: pio_sk_test" \
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: fast_sk_test" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
 
-# Expected: {"detail":"Invalid API key format. API keys must start with 'pio_sk_'. Please check your X-API-Key header."}
+# Expected: {"detail":"Invalid API key format. API keys must start with 'fast_sk_'. Please check your X-API-Key header."}
 # A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
 ```
 

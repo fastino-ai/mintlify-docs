@@ -30,18 +30,13 @@ Markers are honored on every message-based endpoint and normalized identically:
 - `POST /v1/chat/completions` (OpenAI-compatible) — mark a `system`/`user` message content block.
 - `POST /v1/messages` (Anthropic-compatible) — mark a `system` block, message block, or tools block.
 - `POST /v1/responses` (OpenAI Responses) — mark a content block on an input message. The stable prefix is marked via a `system`/`developer` input message block (the plain `instructions` string has no place for a marker).
-- `POST /inference` (Fastino native, decoder generation) — send a message `content` as a content-block array and mark a block.
-
-<Note>
-  `POST /v1/completions` (legacy text completions) sends a single opaque `prompt` string with no content blocks, so it has no place to attach a marker. Caching there depends entirely on the upstream's automatic caching.
-</Note>
 
 ### Example (`/v1/chat/completions`)
 
 ```bash
-curl https://api.pioneer.ai/v1/chat/completions \
+curl https://api.fastino.ai/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: $PIONEER_API_KEY" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -d '{
     "model": "claude-opus-5",
     "messages": [
@@ -143,7 +138,6 @@ The first request that populates the cache pays the write rate on those tokens; 
 - **System prompt sent as a plain string** → nothing to attach the marker to.
 - **Prefix too small** → below the minimum cacheable size, so no entry is made.
 - **The cached prefix changes between turns** (e.g. a timestamp early in the system prompt) → the cache can't be reused. Keep the marked prefix byte-for-byte stable.
-- **Marking on `/v1/completions`** → the legacy text endpoint has no content blocks; use any message-based endpoint instead.
 - **On `/v1/responses`, marking the `instructions` field** → it's a plain string and can't carry a marker; put the stable prefix in a `system`/`developer` input message block instead.
 - **Adding `cache_control` to an auto-caching model** → ignored or rejected; let it cache on its own.
 - **More than 4 markers** → only the first 4 are applied.

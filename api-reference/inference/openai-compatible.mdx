@@ -1,12 +1,12 @@
 ---
-title: "OpenAI-compatible chat and completions on Fastino API"
+title: "OpenAI-compatible inference on Fastino API"
 sidebarTitle: "OpenAI Compatible"
-description: "Drop-in OpenAI replacement on Fastino. Set base_url to https://api.pioneer.ai/v1, use your Fastino key, and all SDK methods including streaming work unchanged."
+description: "Drop-in OpenAI replacement on Fastino. Set base_url to https://api.fastino.ai/v1, use your Fastino key, and all SDK methods including streaming work unchanged."
 hidden: true
 noindex: true
 ---
 
-Fastino exposes a set of OpenAI-compatible endpoints so you can use your existing OpenAI SDK code against your fine-tuned Fastino models with minimal changes. Set `base_url` to `https://api.pioneer.ai/v1`, authenticate with your Fastino API key, and pass your training job ID as the `model`. Fastino-specific fields like `schema` can be passed via `extra_body` in the Python SDK or included directly in the JSON body.
+Fastino exposes a set of OpenAI-compatible endpoints so you can use your existing OpenAI SDK code against your fine-tuned Fastino models with minimal changes. Set `base_url` to `https://api.fastino.ai/v1`, authenticate with your Fastino API key, and pass your training job ID as the `model`. Fastino-specific fields like `schema` can be passed via `extra_body` in the Python SDK or included directly in the JSON body.
 
 <Tip>
   If you already have an OpenAI integration, switching to Fastino requires only two changes: update `base_url` and swap in your Fastino API key. Everything else — SDK methods, streaming, message format — stays the same.
@@ -17,9 +17,12 @@ Fastino exposes a set of OpenAI-compatible endpoints so you can use your existin
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/chat/completions` | Chat completions |
-| `POST` | `/v1/completions` | Text completions |
 | `POST` | `/v1/responses` | Responses API |
 | `GET` | `/v1/models` | List available models |
+
+<Warning>
+  Legacy `POST /v1/completions` has been removed. Migrate prompt-based requests to `POST /v1/chat/completions` and send the prompt as a user message.
+</Warning>
 
 ## Configure the OpenAI SDK
 
@@ -32,13 +35,13 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="YOUR_API_KEY",
-    base_url="https://api.pioneer.ai/v1"
+    base_url="https://api.fastino.ai/v1"
 )
 ```
 
 ```bash cURL (base URL)
 # Set this as the base for all requests
-https://api.pioneer.ai/v1
+https://api.fastino.ai/v1
 ```
 
 </CodeGroup>
@@ -54,7 +57,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="YOUR_API_KEY",
-    base_url="https://api.pioneer.ai/v1"
+    base_url="https://api.fastino.ai/v1"
 )
 
 response = client.chat.completions.create(
@@ -76,7 +79,7 @@ print(response.choices[0].message.content)
 ```
 
 ```bash cURL
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -89,41 +92,6 @@ curl -X POST https://api.pioneer.ai/v1/chat/completions \
     ],
     "schema": {
       "entities": ["organization", "product"]
-    }
-  }'
-```
-
-</CodeGroup>
-
-## Text completions
-
-`POST /v1/completions` supports the legacy completions format with a `prompt` field.
-
-<CodeGroup>
-
-```python Python (OpenAI SDK)
-response = client.completions.create(
-    model="YOUR_TRAINING_JOB_ID",
-    prompt="Extract the company names from: Apple and Google announced a partnership.",
-    extra_body={
-        "schema": {
-            "entities": ["organization"]
-        }
-    }
-)
-
-print(response.choices[0].text)
-```
-
-```bash cURL
-curl -X POST https://api.pioneer.ai/v1/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "prompt": "Extract the company names from: Apple and Google announced a partnership.",
-    "schema": {
-      "entities": ["organization"]
     }
   }'
 ```
@@ -143,7 +111,7 @@ for model in models.data:
 ```
 
 ```bash cURL
-curl https://api.pioneer.ai/v1/models \
+curl https://api.fastino.ai/v1/models \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
@@ -167,7 +135,7 @@ for chunk in stream:
 ```
 
 ```bash cURL
-curl -X POST https://api.pioneer.ai/v1/chat/completions \
+curl -X POST https://api.fastino.ai/v1/chat/completions \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
