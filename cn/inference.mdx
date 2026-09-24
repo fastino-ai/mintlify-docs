@@ -6,15 +6,26 @@ hidden: true
 noindex: true
 ---
 
-Fastino 提供两种已发布的 GLiNER 推理操作：
+Fastino 为 GLiNER 推理提供两种同步接口。请选择与你的模型和负载需求相匹配的接口：
 
-- `POST /v1/chat/completions` 采用与 OpenAI 兼容的请求信封，
-  并附加 Fastino 的顶层 `schema` 扩展。
-- `POST /v1/gliner-2` 提供原生 GLiNER 请求与响应契约，
-  该契约发布在 [OpenAPI 文档](https://api.fastino.ai/openapi.json)中。
+| 功能 | `/v1/chat/completions` | `/v1/gliner-2` |
+| --- | --- | --- |
+| 模型 | 选择支持推理的基础模型或已完成训练任务的 UUID | 始终使用 `fastino/gliner2-base-v1` |
+| 请求 | 与 OpenAI 兼容的 `model` 和 `messages`，外加 Fastino 的顶层 `schema` | 原生 `text`、`schema`、`threshold`、`include_confidence` 和 `include_spans` 字段 |
+| 响应 | OpenAI chat-completion 信封；将 `choices[0].message.content` 解析为 JSON | 原生 `{ "result": ..., "token_usage": ... }` 响应体 |
+| 批量输入 | 每个请求一个对话 | 接受单个字符串或字符串列表 |
+| 异步处理 | 不可用 | 使用 `POST /v1/gliner-2/async` 提交，然后轮询 `GET /v1/gliner-2/jobs/{job_id}` |
+| 适用场景 | 标准集成和微调模型 | 基础 GLiNER2 推理、原生结果、批处理或长时间运行的任务 |
 
-本页记录 `/v1/chat/completions` 的原始 HTTP 契约。不涉及 SDK 使用、模型训练、评估、
-推理历史或反馈。
+<Tip>
+  从 `/v1/chat/completions` 开始，可在基础模型和微调模型之间获得一致的 API。
+  当你明确需要固定 GLiNER2 基础模型的原生契约、批量输入或异步处理时，
+  请使用 `/v1/gliner-2`。
+</Tip>
+
+本页下文记录 `/v1/chat/completions` 的原始 HTTP 契约。原生 `/v1/gliner-2` 的 schema
+发布在 [OpenAPI 文档](https://api.fastino.ai/openapi.json)中。SDK 使用、模型训练、
+评估、推理历史和反馈不在本页范围内。
 
 <Warning>
   `POST /inference` 已被移除。请勿再发送其旧版字段，例如 `model_id`、`text`、

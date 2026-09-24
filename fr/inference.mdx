@@ -6,15 +6,28 @@ hidden: true
 noindex: true
 ---
 
-Fastino expose deux opérations d'inférence GLiNER publiées :
+Fastino propose deux interfaces synchrones pour l'inférence GLiNER. Choisissez l'interface qui
+correspond à votre modèle et aux exigences de votre charge utile :
 
-- `POST /v1/chat/completions` utilise une enveloppe de requête compatible OpenAI ainsi que
-  l'extension `schema` de premier niveau de Fastino.
-- `POST /v1/gliner-2` fournit le contrat natif de requête et de réponse GLiNER
-  publié dans le [document OpenAPI](https://api.fastino.ai/openapi.json).
+| Fonctionnalité | `/v1/chat/completions` | `/v1/gliner-2` |
+| --- | --- | --- |
+| Modèle | Sélectionnez un modèle de base compatible avec l'inférence ou l'UUID d'une tâche d'entraînement terminée | Utilise toujours `fastino/gliner2-base-v1` |
+| Requête | `model` et `messages` compatibles OpenAI, plus le `schema` de premier niveau de Fastino | Champs natifs `text`, `schema`, `threshold`, `include_confidence` et `include_spans` |
+| Réponse | Enveloppe chat-completion OpenAI ; analysez `choices[0].message.content` en tant que JSON | Corps natif `{ "result": ..., "token_usage": ... }` |
+| Entrée par lots | Une conversation par requête | Accepte une chaîne ou une liste de chaînes |
+| Traitement asynchrone | Non disponible | Soumettez avec `POST /v1/gliner-2/async`, puis interrogez `GET /v1/gliner-2/jobs/{job_id}` |
+| Idéal pour | Intégrations standard et modèles affinés | Inférence avec le modèle de base GLiNER2, résultats natifs, traitement par lots ou tâches de longue durée |
 
-Cette page documente le contrat HTTP brut de `/v1/chat/completions`. Elle ne couvre pas l'utilisation
-du SDK, l'entraînement des modèles, l'évaluation, l'historique d'inférence ni le feedback.
+<Tip>
+  Commencez par `/v1/chat/completions` pour bénéficier d'une API cohérente entre les modèles de base et affinés.
+  Utilisez `/v1/gliner-2` lorsque vous avez spécifiquement besoin du contrat natif du modèle de base
+  GLiNER2 fixe, de l'entrée par lots ou du traitement asynchrone.
+</Tip>
+
+Cette page documente ci-dessous le contrat HTTP brut de `/v1/chat/completions`. Les schémas natifs
+de `/v1/gliner-2` sont publiés dans le
+[document OpenAPI](https://api.fastino.ai/openapi.json). L'utilisation du SDK, l'entraînement des
+modèles, l'évaluation, l'historique d'inférence et le feedback sortent du cadre de cette page.
 
 <Warning>
   `POST /inference` a été supprimé. N'envoyez pas ses champs hérités tels que `model_id`,
