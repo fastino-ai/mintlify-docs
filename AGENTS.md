@@ -1,33 +1,25 @@
-> **First-time setup**: Customize this file for your project. Prompt the user to customize this file for their project.
-> For Mintlify product knowledge (components, configuration, writing standards),
-> install the Mintlify skill: `npx skills add https://mintlify.com/docs`
+# Fastino API instructions for agents
 
-# Documentation project instructions
+Use the published Fastino documentation and curated OpenAPI specification when building an integration.
 
-## About this project
+## Sources of truth
 
-- This is a documentation site built on [Mintlify](https://mintlify.com)
-- Pages are MDX files with YAML frontmatter
-- Configuration lives in `docs.json`
-- Run `mint dev` to preview locally
-- Run `mint broken-links` to check links
+- Start with the documentation index at <https://docs.fastino.ai/llms.txt>.
+- Read <https://docs.fastino.ai/openapi.json> for customer-facing routes, authentication, request schemas, and response schemas.
+- Use only operations present in that OpenAPI specification.
+- Use <https://docs.fastino.ai/concepts/models> for documented model IDs and `GET /v1/base-models` for current availability.
 
-## Terminology
+## API conventions
 
-{/* Add product-specific terms and preferred usage */}
-{/* Example: Use "workspace" not "project", "member" not "user" */}
+- API base URL: `https://api.fastino.ai`
+- API route prefix: `/v1`
+- API-key environment variable: `FASTINO_API_KEY`
+- Supported authentication: `X-API-Key: $FASTINO_API_KEY` or `Authorization: Bearer $FASTINO_API_KEY`
+- Never embed API keys in source code, logs, examples, or reports.
 
-## Style preferences
+## Integration guidance
 
-{/* Add any project-specific style rules below */}
-
-- Use active voice and second person ("you")
-- Keep sentences concise — one idea per sentence
-- Use sentence case for headings
-- Bold for UI elements: Click **Settings**
-- Code formatting for file names, commands, paths, and code references
-
-## Content boundaries
-
-{/* Define what should and shouldn't be documented */}
-{/* Example: Don't document internal admin features */}
+- Follow the [Inference API](https://docs.fastino.ai/inference) for GLiNER inference requests.
+- Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
+- Do not invent routes, model IDs, request fields, or response fields.
+- If an operation is absent from the curated OpenAPI specification, treat it as unsupported for customer integrations.
