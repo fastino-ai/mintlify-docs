@@ -28,6 +28,10 @@ INFERENCE_OPERATIONS = (
     ("GET", "/inferences/{inference_id}/feedback"),
     ("POST", "/inferences/{inference_id}/feedback"),
 )
+DATASET_OPERATIONS = (
+    ("POST", "/v1/datasets/upload/url"),
+    ("GET", "/v1/datasets/{name}"),
+)
 TRAINING_OPERATIONS_WITHOUT_REFERENCE_PAGES = (
     ("GET", "/v1/training-jobs/{job_id}/deployments"),
     ("POST", "/v1/training-jobs/{job_id}/push-to-hub"),
@@ -181,7 +185,11 @@ def build_spec(docs_root: Path, pioneer_root: Path) -> dict[str, object]:
     source_spec = _load_json(pioneer_root / "api" / "openapi.json")
     manifest = _load_json(pioneer_root / "docs" / "route_manifest.json")
     route_index = _route_index(manifest)
-    operations = [*_training_operations(docs_root), *INFERENCE_OPERATIONS]
+    operations = [
+        *DATASET_OPERATIONS,
+        *_training_operations(docs_root),
+        *INFERENCE_OPERATIONS,
+    ]
     paths: dict[str, dict[str, object]] = {}
     for method, documented_path in operations:
         try:
