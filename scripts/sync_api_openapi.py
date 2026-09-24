@@ -29,8 +29,11 @@ INFERENCE_OPERATIONS = (
     ("POST", "/inferences/{inference_id}/feedback"),
 )
 DATASET_OPERATIONS = (
+    ("GET", "/v1/datasets"),
     ("POST", "/v1/datasets/upload/url"),
+    ("POST", "/v1/datasets/upload/process"),
     ("GET", "/v1/datasets/{name}"),
+    ("DELETE", "/v1/datasets/{name}"),
 )
 TRAINING_OPERATIONS_WITHOUT_REFERENCE_PAGES = (
     ("GET", "/v1/training-jobs/{job_id}/deployments"),

@@ -1755,6 +1755,126 @@
         ]
       }
     },
+    "/v1/datasets": {
+      "get": {
+        "description": "Lists visible datasets.",
+        "operationId": "list_datasets_datasets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_all_versions",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include All Versions",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Filter by project ID. For a real project, orphan (no-project) datasets are included only when include_orphans=True. Omitted or the 'default' sentinel always includes orphans.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by project ID. For a real project, orphan (no-project) datasets are included only when include_orphans=True. Omitted or the 'default' sentinel always includes orphans.",
+              "title": "Project Id"
+            }
+          },
+          {
+            "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user \u2014 this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
+            "in": "query",
+            "name": "include_failed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user \u2014 this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
+              "title": "Include Failed",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
+            "in": "query",
+            "name": "include_orphans",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
+              "title": "Include Orphans",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": 200,
+              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "Number of leading datasets to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of leading datasets to skip.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Datasets",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
     "/v1/datasets/upload/url": {
       "post": {
         "description": "Creates a reserved dataset row and presigned upload URL.",
@@ -1792,6 +1912,48 @@
           }
         },
         "summary": "Get Upload Url",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/upload/process": {
+      "post": {
+        "description": "Queues processing for a reserved dataset upload.",
+        "operationId": "process_uploaded_dataset_datasets_upload_process_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetUploadProcessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Process Uploaded Dataset",
         "tags": [
           "datasets"
         ]
@@ -1835,6 +1997,45 @@
           }
         },
         "summary": "List Dataset Versions",
+        "tags": [
+          "datasets"
+        ]
+      },
+      "delete": {
+        "description": "Soft-delete a dataset and all its versions.\n\nArgs:\n    name: Dataset name. Legacy UUID lookups are still accepted and routed\n        through the by-ID path for backwards compatibility.",
+        "operationId": "delete_dataset_datasets_name_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Dataset",
         "tags": [
           "datasets"
         ]
@@ -6753,6 +6954,21 @@
         "title": "DatasetProvenanceFallback",
         "type": "object"
       },
+      "DatasetUploadProcessRequest": {
+        "description": "Request to process uploaded dataset from S3.",
+        "properties": {
+          "dataset_id": {
+            "description": "Dataset ID from upload/url response (all metadata stored in DB)",
+            "title": "Dataset Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id"
+        ],
+        "title": "DatasetUploadProcessRequest",
+        "type": "object"
+      },
       "DatasetUploadUrlResponse": {
         "description": "Response with presigned S3 URL for direct upload.",
         "properties": {
@@ -6965,6 +7181,33 @@
           "dataset_name"
         ],
         "title": "DatasetUploadUrlRequest",
+        "type": "object"
+      },
+      "DatasetListResponse": {
+        "description": "Response model for listing datasets.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetResponse"
+            },
+            "title": "Datasets",
+            "type": "array"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "datasets",
+          "count"
+        ],
+        "title": "DatasetListResponse",
         "type": "object"
       }
     },
