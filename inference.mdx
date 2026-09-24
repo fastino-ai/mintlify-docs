@@ -5,15 +5,28 @@ description: "Run schema-based GLiNER predictions through Fastino's inference AP
 noindex: true
 ---
 
-Fastino exposes two released GLiNER inference operations:
+Fastino provides two synchronous interfaces for GLiNER inference. Choose the interface that
+matches your model and payload requirements:
 
-- `POST /v1/chat/completions` uses an OpenAI-compatible request envelope plus
-  Fastino's top-level `schema` extension.
-- `POST /v1/gliner-2` provides the native GLiNER request and response contract
-  published in the [OpenAPI document](https://api.fastino.ai/openapi.json).
+| Capability | `/v1/chat/completions` | `/v1/gliner-2` |
+| --- | --- | --- |
+| Model | Select an inference-capable base model or completed training-job UUID | Always uses `fastino/gliner2-base-v1` |
+| Request | OpenAI-compatible `model` and `messages`, plus Fastino's top-level `schema` | Native `text`, `schema`, `threshold`, `include_confidence`, and `include_spans` fields |
+| Response | OpenAI chat-completion envelope; parse `choices[0].message.content` as JSON | Native `{ "result": ..., "token_usage": ... }` body |
+| Batch input | One conversation per request | Accepts one string or a list of strings |
+| Asynchronous processing | Not available | Submit with `POST /v1/gliner-2/async`, then poll `GET /v1/gliner-2/jobs/{job_id}` |
+| Best for | Standard integrations and fine-tuned models | Base GLiNER2 inference, native results, batching, or long-running jobs |
 
-This page documents the `/v1/chat/completions` raw HTTP contract. It does not cover SDK
-usage, model training, evaluation, inference history, or feedback.
+<Tip>
+  Start with `/v1/chat/completions` for a consistent API across base and fine-tuned models.
+  Use `/v1/gliner-2` when you specifically need the fixed GLiNER2 base model's native
+  contract, batch input, or asynchronous processing.
+</Tip>
+
+This page documents the raw `/v1/chat/completions` HTTP contract below. The native
+`/v1/gliner-2` schemas are published in the
+[OpenAPI document](https://api.fastino.ai/openapi.json). SDK usage, model training,
+evaluation, inference history, and feedback are outside this page's scope.
 
 <Warning>
   `POST /inference` has been removed. Do not send its legacy fields such as `model_id`, `text`,

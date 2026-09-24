@@ -299,6 +299,91 @@
         ]
       }
     },
+    "/v1/gliner-2/async": {
+      "post": {
+        "description": "Submit large GLiNER-2 request for async processing.\n\nUse this endpoint when processing >1M tokens that would exceed\nthe 30-second timeout. Returns immediately with a job_id.\nPoll GET /gliner-2/jobs/{job_id} to retrieve results.\n\nArgs:\n    request: AsyncGlinerRequest with task, text, schema\n    http_request: FastAPI request object\n    auth: Authentication result\n\nReturns:\n    202 Accepted with job_id for polling",
+        "operationId": "gliner2_async_gliner_2_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AsyncGlinerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AsyncGlinerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gliner2 Async",
+        "tags": [
+          "gliner"
+        ]
+      }
+    },
+    "/v1/gliner-2/jobs/{job_id}": {
+      "get": {
+        "description": "Get status and result of an async GLiNER-2 job.\n\nReturns:\n- 200 with status=\"complete\" and result when done\n- 200 with status=\"processing\" while in progress\n- 200 with status=\"error\" and error message if failed\n- 404 if job not found or belongs to different user\n\nArgs:\n    job_id: UUID of the job to check\n    auth: Authentication result\n\nReturns:\n    GlinerJobStatus with current status and result if complete",
+        "operationId": "gliner2_job_status_gliner_2_jobs_job_id_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlinerJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gliner2 Job Status",
+        "tags": [
+          "gliner"
+        ]
+      }
+    },
     "/v1/inferences": {
       "get": {
         "description": "List inference history for the authenticated user.\n\nReturns all inference records across all model types (NER, classification,\nJSON extraction, decoder) sorted by most recent first.\n\nArgs:\n    auth: Authentication result with user_id\n    limit: Maximum number of records to return (default 100, max 500)\n    offset: Number of records to skip for pagination\n    model_id: Optional filter by model ID\n    task: Optional filter by task type\n    project_id: Optional filter by project ID\n    training_job_id: Optional filter by training job ID\n    latency_min/latency_max: Inclusive latency window in ms.\n    llmaj_score_min/llmaj_score_max: Inclusive LLMAJ-score window\n        in [0.0, 1.0].\n    since: Optional inclusive lower bound on ``created_at`` (ISO 8601).\n    until: Optional exclusive upper bound on ``created_at`` (ISO 8601).\n\nReturns:\n    InferenceListResponse with paginated inference records.\n\nRaises:\n    HTTPException: 422 when ``min`` is greater than its paired\n        ``max`` \u2014 returning an empty page would silently mask the\n        caller's misordered query.",
@@ -3340,6 +3425,209 @@
           }
         },
         "title": "ContentBlock",
+        "type": "object"
+      },
+      "GlinerJobStatus": {
+        "description": "Response from job status check.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "token_usage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Usage"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created_at"
+        ],
+        "title": "GlinerJobStatus",
+        "type": "object"
+      },
+      "AsyncGlinerResponse": {
+        "description": "Response from async job submission.",
+        "properties": {
+          "estimated_tokens": {
+            "title": "Estimated Tokens",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "estimated_tokens",
+          "message"
+        ],
+        "title": "AsyncGlinerResponse",
+        "type": "object"
+      },
+      "AsyncGlinerRequest": {
+        "description": "Request for async GLiNER-2 processing.",
+        "properties": {
+          "format_results": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Format Results"
+          },
+          "include_confidence": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Include Confidence"
+          },
+          "include_spans": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Include Spans"
+          },
+          "schema": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Extraction schema. The flat ``list[str]`` of entity labels is deprecated; use the unified dict shape (``entities`` / ``classifications`` / ``structures`` / ``relations``) for forward compatibility. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
+            "title": "Schema"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "**Deprecated** legacy task hint. One of: 'extract_entities', 'classify_text', 'extract_json', 'schema'. Omit for the unified GLiNER2 path. Submitting a legacy task value still succeeds but the response carries ``Deprecation: true`` and a ``Sunset`` header.",
+            "title": "Task"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Text"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0.5,
+            "title": "Threshold"
+          }
+        },
+        "required": [
+          "text",
+          "schema"
+        ],
+        "title": "AsyncGlinerRequest",
         "type": "object"
       },
       "GlinerResponse": {
