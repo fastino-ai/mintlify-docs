@@ -7,7 +7,7 @@ Use the published Fastino documentation and curated OpenAPI specification when b
 - Start with the documentation index at <https://docs.fastino.ai/llms.txt>.
 - Read <https://docs.fastino.ai/openapi.json> for customer-facing routes, authentication, request schemas, and response schemas.
 - Use only operations present in that OpenAPI specification.
-- Use <https://docs.fastino.ai/concepts/models> for documented model IDs and `GET /v1/base-models` for current availability.
+- Use <https://docs.fastino.ai/concepts/models> for documented model IDs and `GET /v1/models` for current availability.
 
 ## API conventions
 
