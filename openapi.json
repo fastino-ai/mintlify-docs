@@ -14,7 +14,7 @@
   "paths": {
     "/v1/chat/completions": {
       "post": {
-        "description": "OpenAI-compatible chat completions endpoint.\n\nThin shell over :func:`services.inference.adapters.openai_chat.run_chat_completion`.\nThe adapter handles LLM-passthrough vs Pioneer-task dispatch, SSE\nrendering with ``<think>...</think>`` folding for reasoning models,\ntool-call deltas, finish-reason mapping, persistence, and error\nmapping. The router keeps only HTTP-shaped concerns: route\ndeclaration, auth, rate limiting.\n\nArgs:\n    body: Validated :class:`ChatCompletionRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    auth: Authenticated request context.\n\nReturns:\n    :class:`ChatCompletionResponse` for non-streaming, or a\n    :class:`StreamingResponse` of ``chat.completion.chunk`` SSE\n    events terminated by ``data: [DONE]`` when ``body.stream``\n    is true.",
+        "description": "OpenAI-compatible chat completions endpoint.\n\nThin shell over :func:`services.inference.adapters.openai_chat.run_chat_completion`.\nThe adapter handles LLM-passthrough vs Fastino-task dispatch, SSE\nrendering with ``<think>...</think>`` folding for reasoning models,\ntool-call deltas, finish-reason mapping, persistence, and error\nmapping. The router keeps only HTTP-shaped concerns: route\ndeclaration, auth, rate limiting.\n\nArgs:\n    body: Validated :class:`ChatCompletionRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    auth: Authenticated request context.\n\nReturns:\n    :class:`ChatCompletionResponse` for non-streaming, or a\n    :class:`StreamingResponse` of ``chat.completion.chunk`` SSE\n    events terminated by ``data: [DONE]`` when ``body.stream``\n    is true.",
         "operationId": "chat_completions_v1_chat_completions_post",
         "requestBody": {
           "content": {
@@ -44,7 +44,7 @@
                         "description": "One choice slot inside a streaming chunk.",
                         "properties": {
                           "delta": {
-                            "description": "Incremental delta payload inside a streaming chunk's choice.\n\nThe OpenAI Chat Completions chunk schema (``ChoiceDelta`` in the\nopenai-python SDK) defines ``content``, ``function_call``,\n``refusal``, ``role``, and ``tool_calls`` \u2014 there is no spec slot\nfor reasoning. Pioneer can expose the de facto industry extension\n(vLLM, DeepSeek, LiteLLM) on\n``reasoning_content`` for callers that opt in with existing\n``reasoning`` visibility controls (``exclude=false`` or\n``display=summarized``), mirroring Pioneer's\nown input path at\n:func:`services.inference.providers.openai_compat.OpenAICompatProvider._chat_delta_to_events`\n(which already reads ``delta.reasoning_content`` from those same\nupstream providers). Stock OpenAI-compatible consumers receive no\nreasoning field by default so model scratchpad text is not rendered\nas assistant output. The renderer contract lives on\n:class:`~services.inference.adapters.openai_chat._ChatStreamRenderer`.",
+                            "description": "Incremental delta payload inside a streaming chunk's choice.\n\nThe OpenAI Chat Completions chunk schema (``ChoiceDelta`` in the\nopenai-python SDK) defines ``content``, ``function_call``,\n``refusal``, ``role``, and ``tool_calls`` \u2014 there is no spec slot\nfor reasoning. Fastino can expose the de facto industry extension\n(vLLM, DeepSeek, LiteLLM) on\n``reasoning_content`` for callers that opt in with existing\n``reasoning`` visibility controls (``exclude=false`` or\n``display=summarized``), mirroring Fastino's\nown input path at\n:func:`services.inference.providers.openai_compat.OpenAICompatProvider._chat_delta_to_events`\n(which already reads ``delta.reasoning_content`` from those same\nupstream providers). Stock OpenAI-compatible consumers receive no\nreasoning field by default so model scratchpad text is not rendered\nas assistant output. The renderer contract lives on\n:class:`~services.inference.adapters.openai_chat._ChatStreamRenderer`.",
                             "properties": {
                               "content": {
                                 "anyOf": [
@@ -145,7 +145,7 @@
                             "prompt_tokens_details": {
                               "anyOf": [
                                 {
-                                  "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Pioneer relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire \u2014 that's the upstream contract Pioneer relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
+                                  "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Fastino relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire \u2014 that's the upstream contract Fastino relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
                                   "properties": {
                                     "cache_write_tokens": {
                                       "default": 0,
@@ -183,7 +183,7 @@
                     "x_pioneer": {
                       "anyOf": [
                         {
-                          "description": "Pioneer-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_pioneer`` is that key.\n\nAttributes:\n    inference_id: The Pioneer-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    routed_model: Backend catalog model selected by a router project\n        (for example ``pioneer/auto``). ``None`` when the request\n        was not routed or the routed model matches the requested id.\n    savings: Routed-vs-frontier per-1M-token savings rate diff (same\n        wire shape as the Anthropic ``pioneer_savings`` extension). The\n        Codex routing-savings hook multiplies these rates by per-turn\n        token usage to surface cumulative money saved. ``None`` when the\n        request was not routed below the frontier reference model.",
+                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_pioneer`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    routed_model: Backend catalog model selected by a router project\n        (for example ``pioneer/auto``). ``None`` when the request\n        was not routed or the routed model matches the requested id.\n    savings: Routed-vs-frontier per-1M-token savings rate diff (same\n        wire shape as the Anthropic ``pioneer_savings`` extension). The\n        Codex routing-savings hook multiplies these rates by per-turn\n        token usage to surface cumulative money saved. ``None`` when the\n        request was not routed below the frontier reference model.",
                           "properties": {
                             "inference_id": {
                               "anyOf": [
@@ -552,7 +552,7 @@
     "/v1/inferences/{inference_id}": {
       "get": {
         "description": "Get a single inference record by ID.\n\nArgs:\n    inference_id: The inference record UUID\n    auth: Authentication result with user_id\n\nReturns:\n    InferenceRecord with full details\n\nRaises:\n    HTTPException: 404 if inference not found or outside the caller's team",
-        "operationId": "get_inference_detail_inferences__inference_id__get",
+        "operationId": "get_inference_detail_inferences_inference_id_get",
         "parameters": [
           {
             "in": "path",
@@ -601,7 +601,7 @@
     "/v1/inferences/{inference_id}/feedback": {
       "get": {
         "description": "Get human feedback for a specific inference.\n\nArgs:\n    inference_id: The inference record UUID to look up.\n    auth: Authentication result with user_id.\n\nReturns:\n    InferenceFeedbackResponse with the stored feedback.\n\nRaises:\n    HTTPException: 404 if inference not found or no feedback submitted.",
-        "operationId": "get_inference_feedback_inferences__inference_id__feedback_get",
+        "operationId": "get_inference_feedback_inferences_inference_id_feedback_get",
         "parameters": [
           {
             "in": "path",
@@ -648,7 +648,7 @@
       },
       "post": {
         "description": "Submit human feedback on a specific inference.\n\nMarks an inference as correct or incorrect. When marking as incorrect,\nthe expected output must be provided for downstream training data curation.\n\nArgs:\n    inference_id: The inference record UUID to annotate.\n    request: Feedback payload with verdict, optional corrected output, and notes.\n    auth: Authentication result with user_id.\n\nReturns:\n    InferenceFeedbackResponse confirming the stored feedback.\n\nRaises:\n    HTTPException: 404 if inference not found or outside the caller's team.",
-        "operationId": "submit_inference_feedback_inferences__inference_id__feedback_post",
+        "operationId": "submit_inference_feedback_inferences_inference_id_feedback_post",
         "parameters": [
           {
             "in": "path",
@@ -699,7 +699,7 @@
     },
     "/v1/messages": {
       "post": {
-        "description": "Anthropic-compatible messages endpoint.\n\nThin shell over :func:`services.inference.adapters.anthropic_messages.run_messages`.\nThe adapter handles content-block translation, LLM-passthrough vs\nPioneer-task dispatch, SSE rendering, persistence, and error\nmapping. The router keeps only HTTP-shaped concerns: route\ndeclaration, auth, rate limiting.\n\nArgs:\n    body: Validated :class:`AnthropicMessagesRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    auth: Authenticated request context.\n\nReturns:\n    :class:`AnthropicMessagesResponse` for non-streaming, or a\n    :class:`StreamingResponse` of Anthropic SSE events when\n    ``body.stream`` is true.",
+        "description": "Anthropic-compatible messages endpoint.\n\nThin shell over :func:`services.inference.adapters.anthropic_messages.run_messages`.\nThe adapter handles content-block translation, LLM-passthrough vs\nFastino-task dispatch, SSE rendering, persistence, and error\nmapping. The router keeps only HTTP-shaped concerns: route\ndeclaration, auth, rate limiting.\n\nArgs:\n    body: Validated :class:`AnthropicMessagesRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    auth: Authenticated request context.\n\nReturns:\n    :class:`AnthropicMessagesResponse` for non-streaming, or a\n    :class:`StreamingResponse` of Anthropic SSE events when\n    ``body.stream`` is true.",
         "operationId": "messages_v1_messages_post",
         "requestBody": {
           "content": {
@@ -848,7 +848,7 @@
     },
     "/v1/responses": {
       "post": {
-        "description": "OpenAI-compatible Responses API endpoint.\n\nThin shell over :func:`services.inference.adapters.openai_responses.run_responses`.\nThe adapter handles input-item to chat-message translation,\nLLM-passthrough vs Pioneer-task dispatch, SSE rendering,\ntool-call serialisation, persistence, and error mapping. The\nrouter keeps only HTTP-shaped concerns: route declaration, auth,\nrate limiting.\n\nArgs:\n    body: Validated :class:`ResponsesRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    response: Response whose headers carry the deprecation and\n        router-tip signals.\n    auth: Authenticated request context.\n\nReturns:\n    JSON response payload or :class:`StreamingResponse` SSE stream\n    in Responses API format.",
+        "description": "OpenAI-compatible Responses API endpoint.\n\nThin shell over :func:`services.inference.adapters.openai_responses.run_responses`.\nThe adapter handles input-item to chat-message translation,\nLLM-passthrough vs Fastino-task dispatch, SSE rendering,\ntool-call serialisation, persistence, and error mapping. The\nrouter keeps only HTTP-shaped concerns: route declaration, auth,\nrate limiting.\n\nArgs:\n    body: Validated :class:`ResponsesRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    response: Response whose headers carry the deprecation and\n        router-tip signals.\n    auth: Authenticated request context.\n\nReturns:\n    JSON response payload or :class:`StreamingResponse` SSE stream\n    in Responses API format.",
         "operationId": "responses_v1_responses_post",
         "requestBody": {
           "content": {
@@ -889,7 +889,7 @@
     "/v1/training-jobs": {
       "post": {
         "description": "Create a new training job.\n\nThe provider is resolved from the registry based on\n``(base_model, training_type)``.\n\nArgs:\n    request: Incoming FastAPI request (required by SlowAPI key function).\n    training_request: Training configuration with dataset references and base_model.\n    auth: Authenticated user context.",
-        "operationId": "create_training_job_felix_training_jobs_post",
+        "operationId": "create_training_job_training_jobs_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -929,7 +929,7 @@
       },
       "get": {
         "description": "List training jobs for the authenticated user.\n\nSupports pagination via ``limit`` and ``offset`` query parameters.\nOptionally filter by status (requested, running, complete, deployed, errored).",
-        "operationId": "list_training_jobs_felix_training_jobs_get",
+        "operationId": "list_training_jobs_training_jobs_get",
         "parameters": [
           {
             "in": "query",
@@ -1018,7 +1018,7 @@
     "/v1/training-jobs/{job_id}": {
       "delete": {
         "description": "Delete a training job and associated checkpoints.",
-        "operationId": "delete_training_job_felix_training_jobs__job_id__delete",
+        "operationId": "delete_training_job_training_jobs_job_id_delete",
         "parameters": [
           {
             "in": "path",
@@ -1059,7 +1059,7 @@
       },
       "get": {
         "description": "Get a training job by ID if it is visible to the caller's team.\n\nRead visibility matches the other ``training-jobs/{job_id}`` read routes\nthat already use ``_get_visible_job`` (logs, checkpoints, download): a\njob on a team-visible project, or a project-less shared job, is\nreturned even when the caller is not the creator. Mutating routes keep\ntheir own owner-scoped service calls.",
-        "operationId": "get_training_job_felix_training_jobs__job_id__get",
+        "operationId": "get_training_job_training_jobs_job_id_get",
         "parameters": [
           {
             "in": "path",
@@ -1100,7 +1100,7 @@
       },
       "patch": {
         "description": "Patch a training job. Currently exposes only ``project_id``.\n\nDelegates to :func:`services.projects.movement.assign_resource_to_project`\nwhich owns the visibility check, target-project gating, and the\nservice-role ``UPDATE``. Send ``project_id: null`` to unassign the job\nfrom its project.\n\nMovement is **label-only**: only ``training_jobs.project_id`` changes.\nDependent rows that carry their own ``project_id`` (``deployments``,\n``inferences``, ``project_evaluation_runs``) are intentionally not cascaded.\nCallers needing aggregate-model movement must update dependents\nexplicitly.",
-        "operationId": "update_training_job_felix_training_jobs__job_id__patch",
+        "operationId": "update_training_job_training_jobs_job_id_patch",
         "parameters": [
           {
             "in": "path",
@@ -1153,7 +1153,7 @@
     "/v1/training-jobs/{job_id}/billing": {
       "get": {
         "description": "Get the billing outcome for a specific training job, by job ID.\n\nCloses the API gap in ENG-6131: reports whether a job was billed and,\nif so, for how much and how long, so a billing-correctness fix like\nENG-6068 can be verified live without direct database access. Read\nvisibility matches ``get_training_job`` and the other\n``training-jobs/{job_id}`` read routes.",
-        "operationId": "get_training_job_billing_felix_training_jobs__job_id__billing_get",
+        "operationId": "get_training_job_billing_training_jobs_job_id_billing_get",
         "parameters": [
           {
             "in": "path",
@@ -1196,7 +1196,7 @@
     "/v1/training-jobs/{job_id}/checkpoints": {
       "get": {
         "description": "List all checkpoints for a training job visible to the caller's team.",
-        "operationId": "list_training_job_checkpoints_felix_training_jobs__job_id__checkpoints_get",
+        "operationId": "list_training_job_checkpoints_training_jobs_job_id_checkpoints_get",
         "parameters": [
           {
             "in": "path",
@@ -1239,7 +1239,7 @@
     "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy": {
       "post": {
         "description": "Deploy a specific checkpoint to the Multi-Model Endpoint.",
-        "operationId": "deploy_checkpoint_to_mme_felix_training_jobs__job_id__checkpoints__checkpoint_id__deploy_post",
+        "operationId": "deploy_checkpoint_to_mme_training_jobs_job_id_checkpoints_checkpoint_id_deploy_post",
         "parameters": [
           {
             "in": "path",
@@ -1288,10 +1288,54 @@
         ]
       }
     },
+    "/v1/training-jobs/{job_id}/deployments": {
+      "get": {
+        "description": "Deprecated. Returns deployments that reference the given training job.\n\nArgs:\n    job_id: Training job ID.\n    auth: Authenticated user.\n\nReturns:\n    DeploymentHistoryResponse with deprecation headers.",
+        "operationId": "get_training_job_deployments_training_jobs_job_id_deployments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "[Deprecated] Get deployments for a training job -- use /projects/{project_id}/deployments",
+        "tags": [
+          "deprecated"
+        ]
+      }
+    },
     "/v1/training-jobs/{job_id}/download": {
       "get": {
         "description": "Generate a presigned S3 URL to download a trained model.",
-        "operationId": "download_trained_model_felix_training_jobs__job_id__download_get",
+        "operationId": "download_trained_model_training_jobs_job_id_download_get",
         "parameters": [
           {
             "in": "path",
@@ -1334,7 +1378,7 @@
     "/v1/training-jobs/{job_id}/logs": {
       "get": {
         "description": "Get training output logs (stdout/stderr) for a specific job.",
-        "operationId": "get_training_job_logs_felix_training_jobs__job_id__logs_get",
+        "operationId": "get_training_job_logs_training_jobs_job_id_logs_get",
         "parameters": [
           {
             "in": "path",
@@ -1377,7 +1421,7 @@
     "/v1/training-jobs/{job_id}/model-name": {
       "patch": {
         "description": "Update the model_name for a training job.\n\nThin wrapper: visibility scoping, validation, the UPDATE, and the\nactivity-event side effect all live in\n:meth:`TrainingJobService.update_model_name`. The router only owns\nHTTP concerns (status codes, request/response shaping) per\n``brain/CLAUDE.md``.",
-        "operationId": "update_training_job_model_name_felix_training_jobs__job_id__model_name_patch",
+        "operationId": "update_training_job_model_name_training_jobs_job_id_model_name_patch",
         "parameters": [
           {
             "in": "path",
@@ -1427,10 +1471,63 @@
         ]
       }
     },
+    "/v1/training-jobs/{job_id}/push-to-hub": {
+      "post": {
+        "description": "Push a completed training job's model to HuggingFace Hub.\n\nArgs:\n    job_id: Training job UUID.\n    request: Target repo, token, and commit metadata.\n    auth: Authenticated caller admitted by the training-jobs rollout.\n\nReturns:\n    The hub push outcome.\n\nRaises:\n    HTTPException: 400/403/404/409/500 for validation, permission,\n        lookup, conflict, and upload failures.",
+        "operationId": "push_training_job_to_huggingface_training_jobs_job_id_push_to_hub_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HuggingFacePushModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushModelToHubResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Push Training Job To Huggingface",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
     "/v1/training-jobs/{job_id}/stop": {
       "post": {
         "description": "Stop a running training job.",
-        "operationId": "stop_training_job_felix_training_jobs__job_id__stop_post",
+        "operationId": "stop_training_job_training_jobs_job_id_stop_post",
         "parameters": [
           {
             "in": "path",
@@ -1487,10 +1584,53 @@
         ]
       }
     },
+    "/v1/training-jobs/{job_id}/sync": {
+      "post": {
+        "description": "Sync training job status from the provider to the database.",
+        "operationId": "sync_training_job_status_training_jobs_job_id_sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Training Job Status",
+        "tags": [
+          "training-jobs"
+        ]
+      }
+    },
     "/v1/training-jobs/{job_id}/terminate": {
       "post": {
         "description": "Terminate a training job and delete all artifacts.\n\nStops the provider job if running, deletes all checkpoints, and marks\nthe job as terminated. This operation is irreversible.",
-        "operationId": "terminate_training_job_felix_training_jobs__job_id__terminate_post",
+        "operationId": "terminate_training_job_training_jobs_job_id_terminate_post",
         "parameters": [
           {
             "in": "path",
@@ -2205,7 +2345,7 @@
                 "type": "null"
               }
             ],
-            "description": "Pioneer inference ID or stored Responses wire ID to continue from. When present, Pioneer reconstructs the prior turn from inference history and prepends it to the new input.",
+            "description": "Fastino inference ID or stored Responses wire ID to continue from. When present, Fastino reconstructs the prior turn from inference history and prepends it to the new input.",
             "title": "Previous Response Id"
           },
           "prompt_cache_key": {
@@ -2242,7 +2382,7 @@
           },
           "store": {
             "default": true,
-            "description": "Whether to store response state for turn-to-turn continuation. When true, Pioneer preserves the response for previous_response_id replay, including available tool-call and reasoning context.",
+            "description": "Whether to store response state for turn-to-turn continuation. When true, Fastino preserves the response for previous_response_id replay, including available tool-call and reasoning context.",
             "title": "Store",
             "type": "boolean"
           },
@@ -2510,7 +2650,7 @@
         "type": "object"
       },
       "AnthropicMessagesResponse": {
-        "description": "Anthropic Messages API response format.\n\n``pioneer_inference_id`` is a Pioneer-only extension: the\n``inferences.id`` of the persisted row backing this completion. It mirrors\nthe ``x_pioneer.inference_id`` field on the OpenAI-compatible chat\ncompletion response so frontend playground clients can use the same\npoll-``GET /inferences/{id}``-for-judge-results round-trip on either\nsurface. ``None`` when persistence didn't run (e.g. ``store=false``).\n\n``pioneer_routed_model`` is the backend catalog model selected when the\nrequest used a router alias such as ``pioneer/auto``. ``None`` when no\nrouting occurred or the routed model matches the requested id.\n\n``pioneer_savings`` carries the per-1M-token savings rate diff of the routed\nmodel vs a fixed frontier reference (``baseline_model`` plus\n``rate_diff_per_mtok`` with ``input``/``output``/``cache_read``/\n``cache_write`` keys). The Claude Code cost hook multiplies it by per-turn\ntoken usage to show money saved. ``None`` when not routed to a cheaper model.",
+        "description": "Anthropic Messages API response format.\n\n``pioneer_inference_id`` is a Fastino-only extension: the\n``inferences.id`` of the persisted row backing this completion. It mirrors\nthe ``x_pioneer.inference_id`` field on the OpenAI-compatible chat\ncompletion response so frontend playground clients can use the same\npoll-``GET /inferences/{id}``-for-judge-results round-trip on either\nsurface. ``None`` when persistence didn't run (e.g. ``store=false``).\n\n``pioneer_routed_model`` is the backend catalog model selected when the\nrequest used a router alias such as ``pioneer/auto``. ``None`` when no\nrouting occurred or the routed model matches the requested id.\n\n``pioneer_savings`` carries the per-1M-token savings rate diff of the routed\nmodel vs a fixed frontier reference (``baseline_model`` plus\n``rate_diff_per_mtok`` with ``input``/``output``/``cache_read``/\n``cache_write`` keys). The Claude Code cost hook multiplies it by per-turn\ntoken usage to show money saved. ``None`` when not routed to a cheaper model.",
         "properties": {
           "content": {
             "items": {
@@ -2609,7 +2749,7 @@
         "type": "object"
       },
       "AnthropicUsage": {
-        "description": "Usage statistics in Anthropic format.\n\n``input_tokens`` is Anthropic's non-cached input contract \u2014 cached\nreads / writes live in the separate ``cache_read_input_tokens`` /\n``cache_creation_input_tokens`` fields. Pioneer mirrors the same\nshape on the ``/v1/messages`` wire so SDK consumers reading the\nfields directly stay correct.",
+        "description": "Usage statistics in Anthropic format.\n\n``input_tokens`` is Anthropic's non-cached input contract \u2014 cached\nreads / writes live in the separate ``cache_read_input_tokens`` /\n``cache_creation_input_tokens`` fields. Fastino mirrors the same\nshape on the ``/v1/messages`` wire so SDK consumers reading the\nfields directly stay correct.",
         "properties": {
           "cache_creation_input_tokens": {
             "default": 0,
@@ -2778,7 +2918,7 @@
                 "type": "null"
               }
             ],
-            "description": "Schema for the Pioneer encoder. **Deprecated when supplied as a flat list** of entity labels; use the unified dict shape instead. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
+            "description": "Schema for the Fastino encoder. **Deprecated when supplied as a flat list** of entity labels; use the unified dict shape instead. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
             "title": "Schema"
           },
           "speed": {
@@ -2794,7 +2934,7 @@
                 "type": "null"
               }
             ],
-            "description": "Anthropic inference speed mode. ``\"fast\"`` opts into high output-tokens-per-second inference on supported models (e.g. the latest Opus). Pioneer forwards this only to the native Anthropic upstream (with the required ``fast-mode`` beta header); Bedrock and gateway routes ignore it.",
+            "description": "Anthropic inference speed mode. ``\"fast\"`` opts into high output-tokens-per-second inference on supported models (e.g. the latest Opus). Fastino forwards this only to the native Anthropic upstream (with the required ``fast-mode`` beta header); Bedrock and gateway routes ignore it.",
             "title": "Speed"
           },
           "stop_sequences": {
@@ -2873,7 +3013,7 @@
                 "type": "null"
               }
             ],
-            "description": "Opt-in Anthropic-style extended-thinking controls. Pioneer does not enable thinking by default; send the Anthropic-native object: {'type': 'enabled', 'budget_tokens': N, 'display'?: 'summarized'|'omitted'} for manual mode, {'type': 'adaptive', 'effort'?: tier, 'display'?: ...} for adaptive mode (required on Opus 4.7+ / Mythos, recommended on Opus 4.6 / Sonnet 4.6), or {'type': 'disabled'} to turn thinking off on models that have it on by default. Pioneer canonicalizes this into InferenceRequest.reasoning at the adapter boundary so the request routes correctly whether the upstream is Anthropic native, Bedrock, or the Vercel AI Gateway (which advertises the normalized ``reasoning`` field rather than ``thinking``). On models that require adaptive mode, Pioneer auto-upgrades manual configs (mapping ``budget_tokens`` to the nearest ``effort`` tier) rather than letting the upstream return a 400.",
+            "description": "Opt-in Anthropic-style extended-thinking controls. Fastino does not enable thinking by default; send the Anthropic-native object: {'type': 'enabled', 'budget_tokens': N, 'display'?: 'summarized'|'omitted'} for manual mode, {'type': 'adaptive', 'effort'?: tier, 'display'?: ...} for adaptive mode (required on Opus 4.7+ / Mythos, recommended on Opus 4.6 / Sonnet 4.6), or {'type': 'disabled'} to turn thinking off on models that have it on by default. Fastino canonicalizes this into InferenceRequest.reasoning at the adapter boundary so the request routes correctly whether the upstream is Anthropic native, Bedrock, or the Vercel AI Gateway (which advertises the normalized ``reasoning`` field rather than ``thinking``). On models that require adaptive mode, Fastino auto-upgrades manual configs (mapping ``budget_tokens`` to the nearest ``effort`` tier) rather than letting the upstream return a 400.",
             "title": "Thinking"
           },
           "tool_choice": {
@@ -3381,7 +3521,7 @@
         "type": "object"
       },
       "PioneerExtension": {
-        "description": "Pioneer-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_pioneer`` is that key.\n\nAttributes:\n    inference_id: The Pioneer-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    routed_model: Backend catalog model selected by a router project\n        (for example ``pioneer/auto``). ``None`` when the request\n        was not routed or the routed model matches the requested id.\n    savings: Routed-vs-frontier per-1M-token savings rate diff (same\n        wire shape as the Anthropic ``pioneer_savings`` extension). The\n        Codex routing-savings hook multiplies these rates by per-turn\n        token usage to surface cumulative money saved. ``None`` when the\n        request was not routed below the frontier reference model.",
+        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_pioneer`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    routed_model: Backend catalog model selected by a router project\n        (for example ``pioneer/auto``). ``None`` when the request\n        was not routed or the routed model matches the requested id.\n    savings: Routed-vs-frontier per-1M-token savings rate diff (same\n        wire shape as the Anthropic ``pioneer_savings`` extension). The\n        Codex routing-savings hook multiplies these rates by per-turn\n        token usage to surface cumulative money saved. ``None`` when the\n        request was not routed below the frontier reference model.",
         "properties": {
           "inference_id": {
             "anyOf": [
@@ -3454,7 +3594,7 @@
         "type": "object"
       },
       "PromptTokensDetails": {
-        "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Pioneer relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire \u2014 that's the upstream contract Pioneer relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
+        "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Fastino relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire \u2014 that's the upstream contract Fastino relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
         "properties": {
           "cache_write_tokens": {
             "default": 0,
@@ -3655,7 +3795,7 @@
                 "type": "null"
               }
             ],
-            "description": "Opt-in reasoning / extended-thinking controls. Accepts Pioneer's normalized shape with keys ``enabled`` (bool), ``max_tokens`` (int, Anthropic-style budget), ``effort`` (one of minimal/low/medium/high/xhigh/max/none, OpenAI-style tier), and ``exclude`` (bool, hide reasoning tokens from the response). ``effort`` and ``max_tokens`` are mutually exclusive. Pioneer extensions for Claude routes (Anthropic direct + Bedrock): ``mode`` (manual/adaptive \u2014 adaptive lets the model pick thinking depth per request, required on Opus 4.7+) and ``display`` (summarized/omitted \u2014 controls whether thinking text streams back; omitted preserves only the signature for multi-turn). On Chat Completions, provider reasoning text is hidden by default and is returned on ``message.reasoning_content`` / ``delta.reasoning_content`` only when the caller explicitly requests visible reasoning with ``exclude=false`` or ``display=summarized``. Pioneer canonicalizes this into InferenceRequest.reasoning at the adapter boundary and each provider renders it to its native wire field (Anthropic ``thinking``, OpenAI ``reasoning_effort``, Vercel AI Gateway ``reasoning``). Pioneer does not enable reasoning by default.",
+            "description": "Opt-in reasoning / extended-thinking controls. Accepts Fastino's normalized shape with keys ``enabled`` (bool), ``max_tokens`` (int, Anthropic-style budget), ``effort`` (one of minimal/low/medium/high/xhigh/max/none, OpenAI-style tier), and ``exclude`` (bool, hide reasoning tokens from the response). ``effort`` and ``max_tokens`` are mutually exclusive. Fastino extensions for Claude routes (Anthropic direct + Bedrock): ``mode`` (manual/adaptive \u2014 adaptive lets the model pick thinking depth per request, required on Opus 4.7+) and ``display`` (summarized/omitted \u2014 controls whether thinking text streams back; omitted preserves only the signature for multi-turn). On Chat Completions, provider reasoning text is hidden by default and is returned on ``message.reasoning_content`` / ``delta.reasoning_content`` only when the caller explicitly requests visible reasoning with ``exclude=false`` or ``display=summarized``. Fastino canonicalizes this into InferenceRequest.reasoning at the adapter boundary and each provider renders it to its native wire field (Anthropic ``thinking``, OpenAI ``reasoning_effort``, Vercel AI Gateway ``reasoning``). Fastino does not enable reasoning by default.",
             "title": "Reasoning"
           },
           "response_format": {
@@ -3686,7 +3826,7 @@
                 "type": "null"
               }
             ],
-            "description": "Schema for the Pioneer encoder. **Deprecated when supplied as a flat list** of entity labels; use the unified dict shape (``entities`` / ``classifications`` / ``structures`` / ``relations``) instead. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
+            "description": "Schema for the Fastino encoder. **Deprecated when supplied as a flat list** of entity labels; use the unified dict shape (``entities`` / ``classifications`` / ``structures`` / ``relations``) instead. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
             "title": "Schema"
           },
           "seed": {
@@ -4224,7 +4364,7 @@
       },
       "TrainingJobUpdate": {
         "additionalProperties": false,
-        "description": "Thin PATCH body for ``PATCH /felix/training-jobs/{job_id}``.\n\nExposes only ``project_id``. Send ``null`` to unassign the training job\nfrom its current project. Unknown fields are rejected with HTTP 422.\n\nMovement semantics: this endpoint moves only the ``training_jobs.project_id``\nlabel. It does NOT cascade ``project_id`` updates to dependent rows\n(``deployments``, ``inferences``, ``project_evaluation_runs``) which each carry\ntheir own ``project_id``. Those records remain attached to their original\nproject. Callers needing aggregate-model movement must update the\ndependents explicitly.",
+        "description": "Thin PATCH body for ``PATCH /v1/training-jobs/{job_id}``.\n\nExposes only ``project_id``. Send ``null`` to unassign the training job\nfrom its current project. Unknown fields are rejected with HTTP 422.\n\nMovement semantics: this endpoint moves only the ``training_jobs.project_id``\nlabel. It does NOT cascade ``project_id`` updates to dependent rows\n(``deployments``, ``inferences``, ``project_evaluation_runs``) which each carry\ntheir own ``project_id``. Those records remain attached to their original\nproject. Callers needing aggregate-model movement must update the\ndependents explicitly.",
         "properties": {
           "project_id": {
             "anyOf": [
@@ -5051,7 +5191,7 @@
                 "type": "null"
               }
             ],
-            "description": "Algorithm-specific hyperparameters for RL training. Supported keys (all optional unless noted, TRL-aligned defaults applied container-side): max_steps, kl_beta, group_size, sampling_temperature, max_completion_length, reward_type (GRPO; required, one of the built-in reward function names \u2014 see rl_training._BUILTIN_REWARDS); dpo_beta, loss_type (DPO); logging_steps (both; defaults to 25, lower for short smoke runs). When reward_type == 'llm_as_judge' (GRPO only) the judge call is routed through brain's '/v1/chat/completions' API authenticated with a per-run pio_sk_* key minted by ModalTrainingHandler._launch_and_monitor immediately before spawning the Modal function (the user never supplies the key \u2014 minted in the workqueue handler so the cleartext value never enters the SQS message body, injected into the Modal payload at spawn time, revoked from the post-training cleanup hook on terminal status). Additional knobs: llm_judge_model (HuggingFace model id, default 'claude-haiku-4-5' \u2014 must resolve to a brain catalog entry via resolve_catalog_model_id), llm_judge_rubric (template string with {prompt}/{completion}/{answer} placeholders; falls back to a generic faithfulness/quality rubric scored 1-10 when absent), llm_judge_score_scale (raw max score for normalisation to [0,1], default 10), llm_judge_timeout_s (HTTP timeout per judge call, default 30), llm_judge_max_concurrent (parallelism cap on judge HTTP calls, default 8), llm_judge_max_retries (per-row retry budget on transient HTTP errors, default 1), llm_judge_retry_backoff_s (sleep between retries, default 2.0).",
+            "description": "Algorithm-specific hyperparameters for RL training. Supported keys (all optional unless noted, TRL-aligned defaults applied container-side): max_steps, kl_beta, group_size, sampling_temperature, max_completion_length, reward_type (GRPO; required, one of the built-in reward function names \u2014 see rl_training._BUILTIN_REWARDS); dpo_beta, loss_type (DPO); logging_steps (both; defaults to 25, lower for short smoke runs). When reward_type == 'llm_as_judge' (GRPO only) the judge call is routed through brain's '/v1/chat/completions' API authenticated with a per-run fast_sk_* key minted by ModalTrainingHandler._launch_and_monitor immediately before spawning the Modal function (the user never supplies the key \u2014 minted in the workqueue handler so the cleartext value never enters the SQS message body, injected into the Modal payload at spawn time, revoked from the post-training cleanup hook on terminal status). Additional knobs: llm_judge_model (HuggingFace model id, default 'claude-haiku-4-5' \u2014 must resolve to a brain catalog entry via resolve_catalog_model_id), llm_judge_rubric (template string with {prompt}/{completion}/{answer} placeholders; falls back to a generic faithfulness/quality rubric scored 1-10 when absent), llm_judge_score_scale (raw max score for normalisation to [0,1], default 10), llm_judge_timeout_s (HTTP timeout per judge call, default 30), llm_judge_max_concurrent (parallelism cap on judge HTTP calls, default 8), llm_judge_max_retries (per-row retry budget on transient HTTP errors, default 1), llm_judge_retry_backoff_s (sleep between retries, default 2.0).",
             "title": "Rl Config"
           },
           "samples_per_label": {
@@ -5469,6 +5609,204 @@
           "billed"
         ],
         "title": "TrainingJobBillingResponse",
+        "type": "object"
+      },
+      "PushModelToHubResponse": {
+        "description": "Response model for pushing model to HuggingFace Hub",
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "url",
+          "repo_id",
+          "job_id",
+          "message"
+        ],
+        "title": "PushModelToHubResponse",
+        "type": "object"
+      },
+      "HuggingFacePushModelRequest": {
+        "description": "Request to push a trained model to HuggingFace Hub",
+        "properties": {
+          "commit_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional commit message for the push",
+            "title": "Commit Message"
+          },
+          "hf_token": {
+            "description": "HuggingFace API token with write permissions",
+            "title": "Hf Token",
+            "type": "string"
+          },
+          "private": {
+            "default": true,
+            "description": "Whether repo should be private",
+            "title": "Private",
+            "type": "boolean"
+          },
+          "repo_id": {
+            "description": "HuggingFace repo ID (e.g., 'username/model-name')",
+            "title": "Repo Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id",
+          "hf_token"
+        ],
+        "title": "HuggingFacePushModelRequest",
+        "type": "object"
+      },
+      "DeploymentHistoryResponse": {
+        "description": "Paginated list of deployment history records.\n\nAttributes:\n    deployments: Ordered list of deployment records (newest first).",
+        "properties": {
+          "deployments": {
+            "items": {
+              "$ref": "#/components/schemas/DeploymentResponse"
+            },
+            "title": "Deployments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deployments"
+        ],
+        "title": "DeploymentHistoryResponse",
+        "type": "object"
+      },
+      "DeploymentResponse": {
+        "description": "A single deployment history record.\n\nA deployment targets exactly one of ``training_job_id`` or\n``base_model``: the trained adapter that was activated, or the base\ncatalog model that was activated when no adapter is in use.\n\nAttributes:\n    id: Unique deployment record ID.\n    project_id: The project whose active model was changed.\n    training_job_id: Training job that was deployed (training-job shape).\n    base_model: HuggingFace base model ID that was deployed (base-model shape).\n    deployed_by: User ID who triggered the deployment.\n    reason: Optional reason for the swap.\n    deployed_at: When the swap occurred.\n    experiment_id: Experiment whose agent promoted, when one did.\n    finetune_plan_id: Plan revision that authorised the promotion.\n    selection_evaluation_run_id: Evaluation Suite run the promotion was decided on.\n    recipe_fingerprint: Digest of the promoted candidate's recipe.\n\nThe four evidence fields are null for a promotion nobody recorded evidence\nfor -- a human pressing promote, or the post-training auto-deploy. They are\nreturned so the basis for a swap is readable after the fact rather than only\nat the moment it happens.",
+        "properties": {
+          "base_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Model"
+          },
+          "deployed_at": {
+            "format": "date-time",
+            "title": "Deployed At",
+            "type": "string"
+          },
+          "deployed_by": {
+            "title": "Deployed By",
+            "type": "string"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Id"
+          },
+          "finetune_plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finetune Plan Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "recipe_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Fingerprint"
+          },
+          "selection_evaluation_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selection Evaluation Run Id"
+          },
+          "training_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Job Id"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "deployed_by",
+          "reason",
+          "deployed_at"
+        ],
+        "title": "DeploymentResponse",
         "type": "object"
       }
     },

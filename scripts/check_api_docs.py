@@ -192,6 +192,12 @@ def main() -> int:
         findings.append(f"openapi.json has undocumented {operation[0]} {operation[1]}")
     if destination != generated:
         findings.append("openapi.json content is stale; run scripts/sync_api_openapi.py")
+    serialized_destination = json.dumps(destination)
+    for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
+        if retired_contract in serialized_destination:
+            findings.append(
+                f"openapi.json contains retired public contract text: {retired_contract}"
+            )
 
     docs = _documentation_files(root, include_locales=args.include_locales)
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)

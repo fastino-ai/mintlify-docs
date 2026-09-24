@@ -26,7 +26,16 @@ INFERENCE_OPERATIONS = (
     ("GET", "/inferences/{inference_id}/feedback"),
     ("POST", "/inferences/{inference_id}/feedback"),
 )
+TRAINING_OPERATIONS_WITHOUT_REFERENCE_PAGES = (
+    ("GET", "/v1/training-jobs/{job_id}/deployments"),
+    ("POST", "/v1/training-jobs/{job_id}/push-to-hub"),
+    ("POST", "/v1/training-jobs/{job_id}/sync"),
+)
 API_FRONTMATTER = re.compile(r'^api:\s+"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"$', re.MULTILINE)
+CODE_SPAN = re.compile(r"(``.*?``|`[^`]*`)", re.DOTALL)
+PUBLIC_PATH_RENAMES = {
+    "/felix/training-jobs": "/v1/training-jobs",
+}
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -34,7 +43,7 @@ def _load_json(path: Path) -> dict[str, object]:
 
 
 def _training_operations(docs_root: Path) -> list[tuple[str, str]]:
-    operations: list[tuple[str, str]] = []
+    operations = list(TRAINING_OPERATIONS_WITHOUT_REFERENCE_PAGES)
     for path in sorted((docs_root / "api-reference" / "training-jobs").glob("*.mdx")):
         match = API_FRONTMATTER.search(path.read_text(encoding="utf-8"))
         if match is None:
@@ -88,8 +97,38 @@ def _operation(
         if isinstance(path_item, dict):
             value = path_item.get(method.lower())
             if isinstance(value, dict):
-                return copy.deepcopy(value)
+                operation = copy.deepcopy(value)
+                operation_id = operation.get("operationId")
+                if isinstance(operation_id, str):
+                    operation["operationId"] = re.sub(
+                        r"_+",
+                        "_",
+                        re.sub(r"(^|_)felix(?=_|$)", r"\1", operation_id),
+                    )
+                return operation
     raise ValueError(f"Pioneer OpenAPI is missing {method} {source_path} (target {target_path})")
+
+
+def _public_description(text: str) -> str:
+    for source, target in PUBLIC_PATH_RENAMES.items():
+        text = text.replace(source, target)
+    text = text.replace("pio_sk_", "fast_sk_")
+    parts = CODE_SPAN.split(text)
+    for index in range(0, len(parts), 2):
+        parts[index] = parts[index].replace("Pioneer", "Fastino").replace("Felix", "Fastino")
+    return "".join(parts)
+
+
+def _sanitize_descriptions(value: object) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key in {"description", "summary"} and isinstance(nested, str):
+                value[key] = _public_description(nested)
+            else:
+                _sanitize_descriptions(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _sanitize_descriptions(nested)
 
 
 def _refs(value: object) -> Iterable[str]:
@@ -175,6 +214,7 @@ def build_spec(docs_root: Path, pioneer_root: Path) -> dict[str, object]:
     security = source_spec.get("security")
     if isinstance(security, list):
         result["security"] = copy.deepcopy(security)
+    _sanitize_descriptions(result)
     return result
 
 
