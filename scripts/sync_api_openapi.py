@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 INFERENCE_OPERATIONS = (
     ("POST", "/v1/chat/completions"),
+    ("GET", "/v1/billing/usage/requests"),
     ("POST", "/v1/gliner-2"),
     ("POST", "/v1/gliner-2/async"),
     ("GET", "/v1/gliner-2/jobs/{job_id}"),

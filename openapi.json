@@ -2040,6 +2040,133 @@
           "datasets"
         ]
       }
+    },
+    "/v1/billing/usage/requests": {
+      "get": {
+        "description": "Paginated request rows for the settings usage table.",
+        "operationId": "get_billing_usage_requests_v1_billing_usage_requests_get",
+        "parameters": [
+          {
+            "description": "1-based page",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page",
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page size (max 100)",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "description": "Page size (max 100)",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter: created_at >= (ISO); ignored when full_history=true",
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter: created_at >= (ISO); ignored when full_history=true",
+              "title": "Start Date"
+            }
+          },
+          {
+            "description": "Filter: created_at <= (ISO); with full_history, caps the window",
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter: created_at <= (ISO); with full_history, caps the window",
+              "title": "End Date"
+            }
+          },
+          {
+            "description": "If true, from first request through end (or now); ignores start_date",
+            "in": "query",
+            "name": "full_history",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "If true, from first request through end (or now); ignores start_date",
+              "title": "Full History",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Filter: exact billable kind, e.g. model_inference. Omit for all kinds",
+            "in": "query",
+            "name": "workload_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter: exact billable kind, e.g. model_inference. Omit for all kinds",
+              "title": "Workload Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageRequestsPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Billing Usage Requests",
+        "tags": [
+          "billing"
+        ]
+      }
     }
   },
   "components": {
@@ -7208,6 +7335,119 @@
           "count"
         ],
         "title": "DatasetListResponse",
+        "type": "object"
+      },
+      "UsageRequestItem": {
+        "description": "A single row from ``public.requests`` for the usage table UI.",
+        "properties": {
+          "cache_read_tokens": {
+            "default": 0,
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
+          "cache_write_tokens": {
+            "default": 0,
+            "title": "Cache Write Tokens",
+            "type": "integer"
+          },
+          "cost": {
+            "default": 0.0,
+            "title": "Cost",
+            "type": "number"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "credit_usage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Usage"
+          },
+          "endpoint": {
+            "default": "",
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "token_usage": {
+            "default": 0,
+            "title": "Token Usage",
+            "type": "integer"
+          },
+          "workload_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workload Type"
+          }
+        },
+        "required": [
+          "id",
+          "created_at"
+        ],
+        "title": "UsageRequestItem",
+        "type": "object"
+      },
+      "UsageRequestsPageResponse": {
+        "description": "Paginated request log for the usage table UI.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UsageRequestItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total_count",
+          "page",
+          "page_size"
+        ],
+        "title": "UsageRequestsPageResponse",
         "type": "object"
       }
     },
