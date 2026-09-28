@@ -37,7 +37,7 @@
               "text/event-stream": {
                 "example": "data: {\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"deepseek-ai/DeepSeek-V4-Flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"deepseek-ai/DeepSeek-V4-Flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n",
                 "schema": {
-                  "description": "OpenAI-compatible chat completion streaming chunk.\n\n    One of these is JSON-serialized into each ``data: {...}\n\n`` SSE event\n    emitted by the chat completions handler when ``stream=true``. The stream\n    is terminated by a literal ``data: [DONE]\n\n`` sentinel that does not\n    follow this schema.\n\n    ``x_pioneer`` mirrors the field on :class:`ChatCompletionResponse` and is\n    populated only on the terminal chunk (the one carrying ``finish_reason``)\n    when persistence ran. Intermediate chunks set it to ``None`` so SDK\n    clients can wait for the terminal frame before reading the id rather\n    than racing the early text deltas.\n    ",
+                  "description": "OpenAI-compatible chat completion streaming chunk.\n\n    One of these is JSON-serialized into each ``data: {...}\n\n`` SSE event\n    emitted by the chat completions handler when ``stream=true``. The stream\n    is terminated by a literal ``data: [DONE]\n\n`` sentinel that does not\n    follow this schema.\n\n    ``x_fastino`` mirrors the field on :class:`ChatCompletionResponse` and is\n    populated only on the terminal chunk (the one carrying ``finish_reason``)\n    when persistence ran. Intermediate chunks set it to ``None`` so SDK\n    clients can wait for the terminal frame before reading the id rather\n    than racing the early text deltas.\n    ",
                   "properties": {
                     "choices": {
                       "items": {
@@ -180,10 +180,10 @@
                         }
                       ]
                     },
-                    "x_pioneer": {
+                    "x_fastino": {
                       "anyOf": [
                         {
-                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_pioneer`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    routed_model: Backend catalog model selected by a router project\n        (for example ``pioneer/auto``). ``None`` when the request\n        was not routed or the routed model matches the requested id.\n    savings: Routed-vs-frontier per-1M-token savings rate diff (same\n        wire shape as the Anthropic ``pioneer_savings`` extension). The\n        Codex routing-savings hook multiplies these rates by per-turn\n        token usage to surface cumulative money saved. ``None`` when the\n        request was not routed below the frontier reference model.",
+                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
                           "properties": {
                             "inference_id": {
                               "anyOf": [
@@ -195,32 +195,9 @@
                                 }
                               ],
                               "title": "Inference Id"
-                            },
-                            "routed_model": {
-                              "anyOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "title": "Routed Model"
-                            },
-                            "savings": {
-                              "anyOf": [
-                                {
-                                  "additionalProperties": true,
-                                  "type": "object"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "title": "Savings"
                             }
                           },
-                          "title": "PioneerExtension",
+                          "title": "FastinoExtension",
                           "type": "object"
                         },
                         {
@@ -257,10 +234,296 @@
         ]
       }
     },
+    "/v1/datasets": {
+      "get": {
+        "description": "Lists visible datasets.",
+        "operationId": "list_datasets_v1_datasets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_all_versions",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include All Versions",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Filter by project ID. For a real project, orphan (no-project) datasets are included only when include_orphans=True. Omitted or the 'default' sentinel always includes orphans.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by project ID. For a real project, orphan (no-project) datasets are included only when include_orphans=True. Omitted or the 'default' sentinel always includes orphans.",
+              "title": "Project Id"
+            }
+          },
+          {
+            "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user \u2014 this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
+            "in": "query",
+            "name": "include_failed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user \u2014 this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
+              "title": "Include Failed",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
+            "in": "query",
+            "name": "include_orphans",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
+              "title": "Include Orphans",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": 200,
+              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "Number of leading datasets to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of leading datasets to skip.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Datasets",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/upload/process": {
+      "post": {
+        "description": "Queues processing for a reserved dataset upload.",
+        "operationId": "process_uploaded_dataset_v1_datasets_upload_process_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetUploadProcessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Process Uploaded Dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/upload/url": {
+      "post": {
+        "description": "Creates a reserved dataset row and presigned upload URL.",
+        "operationId": "get_upload_url_v1_datasets_upload_url_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetUploadUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUploadUrlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Upload Url",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/{name}": {
+      "get": {
+        "description": "Lists all visible versions of a dataset.",
+        "operationId": "list_dataset_versions_v1_datasets_name_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetVersionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Dataset Versions",
+        "tags": [
+          "datasets"
+        ]
+      },
+      "delete": {
+        "description": "Soft-delete a dataset and all its versions.\n\nArgs:\n    name: Dataset name. Legacy UUID lookups are still accepted and routed\n        through the by-ID path for backwards compatibility.",
+        "operationId": "delete_dataset_v1_datasets_name_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
     "/v1/gliner-2": {
       "post": {
         "description": "Process text using GLiNER-2 base model via InferenceService.\n\n``task`` is optional \u2014 when omitted the unified schema path is used.\nLegacy task names are still accepted but deprecated.",
-        "operationId": "gliner2_process_gliner_2_post",
+        "operationId": "gliner2_process_v1_gliner_2_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -302,7 +565,7 @@
     "/v1/gliner-2/async": {
       "post": {
         "description": "Submit large GLiNER-2 request for async processing.\n\nUse this endpoint when processing >1M tokens that would exceed\nthe 30-second timeout. Returns immediately with a job_id.\nPoll GET /gliner-2/jobs/{job_id} to retrieve results.\n\nArgs:\n    request: AsyncGlinerRequest with task, text, schema\n    http_request: FastAPI request object\n    auth: Authentication result\n\nReturns:\n    202 Accepted with job_id for polling",
-        "operationId": "gliner2_async_gliner_2_async_post",
+        "operationId": "gliner2_async_v1_gliner_2_async_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -344,7 +607,7 @@
     "/v1/gliner-2/jobs/{job_id}": {
       "get": {
         "description": "Get status and result of an async GLiNER-2 job.\n\nReturns:\n- 200 with status=\"complete\" and result when done\n- 200 with status=\"processing\" while in progress\n- 200 with status=\"error\" and error message if failed\n- 404 if job not found or belongs to different user\n\nArgs:\n    job_id: UUID of the job to check\n    auth: Authentication result\n\nReturns:\n    GlinerJobStatus with current status and result if complete",
-        "operationId": "gliner2_job_status_gliner_2_jobs_job_id_get",
+        "operationId": "gliner2_job_status_v1_gliner_2_jobs_job_id_get",
         "parameters": [
           {
             "in": "path",
@@ -387,7 +650,7 @@
     "/v1/inferences": {
       "get": {
         "description": "List inference history for the authenticated user.\n\nReturns all inference records across all model types (NER, classification,\nJSON extraction, decoder) sorted by most recent first.\n\nArgs:\n    auth: Authentication result with user_id\n    limit: Maximum number of records to return (default 100, max 500)\n    offset: Number of records to skip for pagination\n    model_id: Optional filter by model ID\n    task: Optional filter by task type\n    project_id: Optional filter by project ID\n    training_job_id: Optional filter by training job ID\n    latency_min/latency_max: Inclusive latency window in ms.\n    llmaj_score_min/llmaj_score_max: Inclusive LLMAJ-score window\n        in [0.0, 1.0].\n    since: Optional inclusive lower bound on ``created_at`` (ISO 8601).\n    until: Optional exclusive upper bound on ``created_at`` (ISO 8601).\n\nReturns:\n    InferenceListResponse with paginated inference records.\n\nRaises:\n    HTTPException: 422 when ``min`` is greater than its paired\n        ``max`` \u2014 returning an empty page would silently mask the\n        caller's misordered query.",
-        "operationId": "list_inference_history_inferences_get",
+        "operationId": "list_inference_history_v1_inferences_get",
         "parameters": [
           {
             "description": "Maximum records to return",
@@ -637,7 +900,7 @@
     "/v1/inferences/{inference_id}": {
       "get": {
         "description": "Get a single inference record by ID.\n\nArgs:\n    inference_id: The inference record UUID\n    auth: Authentication result with user_id\n\nReturns:\n    InferenceRecord with full details\n\nRaises:\n    HTTPException: 404 if inference not found or outside the caller's team",
-        "operationId": "get_inference_detail_inferences_inference_id_get",
+        "operationId": "get_inference_detail_v1_inferences_inference_id_get",
         "parameters": [
           {
             "in": "path",
@@ -686,7 +949,7 @@
     "/v1/inferences/{inference_id}/feedback": {
       "get": {
         "description": "Get human feedback for a specific inference.\n\nArgs:\n    inference_id: The inference record UUID to look up.\n    auth: Authentication result with user_id.\n\nReturns:\n    InferenceFeedbackResponse with the stored feedback.\n\nRaises:\n    HTTPException: 404 if inference not found or no feedback submitted.",
-        "operationId": "get_inference_feedback_inferences_inference_id_feedback_get",
+        "operationId": "get_inference_feedback_v1_inferences_inference_id_feedback_get",
         "parameters": [
           {
             "in": "path",
@@ -733,7 +996,7 @@
       },
       "post": {
         "description": "Submit human feedback on a specific inference.\n\nMarks an inference as correct or incorrect. When marking as incorrect,\nthe expected output must be provided for downstream training data curation.\n\nArgs:\n    inference_id: The inference record UUID to annotate.\n    request: Feedback payload with verdict, optional corrected output, and notes.\n    auth: Authentication result with user_id.\n\nReturns:\n    InferenceFeedbackResponse confirming the stored feedback.\n\nRaises:\n    HTTPException: 404 if inference not found or outside the caller's team.",
-        "operationId": "submit_inference_feedback_inferences_inference_id_feedback_post",
+        "operationId": "submit_inference_feedback_v1_inferences_inference_id_feedback_post",
         "parameters": [
           {
             "in": "path",
@@ -834,7 +1097,7 @@
     },
     "/v1/models": {
       "get": {
-        "description": "List available Anthropic-compatible models.\n\nAuthentication is optional. Anonymous callers receive the public runtime\ncatalog; authenticated callers also receive their user-scoped decoder\nfine-tunes.\n\nArgs:\n    limit: Maximum number of models to return. Omit to return the full\n        assembled catalog.\n    before_id: Cursor for paginating backward.\n    after_id: Cursor for paginating forward.\n    client_version: Optional Codex/OpenAI client version hint.\n    auth: Optional authentication result.\n\nReturns:\n    Combined Anthropic-compatible and Codex/OpenAI-compatible model catalog.\n\nRaises:\n    HTTPException: If both cursor parameters are provided.",
+        "description": "List available Anthropic-compatible models.\n\nAuthentication is optional. Anonymous callers receive the public runtime\ncatalog; authenticated callers also receive their user-scoped decoder\nfine-tunes. Claude Code callers also receive the ``anthropic/pioneer/<id>``\ngateway discovery aliases until they are retired (ENG-7789).\n\nArgs:\n    request: Incoming request; its headers identify Claude Code callers.\n    limit: Maximum number of models to return. Omit to return the full\n        assembled catalog.\n    before_id: Cursor for paginating backward.\n    after_id: Cursor for paginating forward.\n    client_version: Optional Codex/OpenAI client version hint.\n    auth: Optional authentication result.\n\nReturns:\n    Combined Anthropic-compatible and Codex/OpenAI-compatible model catalog.\n\nRaises:\n    HTTPException: If both cursor parameters are provided.",
         "operationId": "list_models_v1_models_get",
         "parameters": [
           {
@@ -974,7 +1237,7 @@
     "/v1/training-jobs": {
       "post": {
         "description": "Create a new training job.\n\nThe provider is resolved from the registry based on\n``(base_model, training_type)``.\n\nArgs:\n    request: Incoming FastAPI request (required by SlowAPI key function).\n    training_request: Training configuration with dataset references and base_model.\n    auth: Authenticated user context.",
-        "operationId": "create_training_job_training_jobs_post",
+        "operationId": "create_training_job_v1_training_jobs_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1014,7 +1277,7 @@
       },
       "get": {
         "description": "List training jobs for the authenticated user.\n\nSupports pagination via ``limit`` and ``offset`` query parameters.\nOptionally filter by status (requested, running, complete, deployed, errored).",
-        "operationId": "list_training_jobs_training_jobs_get",
+        "operationId": "list_training_jobs_v1_training_jobs_get",
         "parameters": [
           {
             "in": "query",
@@ -1103,7 +1366,7 @@
     "/v1/training-jobs/{job_id}": {
       "delete": {
         "description": "Delete a training job and associated checkpoints.",
-        "operationId": "delete_training_job_training_jobs_job_id_delete",
+        "operationId": "delete_training_job_v1_training_jobs_job_id_delete",
         "parameters": [
           {
             "in": "path",
@@ -1144,7 +1407,7 @@
       },
       "get": {
         "description": "Get a training job by ID if it is visible to the caller's team.\n\nRead visibility matches the other ``training-jobs/{job_id}`` read routes\nthat already use ``_get_visible_job`` (logs, checkpoints, download): a\njob on a team-visible project, or a project-less shared job, is\nreturned even when the caller is not the creator. Mutating routes keep\ntheir own owner-scoped service calls.",
-        "operationId": "get_training_job_training_jobs_job_id_get",
+        "operationId": "get_training_job_v1_training_jobs_job_id_get",
         "parameters": [
           {
             "in": "path",
@@ -1185,7 +1448,7 @@
       },
       "patch": {
         "description": "Patch a training job. Currently exposes only ``project_id``.\n\nDelegates to :func:`services.projects.movement.assign_resource_to_project`\nwhich owns the visibility check, target-project gating, and the\nservice-role ``UPDATE``. Send ``project_id: null`` to unassign the job\nfrom its project.\n\nMovement is **label-only**: only ``training_jobs.project_id`` changes.\nDependent rows that carry their own ``project_id`` (``deployments``,\n``inferences``, ``project_evaluation_runs``) are intentionally not cascaded.\nCallers needing aggregate-model movement must update dependents\nexplicitly.",
-        "operationId": "update_training_job_training_jobs_job_id_patch",
+        "operationId": "update_training_job_v1_training_jobs_job_id_patch",
         "parameters": [
           {
             "in": "path",
@@ -1238,7 +1501,7 @@
     "/v1/training-jobs/{job_id}/billing": {
       "get": {
         "description": "Get the billing outcome for a specific training job, by job ID.\n\nCloses the API gap in ENG-6131: reports whether a job was billed and,\nif so, for how much and how long, so a billing-correctness fix like\nENG-6068 can be verified live without direct database access. Read\nvisibility matches ``get_training_job`` and the other\n``training-jobs/{job_id}`` read routes.",
-        "operationId": "get_training_job_billing_training_jobs_job_id_billing_get",
+        "operationId": "get_training_job_billing_v1_training_jobs_job_id_billing_get",
         "parameters": [
           {
             "in": "path",
@@ -1281,7 +1544,7 @@
     "/v1/training-jobs/{job_id}/checkpoints": {
       "get": {
         "description": "List all checkpoints for a training job visible to the caller's team.",
-        "operationId": "list_training_job_checkpoints_training_jobs_job_id_checkpoints_get",
+        "operationId": "list_training_job_checkpoints_v1_training_jobs_job_id_checkpoints_get",
         "parameters": [
           {
             "in": "path",
@@ -1323,8 +1586,8 @@
     },
     "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy": {
       "post": {
-        "description": "Deploy a specific checkpoint to the Multi-Model Endpoint.",
-        "operationId": "deploy_checkpoint_to_mme_training_jobs_job_id_checkpoints_checkpoint_id_deploy_post",
+        "description": "Deploy a specific checkpoint to its provider inference location.",
+        "operationId": "deploy_checkpoint",
         "parameters": [
           {
             "in": "path",
@@ -1376,7 +1639,7 @@
     "/v1/training-jobs/{job_id}/deployments": {
       "get": {
         "description": "Deprecated. Returns deployments that reference the given training job.\n\nArgs:\n    job_id: Training job ID.\n    auth: Authenticated user.\n\nReturns:\n    DeploymentHistoryResponse with deprecation headers.",
-        "operationId": "get_training_job_deployments_training_jobs_job_id_deployments_get",
+        "operationId": "get_training_job_deployments_v1_training_jobs_job_id_deployments_get",
         "parameters": [
           {
             "in": "path",
@@ -1420,7 +1683,7 @@
     "/v1/training-jobs/{job_id}/download": {
       "get": {
         "description": "Generate a presigned S3 URL to download a trained model.",
-        "operationId": "download_trained_model_training_jobs_job_id_download_get",
+        "operationId": "download_trained_model_v1_training_jobs_job_id_download_get",
         "parameters": [
           {
             "in": "path",
@@ -1463,7 +1726,7 @@
     "/v1/training-jobs/{job_id}/logs": {
       "get": {
         "description": "Get training output logs (stdout/stderr) for a specific job.",
-        "operationId": "get_training_job_logs_training_jobs_job_id_logs_get",
+        "operationId": "get_training_job_logs_v1_training_jobs_job_id_logs_get",
         "parameters": [
           {
             "in": "path",
@@ -1506,7 +1769,7 @@
     "/v1/training-jobs/{job_id}/model-name": {
       "patch": {
         "description": "Update the model_name for a training job.\n\nThin wrapper: visibility scoping, validation, the UPDATE, and the\nactivity-event side effect all live in\n:meth:`TrainingJobService.update_model_name`. The router only owns\nHTTP concerns (status codes, request/response shaping) per\n``brain/CLAUDE.md``.",
-        "operationId": "update_training_job_model_name_training_jobs_job_id_model_name_patch",
+        "operationId": "update_training_job_model_name_v1_training_jobs_job_id_model_name_patch",
         "parameters": [
           {
             "in": "path",
@@ -1559,7 +1822,7 @@
     "/v1/training-jobs/{job_id}/push-to-hub": {
       "post": {
         "description": "Push a completed training job's model to HuggingFace Hub.\n\nArgs:\n    job_id: Training job UUID.\n    request: Target repo, token, and commit metadata.\n    auth: Authenticated caller admitted by the training-jobs rollout.\n\nReturns:\n    The hub push outcome.\n\nRaises:\n    HTTPException: 400/403/404/409/500 for validation, permission,\n        lookup, conflict, and upload failures.",
-        "operationId": "push_training_job_to_huggingface_training_jobs_job_id_push_to_hub_post",
+        "operationId": "push_training_job_to_huggingface_v1_training_jobs_job_id_push_to_hub_post",
         "parameters": [
           {
             "in": "path",
@@ -1612,7 +1875,7 @@
     "/v1/training-jobs/{job_id}/stop": {
       "post": {
         "description": "Stop a running training job.",
-        "operationId": "stop_training_job_training_jobs_job_id_stop_post",
+        "operationId": "stop_training_job_v1_training_jobs_job_id_stop_post",
         "parameters": [
           {
             "in": "path",
@@ -1652,6 +1915,75 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopJobResponse"
+                }
+              }
+            },
+            "description": "Cancellation in progress."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The cancel did not land. `error.code` is `training_job_already_finished` when the job completed or failed first, or `cancellation_unconfirmed` when it may be retried."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1672,7 +2004,7 @@
     "/v1/training-jobs/{job_id}/sync": {
       "post": {
         "description": "Sync training job status from the provider to the database.",
-        "operationId": "sync_training_job_status_training_jobs_job_id_sync_post",
+        "operationId": "sync_training_job_status_v1_training_jobs_job_id_sync_post",
         "parameters": [
           {
             "in": "path",
@@ -1715,7 +2047,7 @@
     "/v1/training-jobs/{job_id}/terminate": {
       "post": {
         "description": "Terminate a training job and delete all artifacts.\n\nStops the provider job if running, deletes all checkpoints, and marks\nthe job as terminated. This operation is irreversible.",
-        "operationId": "terminate_training_job_training_jobs_job_id_terminate_post",
+        "operationId": "terminate_training_job_v1_training_jobs_job_id_terminate_post",
         "parameters": [
           {
             "in": "path",
@@ -1738,6 +2070,75 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminateJobResponse"
+                }
+              }
+            },
+            "description": "Termination in progress."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The cancel did not land. `error.code` is `training_job_already_finished` when the job completed or failed first, or `cancellation_unconfirmed` when it may be retried."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1752,292 +2153,6 @@
         "summary": "Terminate Training Job",
         "tags": [
           "training-jobs"
-        ]
-      }
-    },
-    "/v1/datasets": {
-      "get": {
-        "description": "Lists visible datasets.",
-        "operationId": "list_datasets_datasets_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "include_all_versions",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Include All Versions",
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "Filter by project ID. For a real project, orphan (no-project) datasets are included only when include_orphans=True. Omitted or the 'default' sentinel always includes orphans.",
-            "in": "query",
-            "name": "project_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Filter by project ID. For a real project, orphan (no-project) datasets are included only when include_orphans=True. Omitted or the 'default' sentinel always includes orphans.",
-              "title": "Project Id"
-            }
-          },
-          {
-            "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user \u2014 this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
-            "in": "query",
-            "name": "include_failed",
-            "required": false,
-            "schema": {
-              "default": false,
-              "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user \u2014 this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
-              "title": "Include Failed",
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
-            "in": "query",
-            "name": "include_orphans",
-            "required": false,
-            "schema": {
-              "default": false,
-              "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
-              "title": "Include Orphans",
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maximum": 200,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": 200,
-              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
-              "title": "Limit"
-            }
-          },
-          {
-            "description": "Number of leading datasets to skip.",
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "description": "Number of leading datasets to skip.",
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Datasets",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
-    "/v1/datasets/upload/url": {
-      "post": {
-        "description": "Creates a reserved dataset row and presigned upload URL.",
-        "operationId": "get_upload_url_datasets_upload_url_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasetUploadUrlRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetUploadUrlResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Upload Url",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
-    "/v1/datasets/upload/process": {
-      "post": {
-        "description": "Queues processing for a reserved dataset upload.",
-        "operationId": "process_uploaded_dataset_datasets_upload_process_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasetUploadProcessRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Process Uploaded Dataset",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
-    "/v1/datasets/{name}": {
-      "get": {
-        "description": "Lists all visible versions of a dataset.",
-        "operationId": "list_dataset_versions_datasets_name_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetVersionsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Dataset Versions",
-        "tags": [
-          "datasets"
-        ]
-      },
-      "delete": {
-        "description": "Soft-delete a dataset and all its versions.\n\nArgs:\n    name: Dataset name. Legacy UUID lookups are still accepted and routed\n        through the by-ID path for backwards compatibility.",
-        "operationId": "delete_dataset_datasets_name_delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Dataset",
-        "tags": [
-          "datasets"
         ]
       }
     }
@@ -2359,7 +2474,7 @@
                 "type": "null"
               }
             ],
-            "description": "LLMAJ judge confidence score in [0.0, 1.0]; None until judged.",
+            "description": "Historical LLMAJ confidence score in [0.0, 1.0].",
             "title": "Llmaj Score"
           },
           "llmaj_verdict": {
@@ -2376,7 +2491,7 @@
                 "type": "null"
               }
             ],
-            "description": "LLMAJ judge verdict ('pass', 'fail', or 'uncertain'); None until judged.",
+            "description": "Historical LLMAJ verdict ('pass', 'fail', or 'uncertain').",
             "title": "Llmaj Verdict"
           },
           "metadata": {
@@ -2571,17 +2686,6 @@
         "additionalProperties": true,
         "description": "OpenAI-compatible Responses API request.\n\n``input`` accepts either a plain string (convenience shorthand used by the\nOpenAI SDK for simple text prompts) or a list of input items.",
         "properties": {
-          "effort": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoutingEffort"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Per-request routing-effort tier (low/medium/high/xhigh/max) for router models like ``pioneer/auto``. Overrides the router's stored policy for this request only; ignored for non-router models."
-          },
           "extra_body": {
             "anyOf": [
               {
@@ -2686,21 +2790,6 @@
           "model": {
             "title": "Model",
             "type": "string"
-          },
-          "models": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Per-request candidate-model subset the router may select between. Overrides the router's stored candidate set for this request only; ignored for non-router models.",
-            "title": "Models"
           },
           "parallel_tool_calls": {
             "default": false,
@@ -2972,18 +3061,6 @@
         "title": "ResponsesReasoningRequest",
         "type": "object"
       },
-      "RoutingEffort": {
-        "description": "Per-request routing-effort tier, ascending in cost and quality.\n\nSent by the caller as the ``effort`` param or as a ``model`` suffix. The\nper-router policy each tier used to map to is gone with the routers; the\ntier itself remains a request-level knob.",
-        "enum": [
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ],
-        "title": "RoutingEffort",
-        "type": "string"
-      },
       "AnthropicError": {
         "description": "Anthropic error envelope returned when the request includes `anthropic-version`. Distinct from the OpenAI `{error: {message, type, param, code}}` body.",
         "properties": {
@@ -3021,7 +3098,7 @@
         "type": "object"
       },
       "AnthropicMessagesResponse": {
-        "description": "Anthropic Messages API response format.\n\n``pioneer_inference_id`` is a Fastino-only extension: the\n``inferences.id`` of the persisted row backing this completion. It mirrors\nthe ``x_pioneer.inference_id`` field on the OpenAI-compatible chat\ncompletion response so frontend playground clients can use the same\npoll-``GET /inferences/{id}``-for-judge-results round-trip on either\nsurface. ``None`` when persistence didn't run (e.g. ``store=false``).\n\n``pioneer_routed_model`` is the backend catalog model selected when the\nrequest used a router alias such as ``pioneer/auto``. ``None`` when no\nrouting occurred or the routed model matches the requested id.\n\n``pioneer_savings`` carries the per-1M-token savings rate diff of the routed\nmodel vs a fixed frontier reference (``baseline_model`` plus\n``rate_diff_per_mtok`` with ``input``/``output``/``cache_read``/\n``cache_write`` keys). The Claude Code cost hook multiplies it by per-turn\ntoken usage to show money saved. ``None`` when not routed to a cheaper model.",
+        "description": "Anthropic Messages API response format.\n\n``fastino_inference_id`` is a Fastino-only extension: the\n``inferences.id`` of the persisted row backing this completion. It mirrors\nthe ``x_fastino.inference_id`` field on the OpenAI-compatible chat\ncompletion response so frontend playground clients can use the same\npoll-``GET /inferences/{id}``-for-judge-results round-trip on either\nsurface. ``None`` when persistence didn't run (e.g. ``store=false``).",
         "properties": {
           "content": {
             "items": {
@@ -3031,6 +3108,17 @@
             "title": "Content",
             "type": "array"
           },
+          "fastino_inference_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastino Inference Id"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -3038,40 +3126,6 @@
           "model": {
             "title": "Model",
             "type": "string"
-          },
-          "pioneer_inference_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pioneer Inference Id"
-          },
-          "pioneer_routed_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pioneer Routed Model"
-          },
-          "pioneer_savings": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pioneer Savings"
           },
           "role": {
             "default": "assistant",
@@ -3208,17 +3262,6 @@
             ],
             "title": "Cache Control"
           },
-          "effort": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoutingEffort"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Per-request routing-effort tier (low/medium/high/xhigh/max) for router models like ``pioneer/auto``. Overrides the router's stored policy for this request only; ignored for non-router models."
-          },
           "include_confidence": {
             "default": true,
             "title": "Include Confidence",
@@ -3247,21 +3290,6 @@
           "model": {
             "title": "Model",
             "type": "string"
-          },
-          "models": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Per-request candidate-model subset the router may select between. Overrides the router's stored candidate set for this request only; ignored for non-router models.",
-            "title": "Models"
           },
           "output_config": {
             "anyOf": [
@@ -4075,10 +4103,10 @@
           "usage": {
             "$ref": "#/components/schemas/ChatCompletionUsage"
           },
-          "x_pioneer": {
+          "x_fastino": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/PioneerExtension"
+                "$ref": "#/components/schemas/FastinoExtension"
               },
               {
                 "type": "null"
@@ -4094,8 +4122,8 @@
         "title": "ChatCompletionResponse",
         "type": "object"
       },
-      "PioneerExtension": {
-        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_pioneer`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    routed_model: Backend catalog model selected by a router project\n        (for example ``pioneer/auto``). ``None`` when the request\n        was not routed or the routed model matches the requested id.\n    savings: Routed-vs-frontier per-1M-token savings rate diff (same\n        wire shape as the Anthropic ``pioneer_savings`` extension). The\n        Codex routing-savings hook multiplies these rates by per-turn\n        token usage to surface cumulative money saved. ``None`` when the\n        request was not routed below the frontier reference model.",
+      "FastinoExtension": {
+        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
         "properties": {
           "inference_id": {
             "anyOf": [
@@ -4107,32 +4135,9 @@
               }
             ],
             "title": "Inference Id"
-          },
-          "routed_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Routed Model"
-          },
-          "savings": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Savings"
           }
         },
-        "title": "PioneerExtension",
+        "title": "FastinoExtension",
         "type": "object"
       },
       "ChatCompletionUsage": {
@@ -4215,17 +4220,6 @@
       "ChatCompletionRequest": {
         "description": "OpenAI-compatible chat completion request.",
         "properties": {
-          "effort": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoutingEffort"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Per-request routing-effort tier (low/medium/high/xhigh/max) for router models like ``pioneer/auto``. Higher tiers prefer stronger, costlier models. Overrides the router's stored policy for this request only; ignored for non-router models."
-          },
           "extra_body": {
             "anyOf": [
               {
@@ -4322,21 +4316,6 @@
             "title": "Model",
             "type": "string"
           },
-          "models": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Per-request candidate-model subset the router may select between. Overrides the router's stored candidate set for this request only; ignored for non-router models.",
-            "title": "Models"
-          },
           "n": {
             "anyOf": [
               {
@@ -4400,7 +4379,7 @@
                 "type": "null"
               }
             ],
-            "description": "Schema for the Fastino encoder. **Deprecated when supplied as a flat list** of entity labels; use the unified dict shape (``entities`` / ``classifications`` / ``structures`` / ``relations``) instead. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers.",
+            "description": "Schema for the Fastino encoder. **Deprecated when supplied as a flat list** of entity labels; use the unified dict shape (``entities`` / ``classifications`` / ``structures`` / ``relations``) instead. Deprecated submissions emit ``Deprecation: true`` and ``Sunset: <RFC 7231 date>`` headers. Record modes (``natural``, ``latent``, ``anchorless``) are hosted when ``encoder_features`` includes ``records``, which ``fastino/gliner2.5-multi-v1`` does. ``mode``, ``anchor``, ``occurrence_policy``, and field ``cardinality`` return 400 on any other encoder. Span attributes (``entity_attributes``) are hosted when ``encoder_features`` includes ``span_attributes``, which ``fastino/gliner2.5-multi-v1`` does. Constrained classification (``version``, ``tasks``, ``constraints``) is hosted when ``encoder_features`` includes ``constrained_classification``, which ``fastino/gliner2.5-multi-v1`` does. JointIE (``constraints`` without ``tasks`` or ``version``, and relation ``head`` / ``tail`` options) is hosted when ``encoder_features`` includes ``joint_ie``, which ``fastino/gliner2.5-multi-v1`` does. Read ``encoder_features`` on ``GET /v1/base-models``.",
             "title": "Schema"
           },
           "seed": {
@@ -4688,6 +4667,12 @@
             "title": "Message",
             "type": "string"
           },
+          "status": {
+            "default": "terminated",
+            "description": "`terminated` once confirmed, or `stopping` (HTTP 202) while the provider confirms; checkpoints are deleted only after confirmation.",
+            "title": "Status",
+            "type": "string"
+          },
           "success": {
             "title": "Success",
             "type": "boolean"
@@ -4890,6 +4875,11 @@
             "title": "Checkpoint Id",
             "type": "string"
           },
+          "deployment_path": {
+            "description": "Exact immutable adapter prefix or full-model MME object deployed.",
+            "title": "Deployment Path",
+            "type": "string"
+          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
@@ -4899,6 +4889,8 @@
             "type": "string"
           },
           "mme_path": {
+            "deprecated": true,
+            "description": "Deprecated compatibility alias for deployment_path.",
             "title": "Mme Path",
             "type": "string"
           },
@@ -4912,6 +4904,7 @@
           "message",
           "job_id",
           "checkpoint_id",
+          "deployment_path",
           "mme_path"
         ],
         "title": "DeployCheckpointResponse",
@@ -5660,6 +5653,19 @@
             "title": "Mask History",
             "type": "boolean"
           },
+          "max_length": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GLiNER only: maximum tokens kept from the start of each training row. Omit to use the model's context window, shortened when that window does not fit the L4 batch.",
+            "title": "Max Length"
+          },
           "max_samples_per_dataset": {
             "anyOf": [
               {
@@ -5708,7 +5714,8 @@
           },
           "nr_epochs": {
             "default": 100,
-            "description": "Maximum training epochs. With early stopping enabled, training typically terminates well before this ceiling.",
+            "description": "Maximum training epochs (1 to 10000). With early stopping enabled, training typically terminates well before this ceiling.",
+            "maximum": 10000.0,
             "minimum": 1.0,
             "title": "Nr Epochs",
             "type": "integer"
@@ -5783,7 +5790,7 @@
           },
           "save_steps": {
             "default": 100,
-            "description": "Save checkpoint every N steps",
+            "description": "Requested-batch checkpoint interval: optimizer steps at the requested batch size (sample-normalized). The stored job value stays this requested interval. When GLiNER GPU admission reduces the batch, the worker interval is scaled by ceil(save_steps * requested_batch / applied_batch) so the same number of samples pass between saves. Dense-LoRA uses this value as the optimizer-step interval.",
             "minimum": 1.0,
             "title": "Save Steps",
             "type": "integer"
