@@ -1,6 +1,6 @@
 # Fastino API instructions for agents
 
-Use the published Fastino documentation and curated OpenAPI specification when building an integration.
+Use the published Fastino documentation and canonical public OpenAPI specification when building an integration.
 
 ## Sources of truth
 
@@ -22,4 +22,4 @@ Use the published Fastino documentation and curated OpenAPI specification when b
 - Follow the [Inference API](https://docs.fastino.ai/inference) for GLiNER inference requests.
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
 - Do not invent routes, model IDs, request fields, or response fields.
-- If an operation is absent from the curated OpenAPI specification, treat it as unsupported for customer integrations.
+- If an operation is absent from the public OpenAPI specification, treat it as unsupported for customer integrations.
