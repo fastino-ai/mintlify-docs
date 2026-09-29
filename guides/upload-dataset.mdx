@@ -1,0 +1,115 @@
+---
+title: "Upload your own labeled dataset"
+sidebarTitle: "Upload a Dataset"
+description: "Upload a labeled JSONL file to Fastino through the API: request an upload URL, PUT the file, process it, and wait until it is ready to train on."
+---
+
+If you already have labeled examples, upload them as a dataset and train on them directly. Uploading takes three calls: request an upload URL, `PUT` the file to it, then ask Fastino to process it. Processing validates every row, and the dataset becomes `ready` once it passes.
+
+<Steps>
+  <Step title="Format your rows">
+    Put one example per line in a JSONL file. Each row uses the columns for its task:
+
+    | Task | `dataset_type` | Row |
+    |---|---|---|
+    | Classification (single-label) | `classification` | `{"text": "...", "label": "refund_request"}` |
+    | Classification (multi-label) | `classification` | `{"text": "...", "labels": ["billing", "urgent"]}` |
+    | Named entities | `ner` | `{"text": "Tim Cook runs Apple.", "entities": [["Tim Cook", "person"], ["Apple", "company"]]}` |
+    | Structured extraction | `custom` | `{"text": "...", "json_structures": [...]}` (see [Fine-tune extraction](/guides/fine-tune-extraction)) |
+    | LLM fine-tuning | `decoder` | `{"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}` |
+
+    Each entity is a `[span, label]` pair, and the span must appear verbatim in `text`. A row with `"entities": []` is a valid negative example, but the dataset needs at least one row with an entity.
+
+    If your file uses different column names, pass `column_mapping` in the next step (for example `{"sentence": "text", "category": "label"}`). Valid targets are `text`, `label`, `labels` and `entities`.
+
+    <Tip>
+    **Shuffle your rows before uploading.** Training holds out the last part of the file for validation, without shuffling. A file sorted by label, date or customer produces a validation set that doesn't represent the rest.
+    </Tip>
+  </Step>
+
+  <Step title="Request an upload URL">
+    ```bash cURL
+    curl -X POST https://api.fastino.ai/v1/datasets/upload/url \
+      -H "X-API-Key: $FASTINO_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "dataset_name": "support-intents",
+        "dataset_type": "classification",
+        "filename": "support-intents.jsonl"
+      }'
+    ```
+
+    The response contains a `presigned_url`, the `dataset_id` you'll process in the next step, the `version_number`, and `expires_in` (seconds until the URL expires). Uploading again under the same `dataset_name` creates a new version.
+
+    Optional fields include `type` (`training`, the default, or `evaluation` for a dataset you only evaluate against) and `project_id`.
+  </Step>
+
+  <Step title="Upload the file">
+    `PUT` the file to `presigned_url` with `Content-Type: application/octet-stream`:
+
+    ```bash cURL
+    curl -X PUT "$PRESIGNED_URL" \
+      -H "Content-Type: application/octet-stream" \
+      --upload-file support-intents.jsonl
+    ```
+
+    <Warning>
+    The URL is signed for `application/octet-stream`. Any other `Content-Type`, or none, fails with `403 SignatureDoesNotMatch`.
+    </Warning>
+
+    Upload before the URL expires. It's a direct upload to storage, so don't send your API key with it.
+  </Step>
+
+  <Step title="Process the dataset">
+    ```bash cURL
+    curl -X POST https://api.fastino.ai/v1/datasets/upload/process \
+      -H "X-API-Key: $FASTINO_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"dataset_id": "DATASET_ID_FROM_STEP_2"}'
+    ```
+
+    This returns `202` straight away. Fastino converts and validates the file in the background.
+  </Step>
+
+  <Step title="Wait until it's ready">
+    Poll the dataset's versions until the one you uploaded is `ready`:
+
+    ```python Python
+    import os, time, requests
+
+    headers = {"X-API-Key": os.environ["FASTINO_API_KEY"]}
+    while True:
+        versions = requests.get(
+            "https://api.fastino.ai/v1/datasets/support-intents", headers=headers
+        ).json()["versions"]
+        latest = max(versions, key=lambda v: int(v["version_number"]))
+        if latest["status"] in ("ready", "failed"):
+            break
+        time.sleep(5)
+
+    print(latest["status"], latest.get("sample_size"), latest.get("labels"), latest.get("processing_error"))
+    ```
+
+    A `ready` dataset reports its `sample_size` (row count) and `labels`. A `failed` one explains why in `processing_error`, including the row number for malformed rows.
+  </Step>
+
+  <Step title="Train on it">
+    Reference the dataset by name, and optionally by version, when you create a training job:
+
+    ```json
+    "datasets": [{"name": "support-intents", "version": "1"}]
+    ```
+
+    Then follow the guide for your task: [NER](/guides/fine-tune-ner), [classification](/guides/fine-tune-classification), [extraction](/guides/fine-tune-extraction) or [LLM fine-tuning](/guides/fine-tune-llm).
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `403 SignatureDoesNotMatch` on the `PUT` | Wrong or missing `Content-Type` | Send `Content-Type: application/octet-stream` |
+| `403` / `AccessDenied` on the `PUT` | The upload URL expired | Request a new URL and upload again |
+| `failed` with `jsonl_parse_error (row N)` | Row `N` isn't valid JSON (for example, a CSV file named `.jsonl`) | Fix the row, or name the file for its real format |
+| `failed` with `dataset_empty` | No row has the columns for this `dataset_type` | Rename columns, or pass `column_mapping` |
+| Training rejects the dataset with "exceeds maximum of 250" | Training jobs accept up to 250 unique labels across their datasets | Merge or drop rare labels |
