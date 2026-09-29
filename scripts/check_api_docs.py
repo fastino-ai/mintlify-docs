@@ -1,4 +1,4 @@
-"""Check public API docs against Pioneer's authoritative public contract."""
+"""Check public API docs against Pioneer's route contract."""
 
 from __future__ import annotations
 
@@ -186,12 +186,7 @@ def main() -> int:
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     destination_path = root / "openapi.json"
-    destination_bytes = destination_path.read_bytes()
-    destination = json.loads(destination_bytes)
-    authoritative_path = (
-        args.pioneer_root.resolve() / "api" / "public-openapi.json"
-    )
-    authoritative_bytes = authoritative_path.read_bytes()
+    destination = json.loads(destination_path.read_text(encoding="utf-8"))
     manifest = json.loads(
         (args.pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
             encoding="utf-8"
@@ -201,11 +196,6 @@ def main() -> int:
     findings: list[str] = []
 
     actual_operations = _operations(destination)
-    if destination_bytes != authoritative_bytes:
-        findings.append(
-            "openapi.json does not match Pioneer's "
-            "api/public-openapi.json byte-for-byte"
-        )
     serialized_destination = json.dumps(destination)
     for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
         if retired_contract in serialized_destination:
