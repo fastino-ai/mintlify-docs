@@ -1,4 +1,4 @@
-"""Check public API docs against the curated and authoritative contracts."""
+"""Check public API docs against Pioneer's route contract."""
 
 from __future__ import annotations
 
@@ -7,9 +7,20 @@ import json
 import re
 from pathlib import Path
 
-from sync_api_openapi import INFERENCE_OPERATIONS, build_spec
-
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
+INFERENCE_OPERATIONS = (
+    ("POST", "/v1/chat/completions"),
+    ("POST", "/v1/gliner-2"),
+    ("POST", "/v1/gliner-2/async"),
+    ("GET", "/v1/gliner-2/jobs/{job_id}"),
+    ("POST", "/v1/messages"),
+    ("GET", "/v1/models"),
+    ("POST", "/v1/responses"),
+    ("GET", "/v1/inferences"),
+    ("GET", "/v1/inferences/{inference_id}"),
+    ("GET", "/v1/inferences/{inference_id}/feedback"),
+    ("POST", "/v1/inferences/{inference_id}/feedback"),
+)
 LOCALES = {"cn", "de", "es", "fr"}
 ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"https://api\.fastino\.ai/inference(?:\b|[/?#])"),
@@ -174,24 +185,17 @@ def main() -> int:
     parser.add_argument("--include-locales", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    destination = json.loads((root / "openapi.json").read_text(encoding="utf-8"))
+    destination_path = root / "openapi.json"
+    destination = json.loads(destination_path.read_text(encoding="utf-8"))
     manifest = json.loads(
         (args.pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
             encoding="utf-8"
         )
     )
-    generated = build_spec(root, args.pioneer_root.resolve())
     route_patterns = _route_patterns(manifest)
     findings: list[str] = []
 
     actual_operations = _operations(destination)
-    expected_operations = _operations(generated)
-    for operation in sorted(expected_operations - actual_operations):
-        findings.append(f"openapi.json missing {operation[0]} {operation[1]}")
-    for operation in sorted(actual_operations - expected_operations):
-        findings.append(f"openapi.json has undocumented {operation[0]} {operation[1]}")
-    if destination != generated:
-        findings.append("openapi.json content is stale; run scripts/sync_api_openapi.py")
     serialized_destination = json.dumps(destination)
     for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
         if retired_contract in serialized_destination:
@@ -218,7 +222,7 @@ def main() -> int:
     if findings:
         print("\n".join(findings))
         return 1
-    print(f"API docs parity passed: {len(actual_operations)} curated operations")
+    print(f"API docs parity passed: {len(actual_operations)} published operations")
     return 0
 
 

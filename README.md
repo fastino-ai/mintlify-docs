@@ -42,10 +42,15 @@ View your local preview at `http://localhost:3000`.
 
 ## API contract maintenance
 
-The checked-in `openapi.json` is a curated projection of the public training and inference operations from Pioneer. Regenerate and verify it against a local Pioneer checkout:
+The checked-in `openapi.json` is derived from Pioneer's complete
+`api/openapi.json`. Route-level `x-fastino-visibility: public` metadata in
+Pioneer is the only operation-publication decision; docs must not maintain
+another allowlist. Refresh and verify it against a local Pioneer checkout:
 
 ```bash
-python3 scripts/sync_api_openapi.py --pioneer-root ../Pioneer
+uv run --directory ../Pioneer/brain --locked \
+  python ../scripts/project_public_openapi.py \
+  ../api/openapi.json "$(pwd)/openapi.json"
 python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
 ```
 
