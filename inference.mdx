@@ -1,12 +1,12 @@
 ---
 title: "Inference API"
 sidebarTitle: "Inference API"
-description: "Run schema-based GLiNER predictions through Fastino's inference API."
+description: "Run schema-based GLiNER predictions and GLiDE decisions through Fastino's inference API."
 noindex: true
 ---
 
-Fastino provides two synchronous interfaces for GLiNER inference. Choose the interface that
-matches your model and payload requirements:
+Fastino provides two synchronous interfaces for GLiNER inference, plus a separate decisions
+interface for GLiDE. Choose the interface that matches your model and payload requirements:
 
 | Capability | `/v1/chat/completions` | `/v1/gliner-2` |
 | --- | --- | --- |
@@ -20,8 +20,117 @@ matches your model and payload requirements:
 <Tip>
   Start with `/v1/chat/completions` for a consistent API across base and fine-tuned models.
   Use `/v1/gliner-2` when you specifically need the fixed GLiNER2 base model's native
-  contract, batch input, or asynchronous processing.
+  contract, batch input, or asynchronous processing. Use `/v1/systemone` when you need a
+  structured decision (classification, routing, or scoring) rather than extraction.
 </Tip>
+
+## Decisions: POST /v1/systemone
+
+GLiDE answers structured decision questions about a piece of context (`state`) instead of
+performing GLiNER-style extraction. It returns calibrated probabilities and labels, not
+generated text. See [Decision models](/concepts/decision-models) for the full `noul` /
+`choice` / `score` primitive reference and usage examples.
+
+<Note>
+  This section documents the `-dev` host (`api-dev.fastino.ai`), the only one independently
+  verified at time of writing. Confirm the production host before relying on it.
+</Note>
+
+### Endpoint
+
+```text
+POST https://api-dev.fastino.ai/v1/systemone
+```
+
+### Authentication
+
+Unlike `/v1/chat/completions` below, `/v1/systemone` authenticates with an API-key header,
+not a bearer token:
+
+```http
+X-API-Key: $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+### Request
+
+<ParamField body="state" type="string" required>
+  The context to evaluate. Plain text or a JSON string.
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  One or more named, typed questions to evaluate against `state`. Each key is your chosen
+  question name; each value has `type`, `instructions`, and (for `choice`/`score`) `criteria`.
+
+  <ParamField body="type" type="string" required>
+    One of `noul`, `choice`, or `score`.
+  </ParamField>
+
+  <ParamField body="instructions" type="string" required>
+    The question to evaluate, in natural language.
+  </ParamField>
+
+  <ParamField body="criteria" type="object | string[]">
+    For `noul`: `{"true": "...", "false": "..."}`. For `choice`: a map of up to 255 option
+    keys to descriptions. For `score`: an ordered array of level descriptions (index 0 is
+    the lowest level).
+  </ParamField>
+</ParamField>
+
+<ParamField body="model" type="string">
+  e.g. `fastino/glide`. Echoed back in the response with the provider prefix stripped.
+</ParamField>
+
+Any other top-level request field returns `422 Extra inputs are not permitted`. Limits: up
+to 255 options per `choice` question; 40,000 tokens per request across `state` and all
+`questions`.
+
+### Example
+
+```bash
+curl -s https://api-dev.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+### Response
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.9989566626894673,
+      "confidence": 0.9979133253789345
+    }
+  },
+  "usage": { "input_tokens": 443, "output_tokens": 62 },
+  "token_usage": 505
+}
+```
+
+`answers.<key>` shape varies by question type (`noul`, `choice`, `score`) — see
+[Decision models](/concepts/decision-models#response-shape) for the complete reference and
+combined multi-question example.
+
+### Errors
+
+The error codes documented [below](#errors) for `/v1/chat/completions` apply here too.
+`422` is additionally returned for unknown top-level request fields (see Request above).
+
+---
 
 This page documents the raw `/v1/chat/completions` HTTP contract below. The native
 `/v1/gliner-2` schemas are published in the
