@@ -1,0 +1,421 @@
+---
+title: "GLiDE: Decision Model for Classification, Routing, and Scoring"
+sidebarTitle: "Decision Models (GLiDE)"
+description: "Run GLiDE, Fastino's decision model, for structured classification, routing, and scoring in a single call with calibrated probabilities instead of generated text."
+---
+
+GLiDE is a decision model: instead of generating free-form text, it evaluates a situation you describe (`state`) against one or more typed questions and returns calibrated probabilities across a fixed, caller-defined set of outcomes. There are no generated tokens to parse — answers come back as structured labels, probabilities, and confidence scores.
+
+## Primitives
+
+Every question you ask GLiDE uses one of three types:
+
+- **Noul** — a yes/no question that returns a probability between 0 and 1. "Does this request qualify for a refund?" might return `0.999`.
+- **Choice** — a pick-one-from-many question that returns a probability distribution over named options (up to 255). "Which team should handle this?" might return `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
+- **Score** — a rate-on-a-scale question over an ordered rubric you define. Returns a discrete `score` (the winning level index) plus `expected_level`, a probability-weighted continuous estimate across all levels.
+
+| If the answer is... | Use | Example |
+| --- | --- | --- |
+| One of several unordered categories | Choice | Which team should handle this ticket? |
+| A position on an ordered scale with defined levels | Score | How urgent is this request? |
+| Yes or no, where the probability itself is useful | Noul | Does this request qualify for a refund? |
+
+<Tip>
+  Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no — it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use a Score with defined levels. If you need a binary gate, use a Noul.
+</Tip>
+
+There is no multi-label primitive — each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments.
+
+## Limits
+
+- Up to **255 options** per Choice question
+- Request body (`state` + all `questions` combined) is limited to **~160,000 input tokens**
+- **262,144 token** context window
+
+## Pricing
+
+| | Price per 1M tokens |
+| --- | --- |
+| Input | $0.00 |
+| Output | $0.04 |
+
+## Endpoint
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/systemone` | Run one or more typed decision questions against a state |
+
+## Request parameters
+
+<ParamField body="state" type="string | object | array" required>
+  The context to evaluate — a plain string, a JSON object, or a JSON array. See [State shapes](#state-shapes) below for guidance on which to use.
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  One or more named, typed questions to evaluate against `state`. Each key is your chosen question name; each value is a question object with `type`, `instructions`, and (for `choice`/`score`) `criteria`.
+
+  <ParamField body="type" type="string" required>
+    One of `noul`, `choice`, or `score`.
+  </ParamField>
+
+  <ParamField body="instructions" type="string" required>
+    The question to evaluate, in natural language.
+  </ParamField>
+
+  <ParamField body="criteria" type="object | string[]">
+    For `noul`: an object with `true`/`false` description keys. For `choice`: an object mapping up to 255 option keys to description strings. For `score`: an ordered array of level descriptions (index 0 is the lowest level).
+  </ParamField>
+</ParamField>
+
+<ParamField body="model" type="string" required>
+  Which decision model to use, e.g. `fastino/glide`. Omitting it returns `422 'model' must be provided`. The response echoes it back with the provider prefix stripped (`fastino/glide` → `glide`).
+</ParamField>
+
+### State shapes
+
+`state` is the material every question is evaluated against — think of it as what you'd hand a panel of experts before asking them to make a judgment.
+
+| Shape | Useful for | Example |
+| --- | --- | --- |
+| String | A single message, article, or passage | `"My card was charged twice."` |
+| Object | Named fields, related records, or app state | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| Array | A sequence of messages or records | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+Use an object when the decision depends on comparing several named parts (a ticket plus the policy it's evaluated against, for example) — it keeps each part labeled and its relationships clear. A plain string is enough when the case is a single self-contained passage. All questions in a request see the same `state` and are evaluated independently against it.
+
+## Your first call
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Response:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.9989566626894673,
+      "confidence": 0.9979133253789345
+    }
+  },
+  "usage": {
+    "input_tokens": 443,
+    "output_tokens": 62
+  },
+  "token_usage": 505
+}
+```
+
+- `answers.refund_allowed.noul` — the probability the answer is "yes." `0.999` is a strong qualifying signal.
+- `answers.refund_allowed.confidence` — see [Confidence](#confidence) below for how this is computed.
+- `usage` — standard input/output token accounting. `token_usage` is the sum of both, provided at the top level for convenience.
+
+## Confidence
+
+Every answer carries a `confidence` value. The answer tells you *what* GLiDE concluded; confidence tells you *whether to act on it* — treat them as two separate axes, not one.
+
+| Question type | Formula | Range |
+| --- | --- | --- |
+| Noul | `\|2 × noul − 1\|` | `0` (maximum uncertainty, `noul = 0.5`) to `1` (fully certain, `noul = 0` or `1`) |
+| Choice / Score | `top1 − top2` (probability margin between the best and second-best option or level) | `0` (two options tied) to `1` (one option has ~all the probability mass) |
+
+A low-confidence answer isn't wrong — it means the probability mass is spread across two or more outcomes instead of concentrated on one, which is itself useful signal. A common pattern is **confidence-gated routing**: act automatically on high-confidence answers, and route low-confidence ones to a fallback (human review, a broader category, a secondary check):
+
+```python
+answer = response["answers"]["department"]
+
+if answer["confidence"] >= 0.6:
+    route_to(answer["choice"])
+else:
+    route_to("triage-queue")  # ambiguous — let a human or a broader handler decide
+```
+
+Tune the threshold on real data for your use case rather than assuming `0.5` is correct — confidence is calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
+
+## Usage examples
+
+### Noul
+
+A Noul question returns a single probability. There is no separate label field — threshold the probability yourself to make a binary decision.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Response (`answers` field):
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.9989566626894673,
+    "confidence": 0.9979133253789345
+  }
+}
+```
+
+Using the result:
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+### Choice
+
+A Choice question returns the selected option, a `confidence` value, and a full probability distribution over every option you defined.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Response (`answers` field):
+
+```json
+{
+  "department": {
+    "type": "choice",
+    "choice": "returns",
+    "confidence": 0.9983415574354015,
+    "probabilities": {
+      "billing": 0.000576420510560337,
+      "returns": 0.9989179779459618,
+      "shipping": 0.0005056015434779647
+    }
+  }
+}
+```
+
+Using the result:
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain — runner-up may also apply")
+```
+
+### Score
+
+A Score question returns a discrete `score` (the winning level index), an `expected_level` (a probability-weighted continuous position across all levels), a `confidence` value, per-level `probabilities`, and a `legend` echoing your level descriptions back by index.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Response (`answers` field):
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 1,
+    "expected_level": 0.9015099730675683,
+    "confidence": 0.7587802709097535,
+    "probabilities": {
+      "0": 0.11323658534089268,
+      "1": 0.8720168562506462,
+      "2": 0.014746558408461077
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+Using the result:
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
+
+<Note>
+  `score` is a discrete integer index (the argmax level). `expected_level` is the continuous, probability-weighted position across all levels — use it when you want finer-grained thresholds than the discrete index provides.
+</Note>
+
+### Combining multiple questions
+
+Ask multiple questions of different types against the same `state` in a single call. All questions are evaluated together in one round trip.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Response:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "department": {
+      "type": "choice",
+      "choice": "returns",
+      "confidence": 0.9983415574354015,
+      "probabilities": {
+        "billing": 0.000576420510560337,
+        "returns": 0.9989179779459618,
+        "shipping": 0.0005056015434779647
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 1,
+      "expected_level": 0.9015099730675683,
+      "confidence": 0.7587802709097535,
+      "probabilities": {
+        "0": 0.11323658534089268,
+        "1": 0.8720168562506462,
+        "2": 0.014746558408461077
+      },
+      "legend": {
+        "0": "low urgency, can wait",
+        "1": "medium urgency, handle soon",
+        "2": "high urgency, handle immediately"
+      }
+    }
+  },
+  "usage": { "input_tokens": 1055, "output_tokens": 181 },
+  "token_usage": 1236
+}
+```
+
+## When to use GLiDE
+
+GLiDE is a good fit for structured decisions: classification, categorization, routing (tickets, emails, requests), scoring, triage, content moderation, guardrails, LLM-as-judge replacement, and agent tool-call approval.
+
+Use a general-purpose language model instead for free-form generation, multi-turn conversation, open-ended Q&A, summarization, or code generation.
+
+## Related
+
+- [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) — a related decision model covering model routing, tool calling, guardrails, and other conceptual use cases
+- [Available models](/concepts/models) — encoder and decoder model catalog
+- [Quickstart](/quickstart) — generating and passing your API key
+- [Inference API](/inference) — the full GLiNER + GLiDE inference endpoint reference, including `/v1/systemone`
