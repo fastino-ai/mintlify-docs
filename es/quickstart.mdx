@@ -1,10 +1,10 @@
 ---
 title: "Guía rápida de Fastino: primera inferencia o entrenamiento"
-description: "Crea una API key de Fastino, lista los modelos base, ejecuta tu primera inferencia con el modelo base de GLiNER y, si quieres, inicia un entrenamiento."
+description: "Crea una API key de Fastino, lista los modelos base disponibles, ejecuta tu primera llamada de decisión con GLiDE y, si quieres, inicia un trabajo de entrenamiento."
 sidebarTitle: "Guía rápida"
 ---
 
-Esta guía te lleva por el camino más rápido hasta una integración funcional con Fastino. Al terminar, habrás realizado una llamada de inferencia con éxito y entenderás la forma de la API. Solo necesitas una cuenta de Fastino y una terminal.
+Esta guía te lleva por el camino más rápido hasta una integración funcional con Fastino. Al terminar, habrás realizado con éxito una llamada de decisión con GLiDE y entenderás la forma de la API. Solo necesitas una cuenta de Fastino y una terminal.
 
 <Steps>
   <Step title="Regístrate y obtén tu API key">
@@ -61,139 +61,139 @@ Esta guía te lleva por el camino más rápido hasta una integración funcional 
     La respuesta lista los IDs de modelo que puedes pasar a `/v1/chat/completions`. Por ejemplo, `fastino/gliner2-base-v1` es el modelo base de GLiNER para tareas de NER.
   </Step>
   <Step title="Ejecuta tu primera llamada de inferencia">
-    Llama a `POST /v1/chat/completions` con un modelo, un mensaje y un esquema que defina qué quieres extraer. El ejemplo siguiente usa el modelo base de GLiNER para extraer entidades nombradas de una frase.
+    Llama a `POST /v1/systemone` con un `model`, un `state` que describa la situación y una o más `questions` tipadas. GLiDE devuelve directamente probabilidades calibradas y etiquetas. No hay texto generado que analizar. El ejemplo siguiente hace una sola pregunta de sí/no (`noul`).
 
     <CodeGroup>
 
     ```bash curl
-    curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-      -H "Authorization: Bearer $FASTINO_API_KEY" \
+    curl -X POST "https://api.fastino.ai/v1/systemone" \
+      -H "X-API-Key: $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
-        "model": "fastino/gliner2.5-multi-v1",
-        "messages": [
-          {
-            "role": "user",
-            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+        "model": "fastino/glide",
+        "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+        "questions": {
+          "refund_allowed": {
+            "type": "noul",
+            "instructions": "Does this request qualify for a refund?",
+            "criteria": { "true": "Qualifies", "false": "Does not qualify" }
           }
-        ],
-        "schema": {
-          "entities": [
-            {
-              "name": "organization",
-              "description": "business or institution name"
-            },
-            {
-              "name": "product",
-              "description": "named commercial product"
-            },
-            {
-              "name": "event",
-              "description": "named conference or event"
-            },
-            {
-              "name": "location",
-              "description": "city, region, or place"
-            }
-          ]
-        },
-        "threshold": 0.5
+        }
       }'
     ```
 
     ```python Python
-    import json
     import os
-    
     import requests
-    
+
     response = requests.post(
-        "https://api.fastino.ai/v1/chat/completions",
+        "https://api.fastino.ai/v1/systemone",
         headers={
-            "Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}",
+            "X-API-Key": os.environ["FASTINO_API_KEY"],
             "Content-Type": "application/json",
         },
         json={
-            "model": "fastino/gliner2.5-multi-v1",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Apple announced the MacBook Pro at WWDC in Cupertino.",
+            "model": "fastino/glide",
+            "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+            "questions": {
+                "refund_allowed": {
+                    "type": "noul",
+                    "instructions": "Does this request qualify for a refund?",
+                    "criteria": {"true": "Qualifies", "false": "Does not qualify"},
                 }
-            ],
-            "schema": {
-                "entities": [
-                    {"name": "organization", "description": "business or institution name"},
-                    {"name": "product", "description": "named commercial product"},
-                    {"name": "event", "description": "named conference or event"},
-                    {"name": "location", "description": "city, region, or place"},
-                ]
             },
-            "threshold": 0.5,
         },
     )
-    
+
     response.raise_for_status()
-    result = response.json()
-    entities = json.loads(result["choices"][0]["message"]["content"])
-    
-    print(json.dumps(entities, indent=2))
+    print(response.json())
     ```
 
     ```javascript JavaScript
     const response = await fetch(
-      "https://api.fastino.ai/v1/chat/completions",
+      "https://api.fastino.ai/v1/systemone",
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+          "X-API-Key": process.env.FASTINO_API_KEY,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "fastino/gliner2.5-multi-v1",
-          messages: [
-            {
-              role: "user",
-              content: "Apple announced the MacBook Pro at WWDC in Cupertino.",
+          model: "fastino/glide",
+          state: "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+          questions: {
+            refund_allowed: {
+              type: "noul",
+              instructions: "Does this request qualify for a refund?",
+              criteria: { true: "Qualifies", false: "Does not qualify" },
             },
-          ],
-          schema: {
-            entities: [
-              { name: "organization", description: "business or institution name" },
-              { name: "product", description: "named commercial product" },
-              { name: "event", description: "named conference or event" },
-              { name: "location", description: "city, region, or place" },
-            ],
           },
-          threshold: 0.5,
         }),
       }
     );
-    
+
     if (!response.ok) {
       throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
     }
-    
+
     const result = await response.json();
-    const entities = JSON.parse(result.choices[0].message.content);
-    
-    console.log(JSON.stringify(entities, null, 2));
+    console.log(JSON.stringify(result, null, 2));
     ```
 
     </CodeGroup>
 
-    Para modelos encoder (GLiNER), el objeto `schema` define la tarea y puede incluir `entities`, `classifications`, `structures` y `relations`:
+    Respuesta:
 
-    - `entities` — una lista de cadenas de tipos de entidad para NER
-    - `classifications` — una lista de objetos `{task, labels}` para clasificación de texto
-    - `structures` — un diccionario de definiciones de estructura para extracción JSON
-    - `relations` — una lista de definiciones de relaciones
+    ```json
+    {
+      "model": "glide",
+      "answers": {
+        "refund_allowed": {
+          "type": "noul",
+          "noul": 0.9989566626894673,
+          "confidence": 0.9979133253789345
+        }
+      },
+      "usage": { "input_tokens": 443, "output_tokens": 62 },
+      "token_usage": 505
+    }
+    ```
 
-    Para modelos decoder (LLM), omite `schema` y envía un mensaje de chat normal.
+    `answers.refund_allowed.noul` es la probabilidad de que la respuesta sea "sí". Un valor de `0.999` es una señal clara de que la solicitud cumple los requisitos. Consulta [Modelos de decisión](/es/concepts/decision-models) para ver los tipos de pregunta `choice` y `score`, el enrutamiento condicionado por la confianza y la referencia completa de primitivas.
 
-    <Note>
-      `model` debe ser el ID de un modelo base con capacidad de inferencia o el UUID de un trabajo de entrenamiento completado y desplegable. Tras el entrenamiento, despliega el artefacto seleccionado antes de usar el UUID del trabajo para inferencia.
-    </Note>
+    <Accordion title="¿Quieres extraer entidades? Usa GLiNER a través de /v1/chat/completions">
+      Si necesitas extracción a nivel de fragmento (NER, clasificación, registros estructurados) en lugar de una decisión, llama a `POST /v1/chat/completions` con un modelo, un mensaje y un esquema que defina qué quieres extraer:
+
+      ```bash curl
+      curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+        -H "Authorization: Bearer $FASTINO_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{
+          "model": "fastino/gliner2.5-multi-v1",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+            }
+          ],
+          "schema": {
+            "entities": [
+              { "name": "organization", "description": "business or institution name" },
+              { "name": "product", "description": "named commercial product" },
+              { "name": "event", "description": "named conference or event" },
+              { "name": "location", "description": "city, region, or place" }
+            ]
+          },
+          "threshold": 0.5
+        }'
+      ```
+
+      Para modelos encoder (GLiNER), el objeto `schema` define la tarea y puede incluir `entities`, `classifications`, `structures` y `relations`. Para modelos decoder (LLM), omite `schema` y envía un mensaje de chat normal. Consulta la [API de inferencia](/es/inference) para ver el contrato completo, ejemplos en Python/JavaScript y los códigos de error.
+
+      <Note>
+        `model` debe ser el ID de un modelo base con capacidad de inferencia o el UUID de un trabajo de entrenamiento completado y desplegable. Tras el entrenamiento, despliega el artefacto seleccionado antes de usar el UUID del trabajo para inferencia.
+      </Note>
+    </Accordion>
   </Step>
   <Step title="Inicia un trabajo de entrenamiento (opcional)">
     Cuando estés listo para ajustar el modelo con tus propios datos, inicia un trabajo de entrenamiento.
@@ -247,6 +247,7 @@ Esta guía te lleva por el camino más rápido hasta una integración funcional 
 
 ## Próximos pasos
 
+- [Modelos de decisión (GLiDE)](/es/concepts/decision-models): Aprende las primitivas `noul` / `choice` / `score`, el enrutamiento condicionado por la confianza y más ejemplos de uso.
 - [API de entrenamiento](/es/training): Aprende a usar nuestra API de entrenamiento para ajustar un modelo GLiNER de extremo a extremo.
 - [API de inferencia](/es/inference): Aprende a desplegar y ejecutar inferencia tanto con modelos base como con modelos ajustados a través de nuestra API.
 - [Skill para agentes](/es/concepts/gliner-agent-skill): Usa esta skill para ejecutar inferencia o iniciar un trabajo de entrenamiento, todo desde tu agente de programación.
