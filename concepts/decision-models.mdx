@@ -6,10 +6,6 @@ description: "Run GLiDE, Fastino's decision model, for structured classification
 
 GLiDE is a decision model: instead of generating free-form text, it evaluates a situation you describe (`state`) against one or more typed questions and returns calibrated probabilities across a fixed, caller-defined set of outcomes. There are no generated tokens to parse — answers come back as structured labels, probabilities, and confidence scores.
 
-<Note>
-  This page currently targets the `-dev` environment (`api-dev.fastino.ai`). Endpoint availability on the production host `api.fastino.ai` has not yet been independently verified — confirm before publishing.
-</Note>
-
 ## Primitives
 
 Every question you ask GLiDE uses one of three types:
@@ -33,7 +29,7 @@ There is no multi-label primitive — each question is single-label. Ask several
 ## Limits
 
 - Up to **255 options** per Choice question
-- **40,000 tokens** per request, across `state` and all `questions` combined
+- Request body (`state` + all `questions` combined) is limited to **~160,000 input tokens**
 - **262,144 token** context window
 
 ## Pricing
@@ -51,8 +47,8 @@ There is no multi-label primitive — each question is single-label. Ask several
 
 ## Request parameters
 
-<ParamField body="state" type="string" required>
-  The context to evaluate. Plain text or a JSON string.
+<ParamField body="state" type="string | object | array" required>
+  The context to evaluate — a plain string, a JSON object, or a JSON array. See [State shapes](#state-shapes) below for guidance on which to use.
 </ParamField>
 
 <ParamField body="questions" type="object" required>
@@ -71,16 +67,28 @@ There is no multi-label primitive — each question is single-label. Ask several
   </ParamField>
 </ParamField>
 
-<ParamField body="model" type="string">
-  Which decision model to use, e.g. `fastino/glide`. The response echoes this back with the provider prefix stripped (`fastino/glide` → `glide`).
+<ParamField body="model" type="string" required>
+  Which decision model to use, e.g. `fastino/glide`. Omitting it returns `422 'model' must be provided`. The response echoes it back with the provider prefix stripped (`fastino/glide` → `glide`).
 </ParamField>
+
+### State shapes
+
+`state` is the material every question is evaluated against — think of it as what you'd hand a panel of experts before asking them to make a judgment.
+
+| Shape | Useful for | Example |
+| --- | --- | --- |
+| String | A single message, article, or passage | `"My card was charged twice."` |
+| Object | Named fields, related records, or app state | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| Array | A sequence of messages or records | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+Use an object when the decision depends on comparing several named parts (a ticket plus the policy it's evaluated against, for example) — it keeps each part labeled and its relationships clear. A plain string is enough when the case is a single self-contained passage. All questions in a request see the same `state` and are evaluated independently against it.
 
 ## Your first call
 
 <CodeGroup>
 
 ```bash cURL
-curl -s https://api-dev.fastino.ai/v1/systemone \
+curl -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -119,8 +127,30 @@ Response:
 ```
 
 - `answers.refund_allowed.noul` — the probability the answer is "yes." `0.999` is a strong qualifying signal.
-- `answers.refund_allowed.confidence` — `max(noul, 1 - noul)`, i.e. how confident the model is in whichever side it leans toward.
+- `answers.refund_allowed.confidence` — see [Confidence](#confidence) below for how this is computed.
 - `usage` — standard input/output token accounting. `token_usage` is the sum of both, provided at the top level for convenience.
+
+## Confidence
+
+Every answer carries a `confidence` value. The answer tells you *what* GLiDE concluded; confidence tells you *whether to act on it* — treat them as two separate axes, not one.
+
+| Question type | Formula | Range |
+| --- | --- | --- |
+| Noul | `\|2 × noul − 1\|` | `0` (maximum uncertainty, `noul = 0.5`) to `1` (fully certain, `noul = 0` or `1`) |
+| Choice / Score | `top1 − top2` (probability margin between the best and second-best option or level) | `0` (two options tied) to `1` (one option has ~all the probability mass) |
+
+A low-confidence answer isn't wrong — it means the probability mass is spread across two or more outcomes instead of concentrated on one, which is itself useful signal. A common pattern is **confidence-gated routing**: act automatically on high-confidence answers, and route low-confidence ones to a fallback (human review, a broader category, a secondary check):
+
+```python
+answer = response["answers"]["department"]
+
+if answer["confidence"] >= 0.6:
+    route_to(answer["choice"])
+else:
+    route_to("triage-queue")  # ambiguous — let a human or a broader handler decide
+```
+
+Tune the threshold on real data for your use case rather than assuming `0.5` is correct — confidence is calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
 
 ## Usage examples
 
@@ -131,7 +161,7 @@ A Noul question returns a single probability. There is no separate label field �
 <CodeGroup>
 
 ```bash cURL
-curl -s https://api-dev.fastino.ai/v1/systemone \
+curl -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -161,6 +191,19 @@ Response (`answers` field):
 }
 ```
 
+Using the result:
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
 ### Choice
 
 A Choice question returns the selected option, a `confidence` value, and a full probability distribution over every option you defined.
@@ -168,7 +211,7 @@ A Choice question returns the selected option, a `confidence` value, and a full 
 <CodeGroup>
 
 ```bash cURL
-curl -s https://api-dev.fastino.ai/v1/systemone \
+curl -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -207,6 +250,18 @@ Response (`answers` field):
 }
 ```
 
+Using the result:
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain — runner-up may also apply")
+```
+
 ### Score
 
 A Score question returns a discrete `score` (the winning level index), an `expected_level` (a probability-weighted continuous position across all levels), a `confidence` value, per-level `probabilities`, and a `legend` echoing your level descriptions back by index.
@@ -214,7 +269,7 @@ A Score question returns a discrete `score` (the winning level index), an `expec
 <CodeGroup>
 
 ```bash cURL
-curl -s https://api-dev.fastino.ai/v1/systemone \
+curl -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -259,6 +314,19 @@ Response (`answers` field):
 }
 ```
 
+Using the result:
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
+
 <Note>
   `score` is a discrete integer index (the argmax level). `expected_level` is the continuous, probability-weighted position across all levels — use it when you want finer-grained thresholds than the discrete index provides.
 </Note>
@@ -270,7 +338,7 @@ Ask multiple questions of different types against the same `state` in a single c
 <CodeGroup>
 
 ```bash cURL
-curl -s https://api-dev.fastino.ai/v1/systemone \
+curl -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
