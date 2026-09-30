@@ -6,44 +6,61 @@ sidebarTitle: "Quickstart"
 
 This guide walks you through the fastest path to a working Fastino integration. By the end, you'll have made a successful GLiDE decision call and understand the shape of the API. All you need is a Fastino account and a terminal.
 
-<Steps>
-  <Step title="Sign up and get your API key">
-    Create an account at [Fastino](https://agent.fastino.ai/). 
+## Set up your API key
 
-    Once you're signed in, go to **Settings → API Keys** and generate a new key. Copy it somewhere safe as you won't be able to view it again after closing the dialog.
+Create an account at [Fastino](https://agent.fastino.ai/). Once you're signed in, go to **Settings → API Keys** and generate a new key. Copy it somewhere safe as you won't be able to view it again after closing the dialog.
 
-    <Warning>
-      Keep your API key out of version control. Use an environment variable or a secrets manager rather than hardcoding it in your source files.
-    </Warning>
+<Warning>
+  Keep your API key out of version control. Use an environment variable or a secrets manager rather than hardcoding it in your source files.
+</Warning>
 
-    Set your key as an environment variable so the examples below work as-is:
+Set your key as an environment variable so the examples below work as-is:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## List available models (optional)
+
+You can browse the models Fastino has available. Use `GET /v1/base-models` to see the full catalog.
+
+<Tabs>
+  <Tab title="cURL">
+    **To list available models**:
 
     ```bash
-    export FASTINO_API_KEY="your_api_key_here"
-    ```
-  </Step>
-  <Step title="List available base models (optional)">
-    You can browse the models Fastino has available. Use `GET /v1/base-models` to see the full catalog.
-
-    <CodeGroup>
-
-    ```bash curl
     curl https://api.fastino.ai/v1/base-models \
       -H "X-API-Key: $FASTINO_API_KEY"
     ```
+  </Tab>
 
-    ```python Python
+  <Tab title="Python">
+    **To list available models**:
+
+    ```python
     import os
     import requests
-    
+
     response = requests.get(
         "https://api.fastino.ai/v1/base-models",
         headers={"X-API-Key": os.environ["FASTINO_API_KEY"]}
     )
     print(response.json())
     ```
+  </Tab>
 
-    ```javascript JavaScript
+  <Tab title="JavaScript">
+    **To list available models**:
+
+    ```javascript
     const response = await fetch(
       "https://api.fastino.ai/v1/base-models",
       {
@@ -55,17 +72,20 @@ This guide walks you through the fastest path to a working Fastino integration. 
     const data = await response.json();
     console.log(data);
     ```
+  </Tab>
+</Tabs>
 
-    </CodeGroup>
+The response lists model IDs you can pass to `/v1/systemone` or `/v1/chat/completions`. For example, `fastino/gliner2-base-v1` is the GLiNER base model for NER tasks.
 
-    The response lists model IDs you can pass to `/v1/chat/completions`. For example, `fastino/gliner2-base-v1` is the GLiNER base model for NER tasks.
-  </Step>
-  <Step title="Run your first inference call">
-    Call `POST /v1/systemone` with a `model`, a `state` describing the situation, and one or more typed `questions`. GLiDE returns calibrated probabilities and labels directly — there's no generated text to parse. The example below asks a single yes/no (`noul`) question.
+## Run your first inference call
 
-    <CodeGroup>
+Call `POST /v1/systemone` with a `model`, a `state` describing the situation, and one or more typed `questions`. GLiDE returns calibrated probabilities and labels directly — there's no generated text to parse. The example below asks a single yes/no (`noul`) question.
 
-    ```bash curl
+<Tabs>
+  <Tab title="cURL">
+    **To run a GLiDE decision call**:
+
+    ```bash
     curl -X POST "https://api.fastino.ai/v1/systemone" \
       -H "X-API-Key: $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
@@ -81,8 +101,12 @@ This guide walks you through the fastest path to a working Fastino integration. 
         }
       }'
     ```
+  </Tab>
 
-    ```python Python
+  <Tab title="Python">
+    **To run a GLiDE decision call**:
+
+    ```python
     import os
     import requests
 
@@ -108,8 +132,12 @@ This guide walks you through the fastest path to a working Fastino integration. 
     response.raise_for_status()
     print(response.json())
     ```
+  </Tab>
 
-    ```javascript JavaScript
+  <Tab title="JavaScript">
+    **To run a GLiDE decision call**:
+
+    ```javascript
     const response = await fetch(
       "https://api.fastino.ai/v1/systemone",
       {
@@ -139,68 +167,71 @@ This guide walks you through the fastest path to a working Fastino integration. 
     const result = await response.json();
     console.log(JSON.stringify(result, null, 2));
     ```
+  </Tab>
+</Tabs>
 
-    </CodeGroup>
+Success looks like this:
 
-    Response:
-
-    ```json
-    {
-      "model": "glide",
-      "answers": {
-        "refund_allowed": {
-          "type": "noul",
-          "noul": 0.9989566626894673,
-          "confidence": 0.9979133253789345
-        }
-      },
-      "usage": { "input_tokens": 443, "output_tokens": 62 },
-      "token_usage": 505
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.9989566626894673,
+      "confidence": 0.9979133253789345
     }
-    ```
+  },
+  "usage": { "input_tokens": 443, "output_tokens": 62 },
+  "token_usage": 505
+}
+```
 
-    `answers.refund_allowed.noul` is the probability the answer is "yes" — `0.999` is a strong qualifying signal. See [Decision models](/concepts/decision-models) for the `choice` and `score` question types, confidence-gated routing, and the full primitive reference.
+`answers.refund_allowed.noul` is the probability the answer is "yes" — `0.999` is a strong qualifying signal. See [Decision models](/concepts/decision-models) for the `choice` and `score` question types, confidence-gated routing, and the full primitive reference.
 
-    <Accordion title="Extracting entities instead? Use GLiNER via /v1/chat/completions">
-      If you need span-level extraction (NER, classification, structured records) rather than a decision, call `POST /v1/chat/completions` with a model, a message, and a schema that defines what you want to extract:
+<Accordion title="Extracting entities instead? Use GLiNER via /v1/chat/completions">
+  If you need span-level extraction (NER, classification, structured records) rather than a decision, call `POST /v1/chat/completions` with a model, a message, and a schema that defines what you want to extract:
 
-      ```bash curl
-      curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-        -H "Authorization: Bearer $FASTINO_API_KEY" \
-        -H "Content-Type: application/json" \
-        -d '{
-          "model": "fastino/gliner2.5-multi-v1",
-          "messages": [
-            {
-              "role": "user",
-              "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
-            }
-          ],
-          "schema": {
-            "entities": [
-              { "name": "organization", "description": "business or institution name" },
-              { "name": "product", "description": "named commercial product" },
-              { "name": "event", "description": "named conference or event" },
-              { "name": "location", "description": "city, region, or place" }
-            ]
-          },
-          "threshold": 0.5
-        }'
-      ```
+  ```bash
+  curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+        }
+      ],
+      "schema": {
+        "entities": [
+          { "name": "organization", "description": "business or institution name" },
+          { "name": "product", "description": "named commercial product" },
+          { "name": "event", "description": "named conference or event" },
+          { "name": "location", "description": "city, region, or place" }
+        ]
+      },
+      "threshold": 0.5
+    }'
+  ```
 
-      For encoder models (GLiNER), the `schema` object defines the task and can include `entities`, `classifications`, `structures`, and `relations`. For decoder models (LLMs), omit `schema` and send a normal chat message. See the [Inference API](/inference) for the full contract, Python/JavaScript examples, and error codes.
+  For encoder models (GLiNER), the `schema` object defines the task and can include `entities`, `classifications`, `structures`, and `relations`. For decoder models (LLMs), omit `schema` and send a normal chat message. See the [Inference API](/inference) for the full contract, Python/JavaScript examples, and error codes.
 
-      <Note>
-        `model` must be an inference-capable base-model ID or the UUID of a completed, deployable training job. After training, deploy the selected artifact before using the job UUID for inference.
-      </Note>
-    </Accordion>
-  </Step>
-  <Step title="Start a training job (optional)">
-    When you're ready to fine-tune on your own data, start a training job. 
+  <Note>
+    `model` must be an inference-capable base-model ID or the UUID of a completed, deployable training job. After training, deploy the selected artifact before using the job UUID for inference.
+  </Note>
+</Accordion>
 
-    <CodeGroup>
+## Start a training job (optional)
 
-    ```bash curl
+When you're ready to fine-tune on your own data, start a training job.
+
+<Tabs>
+  <Tab title="cURL">
+    **To start a training job**:
+
+    ```bash
     curl -X POST https://api.fastino.ai/v1/training-jobs \
       -H "X-API-Key: $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
@@ -213,11 +244,15 @@ This guide walks you through the fastest path to a working Fastino integration. 
         "learning_rate": 5e-5
       }'
     ```
+  </Tab>
 
-    ```python Python
+  <Tab title="Python">
+    **To start a training job**:
+
+    ```python
     import os
     import requests
-    
+
     response = requests.post(
         "https://api.fastino.ai/v1/training-jobs",
         headers={
@@ -236,19 +271,33 @@ This guide walks you through the fastest path to a working Fastino integration. 
     print(response.json())
     # {"id": "uuid-of-training-job", "status": "requested"}
     ```
+  </Tab>
+</Tabs>
 
-    </CodeGroup>
+The response includes a job `id`. Poll `GET /v1/training-jobs/{id}` to check status. Once the job reaches `complete`, use the job ID as `model` in `/v1/chat/completions` calls.
 
-    The response includes a job `id`. Poll `GET /v1/training-jobs/{id}` to check status. Once the job reaches `complete`, use the job ID as `model` in `/v1/chat/completions` calls.
-
-    Job status values: `requested` → `running` → `complete` (or `failed` / `stopped`).
-  </Step>
-</Steps>
+Job status values: `requested` → `running` → `complete` (or `failed` / `stopped`).
 
 ## Next steps
 
-- [Decision models (GLiDE)](/concepts/decision-models): Learn the `noul` / `choice` / `score` primitives, confidence-gated routing, and more usage examples.
-- [Training API](/training): Learn how to use our training API to fine-tune a GLiNER model end-to-end.
-- [Inference API](/inference): Llearn how to deploy and inference both base and fine-tuned models via our API.
-- [Agent skill](/concepts/gliner-agent-skill): Use this skill to help you run inference or kick off training job, all from your coding agent.
-- [Example use cases](/example-use-cases): Need some ideas on what to build? Explore example use cases.
+<CardGroup cols={2}>
+  <Card title="Decision models (GLiDE)" icon="sparkle" href="/concepts/decision-models">
+    Learn the `noul` / `choice` / `score` primitives, confidence-gated routing, and more usage examples.
+  </Card>
+
+  <Card title="Inference API" icon="braces" href="/inference">
+    Learn how to deploy and run inference with both base and fine-tuned models via our API.
+  </Card>
+
+  <Card title="Training API" icon="database-zap" href="/training">
+    Learn how to use our training API to fine-tune a GLiNER model end-to-end.
+  </Card>
+
+  <Card title="Agent skill" icon="bot" href="/concepts/gliner-agent-skill">
+    Use this skill to help you run inference or kick off a training job, all from your coding agent.
+  </Card>
+
+  <Card title="Example use cases" icon="lightbulb" href="/example-use-cases">
+    Need some ideas on what to build? Explore example use cases.
+  </Card>
+</CardGroup>
