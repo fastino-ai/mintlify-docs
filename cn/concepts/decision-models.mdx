@@ -1,0 +1,421 @@
+---
+title: "GLiDE：用于分类、路由和评分的决策模型"
+sidebarTitle: "决策模型 (GLiDE)"
+description: "运行 Fastino 的决策模型 GLiDE，在单次调用中完成结构化分类、路由和评分，返回经过校准的概率而非生成文本。"
+---
+
+GLiDE 是一款决策模型：它不生成自由格式的文本，而是根据一个或多个类型化问题评估您描述的情况（`state`），并在调用方定义的固定结果集合上返回经过校准的概率。无需解析生成的 token，答案以结构化标签、概率和置信度分数的形式返回。
+
+## 基本类型
+
+您向 GLiDE 提出的每个问题都使用以下三种类型之一：
+
+- **Noul**：是/否问题，返回 0 到 1 之间的概率。例如，“此请求是否符合退款条件？”可能返回 `0.999`。
+- **Choice**：多选一问题，返回各命名选项（最多 255 个）上的概率分布。例如，“应由哪个团队处理此请求？”可能返回 `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`。
+- **Score**：基于您定义的有序评分标准进行分级评估的问题。返回离散的 `score`（胜出等级的索引）以及 `expected_level`，即跨所有等级按概率加权得到的连续估计值。
+
+| 如果答案是…… | 使用 | 示例 |
+| --- | --- | --- |
+| 若干无序类别中的一个 | Choice | 应由哪个团队处理此工单？ |
+| 具有明确等级的有序量表上的某个位置 | Score | 此请求有多紧急？ |
+| 是或否，且概率本身有参考价值 | Noul | 此请求是否符合退款条件？ |
+
+<Tip>
+  Noul 与 Score 的区别：Noul 为 `0.5` 表示在是与否之间存在最大不确定性，它并不表达程度。如果需要衡量程度（紧急程度、严重程度、不满程度），请使用定义了等级的 Score。如果需要二元判断关卡，请使用 Noul。
+</Tip>
+
+不存在多标签基本类型，每个问题都是单标签的。如果需要同时做出多个判断，可以在一次调用中提出多个相互独立的问题。
+
+## 限制
+
+- 每个 Choice 问题最多 **255 个选项**
+- 请求体（`state` 加上所有 `questions`）限制为约 **160,000 个输入 token**
+- 上下文窗口为 **262,144 个 token**
+
+## 定价
+
+| | 每 100 万 token 价格 |
+| --- | --- |
+| 输入 | $0.00 |
+| 输出 | $0.04 |
+
+## 端点
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/v1/systemone` | 针对某个 state 运行一个或多个类型化决策问题 |
+
+## 请求参数
+
+<ParamField body="state" type="string | object | array" required>
+  要评估的上下文，可以是纯字符串、JSON 对象或 JSON 数组。关于如何选择，请参阅下方的 [State 形状](#state-形状)。
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  针对 `state` 进行评估的一个或多个已命名的类型化问题。每个键是您自定义的问题名称；每个值是一个问题对象，包含 `type`、`instructions`，以及（对于 `choice`/`score`）`criteria`。
+
+  <ParamField body="type" type="string" required>
+    取值为 `noul`、`choice` 或 `score` 之一。
+  </ParamField>
+
+  <ParamField body="instructions" type="string" required>
+    以自然语言描述的待评估问题。
+  </ParamField>
+
+  <ParamField body="criteria" type="object | string[]">
+    对于 `noul`：包含 `true`/`false` 描述键的对象。对于 `choice`：将最多 255 个选项键映射到描述字符串的对象。对于 `score`：由等级描述组成的有序数组（索引 0 为最低等级）。
+  </ParamField>
+</ParamField>
+
+<ParamField body="model" type="string" required>
+  要使用的决策模型，例如 `fastino/glide`。省略该参数将返回 `422 'model' must be provided`。响应会回显该值，并去除提供方前缀（`fastino/glide` → `glide`）。
+</ParamField>
+
+### State 形状
+
+`state` 是评估每个问题所依据的材料。可以把它理解为在请专家小组做出判断之前交给他们的资料。
+
+| 形状 | 适用场景 | 示例 |
+| --- | --- | --- |
+| 字符串 | 单条消息、文章或段落 | `"My card was charged twice."` |
+| 对象 | 命名字段、相关记录或应用状态 | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| 数组 | 一系列消息或记录 | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+当决策依赖于比较多个命名部分时（例如一张工单及用于评估它的策略），请使用对象，这样每个部分都有标签，彼此之间的关系也更清晰。当案例是单个独立的段落时，纯字符串就足够了。同一请求中的所有问题看到的是同一个 `state`，并分别独立地针对它进行评估。
+
+## 第一次调用
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+响应：
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.9989566626894673,
+      "confidence": 0.9979133253789345
+    }
+  },
+  "usage": {
+    "input_tokens": 443,
+    "output_tokens": 62
+  },
+  "token_usage": 505
+}
+```
+
+- `answers.refund_allowed.noul`：答案为“是”的概率。`0.999` 是强烈的符合条件信号。
+- `answers.refund_allowed.confidence`：其计算方式请参阅下方的[置信度](#置信度)。
+- `usage`：标准的输入/输出 token 计量。`token_usage` 是两者之和，为方便起见在顶层提供。
+
+## 置信度
+
+每个答案都带有一个 `confidence` 值。答案告诉您 GLiDE 得出了*什么*结论；置信度则告诉您*是否应据此采取行动*。请将二者视为两个独立的维度，而不是同一个。
+
+| 问题类型 | 公式 | 范围 |
+| --- | --- | --- |
+| Noul | `\|2 × noul − 1\|` | 从 `0`（最大不确定性，`noul = 0.5`）到 `1`（完全确定，`noul = 0` 或 `1`） |
+| Choice / Score | `top1 − top2`（最佳与次佳选项或等级之间的概率差） | 从 `0`（两个选项持平）到 `1`（某个选项占据几乎全部概率质量） |
+
+低置信度的答案并不代表错误，而是表示概率质量分散在两个或更多结果上，而不是集中在一个结果上，这本身就是有用的信号。一种常见模式是**置信度门控路由**：对高置信度答案自动执行操作，将低置信度答案路由到备用流程（人工审核、更宽泛的类别或二次检查）：
+
+```python
+answer = response["answers"]["department"]
+
+if answer["confidence"] >= 0.6:
+    route_to(answer["choice"])
+else:
+    route_to("triage-queue")  # ambiguous — let a human or a broader handler decide
+```
+
+请根据您使用场景的真实数据调整阈值，而不要假定 `0.5` 就是正确的。置信度是按模型校准的，并不保证与任何特定业务对模糊性的容忍度相对应。
+
+## 使用示例
+
+### Noul
+
+Noul 问题返回单个概率。没有单独的标签字段，您需要自行对概率设定阈值来做出二元决策。
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+响应（`answers` 字段）：
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.9989566626894673,
+    "confidence": 0.9979133253789345
+  }
+}
+```
+
+使用结果：
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+### Choice
+
+Choice 问题返回所选选项、一个 `confidence` 值，以及您定义的所有选项上的完整概率分布。
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+响应（`answers` 字段）：
+
+```json
+{
+  "department": {
+    "type": "choice",
+    "choice": "returns",
+    "confidence": 0.9983415574354015,
+    "probabilities": {
+      "billing": 0.000576420510560337,
+      "returns": 0.9989179779459618,
+      "shipping": 0.0005056015434779647
+    }
+  }
+}
+```
+
+使用结果：
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain — runner-up may also apply")
+```
+
+### Score
+
+Score 问题返回离散的 `score`（胜出等级的索引）、`expected_level`（跨所有等级按概率加权的连续位置）、一个 `confidence` 值、各等级的 `probabilities`，以及按索引回显您的等级描述的 `legend`。
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+响应（`answers` 字段）：
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 1,
+    "expected_level": 0.9015099730675683,
+    "confidence": 0.7587802709097535,
+    "probabilities": {
+      "0": 0.11323658534089268,
+      "1": 0.8720168562506462,
+      "2": 0.014746558408461077
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+使用结果：
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
+
+<Note>
+  `score` 是离散的整数索引（argmax 等级）。`expected_level` 是跨所有等级按概率加权的连续位置。当您需要比离散索引更细粒度的阈值时，请使用它。
+</Note>
+
+### 组合多个问题
+
+在单次调用中，针对同一个 `state` 提出多个不同类型的问题。所有问题会在一次往返中一并评估。
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+响应：
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "department": {
+      "type": "choice",
+      "choice": "returns",
+      "confidence": 0.9983415574354015,
+      "probabilities": {
+        "billing": 0.000576420510560337,
+        "returns": 0.9989179779459618,
+        "shipping": 0.0005056015434779647
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 1,
+      "expected_level": 0.9015099730675683,
+      "confidence": 0.7587802709097535,
+      "probabilities": {
+        "0": 0.11323658534089268,
+        "1": 0.8720168562506462,
+        "2": 0.014746558408461077
+      },
+      "legend": {
+        "0": "low urgency, can wait",
+        "1": "medium urgency, handle soon",
+        "2": "high urgency, handle immediately"
+      }
+    }
+  },
+  "usage": { "input_tokens": 1055, "output_tokens": 181 },
+  "token_usage": 1236
+}
+```
+
+## 何时使用 GLiDE
+
+GLiDE 非常适合结构化决策：分类、归类、路由（工单、邮件、请求）、评分、分诊、内容审核、护栏、替代 LLM 作为评审，以及智能体工具调用审批。
+
+对于自由格式生成、多轮对话、开放式问答、摘要或代码生成，请改用通用语言模型。
+
+## 相关内容
+
+- [GLiNER-2.5-Decide](/cn/concepts/gliner-2-5-decide)：相关的决策模型，涵盖模型路由、工具调用、护栏及其他概念性使用场景
+- [可用模型](/cn/concepts/models)：编码器与解码器模型目录
+- [快速入门](/cn/quickstart)：生成并传递您的 API 密钥
+- [推理 API](/cn/inference)：完整的 GLiNER + GLiDE 推理端点参考，包括 `/v1/systemone`

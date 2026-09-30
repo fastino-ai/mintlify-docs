@@ -1,0 +1,421 @@
+---
+title: "GLiDE: Entscheidungsmodell für Klassifizierung, Routing und Scoring"
+sidebarTitle: "Entscheidungsmodelle (GLiDE)"
+description: "Nutzen Sie GLiDE, das Entscheidungsmodell von Fastino, für strukturierte Klassifizierung, Routing und Scoring in einem einzigen Aufruf mit kalibrierten Wahrscheinlichkeiten statt generiertem Text."
+---
+
+GLiDE ist ein Entscheidungsmodell: Anstatt Freitext zu generieren, bewertet es eine von Ihnen beschriebene Situation (`state`) anhand einer oder mehrerer typisierter Fragen und gibt kalibrierte Wahrscheinlichkeiten über eine feste, vom Aufrufer definierte Menge von Ergebnissen zurück. Es gibt keine generierten Tokens, die geparst werden müssen. Die Antworten werden als strukturierte Labels, Wahrscheinlichkeiten und Konfidenzwerte zurückgegeben.
+
+## Primitive
+
+Jede Frage, die Sie GLiDE stellen, verwendet einen von drei Typen:
+
+- **Noul**: eine Ja/Nein-Frage, die eine Wahrscheinlichkeit zwischen 0 und 1 zurückgibt. „Erfüllt diese Anfrage die Voraussetzungen für eine Rückerstattung?“ könnte `0.999` zurückgeben.
+- **Choice**: eine Frage, bei der eine von mehreren Optionen ausgewählt wird, und die eine Wahrscheinlichkeitsverteilung über benannte Optionen (bis zu 255) zurückgibt. „Welches Team sollte das bearbeiten?“ könnte `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}` zurückgeben.
+- **Score**: eine Bewertungsfrage auf einer Skala mit einer von Ihnen definierten geordneten Rubrik. Gibt einen diskreten `score` (den Index der gewinnenden Stufe) sowie `expected_level` zurück, eine wahrscheinlichkeitsgewichtete, kontinuierliche Schätzung über alle Stufen hinweg.
+
+| Wenn die Antwort … ist | Verwenden Sie | Beispiel |
+| --- | --- | --- |
+| Eine von mehreren ungeordneten Kategorien | Choice | Welches Team sollte dieses Ticket bearbeiten? |
+| Eine Position auf einer geordneten Skala mit definierten Stufen | Score | Wie dringend ist diese Anfrage? |
+| Ja oder Nein, wobei die Wahrscheinlichkeit selbst nützlich ist | Noul | Erfüllt diese Anfrage die Voraussetzungen für eine Rückerstattung? |
+
+<Tip>
+  Noul oder Score: Ein Noul bei `0.5` bedeutet maximale Unsicherheit zwischen Ja und Nein, drückt aber keinen Grad aus. Wenn Sie einen Grad messen müssen (Dringlichkeit, Schweregrad, Frustration), verwenden Sie einen Score mit definierten Stufen. Wenn Sie eine binäre Entscheidung benötigen, verwenden Sie ein Noul.
+</Tip>
+
+Es gibt kein Multi-Label-Primitiv, jede Frage ist Single-Label. Stellen Sie mehrere unabhängige Fragen in einem Aufruf, wenn Sie mehrere gleichzeitige Urteile benötigen.
+
+## Limits
+
+- Bis zu **255 Optionen** pro Choice-Frage
+- Der Anfrage-Body (`state` + alle `questions` zusammen) ist auf **~160.000 Eingabe-Tokens** begrenzt
+- Kontextfenster von **262.144 Tokens**
+
+## Preise
+
+| | Preis pro 1 Mio. Tokens |
+| --- | --- |
+| Eingabe | $0.00 |
+| Ausgabe | $0.04 |
+
+## Endpunkt
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `POST` | `/v1/systemone` | Eine oder mehrere typisierte Entscheidungsfragen auf einen State anwenden |
+
+## Anfrageparameter
+
+<ParamField body="state" type="string | object | array" required>
+  Der zu bewertende Kontext: ein einfacher String, ein JSON-Objekt oder ein JSON-Array. Hinweise zur Auswahl finden Sie unten unter [State-Formen](#state-formen).
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  Eine oder mehrere benannte, typisierte Fragen, die anhand von `state` bewertet werden. Jeder Schlüssel ist ein von Ihnen gewählter Fragenname; jeder Wert ist ein Fragenobjekt mit `type`, `instructions` und (für `choice`/`score`) `criteria`.
+
+  <ParamField body="type" type="string" required>
+    Einer der Werte `noul`, `choice` oder `score`.
+  </ParamField>
+
+  <ParamField body="instructions" type="string" required>
+    Die zu bewertende Frage in natürlicher Sprache.
+  </ParamField>
+
+  <ParamField body="criteria" type="object | string[]">
+    Für `noul`: ein Objekt mit den Beschreibungsschlüsseln `true`/`false`. Für `choice`: ein Objekt, das bis zu 255 Optionsschlüssel auf Beschreibungsstrings abbildet. Für `score`: ein geordnetes Array von Stufenbeschreibungen (Index 0 ist die niedrigste Stufe).
+  </ParamField>
+</ParamField>
+
+<ParamField body="model" type="string" required>
+  Das zu verwendende Entscheidungsmodell, z. B. `fastino/glide`. Wenn der Parameter fehlt, wird `422 'model' must be provided` zurückgegeben. Die Antwort gibt den Wert ohne das Anbieterpräfix zurück (`fastino/glide` → `glide`).
+</ParamField>
+
+### State-Formen
+
+`state` ist das Material, anhand dessen jede Frage bewertet wird. Stellen Sie es sich als das vor, was Sie einem Expertengremium übergeben würden, bevor es ein Urteil fällen soll.
+
+| Form | Geeignet für | Beispiel |
+| --- | --- | --- |
+| String | Eine einzelne Nachricht, einen Artikel oder eine Passage | `"My card was charged twice."` |
+| Objekt | Benannte Felder, zusammenhängende Datensätze oder App-Zustand | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| Array | Eine Abfolge von Nachrichten oder Datensätzen | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+Verwenden Sie ein Objekt, wenn die Entscheidung vom Vergleich mehrerer benannter Teile abhängt (zum Beispiel ein Ticket und die Richtlinie, anhand derer es bewertet wird). So bleibt jeder Teil beschriftet und die Beziehungen zwischen den Teilen bleiben klar. Ein einfacher String genügt, wenn der Fall aus einer einzelnen, in sich geschlossenen Passage besteht. Alle Fragen einer Anfrage sehen denselben `state` und werden unabhängig voneinander anhand dieses States bewertet.
+
+## Ihr erster Aufruf
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Antwort:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.9989566626894673,
+      "confidence": 0.9979133253789345
+    }
+  },
+  "usage": {
+    "input_tokens": 443,
+    "output_tokens": 62
+  },
+  "token_usage": 505
+}
+```
+
+- `answers.refund_allowed.noul`: die Wahrscheinlichkeit, dass die Antwort „Ja“ lautet. `0.999` ist ein starkes Signal dafür, dass die Voraussetzungen erfüllt sind.
+- `answers.refund_allowed.confidence`: Wie dieser Wert berechnet wird, erfahren Sie unten unter [Konfidenz](#konfidenz).
+- `usage`: die übliche Abrechnung von Eingabe- und Ausgabe-Tokens. `token_usage` ist die Summe aus beiden und wird der Einfachheit halber auf oberster Ebene bereitgestellt.
+
+## Konfidenz
+
+Jede Antwort enthält einen `confidence`-Wert. Die Antwort sagt Ihnen, *was* GLiDE ermittelt hat; die Konfidenz sagt Ihnen, *ob Sie darauf reagieren sollten*. Behandeln Sie beides als zwei getrennte Achsen, nicht als eine.
+
+| Fragetyp | Formel | Bereich |
+| --- | --- | --- |
+| Noul | `\|2 × noul − 1\|` | `0` (maximale Unsicherheit, `noul = 0.5`) bis `1` (vollständig sicher, `noul = 0` oder `1`) |
+| Choice / Score | `top1 − top2` (Wahrscheinlichkeitsabstand zwischen der besten und der zweitbesten Option oder Stufe) | `0` (zwei Optionen gleichauf) bis `1` (eine Option vereint nahezu die gesamte Wahrscheinlichkeitsmasse) |
+
+Eine Antwort mit geringer Konfidenz ist nicht falsch. Sie bedeutet, dass die Wahrscheinlichkeitsmasse auf zwei oder mehr Ergebnisse verteilt ist, statt sich auf eines zu konzentrieren, und das ist selbst ein nützliches Signal. Ein gängiges Muster ist **konfidenzbasiertes Routing**: Reagieren Sie automatisch auf Antworten mit hoher Konfidenz und leiten Sie Antworten mit geringer Konfidenz an einen Fallback weiter (menschliche Prüfung, eine breitere Kategorie, eine zusätzliche Prüfung):
+
+```python
+answer = response["answers"]["department"]
+
+if answer["confidence"] >= 0.6:
+    route_to(answer["choice"])
+else:
+    route_to("triage-queue")  # ambiguous — let a human or a broader handler decide
+```
+
+Passen Sie den Schwellenwert anhand echter Daten für Ihren Anwendungsfall an, statt davon auszugehen, dass `0.5` richtig ist. Die Konfidenz ist pro Modell kalibriert und entspricht nicht zwangsläufig einer bestimmten geschäftlichen Toleranz für Mehrdeutigkeit.
+
+## Anwendungsbeispiele
+
+### Noul
+
+Eine Noul-Frage gibt eine einzelne Wahrscheinlichkeit zurück. Es gibt kein separates Label-Feld. Legen Sie selbst einen Schwellenwert für die Wahrscheinlichkeit fest, um eine binäre Entscheidung zu treffen.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Antwort (Feld `answers`):
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.9989566626894673,
+    "confidence": 0.9979133253789345
+  }
+}
+```
+
+Verwendung des Ergebnisses:
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+### Choice
+
+Eine Choice-Frage gibt die ausgewählte Option, einen `confidence`-Wert und eine vollständige Wahrscheinlichkeitsverteilung über alle von Ihnen definierten Optionen zurück.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Antwort (Feld `answers`):
+
+```json
+{
+  "department": {
+    "type": "choice",
+    "choice": "returns",
+    "confidence": 0.9983415574354015,
+    "probabilities": {
+      "billing": 0.000576420510560337,
+      "returns": 0.9989179779459618,
+      "shipping": 0.0005056015434779647
+    }
+  }
+}
+```
+
+Verwendung des Ergebnisses:
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain — runner-up may also apply")
+```
+
+### Score
+
+Eine Score-Frage gibt einen diskreten `score` (den Index der gewinnenden Stufe), ein `expected_level` (eine wahrscheinlichkeitsgewichtete, kontinuierliche Position über alle Stufen hinweg), einen `confidence`-Wert, `probabilities` pro Stufe und eine `legend` zurück, die Ihre Stufenbeschreibungen nach Index wiedergibt.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Antwort (Feld `answers`):
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 1,
+    "expected_level": 0.9015099730675683,
+    "confidence": 0.7587802709097535,
+    "probabilities": {
+      "0": 0.11323658534089268,
+      "1": 0.8720168562506462,
+      "2": 0.014746558408461077
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+Verwendung des Ergebnisses:
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
+
+<Note>
+  `score` ist ein diskreter ganzzahliger Index (die Stufe mit dem höchsten Wert, argmax). `expected_level` ist die kontinuierliche, wahrscheinlichkeitsgewichtete Position über alle Stufen hinweg. Verwenden Sie diesen Wert, wenn Sie feinere Schwellenwerte benötigen, als der diskrete Index bietet.
+</Note>
+
+### Mehrere Fragen kombinieren
+
+Stellen Sie in einem einzigen Aufruf mehrere Fragen unterschiedlichen Typs zum selben `state`. Alle Fragen werden gemeinsam in einem einzigen Roundtrip bewertet.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Antwort:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "department": {
+      "type": "choice",
+      "choice": "returns",
+      "confidence": 0.9983415574354015,
+      "probabilities": {
+        "billing": 0.000576420510560337,
+        "returns": 0.9989179779459618,
+        "shipping": 0.0005056015434779647
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 1,
+      "expected_level": 0.9015099730675683,
+      "confidence": 0.7587802709097535,
+      "probabilities": {
+        "0": 0.11323658534089268,
+        "1": 0.8720168562506462,
+        "2": 0.014746558408461077
+      },
+      "legend": {
+        "0": "low urgency, can wait",
+        "1": "medium urgency, handle soon",
+        "2": "high urgency, handle immediately"
+      }
+    }
+  },
+  "usage": { "input_tokens": 1055, "output_tokens": 181 },
+  "token_usage": 1236
+}
+```
+
+## Wann Sie GLiDE verwenden sollten
+
+GLiDE eignet sich gut für strukturierte Entscheidungen: Klassifizierung, Kategorisierung, Routing (Tickets, E-Mails, Anfragen), Scoring, Triage, Inhaltsmoderation, Guardrails, als Ersatz für LLM-as-a-Judge und zur Freigabe von Tool-Aufrufen durch Agenten.
+
+Verwenden Sie stattdessen ein universelles Sprachmodell für freie Textgenerierung, mehrstufige Konversationen, offene Frage-Antwort-Szenarien, Zusammenfassungen oder Codegenerierung.
+
+## Verwandte Themen
+
+- [GLiNER-2.5-Decide](/de/concepts/gliner-2-5-decide): ein verwandtes Entscheidungsmodell für Modell-Routing, Tool-Aufrufe, Guardrails und weitere konzeptionelle Anwendungsfälle
+- [Verfügbare Modelle](/de/concepts/models): Katalog der Encoder- und Decoder-Modelle
+- [Schnellstart](/de/quickstart): API-Schlüssel generieren und übergeben
+- [Inferenz-API](/de/inference): die vollständige Referenz der GLiNER- und GLiDE-Inferenzendpunkte, einschließlich `/v1/systemone`
