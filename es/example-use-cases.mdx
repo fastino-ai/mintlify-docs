@@ -1,42 +1,115 @@
 ---
-title: "Casos de uso de ejemplo"
-description: "Casos de uso de GLiNER en flujos de agentes, recuperación, datos, investigación, seguridad y calidad."
+title: "Casos de uso de GLiDE"
+description: "Patrones prácticos de GLiDE para decisiones binarias, enrutamiento, clasificación, puntuación y flujos de revisión."
 ---
 
-Usa GLiNER cuando tu flujo de trabajo necesite decisiones rápidas y estructuradas a partir de texto.
+Usa GLiDE cuando tu aplicación deba evaluar una situación y devolver decisiones
+estructuradas y probabilísticas en lugar de texto generado. Envía un `state` y una
+o más `questions` tipadas a [`POST /v1/systemone`](/es/inference/systemone).
 
-## Elige un modelo
+## Elige una primitiva
 
-| Necesidad | Empieza con |
-| --- | --- |
-| Extraer entidades, etiquetas, relaciones o señales de políticas | GLiNER |
-| Enrutar un agente o decidir si una persona debe revisar el trabajo | GLiNER |
+| Tipo de decisión | Primitiva | Resultado |
+| --- | --- | --- |
+| Sí o no, con una probabilidad | [Noul](/es/concepts/glide-noul) | `noul`, la probabilidad de que la respuesta sea sí |
+| Exactamente una opción con nombre | [Choice](/es/concepts/glide-choice) | Etiqueta ganadora y probabilidades de cada opción |
+| Un nivel en una escala ordenada | [Score](/es/concepts/glide-score) | Nivel ganador, nivel esperado y probabilidades |
 
-## GLiNER: decisiones estructuradas para sistemas de IA
+GLiDE responde cada pregunta de forma independiente a partir del mismo estado. No
+existe una primitiva multietiqueta. Formula varias preguntas Noul cuando puedan
+aplicarse varias etiquetas a la vez.
 
-### Flujos de agentes y de navegador
+## Clasificación inicial en una sola llamada
 
-- **Uso del navegador y automatización:** identifica la intención de la página, los campos relevantes, las advertencias y las acciones que requieren confirmación.
-- **Compactación de contexto:** extrae decisiones, tareas, plazos y preferencias del usuario de conversaciones o trazas de agentes.
-- **Enrutamiento de modelos:** clasifica el dominio, la complejidad, los requisitos de latencia y el riesgo antes de seleccionar un modelo o flujo de trabajo.
-- **Supervisión de agentes:** detecta desviaciones, fallos repetidos, entregables faltantes, llamadas a herramientas riesgosas, contexto irrelevante, baja calidad de salida o cuándo debe intervenir una persona.
+Una solicitud de soporte se puede enrutar, puntuar y comprobar para determinar si
+cumple los requisitos para un reembolso en una sola solicitud. Cada respuesta
+permanece separada, por lo que tu aplicación puede aplicar un umbral o una acción
+diferentes a cada una.
 
-### Recuperación, datos e investigación
+```json
+{
+  "model": "fastino/glide",
+  "state": {
+    "message": "I was charged twice for order A-104. Please refund the duplicate.",
+    "account_tier": "business",
+    "refund_policy": "Duplicate charges qualify for an immediate refund."
+  },
+  "questions": {
+    "team": {
+      "type": "choice",
+      "instructions": "Which team should handle this request?",
+      "criteria": {
+        "billing": "Payments, invoices, or duplicate charges",
+        "returns": "Product returns or replacements",
+        "technical": "Product defects or technical support"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgently should the team respond?",
+      "criteria": [
+        "low: can wait for the normal queue",
+        "medium: should be handled soon",
+        "high: requires immediate attention"
+      ]
+    },
+    "refund_allowed": {
+      "type": "noul",
+      "instructions": "Does the request qualify for a refund under the supplied policy?",
+      "criteria": {
+        "true": "The policy allows the refund",
+        "false": "The policy does not allow the refund"
+      }
+    }
+  }
+}
+```
 
-- **RAG:** selecciona los pasajes relevantes antes de la generación y verifica la relevancia o los conflictos del contexto recuperado.
-- **Grafos de conocimiento y memoria de agentes:** extrae entidades y relaciones de documentos o conversaciones en una capa de hechos consultable.
-- **Clasificación de texto:** ordena correos, tickets y documentos en etiquetas operativas como spam, urgente, solicitud de reembolso o consulta de ventas.
-- **Detección y redacción de PII:** identifica datos sensibles antes del almacenamiento, la indexación o las llamadas al modelo.
-- **Pronósticos e inteligencia de mercado:** convierte comentarios de clientes, informes regulatorios, transcripciones y noticias en señales como demanda, problemas de suministro, menciones de competidores y cambios en la dirección.
+Interpreta los resultados según su primitiva:
 
-### Controles de seguridad y calidad
+- `answers.team.choice` es la ruta seleccionada. Usa `probabilities` para examinar las alternativas.
+- `answers.urgency.score` es el índice del nivel ganador. Usa `expected_level` para aplicar un umbral más gradual.
+- `answers.refund_allowed.noul` es la probabilidad de que la respuesta sea sí. Elige y valida tu propio umbral de acción.
 
-- **Guardrails y moderación de LLM:** filtra prompts y salidas en busca de contenido dañino, datos sensibles e infracciones de políticas.
-- **Detección de inyección de prompts:** marca intentos de anular instrucciones, exfiltrar datos o manipular el uso de herramientas.
-- **Linting semántico de código:** revisa el código generado y los pull requests en busca de convenciones que la sintaxis por sí sola no puede detectar.
+## Patrones comunes
+
+| Caso de uso | Estado | Preguntas |
+| --- | --- | --- |
+| Revisión de acciones de agentes | Llamada a herramienta propuesta, contexto visible y política | Noul: ¿se puede ejecutar la acción? Choice: ejecutar, revisar o escalar |
+| Moderación de contenido | Contenido y política aplicable | Choice: categoría de la política. Score: gravedad. Noul: ¿enviar a revisión humana? |
+| Enrutamiento de modelos o flujos de trabajo | Solicitud, objetivo de latencia y rutas disponibles | Choice: ruta. Score: complejidad. Noul: ¿usar la alternativa más costosa? |
+| Control de calidad | Resultado y requisitos explícitos o rúbrica | Una pregunta Noul por requisito. Score: calidad o riesgo generales |
+| Clasificación inicial de operaciones | Ticket, contexto de la cuenta y política operativa | Choice: responsable. Score: urgencia. Noul: ¿cumple los requisitos para una acción automatizada? |
+
+Para supervisar agentes, evalúa solo los artefactos que tu sistema tiene permitido
+recopilar, como las llamadas a herramientas y los registros visibles para el usuario.
+No uses la cadena de pensamiento oculta como superficie de supervisión operativa.
+
+## Diseña preguntas fiables
+
+- Incluye en `state` la evidencia y la política necesarias para tomar la decisión.
+- Haz que las opciones de Choice sean mutuamente excluyentes. Añade `other` o `none`
+  cuando las opciones enumeradas no sean exhaustivas.
+- Escribe los criterios de Score de menor a mayor y describe cada nivel con claridad.
+- Usa preguntas Noul independientes para comprobaciones multietiqueta.
+- Evalúa las probabilidades y la confianza con datos representativos antes de fijar
+  umbrales de automatización.
+- Deriva los resultados inciertos o de gran impacto hacia una alternativa más segura.
 
 <Warning>
-  Para la monitorización de agentes, evalúa solo los artefactos que tu sistema tiene permitido recopilar, como las llamadas a herramientas y los registros visibles para el usuario. No uses la cadena de pensamiento oculta como superficie de monitorización operativa.
+  GLiDE es probabilístico. No lo uses como única autoridad para decisiones irreversibles,
+  críticas para la seguridad, legales, médicas, laborales, crediticias o de control de acceso.
 </Warning>
 
-Empieza con una tarea medible y un pequeño conjunto de evaluación construido a partir de ejemplos con permiso. Define las etiquetas o el esquema que representan las decisiones estructuradas que necesita tu flujo de trabajo.
+## Cuándo GLiDE no es la herramienta adecuada
+
+| Necesidad | Usa en su lugar |
+| --- | --- |
+| Extraer nombres, fragmentos, entidades o relaciones de texto | [GLiNER](/es/concepts/gliner) |
+| Generar, resumir o reescribir texto libre | Un modelo de lenguaje generativo |
+| Aplicar una regla determinista exacta | Código de la aplicación o un motor de políticas |
+| Devolver varias etiquetas a partir de una pregunta | Preguntas Noul separadas, una por etiqueta |
+
+Empieza con el [inicio rápido](/es/quickstart) y luego usa la
+[Referencia de GLiDE](/es/concepts/decision-models) para definir el esquema de
+preguntas de producción.

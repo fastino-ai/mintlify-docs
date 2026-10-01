@@ -1,42 +1,120 @@
 ---
-title: "Beispielanwendungsfälle"
-description: "Anwendungsfälle für GLiNER in Agenten-, Retrieval-, Daten-, Forschungs-, Safety- und Qualitäts-Workflows."
+title: "GLiDE-Anwendungsfälle"
+description: "Praktische GLiDE-Muster für binäre Entscheidungen, Routing, Klassifizierung, Bewertung und Prüfworkflows."
 ---
 
-Verwenden Sie GLiNER, wenn Ihr Workflow schnelle, strukturierte Entscheidungen auf Basis von Text benötigt.
+Verwenden Sie GLiDE, wenn Ihre Anwendung eine Situation bewerten und strukturierte,
+probabilistische Entscheidungen anstelle von generiertem Text zurückgeben muss. Senden
+Sie einen `state` und eine oder mehrere typisierte `questions` an
+[`POST /v1/systemone`](/de/inference/systemone).
 
-## Modell auswählen
+## Grundtyp auswählen
 
-| Bedarf | Beginnen Sie mit |
-| --- | --- |
-| Entitäten, Labels, Beziehungen oder Richtliniensignale extrahieren | GLiNER |
-| Einen Agenten routen oder entscheiden, ob eine Person die Arbeit prüfen sollte | GLiNER |
+| Entscheidungsform | Grundtyp | Ergebnis |
+| --- | --- | --- |
+| Ja oder Nein, mit einer Wahrscheinlichkeit | [Noul](/de/concepts/glide-noul) | `noul`, die Wahrscheinlichkeit für Ja |
+| Genau eine benannte Option | [Choice](/de/concepts/glide-choice) | Ausgewähltes Label und Wahrscheinlichkeiten für jede Option |
+| Eine Stufe auf einer geordneten Skala | [Score](/de/concepts/glide-score) | Ausgewählte Stufe, erwartete Stufe und Wahrscheinlichkeiten |
 
-## GLiNER: strukturierte Entscheidungen für KI-Systeme
+GLiDE beantwortet jede Frage unabhängig anhand desselben Zustands. Es gibt keinen
+Grundtyp für mehrere Labels. Stellen Sie mehrere Noul-Fragen, wenn mehrere Labels
+gleichzeitig zutreffen können.
 
-### Agenten- und Browser-Workflows
+## Triage in einem einzigen Aufruf
 
-- **Browsernutzung und Automatisierung:** Erkennen Sie Seitenabsicht, relevante Felder, Warnungen und Aktionen, die eine Bestätigung erfordern.
-- **Kontextverdichtung:** Extrahieren Sie Entscheidungen, Aufgaben, Fristen und Benutzerpräferenzen aus Unterhaltungen oder Agenten-Traces.
-- **Modell-Routing:** Klassifizieren Sie Domäne, Komplexität, Latenzanforderungen und Risiko, bevor Sie ein Modell oder einen Workflow auswählen.
-- **Agentenüberwachung:** Erkennen Sie Abweichungen, wiederholte Fehler, fehlende Ergebnisse, riskante Tool-Aufrufe, irrelevanten Kontext, schlechte Ausgabequalität oder wann eine Person eingreifen sollte.
+Eine Supportanfrage kann in einer einzigen Anfrage weitergeleitet, bewertet und auf
+Rückerstattungsberechtigung geprüft werden. Jede Antwort bleibt separat, sodass Ihre
+Anwendung für jede Antwort einen anderen Schwellenwert oder eine andere Aktion
+verwenden kann.
 
-### Retrieval, Daten und Forschung
+```json
+{
+  "model": "fastino/glide",
+  "state": {
+    "message": "I was charged twice for order A-104. Please refund the duplicate.",
+    "account_tier": "business",
+    "refund_policy": "Duplicate charges qualify for an immediate refund."
+  },
+  "questions": {
+    "team": {
+      "type": "choice",
+      "instructions": "Which team should handle this request?",
+      "criteria": {
+        "billing": "Payments, invoices, or duplicate charges",
+        "returns": "Product returns or replacements",
+        "technical": "Product defects or technical support"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgently should the team respond?",
+      "criteria": [
+        "low: can wait for the normal queue",
+        "medium: should be handled soon",
+        "high: requires immediate attention"
+      ]
+    },
+    "refund_allowed": {
+      "type": "noul",
+      "instructions": "Does the request qualify for a refund under the supplied policy?",
+      "criteria": {
+        "true": "The policy allows the refund",
+        "false": "The policy does not allow the refund"
+      }
+    }
+  }
+}
+```
 
-- **RAG:** Wählen Sie relevante Passagen vor der Generierung aus und prüfen Sie abgerufenen Kontext auf Relevanz oder Widersprüche.
-- **Wissensgraphen und Agentengedächtnis:** Extrahieren Sie Entitäten und Beziehungen aus Dokumenten oder Unterhaltungen in eine abfragbare Faktenebene.
-- **Textklassifikation:** Sortieren Sie E-Mails, Tickets und Dokumente in operative Labels wie Spam, dringend, Rückerstattungsanfrage oder Vertriebsanfrage.
-- **PII-Erkennung und -Schwärzung:** Identifizieren Sie sensible Daten vor der Speicherung, Indizierung oder vor Modellaufrufen.
-- **Prognosen und Marktinformationen:** Wandeln Sie Kundenfeedback, Pflichtveröffentlichungen, Transkripte und Nachrichten in Signale wie Nachfrage, Lieferbedenken, Erwähnungen von Wettbewerbern und Führungswechsel um.
+Lesen Sie die Ergebnisse entsprechend ihrem Grundtyp:
 
-### Safety- und Qualitätsprüfungen
+- `answers.team.choice` ist die ausgewählte Route. Prüfen Sie mit `probabilities` die Alternativen.
+- `answers.urgency.score` ist der Index der ausgewählten Stufe. Verwenden Sie `expected_level` für einen weniger sprunghaften Schwellenwert.
+- `answers.refund_allowed.noul` ist die Wahrscheinlichkeit für Ja. Wählen und validieren Sie Ihren eigenen Aktionsschwellenwert.
 
-- **LLM-Guardrails und Moderation:** Prüfen Sie Prompts und Ausgaben auf schädliche Inhalte, sensible Daten und Richtlinienverstöße.
-- **Erkennung von Prompt-Injection:** Markieren Sie Versuche, Anweisungen zu überschreiben, Daten zu exfiltrieren oder die Tool-Nutzung zu manipulieren.
-- **Semantisches Code-Linting:** Prüfen Sie generierten Code und Pull Requests auf Konventionen, die sich allein über die Syntax nicht erkennen lassen.
+## Gängige Muster
+
+| Anwendungsfall | Zustand | Fragen |
+| --- | --- | --- |
+| Prüfung einer Agentenaktion | Vorgeschlagener Tool-Aufruf, sichtbarer Kontext und Richtlinie | Noul: Darf die Aktion ausgeführt werden? Choice: ausführen, überarbeiten oder eskalieren |
+| Inhaltsmoderation | Inhalt sowie die geltende Richtlinie | Choice: Richtlinienkategorie. Score: Schweregrad. Noul: Zur menschlichen Prüfung weiterleiten? |
+| Modell- oder Workflow-Routing | Anfrage, Latenzziel und verfügbare Routen | Choice: Route. Score: Komplexität. Noul: Den teuren Fallback verwenden? |
+| Qualitätskontrolle | Ausgabe sowie explizite Anforderungen oder Bewertungsraster | Eine Noul-Frage pro Anforderung. Score: Gesamtqualität oder Risiko |
+| Operative Triage | Ticket, Kontokontext und Betriebsrichtlinie | Choice: zuständige Stelle. Score: Dringlichkeit. Noul: Für eine automatisierte Aktion geeignet? |
+
+Bewerten Sie bei der Agentenüberwachung nur Artefakte, die Ihr System erfassen darf,
+etwa Tool-Aufrufe und für Benutzer sichtbare Logs. Verwenden Sie verborgene
+Gedankenketten nicht als operative Überwachungsgrundlage.
+
+## Zuverlässige Fragen entwerfen
+
+- Nehmen Sie die für die Entscheidung erforderlichen Belege und Richtlinien in `state` auf.
+- Gestalten Sie Choice-Optionen so, dass sie sich gegenseitig ausschließen. Fügen Sie
+  `other` oder `none` hinzu, wenn die aufgeführten Optionen nicht vollständig sind.
+- Schreiben Sie Score-Kriterien von der niedrigsten bis zur höchsten Stufe und
+  beschreiben Sie jede Stufe eindeutig.
+- Verwenden Sie unabhängige Noul-Fragen für Prüfungen mit mehreren Labels.
+- Bewerten Sie Wahrscheinlichkeiten und Konfidenz anhand repräsentativer Daten, bevor
+  Sie Schwellenwerte für die Automatisierung festlegen.
+- Leiten Sie unsichere Ergebnisse oder Ergebnisse mit weitreichenden Folgen an einen
+  sichereren Fallback weiter.
 
 <Warning>
-  Bewerten Sie bei der Agentenüberwachung nur Artefakte, die Ihr System erfassen darf, etwa Tool-Aufrufe und für Benutzer sichtbare Logs. Verwenden Sie verborgene Chain-of-Thought nicht als operative Überwachungsgrundlage.
+  GLiDE arbeitet probabilistisch. Verwenden Sie es nicht als alleinige
+  Entscheidungsinstanz für unumkehrbare, sicherheitskritische, rechtliche,
+  medizinische, beschäftigungsbezogene, kreditbezogene oder
+  zugangskontrollbezogene Entscheidungen.
 </Warning>
 
-Beginnen Sie mit einer messbaren Aufgabe und einem kleinen Evaluierungsdatensatz aus freigegebenen Beispielen. Definieren Sie die Labels oder das Schema, die die strukturierten Entscheidungen abbilden, die Ihr Workflow benötigt.
+## Wann GLiDE nicht das richtige Werkzeug ist
+
+| Bedarf | Stattdessen verwenden |
+| --- | --- |
+| Namen, Textspannen, Entitäten oder Beziehungen aus Text extrahieren | [GLiNER](/de/concepts/gliner) |
+| Freitext generieren, zusammenfassen oder umschreiben | Ein generatives Sprachmodell |
+| Eine exakte deterministische Regel durchsetzen | Anwendungscode oder eine Richtlinien-Engine |
+| Mehrere Labels aus einer Frage zurückgeben | Separate Noul-Fragen, eine pro Label |
+
+Beginnen Sie mit dem [Schnellstart](/de/quickstart) und verwenden Sie anschließend die
+[GLiDE-Referenz](/de/concepts/decision-models), um das Fragenschema für Ihre
+Produktivumgebung zu definieren.
