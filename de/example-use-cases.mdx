@@ -1,120 +1,153 @@
 ---
-title: "GLiDE-Anwendungsfälle"
-description: "Praktische GLiDE-Muster für binäre Entscheidungen, Routing, Klassifizierung, Bewertung und Prüfworkflows."
+title: "Beispielanwendungsfälle"
+description: "Entdecken Sie konkrete Einsatzmöglichkeiten für GLiDE in KI-Systemen, Betriebsabläufen, Sicherheit, Forschung und Produktworkflows."
 ---
 
-Verwenden Sie GLiDE, wenn Ihre Anwendung eine Situation bewerten und strukturierte,
-probabilistische Entscheidungen anstelle von generiertem Text zurückgeben muss. Senden
-Sie einen `state` und eine oder mehrere typisierte `questions` an
-[`POST /v1/systemone`](/de/inference/systemone).
+Nutzen Sie diese Übersicht, um Bereiche zu finden, in denen eine strukturierte,
+probabilistische Entscheidung einen störanfälligen Prompt oder einen manuellen
+Prüfschritt ersetzen kann. Öffnen Sie den passendsten Workflow, passen Sie das
+Beispiel an Ihre eigenen Richtlinien und Daten an und verwenden Sie anschließend
+die [GLiDE-Referenz](/de/concepts/decision-models) für den Anfragevertrag.
 
-## Grundtyp auswählen
+Dies sind Entscheidungsmuster, keine integrierten End-to-End-Workflows. Ihre
+Anwendung stellt jeweils einen Fall bereit und übernimmt die nachgelagerte Aktion.
+Stellen Sie für jede Eigenschaft, die gleichzeitig mit anderen vorliegen kann, eine
+eigenständige Frage. Um eine Sammlung zu ordnen, bewerten Sie jedes Element einzeln
+und sortieren Sie die Ergebnisse im Anwendungscode.
 
-| Entscheidungsform | Grundtyp | Ergebnis |
-| --- | --- | --- |
-| Ja oder Nein, mit einer Wahrscheinlichkeit | [Noul](/de/concepts/glide-noul) | `noul`, die Wahrscheinlichkeit für Ja |
-| Genau eine benannte Option | [Choice](/de/concepts/glide-choice) | Ausgewähltes Label und Wahrscheinlichkeiten für jede Option |
-| Eine Stufe auf einer geordneten Skala | [Score](/de/concepts/glide-score) | Ausgewählte Stufe, erwartete Stufe und Wahrscheinlichkeiten |
+<CardGroup cols={2}>
+  <Card title="KI-Agenten und Automatisierung" icon="bot">
+    Tool-Genehmigung, Routing, Ausgabenüberprüfung und Kontextauswahl.
+  </Card>
+  <Card title="Kunden- und Umsatzprozesse" icon="badge-dollar-sign">
+    Support-Triage, Lead-Qualifizierung und Marktplatz-Workflows.
+  </Card>
+  <Card title="Vertrauen, Sicherheit und Compliance" icon="circle-alert">
+    Moderation, Prompt-Sicherheit, Richtlinienprüfung und Risikoprozesse.
+  </Card>
+  <Card title="Forschung, Daten und Produkt" icon="book-open">
+    Forschungssichtung, Produktsignale, Graphqualität und semantische Prüfungen.
+  </Card>
+</CardGroup>
 
-GLiDE beantwortet jede Frage unabhängig anhand desselben Zustands. Es gibt keinen
-Grundtyp für mehrere Labels. Stellen Sie mehrere Noul-Fragen, wenn mehrere Labels
-gleichzeitig zutreffen können.
+## KI-Agenten und Automatisierung
 
-## Triage in einem einzigen Aufruf
+<AccordionGroup>
+  <Accordion title="Prüfung von Agentenaktionen" icon="key-round">
+    - Entscheiden Sie, ob ein vorgeschlagener Tool-Aufruf gemäß der aktuellen Richtlinie zulässig ist.
+    - Leiten Sie eine Aktion zur Ausführung, Überarbeitung, Genehmigungsanfrage oder zum Abbruch weiter.
+    - Bewerten Sie das Risiko, eine E-Mail zu senden, Daten zu ändern, Geld auszugeben oder Inhalte zu veröffentlichen.
+    - Prüfen Sie, ob die sichtbaren Belege die vom Agenten angegebene Begründung für die Aktion stützen.
+  </Accordion>
+  <Accordion title="Modell- und Workflow-Routing" icon="sparkle">
+    - Wählen Sie für jede Anfrage das beste Modell, den besten Agenten, das beste Tool oder den besten Workflow aus.
+    - Klassifizieren Sie Absicht, Fachgebiet, Komplexität und Risiko, bevor Sie eine Route auswählen.
+    - Entscheiden Sie, ob eine Anfrage einen Spezialisten oder einen leistungsfähigeren Fallback benötigt.
+    - Leiten Sie unsichere Fälle an einen Menschen weiter, anstatt einen automatisierten Pfad zu erzwingen.
+  </Accordion>
+  <Accordion title="Überprüfung von KI-Ausgaben" icon="file-lines">
+    - Prüfen Sie, ob eine Antwort die Anweisungen des Benutzers und das erforderliche Format einhält.
+    - Bewerten Sie, ob die bereitgestellten Belege eine Behauptung oder Quellenangabe stützen.
+    - Prüfen Sie jeden erforderlichen Schritt und erkennen Sie unbelegte Schlussfolgerungen oder Quellenkonflikte.
+    - Bewerten Sie eine Ausgabe anhand eines produktspezifischen Qualitätsrasters.
+  </Accordion>
+  <Accordion title="Kontextauswahl" icon="map">
+    - Entscheiden Sie, ob eine Passage relevant genug ist, um sie in das Kontextfenster einer KI aufzunehmen.
+    - Bewerten Sie vor der Generierung die Relevanz eines Dokuments für eine Anfrage.
+    - Erkennen Sie widersprüchlichen oder veralteten Kontext, der ausgeschlossen werden sollte.
+    - Bewerten Sie mögliche Datensätze einzeln und sortieren Sie sie anschließend für den Abruf oder die Prüfung.
+  </Accordion>
+</AccordionGroup>
 
-Eine Supportanfrage kann in einer einzigen Anfrage weitergeleitet, bewertet und auf
-Rückerstattungsberechtigung geprüft werden. Jede Antwort bleibt separat, sodass Ihre
-Anwendung für jede Antwort einen anderen Schwellenwert oder eine andere Aktion
-verwenden kann.
+## Kunden- und Umsatzprozesse
 
-```json
-{
-  "model": "fastino/glide",
-  "state": {
-    "message": "I was charged twice for order A-104. Please refund the duplicate.",
-    "account_tier": "business",
-    "refund_policy": "Duplicate charges qualify for an immediate refund."
-  },
-  "questions": {
-    "team": {
-      "type": "choice",
-      "instructions": "Which team should handle this request?",
-      "criteria": {
-        "billing": "Payments, invoices, or duplicate charges",
-        "returns": "Product returns or replacements",
-        "technical": "Product defects or technical support"
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "instructions": "How urgently should the team respond?",
-      "criteria": [
-        "low: can wait for the normal queue",
-        "medium: should be handled soon",
-        "high: requires immediate attention"
-      ]
-    },
-    "refund_allowed": {
-      "type": "noul",
-      "instructions": "Does the request qualify for a refund under the supplied policy?",
-      "criteria": {
-        "true": "The policy allows the refund",
-        "false": "The policy does not allow the refund"
-      }
-    }
-  }
-}
-```
+<AccordionGroup>
+  <Accordion title="Kundensupport" icon="circle-help">
+    - Leiten Sie Tickets nach Produktbereich, Problemtyp, Kontostufe oder Kundenabsicht weiter.
+    - Bewerten Sie Dringlichkeit, Frustration, Abwanderungsrisiko oder betriebliche Auswirkungen.
+    - Prüfen Sie anhand einer bereitgestellten Richtlinie, ob Anspruch auf Rückerstattung, Ersatz oder Eskalation besteht.
+    - Verifizieren Sie, dass eine vorgeschlagene Supportantwort auf die Anfrage eingeht und die Richtlinie einhält.
+  </Accordion>
+  <Accordion title="Vertrieb und Lead-Qualifizierung" icon="badge-dollar-sign">
+    - Bewerten Sie, ob ein Konto dem idealen Kundenprofil entspricht.
+    - Klassifizieren Sie Kaufabsicht, Anwendungsfall, Unternehmensreife oder Vertriebsansatz.
+    - Bewerten Sie Eignung, Dringlichkeit und die Wahrscheinlichkeit einer zeitnahen Kontaktaufnahme.
+    - Leiten Sie Leads an Self-Service-, Vertriebs-, Partnerschafts- oder Nurturing-Workflows weiter.
+  </Accordion>
+  <Accordion title="E-Commerce und Marktplätze" icon="table-list">
+    - Ordnen Sie Angebote dem richtigen Katalog oder der richtigen Prüfwarteschlange zu.
+    - Prüfen Sie, ob ein Angebot gegen Marktplatz- oder Werberichtlinien verstößt.
+    - Bewerten Sie Hinweise auf Fälschungen, Bewertungsmissbrauch oder Verkäuferrisiken.
+    - Leiten Sie unsichere Angebote an einen Spezialisten weiter, ohne den gesamten Katalog zu blockieren.
+  </Accordion>
+</AccordionGroup>
 
-Lesen Sie die Ergebnisse entsprechend ihrem Grundtyp:
+## Vertrauen, Sicherheit und Compliance
 
-- `answers.team.choice` ist die ausgewählte Route. Prüfen Sie mit `probabilities` die Alternativen.
-- `answers.urgency.score` ist der Index der ausgewählten Stufe. Verwenden Sie `expected_level` für einen weniger sprunghaften Schwellenwert.
-- `answers.refund_allowed.noul` ist die Wahrscheinlichkeit für Ja. Wählen und validieren Sie Ihren eigenen Aktionsschwellenwert.
+<AccordionGroup>
+  <Accordion title="Inhaltsmoderation" icon="circle-alert">
+    - Prüfen Sie anhand einer bereitgestellten Regel, ob Text gegen Vorgaben zu Belästigung, Spam, Betrug oder gefährlichen Ratschlägen verstößt.
+    - Klassifizieren Sie die primäre Richtlinienkategorie eines Moderationsfalls.
+    - Bewerten Sie den Schweregrad und entscheiden Sie, ob der Inhalt zugelassen, mit einer Warnung versehen, geprüft oder blockiert werden soll.
+    - Erkennen Sie Opt-out-Anfragen, die Offenlegung personenbezogener Daten oder regulierte Aussagen.
+  </Accordion>
+  <Accordion title="Prompt- und Tool-Sicherheit" icon="key-round">
+    - Erkennen Sie Prompt Injection, Jailbreak-Versuche oder Anfragen zur Offenlegung privater Daten.
+    - Prüfen Sie, ob ein Tool-Aufruf die Autorisierung des Benutzers oder den Aufgabenbereich des Agenten überschreitet.
+    - Bewerten Sie das Risiko abgerufener Anweisungen, bevor Sie sie dem Agentenkontext hinzufügen.
+    - Leiten Sie verdächtige Aktivitäten an Protokollierung, Isolierung oder eine menschliche Prüfung weiter.
+  </Accordion>
+  <Accordion title="Rechtliche Prüfung und Richtlinienprüfung" icon="book-open">
+    - Prüfen Sie jede erforderliche Bestimmung in einem Vertrag, einer Richtlinie, einer Einreichung oder einer Marketingaussage.
+    - Erkennen Sie unzulässige Aussagen, fehlende Offenlegungen oder Richtlinienkonflikte.
+    - Klassifizieren Sie Dokumente nach Prüfart, Rechtsraum oder zuständigem Team.
+    - Priorisieren Sie unsichere oder risikoreiche Elemente für die Prüfung durch qualifizierte Fachkräfte.
+  </Accordion>
+  <Accordion title="Finanz- und Versicherungsprozesse" icon="database-zap">
+    - Sichten Sie Transaktionsbeschreibungen, Schadensnotizen, KYC-Datensätze oder Vorfallsberichte.
+    - Klassifizieren Sie Risikoart, Komplexität eines Schadensfalls oder den Status fehlender Informationen.
+    - Bewerten Sie Betrugshinweise, Belegqualität oder Prüfpriorität.
+    - Leiten Sie mehrdeutige Fälle an Ermittler, Schadensregulierer oder Compliance-Spezialisten weiter.
+  </Accordion>
+</AccordionGroup>
 
-## Gängige Muster
+## Forschung, Daten und Produkt
 
-| Anwendungsfall | Zustand | Fragen |
-| --- | --- | --- |
-| Prüfung einer Agentenaktion | Vorgeschlagener Tool-Aufruf, sichtbarer Kontext und Richtlinie | Noul: Darf die Aktion ausgeführt werden? Choice: ausführen, überarbeiten oder eskalieren |
-| Inhaltsmoderation | Inhalt sowie die geltende Richtlinie | Choice: Richtlinienkategorie. Score: Schweregrad. Noul: Zur menschlichen Prüfung weiterleiten? |
-| Modell- oder Workflow-Routing | Anfrage, Latenzziel und verfügbare Routen | Choice: Route. Score: Komplexität. Noul: Den teuren Fallback verwenden? |
-| Qualitätskontrolle | Ausgabe sowie explizite Anforderungen oder Bewertungsraster | Eine Noul-Frage pro Anforderung. Score: Gesamtqualität oder Risiko |
-| Operative Triage | Ticket, Kontokontext und Betriebsrichtlinie | Choice: zuständige Stelle. Score: Dringlichkeit. Noul: Für eine automatisierte Aktion geeignet? |
-
-Bewerten Sie bei der Agentenüberwachung nur Artefakte, die Ihr System erfassen darf,
-etwa Tool-Aufrufe und für Benutzer sichtbare Logs. Verwenden Sie verborgene
-Gedankenketten nicht als operative Überwachungsgrundlage.
-
-## Zuverlässige Fragen entwerfen
-
-- Nehmen Sie die für die Entscheidung erforderlichen Belege und Richtlinien in `state` auf.
-- Gestalten Sie Choice-Optionen so, dass sie sich gegenseitig ausschließen. Fügen Sie
-  `other` oder `none` hinzu, wenn die aufgeführten Optionen nicht vollständig sind.
-- Schreiben Sie Score-Kriterien von der niedrigsten bis zur höchsten Stufe und
-  beschreiben Sie jede Stufe eindeutig.
-- Verwenden Sie unabhängige Noul-Fragen für Prüfungen mit mehreren Labels.
-- Bewerten Sie Wahrscheinlichkeiten und Konfidenz anhand repräsentativer Daten, bevor
-  Sie Schwellenwerte für die Automatisierung festlegen.
-- Leiten Sie unsichere Ergebnisse oder Ergebnisse mit weitreichenden Folgen an einen
-  sichereren Fallback weiter.
+<AccordionGroup>
+  <Accordion title="Wissenschaftliche und qualitative Forschung" icon="book-open">
+    - Prüfen Sie Fachartikel anhand expliziter Ein- und Ausschlusskriterien.
+    - Prüfen Sie, ob eine Passage eine Forschungsbehauptung stützt.
+    - Prüfen Sie separat auf erforderliche Kontrollen, Datensatzdetails und methodische Informationen.
+    - Prüfen Sie jedes vordefinierte Thema anhand von Interview- und Umfragepassagen.
+  </Accordion>
+  <Accordion title="Produktfeedback und Prognosesignale" icon="gauge">
+    - Klassifizieren Sie Feedback nach Produktbereich, Anfragetyp oder Kundensegment.
+    - Erkennen Sie Kaufabsicht, Wettbewerbsdruck, Lieferengpässe oder Abwanderungssignale.
+    - Bewerten Sie die Stärke der Stimmung, die Dringlichkeit und die wahrscheinlichen geschäftlichen Auswirkungen.
+    - Wandeln Sie Wahrscheinlichkeiten in Merkmale für ein Prognose- oder Priorisierungsmodell um.
+  </Accordion>
+  <Accordion title="Qualität von Wissensgraphen" icon="blocks">
+    - Klassifizieren Sie eine vorgeschlagene Beziehung zwischen bekannten Entitäten.
+    - Prüfen Sie, ob eine Behauptung einem vorhandenen Datensatz widerspricht.
+    - Bewerten Sie die Konfidenz einer möglichen Kante, bevor Sie sie einem Graphen hinzufügen.
+    - Leiten Sie mehrdeutige Beziehungen an einen Verifizierungsworkflow weiter.
+  </Accordion>
+  <Accordion title="Semantische Qualitätsprüfungen" icon="braces">
+    - Prüfen Sie generierten Code anhand teamspezifischer Architekturkonventionen.
+    - Erkennen Sie, ob in einem Pull Request Tests, Migrationsschritte oder Dokumentation fehlen.
+    - Bewerten Sie ein Dokument anhand eines Rasters für Schreibqualität, Barrierefreiheit oder Markenrichtlinien.
+    - Führen Sie in CI einfache semantische Prüfungen aus, bevor Sie eine menschliche Prüfung anfordern.
+  </Accordion>
+</AccordionGroup>
 
 <Warning>
-  GLiDE arbeitet probabilistisch. Verwenden Sie es nicht als alleinige
-  Entscheidungsinstanz für unumkehrbare, sicherheitskritische, rechtliche,
-  medizinische, beschäftigungsbezogene, kreditbezogene oder
-  zugangskontrollbezogene Entscheidungen.
+  Verwenden Sie GLiDE zur Entscheidungsunterstützung, nicht als alleinige Instanz
+  für unumkehrbare oder folgenreiche Entscheidungen in den Bereichen Sicherheit,
+  Rechtsansprüche, Beschäftigung, Kredit, Gesundheitsversorgung oder
+  Zugriffskontrolle. Validieren Sie Schwellenwerte anhand repräsentativer Daten und
+  sehen Sie einen Pfad für die menschliche Prüfung vor.
 </Warning>
 
-## Wann GLiDE nicht das richtige Werkzeug ist
-
-| Bedarf | Stattdessen verwenden |
-| --- | --- |
-| Namen, Textspannen, Entitäten oder Beziehungen aus Text extrahieren | [GLiNER](/de/concepts/gliner) |
-| Freitext generieren, zusammenfassen oder umschreiben | Ein generatives Sprachmodell |
-| Eine exakte deterministische Regel durchsetzen | Anwendungscode oder eine Richtlinien-Engine |
-| Mehrere Labels aus einer Frage zurückgeben | Separate Noul-Fragen, eine pro Label |
-
-Beginnen Sie mit dem [Schnellstart](/de/quickstart) und verwenden Sie anschließend die
-[GLiDE-Referenz](/de/concepts/decision-models), um das Fragenschema für Ihre
-Produktivumgebung zu definieren.
+GLiDE bewertet den bereitgestellten Kontext; es extrahiert weder Textspannen noch
+generiert es Prosa. Verwenden Sie [GLiNER](/de/concepts/gliner) für die Extraktion
+von Entitäten und Beziehungen und ein generatives Modell für offene Schreibaufgaben.

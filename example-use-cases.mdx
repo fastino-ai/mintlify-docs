@@ -1,113 +1,150 @@
 ---
-title: "GLiDE use cases"
-description: "Practical GLiDE patterns for binary gates, routing, classification, scoring, and review workflows."
+title: "Example Use Cases"
+description: "Explore concrete ways to use GLiDE across AI systems, operations, safety, research, and product workflows."
 ---
 
-Use GLiDE when your application must evaluate a situation and return structured,
-probabilistic decisions instead of generated text. Send one `state` and one or more
-typed `questions` to [`POST /v1/systemone`](/inference/systemone).
+Use this map to find places where a structured, probabilistic decision can replace
+a brittle prompt or manual review step. Open the closest workflow, adapt the example
+to your own policy and data, then use the [GLiDE Reference](/concepts/decision-models)
+for the request contract.
 
-## Choose a primitive
+These are decision patterns, not built-in end-to-end workflows. Your application
+supplies one case and owns the downstream action. Ask an independent question for
+each property that can coexist. To rank a collection, score each item separately
+and sort the results in application code.
 
-| Decision shape | Primitive | Result |
-| --- | --- | --- |
-| Yes or no, with a probability | [Noul](/concepts/glide-noul) | `noul`, the probability of yes |
-| Exactly one named option | [Choice](/concepts/glide-choice) | Winning label and probabilities for every option |
-| One level on an ordered scale | [Score](/concepts/glide-score) | Winning level, expected level, and probabilities |
+<CardGroup cols={2}>
+  <Card title="AI agents and automation" icon="bot">
+    Tool approval, routing, output verification, and context selection.
+  </Card>
+  <Card title="Customer and revenue operations" icon="badge-dollar-sign">
+    Support triage, lead qualification, and marketplace workflows.
+  </Card>
+  <Card title="Trust, safety, and compliance" icon="circle-alert">
+    Moderation, prompt security, policy review, and risk operations.
+  </Card>
+  <Card title="Research, data, and product" icon="book-open">
+    Research screening, product signals, graph quality, and semantic checks.
+  </Card>
+</CardGroup>
 
-GLiDE answers each question independently against the same state. There is no
-multi-label primitive. Ask multiple Noul questions when several labels may all apply.
+## AI agents and automation
 
-## Triage in one call
+<AccordionGroup>
+  <Accordion title="Agent action review" icon="key-round">
+    - Decide whether a proposed tool call is allowed under the current policy.
+    - Route an action to execute, revise, request approval, or stop.
+    - Score the risk of sending an email, changing data, spending money, or publishing content.
+    - Check whether the visible evidence supports the agent's stated reason for acting.
+  </Accordion>
+  <Accordion title="Model and workflow routing" icon="sparkle">
+    - Choose the best model, agent, tool, or workflow for each request.
+    - Classify intent, domain, complexity, and risk before selecting a route.
+    - Decide whether a request needs a specialist or more capable fallback.
+    - Route uncertain cases to a human instead of forcing an automated path.
+  </Accordion>
+  <Accordion title="AI output verification" icon="file-lines">
+    - Check whether a response follows the user's instructions and required format.
+    - Evaluate whether supplied evidence supports a claim or citation.
+    - Check each required step and detect unsupported conclusions or source conflicts.
+    - Score an output against a product-specific quality rubric.
+  </Accordion>
+  <Accordion title="Context selection" icon="map">
+    - Decide whether a passage is relevant enough to include in an AI context window.
+    - Score query-to-document relevance before generation.
+    - Detect conflicting or stale context that should be excluded.
+    - Score candidate records individually, then sort them for retrieval or review.
+  </Accordion>
+</AccordionGroup>
 
-A support request can be routed, scored, and checked for refund eligibility in one
-request. Each answer remains separate, so your application can apply a different
-threshold or action to each one.
+## Customer and revenue operations
 
-```json
-{
-  "model": "fastino/glide",
-  "state": {
-    "message": "I was charged twice for order A-104. Please refund the duplicate.",
-    "account_tier": "business",
-    "refund_policy": "Duplicate charges qualify for an immediate refund."
-  },
-  "questions": {
-    "team": {
-      "type": "choice",
-      "instructions": "Which team should handle this request?",
-      "criteria": {
-        "billing": "Payments, invoices, or duplicate charges",
-        "returns": "Product returns or replacements",
-        "technical": "Product defects or technical support"
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "instructions": "How urgently should the team respond?",
-      "criteria": [
-        "low: can wait for the normal queue",
-        "medium: should be handled soon",
-        "high: requires immediate attention"
-      ]
-    },
-    "refund_allowed": {
-      "type": "noul",
-      "instructions": "Does the request qualify for a refund under the supplied policy?",
-      "criteria": {
-        "true": "The policy allows the refund",
-        "false": "The policy does not allow the refund"
-      }
-    }
-  }
-}
-```
+<AccordionGroup>
+  <Accordion title="Customer support" icon="circle-help">
+    - Route tickets by product area, issue type, account tier, or customer intent.
+    - Score urgency, frustration, churn risk, or operational impact.
+    - Check refund, replacement, or escalation eligibility against a supplied policy.
+    - Verify that a proposed support response addresses the request and follows policy.
+  </Accordion>
+  <Accordion title="Sales and lead qualification" icon="badge-dollar-sign">
+    - Evaluate whether an account matches an ideal customer profile.
+    - Classify purchase intent, use case, company maturity, or sales motion.
+    - Score fit, urgency, and likelihood of near-term engagement.
+    - Route leads to self-serve, sales, partnerships, or nurture workflows.
+  </Accordion>
+  <Accordion title="E-commerce and marketplaces" icon="table-list">
+    - Classify listings into the correct catalog or review queue.
+    - Check whether a listing violates marketplace or advertising policy.
+    - Score counterfeit, review-abuse, or seller-risk indicators.
+    - Route uncertain listings to a specialist without blocking the full catalog.
+  </Accordion>
+</AccordionGroup>
 
-Read the results according to their primitive:
+## Trust, safety, and compliance
 
-- `answers.team.choice` is the selected route. Use `probabilities` to inspect alternatives.
-- `answers.urgency.score` is the winning level index. Use `expected_level` for a smoother threshold.
-- `answers.refund_allowed.noul` is the probability of yes. Choose and validate your own action threshold.
+<AccordionGroup>
+  <Accordion title="Content moderation" icon="circle-alert">
+    - Check whether text violates a supplied rule for harassment, spam, fraud, or unsafe advice.
+    - Classify the primary policy category for a moderation case.
+    - Score severity and decide whether to allow, warn, review, or block.
+    - Detect opt-out requests, personal-data exposure, or regulated claims.
+  </Accordion>
+  <Accordion title="Prompt and tool security" icon="key-round">
+    - Detect prompt injection, jailbreak attempts, or requests to expose private data.
+    - Check whether a tool call exceeds the user's authorization or the agent's scope.
+    - Score the risk of retrieved instructions before adding them to agent context.
+    - Route suspicious activity to logging, isolation, or human review.
+  </Accordion>
+  <Accordion title="Legal and policy review" icon="book-open">
+    - Check each required provision in a contract, policy, filing, or marketing claim.
+    - Detect prohibited claims, missing disclosures, or policy conflicts.
+    - Classify documents by review type, jurisdiction, or responsible team.
+    - Prioritize uncertain or high-risk items for qualified review.
+  </Accordion>
+  <Accordion title="Financial and insurance operations" icon="database-zap">
+    - Triage transaction narratives, claim notes, KYC records, or incident reports.
+    - Classify risk type, claim complexity, or missing-information status.
+    - Score fraud indicators, evidence quality, or review priority.
+    - Route ambiguous cases to an investigator, adjuster, or compliance specialist.
+  </Accordion>
+</AccordionGroup>
 
-## Common patterns
+## Research, data, and product
 
-| Use case | State | Questions |
-| --- | --- | --- |
-| Agent action review | Proposed tool call, visible context, and policy | Noul: may the action run? Choice: execute, revise, or escalate |
-| Content moderation | Content plus the applicable policy | Choice: policy category. Score: severity. Noul: send to human review? |
-| Model or workflow routing | Request, latency target, and available routes | Choice: route. Score: complexity. Noul: use the expensive fallback? |
-| Quality control | Output plus explicit requirements or rubric | One Noul per requirement. Score: overall quality or risk |
-| Operations triage | Ticket, account context, and operating policy | Choice: owner. Score: urgency. Noul: eligible for an automated action? |
-
-For agent monitoring, evaluate only artifacts your system is allowed to collect,
-such as tool calls and user-visible logs. Do not use hidden chain-of-thought as an
-operational monitoring surface.
-
-## Design reliable questions
-
-- Include the evidence and policy needed for the decision in `state`.
-- Make Choice options mutually exclusive. Add `other` or `none` when the listed
-  options are not exhaustive.
-- Write Score criteria from lowest to highest and describe every level clearly.
-- Use independent Noul questions for multi-label checks.
-- Evaluate probabilities and confidence on representative data before setting
-  automation thresholds.
-- Route uncertain or high-impact outcomes to a safer fallback.
+<AccordionGroup>
+  <Accordion title="Scientific and qualitative research" icon="book-open">
+    - Screen papers against explicit inclusion and exclusion criteria.
+    - Check whether a passage supports a research claim.
+    - Check separately for required controls, dataset details, and methodological information.
+    - Check each predefined theme against interview and survey passages.
+  </Accordion>
+  <Accordion title="Product feedback and forecasting signals" icon="gauge">
+    - Classify feedback by product area, request type, or customer segment.
+    - Detect purchase intent, competitive pressure, supply concerns, or churn signals.
+    - Score sentiment intensity, urgency, and likely business impact.
+    - Turn probabilities into features for a forecasting or prioritization model.
+  </Accordion>
+  <Accordion title="Knowledge graph quality" icon="blocks">
+    - Classify a proposed relationship between known entities.
+    - Check whether a claim contradicts an existing record.
+    - Score confidence in a candidate edge before adding it to a graph.
+    - Route ambiguous relationships to a verification workflow.
+  </Accordion>
+  <Accordion title="Semantic quality checks" icon="braces">
+    - Check generated code against team-specific architectural conventions.
+    - Detect whether a pull request is missing tests, migration steps, or documentation.
+    - Score a document against a writing, accessibility, or brand rubric.
+    - Run lightweight semantic checks in CI before requesting human review.
+  </Accordion>
+</AccordionGroup>
 
 <Warning>
-  GLiDE is probabilistic. Do not use it as the only authority for irreversible,
-  safety-critical, legal, medical, employment, credit, or access-control decisions.
+  Use GLiDE as decision support, not as the sole authority for irreversible or
+  high-impact decisions involving safety, legal rights, employment, credit,
+  healthcare, or access control. Validate thresholds on representative data and
+  provide a human review path.
 </Warning>
 
-## When GLiDE is not the right tool
-
-| Need | Use instead |
-| --- | --- |
-| Extract names, spans, entities, or relationships from text | [GLiNER](/concepts/gliner) |
-| Generate, summarize, or rewrite free-form text | A generative language model |
-| Enforce an exact deterministic rule | Application code or a policy engine |
-| Return several labels from one question | Separate Noul questions, one per label |
-
-Start with the [quickstart](/quickstart), then use the
-[GLiDE Reference](/concepts/decision-models) to define your production question
-schema.
+GLiDE evaluates supplied context; it does not extract text spans or generate prose.
+Use [GLiNER](/concepts/gliner) for entity and relationship extraction, and a
+generative model for open-ended writing.
