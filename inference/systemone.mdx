@@ -121,6 +121,59 @@ and integration examples.
 See [GLiDE Reference](/concepts/decision-models) for state-shape guidance, confidence
 formulas, and a mixed Choice/Score request.
 
+## Migrate from TypeSafe or Jev
+
+GLiDE uses the same System One structure of `state`, named `questions`, and matching
+`answers`, but it is not a drop-in replacement for every TypeSafe integration. Make these
+changes explicitly:
+
+| TypeSafe or Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| `jev-latest` | `fastino/glide` |
+| TypeSafe SDK client | Your HTTP client calling `/v1/systemone` |
+| Retry `429` and `529` | Retry `425`, `429`, and `503` with bounded backoff |
+
+<Steps>
+  <Step title="Keep the System One request structure">
+    Preserve the `state`, question keys, primitive types, and criteria. Keep Choice and Noul
+    criteria as objects. Prefer an ordered array for Score criteria. GLiDE instructions are
+    strings, so convert structured TypeSafe instruction objects or arrays into clear text.
+  </Step>
+  <Step title="Change the endpoint, credential, and model">
+    Point the request at Fastino, read `FASTINO_API_KEY`, send it with `X-API-Key`, and set
+    `model` to `fastino/glide`. Remove TypeSafe SDK construction if the project uses the SDK.
+  </Step>
+  <Step title="Update Score response handling">
+    TypeSafe's `score` is a probability-weighted float. Its GLiDE equivalent is
+    `expected_level`. GLiDE's `score` is instead the integer index of the most probable level.
+  </Step>
+  <Step title="Check level keys and retry behavior">
+    GLiDE returns Score `probabilities` and `legend` with string keys such as `"0"` and `"1"`.
+    Convert them to integers only if the application requires integer-keyed maps. Replace
+    TypeSafe's `529` retry handling with Fastino's `425` and `503` handling, while continuing
+    to back off on `429`.
+  </Step>
+  <Step title="Revalidate decision thresholds">
+    Keep existing business actions intact during the port, then test GLiDE on representative
+    cases before deployment. Do not assume thresholds calibrated for Jev transfer unchanged
+    to a different model.
+  </Step>
+</Steps>
+
+<Warning>
+  Do not map TypeSafe's floating-point `score` to GLiDE's `score`. Read
+  `answers.&lt;key&gt;.expected_level` when existing code expects a weighted score. Read
+  `answers.&lt;key&gt;.score` only when the code needs the single winning level index.
+</Warning>
+
+For Score requests, GLiDE also accepts criteria objects with numeric string keys, such as
+`{"1": "low", "3": "medium", "5": "high"}`. The keys are sorted and discarded, and the
+response is reindexed from `0` through `N-1`. Use an ordered array when the original numeric
+values must not be mistaken for returned level indexes.
+
 ## Errors
 
 | Status | Likely cause | Action |
