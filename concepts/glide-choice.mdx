@@ -1,0 +1,94 @@
+---
+title: "Choice — GLiDE's pick-one-of-many decision primitive"
+sidebarTitle: "Choice"
+description: "Ask GLiDE to pick one option from a defined set and get back the selected option, a confidence value, and a full probability distribution."
+---
+
+A **Choice** question asks GLiDE to pick one option from a fixed, caller-defined set of up to 255 named options. The response includes the selected option, a confidence value, and a full probability distribution over every option you defined.
+
+Use a Choice when the answer is one of several unordered categories: which team should handle a ticket, which category a product belongs to, which language a snippet is written in.
+
+## Request
+
+<ParamField body="type" type="string" required>
+  Always `"choice"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  The question to evaluate, in natural language.
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  An object mapping up to 255 option keys to description strings, e.g. `{"billing": "Payment or charge disputes", "returns": "Refund or return requests"}`. Both the option names and their descriptions are sent to the model, so write descriptions that separate similar-sounding options from each other.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Response
+
+```json
+{
+  "department": {
+    "type": "choice",
+    "choice": "returns",
+    "confidence": 0.9983415574354015,
+    "probabilities": {
+      "billing": 0.000576420510560337,
+      "returns": 0.9989179779459618,
+      "shipping": 0.0005056015434779647
+    }
+  }
+}
+```
+
+- `choice` — the option with the highest probability.
+- `probabilities` — the full distribution across every option you defined; keys match your `criteria` keys and sum to ~1.
+- `confidence` — `top1 − top2`, the probability margin between the best and second-best option, from `0` (two options tied) to `1` (one option has ~all the probability mass). See [Confidence](/concepts/decision-models#confidence) for how to act on it.
+
+## Using the result
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain — runner-up may also apply")
+```
+
+## Ask every question you need in one call
+
+Evaluate several Choice questions against the same `state` in a single request rather than one request per question — they're answered independently, so adding a question costs tokens but barely changes latency. A support-triage call might ask `department`, `urgency`, and `tone` together instead of three round trips; your code can act on `department` and ignore the rest until it needs them. See [Combining multiple questions](/concepts/decision-models#combining-multiple-questions) for a worked example.
+
+Give the model the full list of real options rather than a shortlist — a Choice question accepts up to 255 options, and each one costs only a few tokens. Add an `other` or `none of the above` option when the input might not cover every case, so GLiDE has somewhere to put the probability mass instead of forcing a bad match onto one of your named options.
+
+## Related
+
+- [Noul](/concepts/glide-noul) — a yes/no decision with a probability
+- [Score](/concepts/glide-score) — rate on an ordered scale
+- [Decision Models](/concepts/decision-models) — primitives overview, limits, and the full request contract
+- [GLiDE](/concepts/glide) — what GLiDE is and when to use it

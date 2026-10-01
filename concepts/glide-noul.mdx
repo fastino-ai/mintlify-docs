@@ -1,0 +1,85 @@
+---
+title: "Noul — GLiDE's yes/no decision primitive"
+sidebarTitle: "Noul"
+description: "Ask GLiDE a yes/no question and get back a calibrated probability instead of a label, so you can threshold on confidence instead of guessing."
+---
+
+A **Noul** question asks a yes/no question and returns a single calibrated probability between `0` and `1` — the probability the answer is "yes." There's no separate label field; you threshold the probability yourself to make a binary decision.
+
+Use a Noul when the probability itself is the useful signal, not just a boolean. "Does this request qualify for a refund?" might return `0.999` (clearly yes) or `0.52` (genuinely ambiguous) — a plain `true`/`false` would hide that difference.
+
+<Tip>
+  Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no — it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use [Score](/concepts/glide-score) with defined levels instead.
+</Tip>
+
+## Request
+
+<ParamField body="type" type="string" required>
+  Always `"noul"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  The yes/no question to evaluate, in natural language.
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  An object with `true` and `false` description keys, e.g. `{"true": "Qualifies", "false": "Does not qualify"}`.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Response
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.99767683794902,
+    "confidence": 0.9953536758980399
+  }
+}
+```
+
+- `noul` — the probability the answer is "yes." `0.999` is a strong qualifying signal.
+- `confidence` — `|2 × noul − 1|`, from `0` (maximum uncertainty, `noul = 0.5`) to `1` (fully certain, `noul = 0` or `1`). See [Confidence](/concepts/decision-models#confidence) for how to act on it.
+
+## Using the result
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+Tune the thresholds (`0.8` / `0.2` above) on real data for your use case rather than assuming they transfer — probability and confidence are calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
+
+## Related
+
+- [Choice](/concepts/glide-choice) — pick one of several named options
+- [Score](/concepts/glide-score) — rate on an ordered scale
+- [Decision Models](/concepts/decision-models) — primitives overview, limits, and the full request contract
+- [GLiDE](/concepts/glide) — what GLiDE is and when to use it
