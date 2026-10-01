@@ -138,6 +138,8 @@ TypeSafe 的 Jev 与 Fastino 的 GLiDE 使用相同的 System One 结构：`stat
     因此请将省略、为 null、对象或数组形式的 instructions 转换为清晰的文本。Choice 的 criteria
     保持为对象。Noul 的 criteria 是可选的，但其 `true` 和 `false` 值必须是字符串。Score 的
     criteria 优先使用有序数组。
+    只发送你的集成所需的、文档中列出的请求字段。不支持的顶层字段会返回 `422`，因此不要将任意
+    TypeSafe 客户端选项复制到 JSON 请求体中。
   </Step>
   <Step title="更改端点、凭据和模型">
     将请求指向 Fastino，读取 `FASTINO_API_KEY`，通过 `X-API-Key` 发送，并将 `model` 设置为
@@ -148,6 +150,9 @@ TypeSafe 的 Jev 与 Fastino 的 GLiDE 使用相同的 System One 结构：`stat
     TypeSafe 的 `score` 是按概率加权的浮点数，其在 GLiDE 中的对应字段是 `expected_level`。
     而 GLiDE 的 `score` 是概率最高的等级的整数索引。GLiDE 以字符串形式返回 Score 的 legend
     描述，因此请更新那些期望结构化 legend 值的使用方代码。
+    对于 Score 请求，GLiDE 也接受以数字字符串为键的 criteria 对象，例如
+    `{"1": "low", "3": "medium", "5": "high"}`。这些键会被排序后丢弃，响应会从 `0` 到 `N-1`
+    重新编号。如果原始数值不能与返回的等级索引混淆，请使用有序数组。
   </Step>
   <Step title="检查等级键和重试行为">
     GLiDE 返回的 Score `probabilities` 和 `legend` 使用字符串键，例如 `"0"` 和 `"1"`。
@@ -178,13 +183,6 @@ TypeSafe 的 Jev 与 Fastino 的 GLiDE 使用相同的 System One 结构：`stat
 4. 在读取 `answers` 之前检查非 2xx 响应。将读取超时设置为至少 300 秒，并对传输故障、
    `425`、`429` 和 `503` 使用有上限的重试。
 5. 仅在不再有任何引用之后，才移除 TypeSafe 包和导入。
-
-只发送你的集成所需的、文档中列出的请求字段。不支持的顶层字段会返回 `422`，因此不要将任意
-TypeSafe 客户端选项复制到 JSON 请求体中。
-
-对于 Score 请求，GLiDE 也接受以数字字符串为键的 criteria 对象，例如
-`{"1": "low", "3": "medium", "5": "high"}`。这些键会被排序后丢弃，响应会从 `0` 到 `N-1`
-重新编号。如果原始数值不能与返回的等级索引混淆，请使用有序数组。
 
 ## 错误
 
