@@ -1,117 +1,141 @@
 ---
-title: "Cas d'usage de GLiDE"
-description: "Modèles pratiques d'utilisation de GLiDE pour les décisions binaires, le routage, la classification, la notation et les workflows de révision."
+title: "Exemples de cas d'usage"
+description: "Découvrez des façons concrètes d'utiliser GLiDE dans les systèmes d'IA, les opérations, la sécurité, la recherche et les workflows produit."
 ---
 
-Utilisez GLiDE lorsque votre application doit évaluer une situation et renvoyer des
-décisions structurées et probabilistes plutôt que du texte généré. Envoyez un `state`
-et une ou plusieurs `questions` typées à [`POST /v1/systemone`](/fr/inference/systemone).
+Utilisez cette carte pour repérer les situations où une décision structurée et
+probabiliste peut remplacer un prompt fragile ou une étape de révision manuelle.
+Ouvrez le workflow le plus proche de votre cas, adaptez l'exemple à vos propres
+politiques et données, puis consultez la [référence GLiDE](/fr/concepts/decision-models)
+pour le contrat de requête.
 
-## Choisir une primitive
+Il s'agit de schémas de décision, et non de workflows intégrés de bout en bout.
+Votre application fournit un cas et prend en charge l'action en aval. Posez une
+question indépendante pour chaque propriété susceptible de coexister. Pour classer
+une collection, attribuez un score à chaque élément séparément, puis triez les
+résultats dans le code de l'application.
 
-| Forme de décision | Primitive | Résultat |
-| --- | --- | --- |
-| Oui ou non, avec une probabilité | [Noul](/fr/concepts/glide-noul) | `noul`, la probabilité d'un oui |
-| Exactement une option nommée | [Choice](/fr/concepts/glide-choice) | Étiquette gagnante et probabilités de chaque option |
-| Un niveau sur une échelle ordonnée | [Score](/fr/concepts/glide-score) | Niveau gagnant, niveau attendu et probabilités |
+## Agents d'IA et automatisation
 
-GLiDE répond à chaque question indépendamment à partir du même état. Il n'existe pas
-de primitive multi-étiquette. Posez plusieurs questions Noul lorsque plusieurs
-étiquettes peuvent toutes s'appliquer.
+### Révision des actions d'un agent
 
-## Triage en un seul appel
+- Déterminer si un appel d'outil proposé est autorisé par la politique en vigueur.
+- Orienter une action vers l'exécution, la révision, la demande d'approbation ou l'arrêt.
+- Évaluer le risque lié à l'envoi d'un e-mail, à la modification de données, à une dépense ou à la publication de contenu.
+- Vérifier si les éléments visibles étayent la raison invoquée par l'agent pour agir.
 
-Une demande d'assistance peut être routée, notée et vérifiée pour déterminer son
-admissibilité à un remboursement dans une seule requête. Chaque réponse reste
-distincte, afin que votre application puisse appliquer un seuil ou une action
-différents à chacune.
+### Routage des modèles et des workflows
 
-```json
-{
-  "model": "fastino/glide",
-  "state": {
-    "message": "I was charged twice for order A-104. Please refund the duplicate.",
-    "account_tier": "business",
-    "refund_policy": "Duplicate charges qualify for an immediate refund."
-  },
-  "questions": {
-    "team": {
-      "type": "choice",
-      "instructions": "Which team should handle this request?",
-      "criteria": {
-        "billing": "Payments, invoices, or duplicate charges",
-        "returns": "Product returns or replacements",
-        "technical": "Product defects or technical support"
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "instructions": "How urgently should the team respond?",
-      "criteria": [
-        "low: can wait for the normal queue",
-        "medium: should be handled soon",
-        "high: requires immediate attention"
-      ]
-    },
-    "refund_allowed": {
-      "type": "noul",
-      "instructions": "Does the request qualify for a refund under the supplied policy?",
-      "criteria": {
-        "true": "The policy allows the refund",
-        "false": "The policy does not allow the refund"
-      }
-    }
-  }
-}
-```
+- Choisir le meilleur modèle, agent, outil ou workflow pour chaque requête.
+- Classer l'intention, le domaine, la complexité et le risque avant de sélectionner une route.
+- Déterminer si une requête nécessite un spécialiste ou une solution de secours plus performante.
+- Orienter les cas incertains vers une personne plutôt que d'imposer un traitement automatisé.
 
-Interprétez les résultats en fonction de leur primitive :
+### Vérification des sorties d'IA
 
-- `answers.team.choice` est la route sélectionnée. Utilisez `probabilities` pour examiner les autres possibilités.
-- `answers.urgency.score` est l'indice du niveau gagnant. Utilisez `expected_level` pour définir un seuil plus progressif.
-- `answers.refund_allowed.noul` est la probabilité d'un oui. Choisissez et validez votre propre seuil d'action.
+- Vérifier si une réponse respecte les instructions de l'utilisateur et le format requis.
+- Évaluer si les éléments fournis étayent une affirmation ou une citation.
+- Vérifier chaque étape requise et détecter les conclusions non étayées ou les contradictions entre les sources.
+- Évaluer une sortie selon une grille de qualité propre au produit.
 
-## Modèles courants
+### Sélection du contexte
 
-| Cas d'usage | État | Questions |
-| --- | --- | --- |
-| Révision des actions d'un agent | Appel d'outil proposé, contexte visible et politique | Noul : l'action peut-elle être exécutée ? Choice : exécuter, réviser ou transmettre |
-| Modération de contenu | Contenu et politique applicable | Choice : catégorie de politique. Score : gravité. Noul : transmettre à une personne pour révision ? |
-| Routage de modèles ou de workflows | Requête, objectif de latence et routes disponibles | Choice : route. Score : complexité. Noul : utiliser la solution de secours coûteuse ? |
-| Contrôle qualité | Sortie et exigences explicites ou grille d'évaluation | Une question Noul par exigence. Score : qualité globale ou risque |
-| Triage opérationnel | Ticket, contexte du compte et politique opérationnelle | Choice : responsable. Score : urgence. Noul : admissible à une action automatisée ? |
+- Déterminer si un passage est suffisamment pertinent pour être inclus dans la fenêtre de contexte d'une IA.
+- Évaluer la pertinence entre une requête et un document avant la génération.
+- Détecter le contexte contradictoire ou obsolète qui doit être exclu.
+- Évaluer séparément les enregistrements candidats, puis les trier pour la récupération ou la révision.
 
-Pour la surveillance des agents, évaluez uniquement les artefacts que votre système
-est autorisé à collecter, tels que les appels d'outils et les journaux visibles par
-l'utilisateur. N'utilisez pas la chaîne de pensée cachée comme surface de surveillance
-opérationnelle.
+## Opérations client et commerciales
 
-## Concevoir des questions fiables
+### Support client
 
-- Incluez dans `state` les éléments probants et la politique nécessaires à la décision.
-- Assurez-vous que les options Choice s'excluent mutuellement. Ajoutez `other` ou `none`
-  lorsque les options répertoriées ne sont pas exhaustives.
-- Rédigez les critères Score du niveau le plus bas au plus élevé et décrivez clairement chaque niveau.
-- Utilisez des questions Noul indépendantes pour les vérifications multi-étiquettes.
-- Évaluez les probabilités et la confiance sur des données représentatives avant de
-  définir les seuils d'automatisation.
-- Orientez les résultats incertains ou à fort impact vers une solution de secours plus sûre.
+- Orienter les tickets selon la partie du produit, le type de problème, le niveau du compte ou l'intention du client.
+- Évaluer l'urgence, la frustration, le risque d'attrition ou l'impact opérationnel.
+- Vérifier l'admissibilité à un remboursement, à un remplacement ou à une escalade au regard d'une politique fournie.
+- Vérifier qu'une réponse de support proposée répond à la demande et respecte la politique.
+
+### Ventes et qualification des prospects
+
+- Évaluer si un compte correspond au profil client idéal.
+- Classer l'intention d'achat, le cas d'usage, la maturité de l'entreprise ou le processus de vente.
+- Évaluer l'adéquation, l'urgence et la probabilité d'un engagement à court terme.
+- Orienter les prospects vers le libre-service, les ventes, les partenariats ou les workflows de maturation.
+
+### E-commerce et places de marché
+
+- Classer les annonces dans le bon catalogue ou la bonne file de révision.
+- Vérifier si une annonce enfreint la politique de la place de marché ou la politique publicitaire.
+- Évaluer les indicateurs de contrefaçon, d'abus des avis ou de risque vendeur.
+- Orienter les annonces incertaines vers un spécialiste sans bloquer l'ensemble du catalogue.
+
+## Confiance, sécurité et conformité
+
+### Modération de contenu
+
+- Vérifier si un texte enfreint une règle fournie concernant le harcèlement, le spam, la fraude ou les conseils dangereux.
+- Classer la principale catégorie de politique d'un cas de modération.
+- Évaluer la gravité et décider s'il faut autoriser, avertir, examiner ou bloquer.
+- Détecter les demandes de refus, l'exposition de données personnelles ou les allégations réglementées.
+
+### Sécurité des prompts et des outils
+
+- Détecter les injections de prompt, les tentatives de jailbreak ou les demandes d'exposition de données privées.
+- Vérifier si un appel d'outil dépasse l'autorisation de l'utilisateur ou le périmètre de l'agent.
+- Évaluer le risque des instructions récupérées avant de les ajouter au contexte de l'agent.
+- Orienter les activités suspectes vers la journalisation, l'isolement ou une révision humaine.
+
+### Révision juridique et des politiques
+
+- Vérifier chaque disposition requise dans un contrat, une politique, un dépôt réglementaire ou une allégation marketing.
+- Détecter les allégations interdites, les mentions manquantes ou les conflits avec les politiques.
+- Classer les documents par type de révision, juridiction ou équipe responsable.
+- Donner la priorité aux éléments incertains ou à haut risque pour une révision qualifiée.
+
+### Opérations financières et d'assurance
+
+- Trier les descriptions de transactions, les notes de sinistre, les dossiers KYC ou les rapports d'incident.
+- Classer le type de risque, la complexité du sinistre ou le statut des informations manquantes.
+- Évaluer les indicateurs de fraude, la qualité des éléments probants ou la priorité de révision.
+- Orienter les cas ambigus vers un enquêteur, un expert en sinistres ou un spécialiste de la conformité.
+
+## Recherche, données et produit
+
+### Recherche scientifique et qualitative
+
+- Sélectionner les articles selon des critères explicites d'inclusion et d'exclusion.
+- Vérifier si un passage étaye une affirmation de recherche.
+- Vérifier séparément la présence des contrôles requis, des détails du jeu de données et des informations méthodologiques.
+- Vérifier chaque thème prédéfini dans les passages d'entretiens et d'enquêtes.
+
+### Retours produit et signaux de prévision
+
+- Classer les retours selon la partie du produit, le type de demande ou le segment de clientèle.
+- Détecter l'intention d'achat, la pression concurrentielle, les préoccupations relatives à l'offre ou les signaux d'attrition.
+- Évaluer l'intensité du sentiment, l'urgence et l'impact commercial probable.
+- Transformer les probabilités en caractéristiques pour un modèle de prévision ou de priorisation.
+
+### Qualité des graphes de connaissances
+
+- Classer une relation proposée entre des entités connues.
+- Vérifier si une affirmation contredit un enregistrement existant.
+- Évaluer le niveau de confiance d'une arête candidate avant de l'ajouter à un graphe.
+- Orienter les relations ambiguës vers un workflow de vérification.
+
+### Contrôles de qualité sémantique
+
+- Vérifier le code généré au regard des conventions architecturales propres à l'équipe.
+- Détecter si une pull request ne contient pas les tests, les étapes de migration ou la documentation nécessaires.
+- Évaluer un document selon une grille de rédaction, d'accessibilité ou de marque.
+- Exécuter des contrôles sémantiques légers dans la CI avant de demander une révision humaine.
 
 <Warning>
-  GLiDE est probabiliste. Ne l'utilisez pas comme seule autorité pour les décisions
-  irréversibles, critiques pour la sécurité, juridiques, médicales, liées à l'emploi,
-  au crédit ou au contrôle d'accès.
+  Utilisez GLiDE comme une aide à la décision, et non comme seule autorité pour les
+  décisions irréversibles ou à fort impact concernant la sécurité, les droits
+  juridiques, l'emploi, le crédit, les soins de santé ou le contrôle d'accès.
+  Validez les seuils sur des données représentatives et prévoyez un processus de
+  révision humaine.
 </Warning>
 
-## Quand GLiDE n'est pas l'outil adapté
-
-| Besoin | Utilisez plutôt |
-| --- | --- |
-| Extraire des noms, des segments, des entités ou des relations à partir de texte | [GLiNER](/fr/concepts/gliner) |
-| Générer, résumer ou réécrire du texte libre | Un modèle de langage génératif |
-| Appliquer une règle déterministe exacte | Du code applicatif ou un moteur de politiques |
-| Renvoyer plusieurs étiquettes à partir d'une seule question | Des questions Noul distinctes, une par étiquette |
-
-Commencez par le [guide de démarrage rapide](/fr/quickstart), puis utilisez la
-[référence GLiDE](/fr/concepts/decision-models) pour définir le schéma de vos
-questions de production.
+GLiDE évalue le contexte fourni. Il n'extrait pas de segments de texte et ne génère
+pas de prose. Utilisez [GLiNER](/fr/concepts/gliner) pour l'extraction d'entités et
+de relations, et un modèle génératif pour la rédaction libre.

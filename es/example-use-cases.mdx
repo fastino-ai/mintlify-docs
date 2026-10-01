@@ -1,115 +1,138 @@
 ---
-title: "Casos de uso de GLiDE"
-description: "Patrones prácticos de GLiDE para decisiones binarias, enrutamiento, clasificación, puntuación y flujos de revisión."
+title: "Ejemplos de casos de uso"
+description: "Explora formas concretas de usar GLiDE en sistemas de IA, operaciones, seguridad, investigación y flujos de trabajo de producto."
 ---
 
-Usa GLiDE cuando tu aplicación deba evaluar una situación y devolver decisiones
-estructuradas y probabilísticas en lugar de texto generado. Envía un `state` y una
-o más `questions` tipadas a [`POST /v1/systemone`](/es/inference/systemone).
+Usa este mapa para encontrar lugares donde una decisión estructurada y probabilística
+pueda sustituir un prompt frágil o un paso de revisión manual. Abre el flujo de trabajo
+más cercano, adapta el ejemplo a tus propias políticas y datos y, a continuación, consulta
+la [Referencia de GLiDE](/es/concepts/decision-models) para conocer el contrato de la solicitud.
 
-## Elige una primitiva
+Estos son patrones de decisión, no flujos de trabajo integrales incorporados. Tu aplicación
+proporciona un caso y se encarga de la acción posterior. Formula una pregunta independiente
+para cada propiedad que pueda coexistir. Para clasificar una colección, puntúa cada elemento
+por separado y ordena los resultados en el código de la aplicación.
 
-| Tipo de decisión | Primitiva | Resultado |
-| --- | --- | --- |
-| Sí o no, con una probabilidad | [Noul](/es/concepts/glide-noul) | `noul`, la probabilidad de que la respuesta sea sí |
-| Exactamente una opción con nombre | [Choice](/es/concepts/glide-choice) | Etiqueta ganadora y probabilidades de cada opción |
-| Un nivel en una escala ordenada | [Score](/es/concepts/glide-score) | Nivel ganador, nivel esperado y probabilidades |
+## Agentes de IA y automatización
 
-GLiDE responde cada pregunta de forma independiente a partir del mismo estado. No
-existe una primitiva multietiqueta. Formula varias preguntas Noul cuando puedan
-aplicarse varias etiquetas a la vez.
+### Revisión de acciones de agentes
 
-## Clasificación inicial en una sola llamada
+- Decide si una llamada a herramienta propuesta está permitida según la política actual.
+- Enruta una acción para ejecutarla, revisarla, solicitar aprobación o detenerla.
+- Puntúa el riesgo de enviar un correo electrónico, cambiar datos, gastar dinero o publicar contenido.
+- Comprueba si la evidencia visible respalda el motivo declarado por el agente para actuar.
 
-Una solicitud de soporte se puede enrutar, puntuar y comprobar para determinar si
-cumple los requisitos para un reembolso en una sola solicitud. Cada respuesta
-permanece separada, por lo que tu aplicación puede aplicar un umbral o una acción
-diferentes a cada una.
+### Enrutamiento de modelos y flujos de trabajo
 
-```json
-{
-  "model": "fastino/glide",
-  "state": {
-    "message": "I was charged twice for order A-104. Please refund the duplicate.",
-    "account_tier": "business",
-    "refund_policy": "Duplicate charges qualify for an immediate refund."
-  },
-  "questions": {
-    "team": {
-      "type": "choice",
-      "instructions": "Which team should handle this request?",
-      "criteria": {
-        "billing": "Payments, invoices, or duplicate charges",
-        "returns": "Product returns or replacements",
-        "technical": "Product defects or technical support"
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "instructions": "How urgently should the team respond?",
-      "criteria": [
-        "low: can wait for the normal queue",
-        "medium: should be handled soon",
-        "high: requires immediate attention"
-      ]
-    },
-    "refund_allowed": {
-      "type": "noul",
-      "instructions": "Does the request qualify for a refund under the supplied policy?",
-      "criteria": {
-        "true": "The policy allows the refund",
-        "false": "The policy does not allow the refund"
-      }
-    }
-  }
-}
-```
+- Elige el mejor modelo, agente, herramienta o flujo de trabajo para cada solicitud.
+- Clasifica la intención, el dominio, la complejidad y el riesgo antes de seleccionar una ruta.
+- Decide si una solicitud necesita un especialista o una alternativa más capaz.
+- Enruta los casos inciertos a una persona en lugar de forzar una vía automatizada.
 
-Interpreta los resultados según su primitiva:
+### Verificación de resultados de IA
 
-- `answers.team.choice` es la ruta seleccionada. Usa `probabilities` para examinar las alternativas.
-- `answers.urgency.score` es el índice del nivel ganador. Usa `expected_level` para aplicar un umbral más gradual.
-- `answers.refund_allowed.noul` es la probabilidad de que la respuesta sea sí. Elige y valida tu propio umbral de acción.
+- Comprueba si una respuesta sigue las instrucciones del usuario y el formato requerido.
+- Evalúa si la evidencia proporcionada respalda una afirmación o cita.
+- Comprueba cada paso requerido y detecta conclusiones sin fundamento o conflictos entre fuentes.
+- Puntúa un resultado según una rúbrica de calidad específica del producto.
 
-## Patrones comunes
+### Selección de contexto
 
-| Caso de uso | Estado | Preguntas |
-| --- | --- | --- |
-| Revisión de acciones de agentes | Llamada a herramienta propuesta, contexto visible y política | Noul: ¿se puede ejecutar la acción? Choice: ejecutar, revisar o escalar |
-| Moderación de contenido | Contenido y política aplicable | Choice: categoría de la política. Score: gravedad. Noul: ¿enviar a revisión humana? |
-| Enrutamiento de modelos o flujos de trabajo | Solicitud, objetivo de latencia y rutas disponibles | Choice: ruta. Score: complejidad. Noul: ¿usar la alternativa más costosa? |
-| Control de calidad | Resultado y requisitos explícitos o rúbrica | Una pregunta Noul por requisito. Score: calidad o riesgo generales |
-| Clasificación inicial de operaciones | Ticket, contexto de la cuenta y política operativa | Choice: responsable. Score: urgencia. Noul: ¿cumple los requisitos para una acción automatizada? |
+- Decide si un pasaje es lo bastante relevante como para incluirlo en la ventana de contexto de una IA.
+- Puntúa la relevancia entre una consulta y un documento antes de la generación.
+- Detecta contexto contradictorio u obsoleto que deba excluirse.
+- Puntúa los registros candidatos individualmente y después ordénalos para su recuperación o revisión.
 
-Para supervisar agentes, evalúa solo los artefactos que tu sistema tiene permitido
-recopilar, como las llamadas a herramientas y los registros visibles para el usuario.
-No uses la cadena de pensamiento oculta como superficie de supervisión operativa.
+## Operaciones con clientes e ingresos
 
-## Diseña preguntas fiables
+### Atención al cliente
 
-- Incluye en `state` la evidencia y la política necesarias para tomar la decisión.
-- Haz que las opciones de Choice sean mutuamente excluyentes. Añade `other` o `none`
-  cuando las opciones enumeradas no sean exhaustivas.
-- Escribe los criterios de Score de menor a mayor y describe cada nivel con claridad.
-- Usa preguntas Noul independientes para comprobaciones multietiqueta.
-- Evalúa las probabilidades y la confianza con datos representativos antes de fijar
-  umbrales de automatización.
-- Deriva los resultados inciertos o de gran impacto hacia una alternativa más segura.
+- Enruta tickets por área de producto, tipo de problema, nivel de cuenta o intención del cliente.
+- Puntúa la urgencia, la frustración, el riesgo de pérdida del cliente o el impacto operativo.
+- Comprueba si se cumplen los requisitos para un reembolso, reemplazo o escalamiento según una política proporcionada.
+- Verifica que una respuesta de soporte propuesta atienda la solicitud y cumpla la política.
+
+### Ventas y calificación de clientes potenciales
+
+- Evalúa si una cuenta coincide con el perfil de cliente ideal.
+- Clasifica la intención de compra, el caso de uso, la madurez de la empresa o la estrategia de ventas.
+- Puntúa el ajuste, la urgencia y la probabilidad de interacción a corto plazo.
+- Enruta los clientes potenciales hacia autoservicio, ventas, alianzas o flujos de seguimiento.
+
+### Comercio electrónico y marketplaces
+
+- Clasifica los anuncios en el catálogo o la cola de revisión correctos.
+- Comprueba si un anuncio infringe la política del marketplace o de publicidad.
+- Puntúa indicadores de falsificación, abuso de reseñas o riesgo del vendedor.
+- Enruta los anuncios inciertos a un especialista sin bloquear todo el catálogo.
+
+## Confianza, seguridad y cumplimiento
+
+### Moderación de contenido
+
+- Comprueba si el texto infringe una regla proporcionada sobre acoso, spam, fraude o consejos inseguros.
+- Clasifica la categoría de política principal de un caso de moderación.
+- Puntúa la gravedad y decide si permitir, advertir, revisar o bloquear.
+- Detecta solicitudes de exclusión, exposición de datos personales o afirmaciones reguladas.
+
+### Seguridad de prompts y herramientas
+
+- Detecta inyecciones de prompts, intentos de jailbreak o solicitudes para exponer datos privados.
+- Comprueba si una llamada a herramienta excede la autorización del usuario o el alcance del agente.
+- Puntúa el riesgo de las instrucciones recuperadas antes de añadirlas al contexto del agente.
+- Enruta la actividad sospechosa hacia el registro, el aislamiento o la revisión humana.
+
+### Revisión legal y de políticas
+
+- Comprueba cada disposición requerida en un contrato, política, documento presentado o afirmación de marketing.
+- Detecta afirmaciones prohibidas, divulgaciones ausentes o conflictos con las políticas.
+- Clasifica documentos por tipo de revisión, jurisdicción o equipo responsable.
+- Prioriza los elementos inciertos o de alto riesgo para una revisión cualificada.
+
+### Operaciones financieras y de seguros
+
+- Clasifica inicialmente descripciones de transacciones, notas de reclamaciones, registros KYC o informes de incidentes.
+- Clasifica el tipo de riesgo, la complejidad de la reclamación o el estado de la información faltante.
+- Puntúa los indicadores de fraude, la calidad de la evidencia o la prioridad de revisión.
+- Enruta los casos ambiguos a un investigador, perito o especialista en cumplimiento.
+
+## Investigación, datos y producto
+
+### Investigación científica y cualitativa
+
+- Filtra artículos según criterios explícitos de inclusión y exclusión.
+- Comprueba si un pasaje respalda una afirmación de investigación.
+- Comprueba por separado los controles requeridos, los detalles del conjunto de datos y la información metodológica.
+- Comprueba cada tema predefinido en los pasajes de entrevistas y encuestas.
+
+### Comentarios de producto y señales de previsión
+
+- Clasifica los comentarios por área de producto, tipo de solicitud o segmento de clientes.
+- Detecta intención de compra, presión competitiva, problemas de suministro o señales de pérdida de clientes.
+- Puntúa la intensidad del sentimiento, la urgencia y el posible impacto empresarial.
+- Convierte las probabilidades en características para un modelo de previsión o priorización.
+
+### Calidad de grafos de conocimiento
+
+- Clasifica una relación propuesta entre entidades conocidas.
+- Comprueba si una afirmación contradice un registro existente.
+- Puntúa la confianza en una arista candidata antes de añadirla a un grafo.
+- Enruta las relaciones ambiguas a un flujo de trabajo de verificación.
+
+### Controles de calidad semántica
+
+- Comprueba el código generado según las convenciones arquitectónicas específicas del equipo.
+- Detecta si a un pull request le faltan pruebas, pasos de migración o documentación.
+- Puntúa un documento según una rúbrica de redacción, accesibilidad o marca.
+- Ejecuta controles semánticos ligeros en CI antes de solicitar una revisión humana.
 
 <Warning>
-  GLiDE es probabilístico. No lo uses como única autoridad para decisiones irreversibles,
-  críticas para la seguridad, legales, médicas, laborales, crediticias o de control de acceso.
+  Usa GLiDE como apoyo para la toma de decisiones, no como única autoridad para
+  decisiones irreversibles o de gran impacto relacionadas con la seguridad, los
+  derechos legales, el empleo, el crédito, la atención médica o el control de acceso.
+  Valida los umbrales con datos representativos y proporciona una vía de revisión humana.
 </Warning>
 
-## Cuándo GLiDE no es la herramienta adecuada
-
-| Necesidad | Usa en su lugar |
-| --- | --- |
-| Extraer nombres, fragmentos, entidades o relaciones de texto | [GLiNER](/es/concepts/gliner) |
-| Generar, resumir o reescribir texto libre | Un modelo de lenguaje generativo |
-| Aplicar una regla determinista exacta | Código de la aplicación o un motor de políticas |
-| Devolver varias etiquetas a partir de una pregunta | Preguntas Noul separadas, una por etiqueta |
-
-Empieza con el [inicio rápido](/es/quickstart) y luego usa la
-[Referencia de GLiDE](/es/concepts/decision-models) para definir el esquema de
-preguntas de producción.
+GLiDE evalúa el contexto proporcionado; no extrae fragmentos de texto ni genera prosa.
+Usa [GLiNER](/es/concepts/gliner) para extraer entidades y relaciones, y un modelo
+generativo para la redacción abierta.
