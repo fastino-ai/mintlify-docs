@@ -1,7 +1,7 @@
 ---
-title: "GLiDE decisions"
-sidebarTitle: "GLiDE Decisions"
-description: "Run GLiDE classification, routing, and scoring decisions through POST /v1/systemone."
+title: "GLiDE inference with /v1/systemone"
+sidebarTitle: "GLiDE Inference"
+description: "Authenticate, choose a Noul, Choice, or Score question, call POST /v1/systemone, and act on GLiDE probabilities and confidence."
 noindex: true
 ---
 
@@ -9,19 +9,68 @@ noindex: true
 POST https://api.fastino.ai/v1/systemone
 ```
 
-Send a `state` (the situation to evaluate) and one or more named `questions`, each typed
-`noul`, `choice`, or `score`. GLiDE returns calibrated probabilities directly — there's no
-generated text to parse. See the [Inference API overview](/inference) for authentication and
-cold-start/retry behavior shared across Fastino's inference interfaces.
+This is the inference endpoint for **GLiDE**. Send a non-empty `state` and one or more named,
+typed `questions`; read structured decisions from `answers`. GLiDE does not use
+`/v1/chat/completions`, `messages`, or a GLiNER `schema`.
 
-The full `/v1/systemone` request and response contract — Noul, Choice, and Score shapes,
-limits, and confidence — lives on [Decision Models](/concepts/decision-models), with a
-dedicated page per primitive. This page covers the raw HTTP contract.
+## Authenticate
 
-## Example
+Create an API key in [Fastino Settings](https://agent.fastino.ai/api-keys), then set:
 
 ```bash
-curl -s https://api.fastino.ai/v1/systemone \
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+Send it with every request:
+
+```http
+X-API-Key: $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+`Authorization: Bearer $FASTINO_API_KEY` is also accepted. Use one style consistently.
+
+## Choose a question type
+
+Every question is single-label and returns probabilities. Choose the primitive from the
+answer shape your code needs:
+
+| Primitive | Use when | `criteria` shape | Primary result |
+| --- | --- | --- | --- |
+| [Noul](/concepts/glide-noul) | The answer is yes or no | Optional `{"true": "...", "false": "..."}`; defaults to Yes/No | `noul`, the probability of true |
+| [Choice](/concepts/glide-choice) | Exactly one unordered option should win | Object mapping option keys to descriptions | `choice` plus `probabilities` |
+| [Score](/concepts/glide-score) | The answer belongs on an ordered scale | Ordered array of level descriptions | `score`, `expected_level`, and `probabilities` |
+
+There is no multi-label primitive. Ask multiple independently named questions in one request
+when you need several judgments about the same state.
+
+## Request
+
+<ParamField body="model" type="string" required>
+  Use `fastino/glide`. The response echoes the engine name as `glide`.
+</ParamField>
+
+<ParamField body="state" type="string | object | array" required>
+  The non-empty situation to evaluate. Use a string for one passage, an object for labeled
+  fields, or an array for an ordered sequence of messages or records.
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  A non-empty object keyed by names you choose. Each value must contain `type` and
+  `instructions`; Choice and Score also require `criteria`. The same keys appear under
+  `answers` in the response.
+</ParamField>
+
+<Accordion title="OpenRouter compatibility fields">
+  `provider`, `user`, `session_id`, and `trace` are accepted for OpenRouter compatibility
+  and observability but are not forwarded to GLiDE. Other unknown top-level fields return
+  `422 Extra inputs are not permitted`.
+</Accordion>
+
+### Complete request
+
+```bash
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -49,39 +98,67 @@ curl -s https://api.fastino.ai/v1/systemone \
       "confidence": 0.9953536758980399
     }
   },
-  "usage": { "input_tokens": 89, "output_tokens": 1 },
-  "token_usage": 90
+  "usage": { "input_tokens": 89, "output_tokens": 1 }
 }
 ```
 
-Check which deployments currently support GLiDE decisions the same way you'd check for
-GLiNER encoder support, with `task_type=systemone`:
+`answers` uses the question keys from your request. For this Noul:
 
-```bash
-curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
-```
+- `noul` is the probability that the `true` criterion holds. It is not a boolean.
+- `confidence` is certainty about either outcome: `|2 × noul − 1|`.
+- Tune action thresholds on representative data. Do not assume `0.5` is the right business
+  threshold.
 
-<Card title="Decision Models" icon="sparkle" href="/concepts/decision-models">
-  The full `/v1/systemone` contract — Noul, Choice, and Score request and response shapes,
-  limits, and confidence — with worked examples for each question type.
-</Card>
+Choice and Score return different fields. See their primitive pages for exact response shapes
+and integration examples.
+
+## Limits and unsupported shapes
+
+- Each rendered question prompt (`state` plus that question) must fit within **40,000
+  tokens**.
+- Choice and Score accept at most **255 options or levels**.
+- `usage.input_tokens` sums the internal passes for all questions, so it can exceed 40,000
+  even though every individual rendered prompt fits.
+- One request evaluates one shared `state`; put multiple questions under `questions`.
+- `/v1/systemone` does not stream and does not accept a batch of independent states.
+- GLiDE does not currently support fine-tuned deployment IDs.
+
+See [GLiDE Reference](/concepts/decision-models) for state-shape guidance, confidence
+formulas, and a mixed Choice/Score request.
 
 ## Errors
 
 | Status | Likely cause | Action |
 | --- | --- | --- |
-| `400` | Invalid request or schema | Correct the request fields or schema |
+| `400` | Prompt exceeds the context window or another inference input is invalid | Shorten the state or correct the question |
 | `401` | Missing, malformed, or invalid API key | Export a valid `fast_sk_...` key |
 | `402` | Insufficient credits, funding required, or an owner-set daily/monthly spend limit | Add credits or adjust the spend limit |
 | `403` | Payment method, card verification, credit ceiling, or account policy denial | Resolve the billing or account requirement |
-| `404` | Unknown or unsupported model | Use an inference-capable catalog ID |
-| `422` | Request validation failed | Read and correct the field-level validation details |
+| `404` | Unknown model or a model that only supports chat completions | Use `fastino/glide` |
+| `422` | A required field is missing, a value has the wrong shape, or an extra field was sent | Read and correct the field-level validation details |
 | `425` | Deployment is warming | Retry after the indicated delay |
 | `429` | Rate or capacity limit | Respect `Retry-After` and retry with backoff |
-| `503` | Cold start or temporary provider capacity issue | Retry before treating it as terminal |
+| `503` | Temporary provider or serving failure | Retry before treating it as terminal |
 
-GLiDE does not currently support fine-tuned deployments, so the `409` "fine-tuned model exists
-but is not deployed" case on [`/v1/chat/completions`](/inference/chat-completions#errors)
-doesn't apply here.
+Use a read timeout of at least 300 seconds and bounded backoff for `425`, `429`, and `503`.
+Do not retry `401`, `402`, `403`, `404`, or `422` without correcting the underlying problem.
 
-See [Cold starts and retries](/inference#cold-starts-and-retries) for the shared retry pattern.
+## Continue learning
+
+<CardGroup cols={2}>
+  <Card title="GLiDE Reference" icon="book-open" href="/concepts/decision-models">
+    Understand state shapes, limits, confidence, and combining multiple questions.
+  </Card>
+
+  <Card title="Noul" icon="toggle-on" href="/concepts/glide-noul">
+    Integrate a yes/no probability.
+  </Card>
+
+  <Card title="Choice" icon="list" href="/concepts/glide-choice">
+    Route to one named option.
+  </Card>
+
+  <Card title="Score" icon="gauge" href="/concepts/glide-score">
+    Evaluate an ordered rubric.
+  </Card>
+</CardGroup>

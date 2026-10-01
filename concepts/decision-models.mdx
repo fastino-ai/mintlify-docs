@@ -10,7 +10,7 @@ Every question you ask [GLiDE](/concepts/glide) uses one of three types, sent to
 
 - **[Noul](/concepts/glide-noul)** — a yes/no question that returns a probability between 0 and 1. Think of it as a boolean on a sliding scale. "Does this request qualify for a refund?" might return `0.999` — a 99.9% probability the answer is yes.
 - **[Choice](/concepts/glide-choice)** — a pick-one-from-many question that returns a probability distribution over up to 255 named options. "Which team should handle this?" might return `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/concepts/glide-score)** — a rate-on-a-scale question over an ordered rubric you define. "How urgent is this request?" with three levels might return `score: 1` (medium) and `expected_level: 1.9` — closer to "high" than a clean medium.
+- **[Score](/concepts/glide-score)** — a rate-on-a-scale question over an ordered rubric you define. "How urgent is this request?" with three levels might return `score: 1` (medium) and `expected_level: 0.9` — a probability-weighted result close to medium.
 
 Pick the type that matches the shape of the answer your code needs.
 
@@ -20,11 +20,24 @@ Pick the type that matches the shape of the answer your code needs.
 
 There is no multi-label primitive — each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments; see [Combining multiple questions](#combining-multiple-questions).
 
+## Limits
+
+- Each rendered question prompt (`state` plus that question) must fit within **40,000
+  tokens**.
+- Choice and Score accept up to **255 options or levels**.
+- One request evaluates one shared `state`. Put multiple named questions under `questions`;
+  `/v1/systemone` does not accept a batch of independent states.
+- `usage.input_tokens` sums internal passes across questions, so it can exceed 40,000 even
+  though every individual rendered prompt fits.
+
 ## Endpoint
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/systemone` | Run one or more typed decision questions against a state |
+
+See [GLiDE inference](/inference/systemone) for authentication, a complete cURL request,
+response handling, retries, and errors.
 
 ## Request parameters
 
@@ -41,7 +54,9 @@ There is no multi-label primitive — each question is single-label. Ask several
 </ParamField>
 
 <Note>
-  Any other top-level request key returns `422 Extra inputs are not permitted`.
+  OpenRouter compatibility fields `provider`, `user`, `session_id`, and `trace` are accepted
+  and not forwarded to GLiDE. Any other top-level request key returns
+  `422 Extra inputs are not permitted`.
 </Note>
 
 ### State shapes
@@ -88,7 +103,7 @@ Ask multiple questions of different types against the same `state` in a single c
 
 ```bash cURL
 curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: YOUR_API_KEY" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "fastino/glide",

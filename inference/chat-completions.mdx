@@ -1,7 +1,7 @@
 ---
-title: "GLiNER extraction, classification, and relations"
-sidebarTitle: "Chat Completions"
-description: "Run GLiNER entity extraction, classification, structured extraction, and relation schemas through POST /v1/chat/completions."
+title: "GLiNER inference with /v1/chat/completions"
+sidebarTitle: "GLiNER Inference"
+description: "Use POST /v1/chat/completions for GLiNER extraction, classification, records, and relations—not for GLiDE decisions."
 noindex: true
 ---
 
@@ -9,10 +9,33 @@ noindex: true
 POST https://api.fastino.ai/v1/chat/completions
 ```
 
-This endpoint uses an OpenAI-compatible envelope: an inference-capable `model`, a `messages`
-list, and a top-level `schema` describing the GLiNER task. See the [Inference API
-overview](/inference) for authentication and cold-start/retry behavior shared across Fastino's
-inference interfaces.
+This page documents the **GLiNER** contract on the OpenAI-compatible `model` and `messages`
+envelope:
+
+- Add a top-level `schema` describing extraction, classification, structured records, or
+  relations.
+- Parse the JSON string in `choices[0].message.content`.
+
+Decoder LLMs also use `/v1/chat/completions`, but omit `schema` and return generated text
+instead of a GLiNER result.
+
+<Warning>
+  This is not the GLiDE endpoint. For GLiDE classification, routing, or scoring, use
+  [`POST /v1/systemone`](/inference/systemone) with `state` and typed `questions`.
+</Warning>
+
+## Authenticate
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+```http
+Authorization: Bearer $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+`X-API-Key: $FASTINO_API_KEY` is also accepted. Use one style consistently.
 
 <Warning>
   `POST /inference` has been removed. Do not send its legacy fields such as `model_id`, `text`,
@@ -231,14 +254,14 @@ string in `choices[0].message.content`:
     "completion_tokens": 0,
     "total_tokens": 0
   },
-  "x_pioneer": {
+  "x_fastino": {
     "inference_id": "..."
   }
 }
 ```
 
 Parse `choices[0].message.content` as JSON before reading task results. When `store=true`,
-`x_pioneer.inference_id` identifies the persisted inference.
+`x_fastino.inference_id` identifies the persisted inference.
 
 ## Repeated inputs
 
