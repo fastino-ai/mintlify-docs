@@ -1,3 +1,9 @@
+---
+title: "Fastino API instructions for agents"
+hidden: true
+noindex: true
+---
+
 # Fastino API instructions for agents
 
 Use the published Fastino documentation and canonical public OpenAPI specification when building an integration.
