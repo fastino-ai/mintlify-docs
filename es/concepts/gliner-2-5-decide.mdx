@@ -1,14 +1,14 @@
 ---
 title: "GLiNER-2.5-Decide"
 sidebarTitle: "GLiNER-2.5-Decide"
-description: "Usa decisiones tipadas, restricciones, extracción, relaciones y registros estructurados para una toma de decisiones de baja latencia."
+description: "Descubre cuándo y cómo usar GLiNER-2.5-Decide para combinar decisiones tipadas con extracción de fragmentos, relaciones y registros estructurados en una sola llamada de baja latencia."
 ---
 
 GLiNER-2.5-Decide es un modelo de decisión para aplicaciones que necesitan emitir varios juicios relacionados a partir del mismo texto. Combina decisiones tipadas con restricciones explícitas, extracción de fragmentos, relaciones y registros estructurados.
 
-## Capacidades del modelo y casos de uso
+## Cuándo usar GLiNER-2.5-Decide
 
-Los modelos de decisión son especialmente útiles cuando el software debe emitir varios juicios relacionados a partir del mismo texto. GLiNER-2.5-Decide admite casos de uso que requieren una toma de decisiones determinista y de baja latencia.
+Recurre a GLiNER-2.5-Decide cuando la tarea sea una decisión (una etiqueta, una ruta, una puntuación) en lugar del texto extraído subyacente. Es especialmente útil cuando el software debe emitir varios juicios relacionados a partir de la misma entrada en una sola llamada de baja latencia.
 
 1. **Enrutamiento de modelos.** Enruta solicitudes según el destino, la complejidad o el nivel de escalado. Devuelve la ruta seleccionada con probabilidades y puntuaciones de confianza.
 2. **Llamadas a herramientas.** Selecciona entre un conjunto permitido de herramientas y captura los argumentos de la solicitud como registros estructurados.
@@ -18,7 +18,45 @@ Los modelos de decisión son especialmente útiles cuando el software debe emiti
 6. **LLM como juez.** Expresa los criterios de la rúbrica como preguntas categóricas u ordinales. Devuelve los valores seleccionados con distribuciones de probabilidad y puntuaciones de confianza.
 7. **Juegos y simulaciones.** Evalúa el estado del juego para determinar la intención, la acción o el resultado. Representa a los actores y la información de estado mediante entidades, relaciones y registros estructurados.
 
+Usa [GLiNER 2.5](/es/concepts/gliner) en su lugar cuando necesites obtener los fragmentos literales, registros estructurados o un grafo de relaciones, no una etiqueta de decisión.
+
+## Cómo usar GLiNER-2.5-Decide
+
+Llámalo a través del mismo endpoint de inferencia de Fastino que cualquier modelo GLiNER, usando un esquema `classifications`. Puntúa varios juicios relacionados en una sola llamada añadiendo más entradas de tarea:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-decide",
+    "messages": [
+      { "role": "user", "content": "My subscription renewed on April 15 after the service was already down. Can I get that refunded?" }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem", "speak_to_human"],
+          "multi_label": false
+        },
+        {
+          "task": "urgency",
+          "labels": ["low", "normal", "high", "critical"],
+          "multi_label": false
+        }
+      ]
+    }
+  }'
+```
+
+`intent` y `urgency` se puntúan en la misma pasada hacia adelante, de modo que un enrutador obtiene todos los juicios que necesita en una sola llamada en lugar de encadenar varias solicitudes al modelo. Consulta la referencia de la [API de inferencia](/es/inference) para ver el contrato completo de solicitud y respuesta, incluida la clasificación multietiqueta y los umbrales de confianza.
+
 <CardGroup cols={2}>
+  <Card title="GLiNER 2.5" icon="blocks" href="/es/concepts/gliner">
+    ¿Necesitas el texto extraído y no una decisión? Compara los casos de uso.
+  </Card>
+
   <Card title="Ver el catálogo de modelos" icon="table-list" href="/es/concepts/models">
     Explora los modelos de Fastino y sus IDs de modelo.
   </Card>

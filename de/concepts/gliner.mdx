@@ -1,20 +1,49 @@
 ---
 title: "GLiNER"
 sidebarTitle: "GLiNER"
-description: "Vergleichen Sie GLiNER2.5, GLiNER2 und GLiNER für effiziente Informationsextraktion."
+description: "Erfahren Sie, wann und wie Sie GLiNER 2.5 für strukturierte Extraktion einsetzen, und vergleichen Sie es mit GLiNER2 und GLiNER."
 ---
 
-GLiNER ist eine Open-Source-Familie kleiner Sprachmodelle für effiziente Informationsextraktion.
+GLiNER ist eine Open-Source-Familie kleiner Sprachmodelle für effiziente Informationsextraktion. GLiNER 2.5 ist die aktuelle Generation und die Standardwahl für neue Extraktionsaufgaben.
 
-## GLiNER2.5
+## Wann Sie GLiNER 2.5 verwenden sollten
 
-GLiNER2.5 ersetzt die Span-Enumeration durch eine Architektur zur Grenzvorhersage. Es unterstützt Spans beliebiger Länge innerhalb des Modellkontexts, Extraktion aus langem Kontext, gemeinsame Entitäts- und Relationsextraktion, regelbasierte Klassifikation sowie Span-Attribute. Es bleibt kompakt und kann ohne GPU laufen.
+Greifen Sie zu GLiNER 2.5, wenn die Aufgabe eine Extraktionsaufgabe ist — wenn Sie die wörtlichen Spans, strukturierte Datensätze oder einen Relationsgraphen aus dem Text benötigen und nicht ein einzelnes Entscheidungs-Label.
 
-- **Unbegrenzte Span-Länge** — Extrahieren Sie vollständige Adressen, juristische Verweise und andere lange Entitäten, ohne eine maximale Span-Breite konfigurieren zu müssen.
-- **Regelbasierte Klassifikation** — Definieren Sie Regeln aufgabenübergreifend, um widersprüchliche Label-Kombinationen zu verhindern.
-- **Span-Attribute** — Klassifizieren Sie extrahierte Spans im selben Vorwärtsdurchlauf nach Attributen wie Sentiment, Schweregrad oder Negation.
-- **Extraktion aus langem Kontext** — Verarbeiten Sie Verträge, Berichte und Transkripte mit einem Kontext von 4.096 Wörtern und teilen Sie längere Dokumente auf, ohne die Offsets zu verlieren.
-- **Gemeinsame Informationsextraktion** — Extrahieren Sie Entitäten und Relationen als einen schema-gebundenen Graphen für Wissensdatenbanken und Agenten-Speicher.
+- **Entitätsextraktion** — Extrahieren Sie Personen, Organisationen, Produkte, Orte oder domänenspezifische Entitäten (Medikamente, Dosierungen, Klauseln) aus Freitext, inklusive Zeichen-Offsets und Konfidenzwerten.
+- **Strukturierte Datensätze** — Verwandeln Sie „Alice bought apples and Bob bought oranges" in `[{"buyer": "Alice", "item": "apples"}, {"buyer": "Bob", "item": "oranges"}]`, wobei die Felder jeder Instanz miteinander verknüpft bleiben.
+- **Relations- und Wissensgraph-Extraktion** — Extrahieren Sie typisierte Entitäts-Relations-Graphen (`works_for`, `located_in`) für Agenten-Speicher oder eine Wissensdatenbank.
+- **Span-Attribute** — Versehen Sie jede extrahierte Entität im selben Durchlauf wie die Extraktion mit einem Attribut, etwa dem Sentiment pro Person.
+- **Lange Dokumente** — Verarbeiten Sie Verträge, Transkripte und Berichte mit bis zu 4.096 Wörtern, mit automatischem Chunking und Offset-Neuzuordnung für alles, was länger ist.
+- **Mehrere Aufgaben gleichzeitig** — Kombinieren Sie Entitäten, Klassifikation, Strukturen und Relationen in einem einzigen schema-gebundenen Aufruf, statt mehrere Modellanfragen zu verketten.
+
+Verwenden Sie stattdessen [GLiNER-2.5-Decide](/de/concepts/gliner-2-5-decide), wenn die Aufgabe eine Entscheidung ist — eine Route, ein Label, ein Score — und nicht der zugrunde liegende Text.
+
+## So verwenden Sie GLiNER 2.5
+
+Rufen Sie den mehrsprachigen Checkpoint über den OpenAI-kompatiblen Inferenz-Endpunkt von Fastino auf. Geben Sie den Text in einer User-Nachricht an und beschreiben Sie die Aufgabe in `schema`:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      { "role": "user", "content": "Apple CEO Tim Cook unveiled the iPhone 15 Pro in Cupertino." }
+    ],
+    "schema": {
+      "entities": [
+        { "name": "person", "description": "named individual" },
+        { "name": "organization", "description": "business or institution name" },
+        { "name": "product", "description": "named commercial product" },
+        { "name": "location", "description": "city, region, or place" }
+      ]
+    }
+  }'
+```
+
+Fügen Sie demselben `schema` die Schlüssel `classifications`, `structures` oder `relations` hinzu, um mehrere Aufgaben in einem Aufruf über denselben Text auszuführen. In der Referenz zur [Inferenz-API](/de/inference) finden Sie den vollständigen Request- und Response-Vertrag, einschließlich strukturierter Datensätze und Relationsschemas.
 
 ## GLiNER-Generationen vergleichen
 
@@ -37,7 +66,15 @@ GLiNER2.5 ist der empfohlene Ausgangspunkt für neue Extraktionsprojekte. Verwen
     Lesen Sie über die Architektur, Benchmarks und Anwendungsfälle.
   </Card>
 
+  <Card title="GLiNER-2.5-Decide" icon="sparkle" href="/de/concepts/gliner-2-5-decide">
+    Benötigen Sie eine Entscheidung statt extrahierten Texts? Vergleichen Sie die Anwendungsfälle.
+  </Card>
+
   <Card title="Modellkatalog ansehen" icon="table-list" href="/de/concepts/models">
     Durchsuchen Sie Fastino-Modelle und ihre Modell-IDs.
+  </Card>
+
+  <Card title="Referenz zur Inferenz-API" icon="braces" href="/de/inference">
+    Vollständiger Request- und Response-Vertrag, einschließlich strukturierter Datensätze und Relationen.
   </Card>
 </CardGroup>
