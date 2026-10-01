@@ -1,42 +1,113 @@
 ---
-title: "Example use cases"
-description: "Use cases for GLiNER in agent, retrieval, data, research, safety, and quality workflows."
+title: "GLiDE use cases"
+description: "Practical GLiDE patterns for binary gates, routing, classification, scoring, and review workflows."
 ---
 
-Use GLiNER when your workflow needs fast, structured decisions from text.
+Use GLiDE when your application must evaluate a situation and return structured,
+probabilistic decisions instead of generated text. Send one `state` and one or more
+typed `questions` to [`POST /v1/systemone`](/inference/systemone).
 
-## Choose a model
+## Choose a primitive
 
-| Need | Start with |
-| --- | --- |
-| Extract entities, labels, relationships, or policy signals | GLiNER |
-| Route an agent or decide whether a person should review work | GLiNER |
+| Decision shape | Primitive | Result |
+| --- | --- | --- |
+| Yes or no, with a probability | [Noul](/concepts/glide-noul) | `noul`, the probability of yes |
+| Exactly one named option | [Choice](/concepts/glide-choice) | Winning label and probabilities for every option |
+| One level on an ordered scale | [Score](/concepts/glide-score) | Winning level, expected level, and probabilities |
 
-## GLiNER: structured decisions for AI systems
+GLiDE answers each question independently against the same state. There is no
+multi-label primitive. Ask multiple Noul questions when several labels may all apply.
 
-### Agent and browser workflows
+## Triage in one call
 
-- **Browser use and automation:** identify page intent, relevant fields, warnings, and actions that need confirmation.
-- **Context compaction:** extract decisions, tasks, deadlines, and user preferences from conversations or agent traces.
-- **Model routing:** classify domain, complexity, latency requirements, and risk before selecting a model or workflow.
-- **Agent supervision:** detect drift, repeated failures, missing deliverables, risky tool calls, irrelevant context, poor output quality, or when a human should step in.
+A support request can be routed, scored, and checked for refund eligibility in one
+request. Each answer remains separate, so your application can apply a different
+threshold or action to each one.
 
-### Retrieval, data, and research
+```json
+{
+  "model": "fastino/glide",
+  "state": {
+    "message": "I was charged twice for order A-104. Please refund the duplicate.",
+    "account_tier": "business",
+    "refund_policy": "Duplicate charges qualify for an immediate refund."
+  },
+  "questions": {
+    "team": {
+      "type": "choice",
+      "instructions": "Which team should handle this request?",
+      "criteria": {
+        "billing": "Payments, invoices, or duplicate charges",
+        "returns": "Product returns or replacements",
+        "technical": "Product defects or technical support"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgently should the team respond?",
+      "criteria": [
+        "low: can wait for the normal queue",
+        "medium: should be handled soon",
+        "high: requires immediate attention"
+      ]
+    },
+    "refund_allowed": {
+      "type": "noul",
+      "instructions": "Does the request qualify for a refund under the supplied policy?",
+      "criteria": {
+        "true": "The policy allows the refund",
+        "false": "The policy does not allow the refund"
+      }
+    }
+  }
+}
+```
 
-- **RAG:** select relevant passages before generation and check retrieved context for relevance or conflicts.
-- **Knowledge graphs and agent memory:** extract entities and relationships from documents or conversations into a queryable fact layer.
-- **Text classification:** sort emails, tickets, and documents into operational labels such as spam, urgent, refund request, or sales inquiry.
-- **PII detection and redaction:** identify sensitive data before storage, indexing, or model calls.
-- **Forecasting and market intelligence:** turn customer feedback, filings, transcripts, and news into signals such as demand, supply concerns, competitor mentions, and management changes.
+Read the results according to their primitive:
 
-### Safety and quality checks
+- `answers.team.choice` is the selected route. Use `probabilities` to inspect alternatives.
+- `answers.urgency.score` is the winning level index. Use `expected_level` for a smoother threshold.
+- `answers.refund_allowed.noul` is the probability of yes. Choose and validate your own action threshold.
 
-- **LLM guardrails and moderation:** screen prompts and outputs for harmful content, sensitive data, and policy violations.
-- **Prompt-injection detection:** flag attempts to override instructions, exfiltrate data, or manipulate tool use.
-- **Semantic code linting:** check generated code and pull requests for conventions that syntax alone cannot catch.
+## Common patterns
+
+| Use case | State | Questions |
+| --- | --- | --- |
+| Agent action review | Proposed tool call, visible context, and policy | Noul: may the action run? Choice: execute, revise, or escalate |
+| Content moderation | Content plus the applicable policy | Choice: policy category. Score: severity. Noul: send to human review? |
+| Model or workflow routing | Request, latency target, and available routes | Choice: route. Score: complexity. Noul: use the expensive fallback? |
+| Quality control | Output plus explicit requirements or rubric | One Noul per requirement. Score: overall quality or risk |
+| Operations triage | Ticket, account context, and operating policy | Choice: owner. Score: urgency. Noul: eligible for an automated action? |
+
+For agent monitoring, evaluate only artifacts your system is allowed to collect,
+such as tool calls and user-visible logs. Do not use hidden chain-of-thought as an
+operational monitoring surface.
+
+## Design reliable questions
+
+- Include the evidence and policy needed for the decision in `state`.
+- Make Choice options mutually exclusive. Add `other` or `none` when the listed
+  options are not exhaustive.
+- Write Score criteria from lowest to highest and describe every level clearly.
+- Use independent Noul questions for multi-label checks.
+- Evaluate probabilities and confidence on representative data before setting
+  automation thresholds.
+- Route uncertain or high-impact outcomes to a safer fallback.
 
 <Warning>
-  For agent monitoring, evaluate only artifacts your system is allowed to collect, such as tool calls and user-visible logs. Do not use hidden chain-of-thought as an operational monitoring surface.
+  GLiDE is probabilistic. Do not use it as the only authority for irreversible,
+  safety-critical, legal, medical, employment, credit, or access-control decisions.
 </Warning>
 
-Start with a measurable task and a small evaluation set built from permissioned examples. Define the labels or schema that represent the structured decisions your workflow needs.
+## When GLiDE is not the right tool
+
+| Need | Use instead |
+| --- | --- |
+| Extract names, spans, entities, or relationships from text | [GLiNER](/concepts/gliner) |
+| Generate, summarize, or rewrite free-form text | A generative language model |
+| Enforce an exact deterministic rule | Application code or a policy engine |
+| Return several labels from one question | Separate Noul questions, one per label |
+
+Start with the [quickstart](/quickstart), then use the
+[GLiDE Reference](/concepts/decision-models) to define your production question
+schema.

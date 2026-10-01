@@ -1,42 +1,101 @@
 ---
-title: "示例用例"
-description: "GLiNER 在智能体与浏览器工作流、检索、数据与研究以及安全与质量检查中的示例用例，涵盖模型路由、RAG、PII 检测与脱敏和提示词注入检测。"
+title: "GLiDE 用例"
+description: "GLiDE 在二元判断、路由、分类、评分和审核工作流中的实用模式。"
 ---
 
-当你的工作流需要从文本中快速获得结构化决策时，请使用 GLiNER。
+当你的应用需要评估某种情形并返回结构化的概率决策，而不是生成文本时，请使用 GLiDE。将一个 `state` 和一个或多个带类型的 `questions` 发送至 [`POST /v1/systemone`](/cn/inference/systemone)。
 
-## 选择模型
+## 选择一种原语
 
-| 需求 | 推荐起点 |
-| --- | --- |
-| 抽取实体、标签、关系或策略信号 | GLiNER |
-| 为智能体路由，或判断是否需要人工审核工作 | GLiNER |
+| 决策形式 | 原语 | 结果 |
+| --- | --- | --- |
+| 是或否，并附带概率 | [Noul](/cn/concepts/glide-noul) | `noul`，回答为“是”的概率 |
+| 从有名称的选项中恰好选择一个 | [Choice](/cn/concepts/glide-choice) | 胜出标签以及每个选项的概率 |
+| 在有序量表上选择一个等级 | [Score](/cn/concepts/glide-score) | 胜出等级、期望等级以及各等级的概率 |
 
-## GLiNER：面向 AI 系统的结构化决策
+GLiDE 会根据同一个 state 独立回答每个问题。它没有多标签原语。当多个标签可能同时适用时，请提出多个 Noul 问题。
 
-### 智能体与浏览器工作流
+## 一次调用完成分诊
 
-- **浏览器使用与自动化：** 识别页面意图、相关字段、警告以及需要确认的操作。
-- **上下文压缩：** 从对话或智能体轨迹中抽取决策、任务、截止日期和用户偏好。
-- **模型路由：** 在选择模型或工作流之前，对领域、复杂度、延迟要求和风险进行分类。
-- **智能体监督：** 检测偏离、重复失败、缺失的交付物、有风险的工具调用、无关上下文、低质量输出，或何时需要人工介入。
+一个支持请求可以在一次请求中完成路由、评分和退款资格检查。每个答案彼此独立，因此你的应用可以为每个答案采用不同的阈值或操作。
 
-### 检索、数据与研究
+```json
+{
+  "model": "fastino/glide",
+  "state": {
+    "message": "I was charged twice for order A-104. Please refund the duplicate.",
+    "account_tier": "business",
+    "refund_policy": "Duplicate charges qualify for an immediate refund."
+  },
+  "questions": {
+    "team": {
+      "type": "choice",
+      "instructions": "Which team should handle this request?",
+      "criteria": {
+        "billing": "Payments, invoices, or duplicate charges",
+        "returns": "Product returns or replacements",
+        "technical": "Product defects or technical support"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgently should the team respond?",
+      "criteria": [
+        "low: can wait for the normal queue",
+        "medium: should be handled soon",
+        "high: requires immediate attention"
+      ]
+    },
+    "refund_allowed": {
+      "type": "noul",
+      "instructions": "Does the request qualify for a refund under the supplied policy?",
+      "criteria": {
+        "true": "The policy allows the refund",
+        "false": "The policy does not allow the refund"
+      }
+    }
+  }
+}
+```
 
-- **RAG：** 在生成前选择相关段落，并检查检索到的上下文是否相关或存在冲突。
-- **知识图谱与智能体记忆：** 从文档或对话中抽取实体和关系，构建可查询的事实层。
-- **文本分类：** 将邮件、工单和文档归入垃圾邮件、紧急、退款请求或销售咨询等业务标签。
-- **PII 检测与脱敏：** 在存储、索引或调用模型之前识别敏感数据。
-- **预测与市场情报：** 将客户反馈、监管文件、会议记录和新闻转化为需求、供应担忧、竞争对手提及和管理层变动等信号。
+请根据各自的原语读取结果：
 
-### 安全与质量检查
+- `answers.team.choice` 是所选路由。使用 `probabilities` 查看其他选项。
+- `answers.urgency.score` 是胜出等级的索引。使用 `expected_level` 获得更平滑的阈值。
+- `answers.refund_allowed.noul` 是回答为“是”的概率。请自行选择并验证操作阈值。
 
-- **LLM 防护与内容审核：** 筛查提示词和输出中的有害内容、敏感数据和违规行为。
-- **提示词注入检测：** 标记试图覆盖指令、窃取数据或操纵工具使用的行为。
-- **语义代码检查：** 检查生成的代码和 pull request 是否符合仅靠语法无法发现的约定。
+## 常见模式
+
+| 用例 | 状态 | 问题 |
+| --- | --- | --- |
+| 智能体操作审核 | 建议的工具调用、可见上下文和策略 | Noul：是否可以执行该操作？Choice：执行、修改或升级处理 |
+| 内容审核 | 内容以及适用的策略 | Choice：策略类别。Score：严重程度。Noul：是否交由人工审核？ |
+| 模型或工作流路由 | 请求、延迟目标和可用路由 | Choice：路由。Score：复杂度。Noul：是否使用成本较高的回退方案？ |
+| 质量控制 | 输出以及明确的要求或评分标准 | 每项要求对应一个 Noul。Score：整体质量或风险 |
+| 运营分诊 | 工单、账户上下文和运营策略 | Choice：负责人。Score：紧急程度。Noul：是否符合自动执行操作的条件？ |
+
+进行智能体监控时，只评估你的系统获准收集的产物，例如工具调用和用户可见的日志。不要将隐藏的思维链用作运营监控依据。
+
+## 设计可靠的问题
+
+- 在 `state` 中包含决策所需的证据和策略。
+- 确保 Choice 选项互斥。当列出的选项并不完备时，请添加 `other` 或 `none`。
+- 按从低到高的顺序编写 Score 标准，并清楚描述每个等级。
+- 使用相互独立的 Noul 问题进行多标签检查。
+- 在设置自动化阈值之前，先使用有代表性的数据评估概率和置信度。
+- 对不确定或影响重大的结果采用更安全的回退方案。
 
 <Warning>
-  进行智能体监控时，只评估你的系统被允许收集的产物，例如工具调用和用户可见的日志。不要将隐藏的思维链用作运营监控依据。
+  GLiDE 具有概率性。对于不可逆、安全关键、法律、医疗、就业、信贷或访问控制决策，请勿将其作为唯一的判断依据。
 </Warning>
 
-从一个可衡量的任务和一个基于已获授权示例构建的小型评估集开始。定义能够表示你的工作流所需结构化决策的标签或 schema。
+## 不适合使用 GLiDE 的情形
+
+| 需求 | 替代方案 |
+| --- | --- |
+| 从文本中抽取名称、文本跨度、实体或关系 | [GLiNER](/cn/concepts/gliner) |
+| 生成、总结或改写自由形式文本 | 生成式语言模型 |
+| 执行精确的确定性规则 | 应用代码或策略引擎 |
+| 通过一个问题返回多个标签 | 使用相互独立的 Noul 问题，每个标签对应一个问题 |
+
+请先阅读[快速入门](/cn/quickstart)，然后使用 [GLiDE 参考文档](/cn/concepts/decision-models)定义你的生产问题模式。

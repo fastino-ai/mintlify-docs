@@ -1,42 +1,117 @@
 ---
-title: "Exemples de cas d'usage"
-description: "Cas d'usage de GLiNER dans les workflows d'agents, de recherche documentaire, de données, de recherche, de sécurité et de qualité."
+title: "Cas d'usage de GLiDE"
+description: "Modèles pratiques d'utilisation de GLiDE pour les décisions binaires, le routage, la classification, la notation et les workflows de révision."
 ---
 
-Utilisez GLiNER lorsque votre workflow a besoin de décisions rapides et structurées à partir de texte.
+Utilisez GLiDE lorsque votre application doit évaluer une situation et renvoyer des
+décisions structurées et probabilistes plutôt que du texte généré. Envoyez un `state`
+et une ou plusieurs `questions` typées à [`POST /v1/systemone`](/fr/inference/systemone).
 
-## Choisir un modèle
+## Choisir une primitive
 
-| Besoin | Commencez par |
-| --- | --- |
-| Extraire des entités, des étiquettes, des relations ou des signaux de politique | GLiNER |
-| Router un agent ou décider si une personne doit relire le travail | GLiNER |
+| Forme de décision | Primitive | Résultat |
+| --- | --- | --- |
+| Oui ou non, avec une probabilité | [Noul](/fr/concepts/glide-noul) | `noul`, la probabilité d'un oui |
+| Exactement une option nommée | [Choice](/fr/concepts/glide-choice) | Étiquette gagnante et probabilités de chaque option |
+| Un niveau sur une échelle ordonnée | [Score](/fr/concepts/glide-score) | Niveau gagnant, niveau attendu et probabilités |
 
-## GLiNER : des décisions structurées pour les systèmes d'IA
+GLiDE répond à chaque question indépendamment à partir du même état. Il n'existe pas
+de primitive multi-étiquette. Posez plusieurs questions Noul lorsque plusieurs
+étiquettes peuvent toutes s'appliquer.
 
-### Workflows d'agents et de navigateur
+## Triage en un seul appel
 
-- **Utilisation du navigateur et automatisation :** identifiez l'intention de la page, les champs pertinents, les avertissements et les actions qui nécessitent une confirmation.
-- **Compaction du contexte :** extrayez les décisions, les tâches, les échéances et les préférences utilisateur à partir de conversations ou de traces d'agents.
-- **Routage de modèles :** classez le domaine, la complexité, les exigences de latence et le risque avant de sélectionner un modèle ou un workflow.
-- **Supervision d'agents :** détectez les dérives, les échecs répétés, les livrables manquants, les appels d'outils risqués, le contexte non pertinent, la mauvaise qualité des sorties ou le moment où une personne doit intervenir.
+Une demande d'assistance peut être routée, notée et vérifiée pour déterminer son
+admissibilité à un remboursement dans une seule requête. Chaque réponse reste
+distincte, afin que votre application puisse appliquer un seuil ou une action
+différents à chacune.
 
-### Recherche documentaire, données et recherche
+```json
+{
+  "model": "fastino/glide",
+  "state": {
+    "message": "I was charged twice for order A-104. Please refund the duplicate.",
+    "account_tier": "business",
+    "refund_policy": "Duplicate charges qualify for an immediate refund."
+  },
+  "questions": {
+    "team": {
+      "type": "choice",
+      "instructions": "Which team should handle this request?",
+      "criteria": {
+        "billing": "Payments, invoices, or duplicate charges",
+        "returns": "Product returns or replacements",
+        "technical": "Product defects or technical support"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgently should the team respond?",
+      "criteria": [
+        "low: can wait for the normal queue",
+        "medium: should be handled soon",
+        "high: requires immediate attention"
+      ]
+    },
+    "refund_allowed": {
+      "type": "noul",
+      "instructions": "Does the request qualify for a refund under the supplied policy?",
+      "criteria": {
+        "true": "The policy allows the refund",
+        "false": "The policy does not allow the refund"
+      }
+    }
+  }
+}
+```
 
-- **RAG :** sélectionnez les passages pertinents avant la génération et vérifiez la pertinence ou les conflits du contexte récupéré.
-- **Graphes de connaissances et mémoire d'agent :** extrayez des entités et des relations de documents ou de conversations dans une couche de faits interrogeable.
-- **Classification de texte :** triez les e-mails, tickets et documents selon des étiquettes opérationnelles telles que spam, urgent, demande de remboursement ou demande commerciale.
-- **Détection et masquage des PII :** identifiez les données sensibles avant le stockage, l'indexation ou les appels au modèle.
-- **Prévisions et veille de marché :** transformez les retours clients, les documents réglementaires, les transcriptions et les actualités en signaux tels que la demande, les problèmes d'approvisionnement, les mentions de concurrents et les changements de direction.
+Interprétez les résultats en fonction de leur primitive :
 
-### Contrôles de sécurité et de qualité
+- `answers.team.choice` est la route sélectionnée. Utilisez `probabilities` pour examiner les autres possibilités.
+- `answers.urgency.score` est l'indice du niveau gagnant. Utilisez `expected_level` pour définir un seuil plus progressif.
+- `answers.refund_allowed.noul` est la probabilité d'un oui. Choisissez et validez votre propre seuil d'action.
 
-- **Guardrails et modération des LLM :** filtrez les prompts et les sorties pour détecter les contenus nuisibles, les données sensibles et les violations de politique.
-- **Détection d'injection de prompt :** signalez les tentatives de contourner les instructions, d'exfiltrer des données ou de manipuler l'utilisation des outils.
-- **Linting sémantique du code :** vérifiez le code généré et les pull requests pour repérer les conventions que la syntaxe seule ne peut pas détecter.
+## Modèles courants
+
+| Cas d'usage | État | Questions |
+| --- | --- | --- |
+| Révision des actions d'un agent | Appel d'outil proposé, contexte visible et politique | Noul : l'action peut-elle être exécutée ? Choice : exécuter, réviser ou transmettre |
+| Modération de contenu | Contenu et politique applicable | Choice : catégorie de politique. Score : gravité. Noul : transmettre à une personne pour révision ? |
+| Routage de modèles ou de workflows | Requête, objectif de latence et routes disponibles | Choice : route. Score : complexité. Noul : utiliser la solution de secours coûteuse ? |
+| Contrôle qualité | Sortie et exigences explicites ou grille d'évaluation | Une question Noul par exigence. Score : qualité globale ou risque |
+| Triage opérationnel | Ticket, contexte du compte et politique opérationnelle | Choice : responsable. Score : urgence. Noul : admissible à une action automatisée ? |
+
+Pour la surveillance des agents, évaluez uniquement les artefacts que votre système
+est autorisé à collecter, tels que les appels d'outils et les journaux visibles par
+l'utilisateur. N'utilisez pas la chaîne de pensée cachée comme surface de surveillance
+opérationnelle.
+
+## Concevoir des questions fiables
+
+- Incluez dans `state` les éléments probants et la politique nécessaires à la décision.
+- Assurez-vous que les options Choice s'excluent mutuellement. Ajoutez `other` ou `none`
+  lorsque les options répertoriées ne sont pas exhaustives.
+- Rédigez les critères Score du niveau le plus bas au plus élevé et décrivez clairement chaque niveau.
+- Utilisez des questions Noul indépendantes pour les vérifications multi-étiquettes.
+- Évaluez les probabilités et la confiance sur des données représentatives avant de
+  définir les seuils d'automatisation.
+- Orientez les résultats incertains ou à fort impact vers une solution de secours plus sûre.
 
 <Warning>
-  Pour la surveillance des agents, évaluez uniquement les artefacts que votre système est autorisé à collecter, comme les appels d'outils et les journaux visibles par l'utilisateur. N'utilisez pas la chaîne de pensée cachée comme surface de surveillance opérationnelle.
+  GLiDE est probabiliste. Ne l'utilisez pas comme seule autorité pour les décisions
+  irréversibles, critiques pour la sécurité, juridiques, médicales, liées à l'emploi,
+  au crédit ou au contrôle d'accès.
 </Warning>
 
-Commencez par une tâche mesurable et un petit jeu d'évaluation construit à partir d'exemples autorisés. Définissez les étiquettes ou le schéma qui représentent les décisions structurées dont votre workflow a besoin.
+## Quand GLiDE n'est pas l'outil adapté
+
+| Besoin | Utilisez plutôt |
+| --- | --- |
+| Extraire des noms, des segments, des entités ou des relations à partir de texte | [GLiNER](/fr/concepts/gliner) |
+| Générer, résumer ou réécrire du texte libre | Un modèle de langage génératif |
+| Appliquer une règle déterministe exacte | Du code applicatif ou un moteur de politiques |
+| Renvoyer plusieurs étiquettes à partir d'une seule question | Des questions Noul distinctes, une par étiquette |
+
+Commencez par le [guide de démarrage rapide](/fr/quickstart), puis utilisez la
+[référence GLiDE](/fr/concepts/decision-models) pour définir le schéma de vos
+questions de production.
