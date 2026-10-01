@@ -56,6 +56,45 @@ probabilities instead of generated text."
 
 For Cursor, Claude Code, and Codex, the `-a` option selects the target agent and `-y` accepts the installation prompts, making those commands suitable for scripts and CI.
 
+## Migrating from TypeSafe?
+
+Install the GLiDE skill, then copy the prompt below into your coding agent:
+
+```text
+Use the Fastino GLiDE skill to migrate this project from TypeSafe/Jev to
+Fastino GLiDE. Find every TypeSafe API and SDK integration, then:
+
+1. Change the endpoint to https://api.fastino.ai/v1/systemone.
+2. Replace TYPESAFE_API_KEY with FASTINO_API_KEY and send it as X-API-Key.
+3. Replace jev-latest with fastino/glide.
+4. Expect the response model field to be glide.
+5. Preserve non-empty state, question names, and primitive types.
+6. Make every instruction a non-empty string. Make Noul true/false criteria
+   strings, and use ordered arrays for Score criteria where possible.
+7. Remove unsupported top-level request fields.
+8. Replace TypeSafe SDK calls with direct HTTP requests. Remove typesafe-sdk or
+   @typesafe-ai/sdk dependencies and imports after replacing all TypeSafeClient,
+   AsyncTypeSafeClient, question-constructor, and typed-response usage.
+9. Convert SDK object access to decoded JSON access. Check non-2xx responses and
+   use a read timeout of at least 300 seconds.
+10. Where code uses TypeSafe's floating-point score, read GLiDE's
+   expected_level. Use GLiDE's score only for the integer winning level.
+11. Handle Score probabilities and legend as string-keyed maps, and expect
+    legend values to be strings.
+12. Replace 529 retry handling with bounded retries for transport failures, 425,
+    and 503. Keep bounded backoff for 429 and honor Retry-After.
+13. Update tests, model assertions, telemetry, and caches. Revalidate all
+    decision thresholds on representative data.
+
+Do not change unrelated business logic. Show me every changed integration point
+and any behavior that could not be migrated mechanically. Follow
+https://docs.fastino.ai/inference/systemone for the canonical contract.
+```
+
+The request structure is similar, but Score semantics are different. See
+[Migrating from TypeSafe](/inference/systemone#migrating-from-typesafe)
+before shipping the migration.
+
 <CardGroup cols={1}>
   <Card title="View the skill" icon="file-lines" href="https://api.fastino.ai/.well-known/agent-skills/fastino-glide/SKILL.md">
     Review the complete instructions before installing.
