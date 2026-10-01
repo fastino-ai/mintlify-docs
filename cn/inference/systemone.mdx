@@ -1,0 +1,84 @@
+---
+title: "GLiDE 决策"
+sidebarTitle: "GLiDE 决策"
+description: "通过 POST /v1/systemone 运行 GLiDE 分类、路由和评分决策。"
+noindex: true
+---
+
+```text
+POST https://api.fastino.ai/v1/systemone
+```
+
+发送一个 `state`（待评估的情境）以及一个或多个命名的 `questions`，每个问题的类型为
+`noul`、`choice` 或 `score`。GLiDE 直接返回校准后的概率——无需解析生成的文本。有关 Fastino
+各推理接口共享的身份验证和冷启动/重试行为，请参阅[推理 API 概览](/cn/inference)。
+
+完整的 `/v1/systemone` 请求和响应契约（Noul、Choice 和 Score 结构、限制以及置信度）位于
+[决策模型](/cn/concepts/decision-models)，每种基本类型都有专门的页面。本页介绍原始 HTTP 契约。
+
+## 示例
+
+```bash
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## 响应
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+查看当前哪些部署支持 GLiDE 决策的方式与查看 GLiNER 编码器支持的方式相同，只需使用
+`task_type=systemone`：
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
+```
+
+<Card title="决策模型" icon="sparkle" href="/cn/concepts/decision-models">
+  完整的 `/v1/systemone` 契约（Noul、Choice 和 Score 请求与响应结构、限制以及置信度），
+  并为每种问题类型提供完整示例。
+</Card>
+
+## 错误
+
+| 状态码 | 可能原因 | 处理措施 |
+| --- | --- | --- |
+| `400` | 请求或 schema 无效 | 修正请求字段或 schema |
+| `401` | 缺少、格式错误或无效的 API 密钥 | 导出有效的 `fast_sk_...` 密钥 |
+| `402` | 额度不足、需要充值，或所有者设置了每日/每月的支出上限 | 添加额度或调整支出上限 |
+| `403` | 支付方式、卡片验证、信用额度或账户策略拒绝 | 解决相应的计费或账户要求 |
+| `404` | 未知或不受支持的模型 | 使用支持推理的目录 ID |
+| `422` | 请求校验失败 | 阅读并修正字段级别的校验详情 |
+| `425` | 部署正在预热 | 按提示的延迟时间后重试 |
+| `429` | 触发速率或容量限制 | 遵循 `Retry-After` 并使用退避机制重试 |
+| `503` | 冷启动或提供方暂时性容量问题 | 视为终止之前先重试 |
+
+GLiDE 目前不支持微调部署，因此 [`/v1/chat/completions`](/cn/inference/chat-completions#错误)
+中“微调模型存在但未部署”的 `409` 情况在此不适用。
+
+有关共享的重试模式，请参阅[冷启动与重试](/cn/inference#冷启动与重试)。

@@ -1,0 +1,88 @@
+---
+title: "GLiDE-Entscheidungen"
+sidebarTitle: "GLiDE-Entscheidungen"
+description: "Führen Sie GLiDE-Entscheidungen zu Klassifikation, Routing und Bewertung über POST /v1/systemone aus."
+noindex: true
+---
+
+```text
+POST https://api.fastino.ai/v1/systemone
+```
+
+Senden Sie einen `state` (die zu bewertende Situation) und eine oder mehrere benannte `questions`,
+jeweils vom Typ `noul`, `choice` oder `score`. GLiDE gibt kalibrierte Wahrscheinlichkeiten direkt
+zurück – es gibt keinen generierten Text, der geparst werden muss. Informationen zur
+Authentifizierung sowie zum Verhalten bei Kaltstarts und Wiederholungsversuchen, das für alle
+Inferenzschnittstellen von Fastino gilt, finden Sie in der [Übersicht zur Inferenz-API](/de/inference).
+
+Der vollständige Anfrage- und Antwort-Vertrag von `/v1/systemone` – Noul-, Choice- und
+Score-Formen, Limits und Konfidenz – ist unter [Entscheidungsmodelle](/de/concepts/decision-models)
+dokumentiert, mit einer eigenen Seite pro Primitiv. Diese Seite behandelt den rohen HTTP-Vertrag.
+
+## Beispiel
+
+```bash
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## Antwort
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+Welche Bereitstellungen derzeit GLiDE-Entscheidungen unterstützen, prüfen Sie auf dieselbe Weise
+wie die Unterstützung für GLiNER-Encoder, mit `task_type=systemone`:
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
+```
+
+<Card title="Entscheidungsmodelle" icon="sparkle" href="/de/concepts/decision-models">
+  Der vollständige `/v1/systemone`-Vertrag – Anfrage- und Antwortformen für Noul, Choice und Score,
+  Limits und Konfidenz – mit ausgearbeiteten Beispielen für jeden Fragetyp.
+</Card>
+
+## Fehler
+
+| Status | Wahrscheinliche Ursache | Maßnahme |
+| --- | --- | --- |
+| `400` | Ungültige Anfrage oder ungültiges Schema | Korrigieren Sie die Anfragefelder oder das Schema |
+| `401` | Fehlender, falsch formatierter oder ungültiger API-Schlüssel | Exportieren Sie einen gültigen `fast_sk_...`-Schlüssel |
+| `402` | Unzureichende Credits, erforderliche Finanzierung oder ein vom Eigentümer festgelegtes tägliches/monatliches Ausgabenlimit | Fügen Sie Credits hinzu oder passen Sie das Ausgabenlimit an |
+| `403` | Ablehnung wegen Zahlungsmethode, Kartenverifizierung, Kreditlimit oder Kontorichtlinie | Erfüllen Sie die Abrechnungs- oder Kontoanforderung |
+| `404` | Unbekanntes oder nicht unterstütztes Modell | Verwenden Sie eine inferenzfähige Katalog-ID |
+| `422` | Anfragenvalidierung fehlgeschlagen | Lesen und korrigieren Sie die Validierungsdetails auf Feldebene |
+| `425` | Bereitstellung wird aufgewärmt | Wiederholen Sie den Vorgang nach der angegebenen Verzögerung |
+| `429` | Rate- oder Kapazitätslimit | Beachten Sie `Retry-After` und wiederholen Sie mit Backoff |
+| `503` | Kaltstart oder vorübergehendes Kapazitätsproblem des Anbieters | Wiederholen Sie den Vorgang, bevor Sie ihn als endgültig betrachten |
+
+GLiDE unterstützt derzeit keine feinabgestimmten Bereitstellungen, daher trifft der Fall `409`
+„Feingetuntes Modell existiert, ist aber nicht bereitgestellt“ von
+[`/v1/chat/completions`](/de/inference/chat-completions#fehler) hier nicht zu.
+
+Das gemeinsame Wiederholungsmuster finden Sie unter [Kaltstarts und Wiederholungsversuche](/de/inference#kaltstarts-und-wiederholungsversuche).

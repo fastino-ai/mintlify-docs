@@ -1,0 +1,278 @@
+---
+title: "GLiNER-Extraktion, -Klassifikation und -Relationen"
+sidebarTitle: "Chat Completions"
+description: "Führen Sie GLiNER-Entitätsextraktion, Klassifikation, strukturierte Extraktion und Relations-Schemas über POST /v1/chat/completions aus."
+noindex: true
+---
+
+```text
+POST https://api.fastino.ai/v1/chat/completions
+```
+
+Dieser Endpunkt verwendet einen OpenAI-kompatiblen Umschlag: ein inferenzfähiges `model`, eine
+`messages`-Liste und ein `schema` auf oberster Ebene, das die GLiNER-Aufgabe beschreibt.
+Informationen zur Authentifizierung sowie zum Verhalten bei Kaltstarts und Wiederholungsversuchen,
+das für alle Inferenzschnittstellen von Fastino gilt, finden Sie in der [Übersicht zur
+Inferenz-API](/de/inference).
+
+<Warning>
+  `POST /inference` wurde entfernt. Senden Sie keine veralteten Felder wie `model_id`, `text`,
+  `task`, `format_results` oder `is_warmup`.
+</Warning>
+
+## Anfrage
+
+<ParamField body="model" type="string" required>
+  Eine inferenzfähige Basismodell-ID oder die UUID eines abgeschlossenen, bereitstellbaren
+  Fastino-Trainingsjobs.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Eine nicht leere Liste von Nachrichten. Für die GLiNER-Inferenz platzieren Sie den zu
+  analysierenden Text im `content` einer Benutzernachricht.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Definiert benutzerdefinierte Encoder-Aufgaben. Geben Sie ein Dictionary an, das einen oder
+  mehrere der Schlüssel `entities`, `classifications`, `structures` oder `relations` enthält.
+  Lassen Sie es nur weg, wenn das ausgewählte Modell eine konfigurierte Standardaufgabe hat.
+
+  Ein flaches Array von Entitätslabels ist veraltet. Verwenden Sie immer die Dictionary-Form.
+</ParamField>
+
+<ParamField body="threshold" type="number" default="0.5">
+  Konfidenzschwelle von `0` bis `1`. Niedrigere Werte begünstigen Recall; höhere Werte
+  begünstigen Precision.
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean" default="true">
+  Konfidenzwerte in extrahierten Ergebnissen enthalten.
+</ParamField>
+
+<ParamField body="include_spans" type="boolean" default="true">
+  Halboffene Zeichen-Offsets (`start`, `end`) in Entitätsergebnissen enthalten.
+</ParamField>
+
+<ParamField body="store" type="boolean" default="true">
+  Die Inferenz persistieren. Setzen Sie den Wert auf `false`, um dies abzulehnen.
+</ParamField>
+
+## Entitäts-Schema
+
+Verwenden Sie nach Möglichkeit beschreibende Entitätsdefinitionen:
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ]
+}
+```
+
+## Klassifikations-Schema
+
+```json
+{
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+## Schema für strukturierte Extraktion
+
+Strukturfelder verwenden `field::type::description`-Spezifikationen:
+
+```json
+{
+  "structures": {
+    "product": [
+      "name::str::product name",
+      "price::str::listed price",
+      "features::list::named features"
+    ]
+  }
+}
+```
+
+## Relations-Schema
+
+Das einfachste Relations-Schema ist eine flache Liste von Relationsnamen:
+
+```json
+{
+  "relations": ["works_for", "lives_in"]
+}
+```
+
+Sie können auch ein Dictionary verwenden, um Beschreibungen oder eine relationsspezifische
+Konfiguration hinzuzufügen:
+
+```json
+{
+  "relations": {
+    "works_for": {
+      "description": "employment relationship",
+      "threshold": 0.6
+    }
+  }
+}
+```
+
+Senden Sie keine Relationsobjekte, die Head- und Tail-Definitionen enthalten.
+
+## Kombiniertes Schema
+
+Führen Sie mehrere Aufgaben über denselben Text aus, indem Sie die Schlüssel kombinieren:
+
+```json
+{
+  "entities": [
+    {
+      "name": "organization",
+      "description": "business or institution name"
+    },
+    {
+      "name": "product",
+      "description": "named commercial product"
+    }
+  ],
+  "classifications": [
+    {
+      "task": "sentiment",
+      "labels": ["positive", "negative", "neutral"],
+      "multi_label": false,
+      "top_k": 1
+    }
+  ]
+}
+```
+
+Das Schema erkennt die Operation automatisch. Senden Sie weder `task` noch `task_type`.
+
+## Beispiel
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+      }
+    ],
+    "schema": {
+      "entities": [
+        {
+          "name": "organization",
+          "description": "business or institution name"
+        },
+        {
+          "name": "product",
+          "description": "named commercial product"
+        },
+        {
+          "name": "event",
+          "description": "named conference or event"
+        },
+        {
+          "name": "location",
+          "description": "city, region, or place"
+        }
+      ]
+    },
+    "threshold": 0.5
+  }'
+```
+
+Der Wert von `model` muss aktuell gehostete Inferenz unterstützen. Verwenden Sie den
+Live-Modellkatalog, statt anzunehmen, dass jedes Hugging-Face-Checkpoint verfügbar ist:
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=encoder"
+```
+
+## Antwort
+
+Der Endpunkt gibt einen Chat-Completion-Umschlag zurück. Das GLiNER-Ergebnis wird als
+JSON-String in `choices[0].message.content` serialisiert:
+
+```json
+{
+  "id": "chatcmpl_...",
+  "object": "chat.completion",
+  "created": 1790123456,
+  "model": "fastino/gliner2.5-multi-v1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"entities\":[{\"organization\":[{\"text\":\"Apple\",\"confidence\":0.99,\"start\":0,\"end\":5}],\"product\":[{\"text\":\"MacBook Pro\",\"confidence\":0.98,\"start\":20,\"end\":31}],\"event\":[{\"text\":\"WWDC\",\"confidence\":0.97,\"start\":35,\"end\":39}],\"location\":[{\"text\":\"Cupertino\",\"confidence\":0.99,\"start\":43,\"end\":52}]}],\"classifications\":{},\"structures\":{},\"relations\":{}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "x_pioneer": {
+    "inference_id": "..."
+  }
+}
+```
+
+Parsen Sie `choices[0].message.content` als JSON, bevor Sie die Aufgabenergebnisse lesen. Wenn
+`store=true`, identifiziert `x_pioneer.inference_id` die persistierte Inferenz.
+
+## Wiederholte Eingaben
+
+Der Endpunkt akzeptiert eine Konversation pro Anfrage. Die Batch-Form `text: string[]` des
+entfernten nativen Endpunkts wird nicht unterstützt. Senden Sie bei mehreren Eingaben separate Anfragen
+gleichzeitig.
+
+## Fehler
+
+| Status | Wahrscheinliche Ursache | Maßnahme |
+| --- | --- | --- |
+| `400` | Ungültige Anfrage oder ungültiges Schema | Korrigieren Sie die Anfragefelder oder das Schema |
+| `401` | Fehlender, falsch formatierter oder ungültiger API-Schlüssel | Exportieren Sie einen gültigen `fast_sk_...`-Schlüssel |
+| `402` | Unzureichende Credits, erforderliche Finanzierung oder ein vom Eigentümer festgelegtes tägliches/monatliches Ausgabenlimit | Fügen Sie Credits hinzu oder passen Sie das Ausgabenlimit an |
+| `403` | Ablehnung wegen Zahlungsmethode, Kartenverifizierung, Kreditlimit oder Kontorichtlinie | Erfüllen Sie die Abrechnungs- oder Kontoanforderung |
+| `404` | Unbekanntes oder nicht unterstütztes Modell | Verwenden Sie eine inferenzfähige Katalog-ID oder die UUID eines bereitstellbaren Jobs |
+| `409` | Feingetuntes Modell existiert, ist aber nicht bereitgestellt | Warten Sie auf die Bereitstellung des Modells oder reparieren Sie sie |
+| `422` | Anfragenvalidierung fehlgeschlagen | Lesen und korrigieren Sie die Validierungsdetails auf Feldebene |
+| `425` | Bereitstellung wird aufgewärmt | Wiederholen Sie den Vorgang nach der angegebenen Verzögerung |
+| `429` | Rate- oder Kapazitätslimit | Beachten Sie `Retry-After` und wiederholen Sie mit Backoff |
+| `503` | Kaltstart oder vorübergehendes Kapazitätsproblem des Anbieters | Wiederholen Sie den Vorgang, bevor Sie ihn als endgültig betrachten |
+
+Das gemeinsame Wiederholungsmuster finden Sie unter [Kaltstarts und Wiederholungsversuche](/de/inference#kaltstarts-und-wiederholungsversuche).
+
+## Migration veralteter Anfragen
+
+| Entferntes `/inference`-Feld | Aktuelles Feld |
+| --- | --- |
+| `model_id` | `model` |
+| `text` | `messages: [{"role": "user", "content": "..."}]` |
+| Flache `schema`-Entitätsliste | `schema`-Dictionary |
+| `task` oder `task_type` | Entfernen; das Schema identifiziert die Operation |
+| `text: string[]` | Separate Anfragen senden |
+| `format_results` oder `is_warmup` | Entfernen |
+| Nativer Ergebnis-Body | `choices[0].message.content` parsen |
