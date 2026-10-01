@@ -1,20 +1,49 @@
 ---
-title: "GLiNER"
-sidebarTitle: "GLiNER"
-description: "比较 GLiNER2.5、GLiNER2 与 GLiNER，用于高效的信息抽取。"
+title: "GLiNER2.5"
+sidebarTitle: "GLiNER2.5"
+description: "了解何时以及如何使用 GLiNER 2.5 进行结构化抽取，并将其与 GLiNER2 和 GLiNER 进行比较。"
 ---
 
-GLiNER 是一个用于高效信息抽取的开源小型语言模型系列。
+GLiNER 是一个用于高效信息抽取的开源小型语言模型系列。GLiNER 2.5 是当前一代模型，也是新抽取工作的默认选择。
 
-## GLiNER2.5
+## 何时使用 GLiNER 2.5
 
-GLiNER2.5 用边界预测架构取代了跨度枚举。它支持模型上下文范围内任意长度的跨度、长上下文抽取、联合实体-关系抽取、约束分类以及跨度属性。它保持了小体量，无需 GPU 也能运行。
+当任务属于抽取类型时——即你需要从文本中获取原文跨度、结构化记录或关系图，而不是单一的决策标签——请选择 GLiNER 2.5。
 
-- **无限跨度长度**：抽取完整地址、法律条文引用以及其他长实体，无需配置最大跨度宽度。
-- **约束分类**：在多个分类任务之间声明规则，避免出现相互矛盾的标签组合。
-- **跨度属性**：在同一次前向传递中，按情感、严重程度或否定等属性对抽取出的跨度进行分类。
-- **长上下文抽取**：处理合同、报告和会议记录，支持 4,096 词的上下文，并可在保留偏移量的前提下对更长的文档进行分块。
-- **联合信息抽取**：将实体和关系作为一个受 schema 约束的图一并抽取，可用于知识库和智能体记忆。
+- **实体抽取**：从自由文本中抽取人物、组织、产品、地点或特定领域的实体（药物、剂量、条款），并附带字符偏移量和置信度分数。
+- **结构化记录**：将 "Alice bought apples and Bob bought oranges" 转换为 `[{"buyer": "Alice", "item": "apples"}, {"buyer": "Bob", "item": "oranges"}]`，并保持每个实例的字段相互关联。
+- **关系与知识图谱抽取**：抽取带类型的实体-关系图（`works_for`、`located_in`），用于智能体记忆或知识库。
+- **跨度属性**：在抽取的同一次处理中，为每个抽取出的实体标注属性，例如针对每个人物的情感。
+- **长文档**：处理最多 4,096 词的合同、会议记录和报告，更长的内容会自动分块并重新映射偏移量。
+- **一次执行多个任务**：在一次受 schema 约束的调用中组合实体、分类、结构和关系，而无需串联多个模型请求。
+
+如果任务是一个决策——路由、标签或分数——而不是底层文本，请改用 [GLiNER-2.5-Decide](/cn/concepts/gliner-2-5-decide)。
+
+## 如何使用 GLiNER 2.5
+
+通过 Fastino 兼容 OpenAI 的推理端点调用多语言检查点。将文本放在用户消息中，并在 `schema` 中描述任务：
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      { "role": "user", "content": "Apple CEO Tim Cook unveiled the iPhone 15 Pro in Cupertino." }
+    ],
+    "schema": {
+      "entities": [
+        { "name": "person", "description": "named individual" },
+        { "name": "organization", "description": "business or institution name" },
+        { "name": "product", "description": "named commercial product" },
+        { "name": "location", "description": "city, region, or place" }
+      ]
+    }
+  }'
+```
+
+在同一个 `schema` 中添加 `classifications`、`structures` 或 `relations` 键，即可在一次调用中对同一段文本运行多个任务。有关完整的请求和响应约定（包括结构化记录和关系 schema），请参阅 [推理 API](/cn/inference/chat-completions) 参考。
 
 ## 比较各代 GLiNER
 
@@ -37,7 +66,15 @@ GLiNER2.5 用边界预测架构取代了跨度枚举。它支持模型上下文�
     阅读其架构、基准测试和使用场景。
   </Card>
 
+  <Card title="GLiNER-2.5-Decide" icon="sparkle" href="/cn/concepts/gliner-2-5-decide">
+    需要的是决策而不是抽取的文本？比较使用场景。
+  </Card>
+
   <Card title="查看模型目录" icon="table-list" href="/cn/concepts/models">
     浏览 Fastino 模型及其模型 ID。
+  </Card>
+
+  <Card title="推理 API 参考" icon="braces" href="/cn/inference/chat-completions">
+    完整的请求和响应约定，包括结构化记录和关系。
   </Card>
 </CardGroup>

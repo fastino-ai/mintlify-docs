@@ -1,0 +1,89 @@
+---
+title: "Décisions GLiDE"
+sidebarTitle: "Décisions GLiDE"
+description: "Exécutez des décisions GLiDE de classification, de routage et de scoring via POST /v1/systemone."
+noindex: true
+---
+
+```text
+POST https://api.fastino.ai/v1/systemone
+```
+
+Envoyez un `state` (la situation à évaluer) et une ou plusieurs `questions` nommées, chacune de
+type `noul`, `choice` ou `score`. GLiDE renvoie directement des probabilités calibrées : aucun
+texte généré n'est à analyser. Consultez la [vue d'ensemble de l'API d'inférence](/fr/inference)
+pour l'authentification et le comportement de démarrage à froid et de nouvelles tentatives
+communs aux interfaces d'inférence de Fastino.
+
+Le contrat complet de requête et de réponse de `/v1/systemone` (formes Noul, Choice et Score,
+limites et confiance) est décrit dans [Modèles de décision](/fr/concepts/decision-models), avec
+une page dédiée à chaque primitive. Cette page couvre le contrat HTTP brut.
+
+## Exemple
+
+```bash
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## Réponse
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+Vérifiez quels déploiements prennent actuellement en charge les décisions GLiDE de la même
+manière que vous vérifieriez la prise en charge des encodeurs GLiNER, avec
+`task_type=systemone` :
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
+```
+
+<Card title="Modèles de décision" icon="sparkle" href="/fr/concepts/decision-models">
+  Le contrat complet de `/v1/systemone` (formes de requête et de réponse Noul, Choice et Score,
+  limites et confiance), avec des exemples complets pour chaque type de question.
+</Card>
+
+## Erreurs
+
+| Statut | Cause probable | Action |
+| --- | --- | --- |
+| `400` | Requête ou schéma invalide | Corrigez les champs de la requête ou le schéma |
+| `401` | Clé d'API manquante, mal formée ou invalide | Exportez une clé `fast_sk_...` valide |
+| `402` | Crédits insuffisants, financement requis ou plafond de dépense quotidien/mensuel défini par le propriétaire | Ajoutez des crédits ou ajustez le plafond de dépense |
+| `403` | Refus lié au moyen de paiement, à la vérification de la carte, au plafond de crédit ou à la politique du compte | Résolvez l'exigence de facturation ou de compte |
+| `404` | Modèle inconnu ou non pris en charge | Utilisez un identifiant de catalogue compatible avec l'inférence |
+| `422` | Échec de validation de la requête | Lisez et corrigez les détails de validation au niveau du champ |
+| `425` | Le déploiement est en cours de préchauffage | Retentez après le délai indiqué |
+| `429` | Limite de débit ou de capacité | Respectez `Retry-After` et retentez avec un backoff |
+| `503` | Démarrage à froid ou problème temporaire de capacité du fournisseur | Retentez avant de considérer l'erreur comme définitive |
+
+GLiDE ne prend pas encore en charge les déploiements affinés : le cas `409` « le modèle affiné
+existe mais n'est pas déployé » de [`/v1/chat/completions`](/fr/inference/chat-completions#erreurs)
+ne s'applique donc pas ici.
+
+Consultez [Démarrages à froid et nouvelles tentatives](/fr/inference#démarrages-à-froid-et-nouvelles-tentatives) pour le schéma de nouvelles tentatives commun.

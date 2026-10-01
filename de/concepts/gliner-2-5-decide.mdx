@@ -1,14 +1,14 @@
 ---
 title: "GLiNER-2.5-Decide"
 sidebarTitle: "GLiNER-2.5-Decide"
-description: "Nutzen Sie typisierte Entscheidungen, Constraints, Extraktion, Relationen und strukturierte Datensätze für Entscheidungen mit geringer Latenz."
+description: "Erfahren Sie, wann Sie GLiNER-2.5-Decide einsetzen, um typisierte Entscheidungen mit Span-Extraktion und Relationen in einem Aufruf zu kombinieren."
 ---
 
 GLiNER-2.5-Decide ist ein Entscheidungsmodell für Anwendungen, die aus demselben Text mehrere zusammenhängende Urteile treffen müssen. Es kombiniert typisierte Entscheidungen mit expliziten Constraints, Span-Extraktion, Relationen und strukturierten Datensätzen.
 
-## Modellfähigkeiten und Anwendungsfälle
+## Wann Sie GLiNER-2.5-Decide verwenden sollten
 
-Entscheidungsmodelle sind besonders nützlich, wenn Software aus demselben Text mehrere zusammenhängende Urteile treffen muss. GLiNER-2.5-Decide unterstützt Anwendungsfälle, die deterministische Entscheidungen mit geringer Latenz erfordern.
+Greifen Sie zu GLiNER-2.5-Decide, wenn die Aufgabe eine Entscheidung ist — ein Label, eine Route, ein Score — und nicht der zugrunde liegende extrahierte Text. Es ist besonders nützlich, wenn Software aus derselben Eingabe in einem einzigen Aufruf mit geringer Latenz mehrere zusammenhängende Urteile treffen muss.
 
 1. **Modell-Routing.** Leiten Sie Anfragen nach Ziel, Komplexität oder Eskalationsstufe weiter. Geben Sie die ausgewählte Route mit Wahrscheinlichkeiten und Konfidenzwerten zurück.
 2. **Tool-Aufrufe.** Wählen Sie aus einer zulässigen Menge von Tools aus und erfassen Sie Argumente aus der Anfrage als strukturierte Datensätze.
@@ -18,12 +18,50 @@ Entscheidungsmodelle sind besonders nützlich, wenn Software aus demselben Text 
 6. **LLM-as-a-Judge.** Formulieren Sie Bewertungskriterien als kategoriale oder ordinale Fragen. Geben Sie die ausgewählten Werte mit Wahrscheinlichkeitsverteilungen und Konfidenzwerten zurück.
 7. **Spiele und Simulationen.** Bewerten Sie den Spielzustand, um Absicht, Aktion oder Ergebnis zu bestimmen. Stellen Sie Akteure und Zustandsinformationen über Entitäten, Relationen und strukturierte Datensätze dar.
 
+Verwenden Sie stattdessen [GLiNER 2.5](/de/concepts/gliner), wenn Sie die wörtlichen Spans, strukturierte Datensätze oder einen Relationsgraphen zurückerhalten möchten und kein Entscheidungs-Label.
+
+## So verwenden Sie GLiNER-2.5-Decide
+
+Rufen Sie das Modell über denselben Fastino-Inferenz-Endpunkt wie jedes andere GLiNER-Modell auf und verwenden Sie dabei ein `classifications`-Schema. Bewerten Sie mehrere zusammenhängende Urteile in einem Aufruf, indem Sie weitere Aufgabeneinträge hinzufügen:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-decide",
+    "messages": [
+      { "role": "user", "content": "My subscription renewed on April 15 after the service was already down. Can I get that refunded?" }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem", "speak_to_human"],
+          "multi_label": false
+        },
+        {
+          "task": "urgency",
+          "labels": ["low", "normal", "high", "critical"],
+          "multi_label": false
+        }
+      ]
+    }
+  }'
+```
+
+`intent` und `urgency` werden beide im selben Vorwärtsdurchlauf bewertet, sodass ein Router jedes benötigte Urteil aus einem einzigen Aufruf erhält, statt mehrere Modellanfragen zu verketten. In der Referenz zur [Inferenz-API](/de/inference) finden Sie den vollständigen Request- und Response-Vertrag, einschließlich Multi-Label-Klassifikation und Konfidenzschwellen.
+
 <CardGroup cols={2}>
+  <Card title="GLiNER 2.5" icon="blocks" href="/de/concepts/gliner">
+    Benötigen Sie den extrahierten Text statt einer Entscheidung? Vergleichen Sie die Anwendungsfälle.
+  </Card>
+
   <Card title="Modellkatalog ansehen" icon="table-list" href="/de/concepts/models">
     Durchsuchen Sie die Fastino-Modelle und ihre Modell-IDs.
   </Card>
 
-  <Card title="Inferenz erkunden" icon="sparkles" href="/de/inference">
+  <Card title="Inferenz erkunden" icon="sparkles" href="/de/inference/chat-completions">
     Erfahren Sie, wie Fastino GLiNER-Modelle bereitstellt.
   </Card>
 </CardGroup>

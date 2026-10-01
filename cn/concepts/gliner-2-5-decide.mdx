@@ -1,14 +1,14 @@
 ---
 title: "GLiNER-2.5-Decide"
 sidebarTitle: "GLiNER-2.5-Decide"
-description: "GLiNER-2.5-Decide 是一款决策模型，将类型化决策与显式约束、片段抽取、关系和结构化记录结合，支持模型路由、工具调用和护栏等低延迟决策场景。"
+description: "了解何时以及如何使用 GLiNER-2.5-Decide，在一次低延迟调用中将类型化决策与片段抽取、关系和结构化记录结合起来。"
 ---
 
 GLiNER-2.5-Decide 是一款决策模型，适用于需要基于同一段文本做出多个相关判断的应用。它将类型化决策与显式约束、片段抽取、关系和结构化记录结合在一起。
 
-## 模型能力与使用场景
+## 何时使用 GLiNER-2.5-Decide
 
-当软件必须基于同一段文本做出多个相关判断时，决策模型尤其有用。GLiNER-2.5-Decide 支持需要确定性、低延迟决策的使用场景。
+当任务是一个决策——标签、路由或分数——而不是底层抽取的文本时，请选择 GLiNER-2.5-Decide。当软件必须在一次低延迟调用中基于同一输入做出多个相关判断时，它尤其有用。
 
 1. **模型路由。** 按目标、复杂度或升级级别路由请求。返回所选路由及其概率和置信度分数。
 2. **工具调用。** 从允许的工具集合中进行选择，并将请求中的参数捕获为结构化记录。
@@ -18,12 +18,50 @@ GLiNER-2.5-Decide 是一款决策模型，适用于需要基于同一段文本�
 6. **LLM 作为评审。** 将评分标准表示为分类或有序问题。返回所选值及其概率分布和置信度分数。
 7. **游戏与模拟。** 评估游戏状态以确定意图、操作或结果。通过实体、关系和结构化记录来表示参与者和状态信息。
 
+如果你需要返回原文片段、结构化记录或关系图，而不是决策标签，请改用 [GLiNER 2.5](/cn/concepts/gliner)。
+
+## 如何使用 GLiNER-2.5-Decide
+
+通过与任何 GLiNER 模型相同的 Fastino 推理端点调用它，并使用 `classifications` schema。添加更多任务条目，即可在一次调用中对多个相关判断进行评分：
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-decide",
+    "messages": [
+      { "role": "user", "content": "My subscription renewed on April 15 after the service was already down. Can I get that refunded?" }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem", "speak_to_human"],
+          "multi_label": false
+        },
+        {
+          "task": "urgency",
+          "labels": ["low", "normal", "high", "critical"],
+          "multi_label": false
+        }
+      ]
+    }
+  }'
+```
+
+`intent` 和 `urgency` 在同一次前向传递中完成评分，因此路由器只需一次调用就能获得所需的全部判断，而无需串联多个模型请求。有关完整的请求和响应约定（包括多标签分类和置信度阈值），请参阅 [推理 API](/cn/inference) 参考。
+
 <CardGroup cols={2}>
+  <Card title="GLiNER 2.5" icon="blocks" href="/cn/concepts/gliner">
+    需要的是抽取的文本而不是决策？比较使用场景。
+  </Card>
+
   <Card title="查看模型目录" icon="table-list" href="/cn/concepts/models">
     浏览 Fastino 模型及其模型 ID。
   </Card>
 
-  <Card title="了解推理" icon="sparkles" href="/cn/inference">
+  <Card title="了解推理" icon="sparkles" href="/cn/inference/chat-completions">
     了解 Fastino 如何提供 GLiNER 模型服务。
   </Card>
 </CardGroup>
