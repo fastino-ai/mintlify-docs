@@ -54,7 +54,10 @@ uv run --directory ../Pioneer/brain --locked \
 python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
 ```
 
-The check also enforces two-way parity with the existing public endpoint pages and rejects stale Pioneer API origins, retired inference routes, and doubled `/v1` prefixes.
+The check also enforces two-way parity with the existing public endpoint pages,
+validates the five canonical Mintlify skills, and rejects stale Pioneer API
+origins, retired inference routes, skill-install hosts, and doubled `/v1`
+prefixes.
 
 ## Publishing changes
 
