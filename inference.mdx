@@ -1,62 +1,73 @@
 ---
-title: "Inference API"
+title: "Inference API: choose an endpoint"
 sidebarTitle: "Overview"
-description: "Run schema-based GLiNER predictions and GLiDE decisions through Fastino's inference API."
+description: "Choose the GLiDE decision endpoint or the OpenAI-compatible chat-completions endpoint without mixing their request and response contracts."
 noindex: true
 ---
 
-Fastino provides two synchronous inference interfaces. Choose the one that matches what you
-need:
+Fastino has two inference contracts. Choose the endpoint from the result you need, then
+follow that endpoint's request and response shape. The fields are not interchangeable.
 
-| Capability | [`/v1/chat/completions`](/inference/chat-completions) | [`/v1/systemone`](/inference/systemone) |
-| --- | --- | --- |
-| Model | Select an inference-capable base model or completed training-job UUID | Always uses `fastino/glide` |
-| Request | OpenAI-compatible `model` and `messages`, plus Fastino's top-level `schema` | Native `state` plus one or more typed `questions` |
-| Response | OpenAI chat-completion envelope; parse `choices[0].message.content` as JSON | Native `{ "answers": ..., "usage": ... }` body |
-| Batch input | One conversation per request | One `state` per request, with multiple `questions` evaluated together |
-| Best for | Extraction, classification, structured extraction, and relations, on base and fine-tuned models | Classification, routing, and scoring decisions with calibrated probabilities |
+<CardGroup cols={2}>
+  <Card title="Make a decision with GLiDE" icon="sparkle" href="/inference/systemone">
+    Call `POST /v1/systemone` with `state` and typed `questions`. Receive Noul, Choice, or
+    Score answers with probabilities and confidence.
+  </Card>
 
-<Tip>
-  Use [`/v1/chat/completions`](/inference/chat-completions) for extraction, classification,
-  structured extraction, or relations. Use [`/v1/systemone`](/inference/systemone) for
-  structured decisions — classification, routing, scoring — instead of extraction.
-</Tip>
+  <Card title="Run GLiNER or an LLM" icon="braces" href="/inference/chat-completions">
+    Call `POST /v1/chat/completions` with `messages`. Add a `schema` for GLiNER extraction,
+    classification, structures, or relations.
+  </Card>
+</CardGroup>
 
-This page covers what's shared across both interfaces. See
-[`/v1/chat/completions`](/inference/chat-completions) for the GLiNER request/response contract
-and legacy migration guidance, or [`/v1/systemone`](/inference/systemone) for the GLiDE HTTP
-contract — the full Noul/Choice/Score request and response shapes live on
-[Decision Models](/concepts/decision-models). SDK usage, model training, evaluation, inference
-history, and feedback are outside this page's scope.
+| If you need to… | Model family | Endpoint | Request shape | Read the result from |
+| --- | --- | --- | --- | --- |
+| Decide yes/no, route to one option, or score on an ordered scale | GLiDE | [`POST /v1/systemone`](/inference/systemone) | `model`, `state`, `questions` | `answers.<question_key>` |
+| Extract spans, classify text, build records, or extract relations | GLiNER | [`POST /v1/chat/completions`](/inference/chat-completions) | `model`, `messages`, `schema` | JSON parsed from `choices[0].message.content` |
+| Generate text with a decoder LLM | Decoder model | [`POST /v1/chat/completions`](/inference/chat-completions) | `model`, `messages` | `choices[0].message.content` |
+
+<Warning>
+  Do not send GLiDE to `/v1/chat/completions`, and do not send `messages` or a GLiNER
+  `schema` to `/v1/systemone`. GLiDE uses `fastino/glide`, `state`, and `questions`.
+</Warning>
+
+## GLiDE path
+
+If you arrived from **Decision Models**, use this sequence:
+
+1. [GLiDE](/concepts/glide) — decide whether the model fits your use case.
+2. [GLiDE Reference](/concepts/decision-models) — understand `state`, `questions`, limits,
+   confidence, and combining questions.
+3. [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), or
+   [Score](/concepts/glide-score) — choose the answer shape your application needs.
+4. [GLiDE inference](/inference/systemone) — copy a complete request and integrate
+   `POST /v1/systemone`.
 
 ## Authentication
 
-Send a Fastino API key on every request, regardless of interface:
+Create an API key in [Fastino Settings](https://agent.fastino.ai/api-keys), then expose it to
+your application:
 
 ```bash
 export FASTINO_API_KEY="fast_sk_..."
 ```
 
+GLiDE examples use `X-API-Key`:
+
 ```http
-Authorization: Bearer $FASTINO_API_KEY
+X-API-Key: $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
+The API also accepts `Authorization: Bearer $FASTINO_API_KEY`. OpenAI-compatible examples use
+that form. Pick one authentication style and use it consistently in your integration.
+
 ## Cold starts and retries
 
-An idle or newly deployed model may cold-start, on either interface. Use a read timeout of at
-least 300 seconds and retry `425`, `429`, and `503` responses. Respect the `Retry-After`
-response header when present.
+An idle or newly deployed model may cold-start. Use a read timeout of at least 300 seconds
+and bounded backoff for `425`, `429`, and `503` responses. Respect `Retry-After` when
+present.
 
 A timed-out request can still warm the deployment, allowing the next request to succeed. Do
 not retry authentication, billing, validation, or unknown-model errors without correcting the
 underlying problem.
-
-```bash
-curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d @request.json
-```
-
-The same timeout and retry pattern applies to `/v1/systemone`.

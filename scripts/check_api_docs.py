@@ -10,6 +10,7 @@ from pathlib import Path
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 INFERENCE_OPERATIONS = (
     ("POST", "/v1/chat/completions"),
+    ("POST", "/v1/systemone"),
     ("POST", "/v1/gliner-2"),
     ("POST", "/v1/gliner-2/async"),
     ("GET", "/v1/gliner-2/jobs/{job_id}"),
