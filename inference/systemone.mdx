@@ -132,29 +132,37 @@ changes explicitly:
 | `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
 | `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
 | `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
-| `jev-latest` | `fastino/glide` |
+| Request model `jev-latest` | Request model `fastino/glide` |
+| Jev model ID in the response | Response model `glide` |
 | TypeSafe SDK client | Your HTTP client calling `/v1/systemone` |
 | Retry `429` and `529` | Retry `425`, `429`, and `503` with bounded backoff |
 
 <Steps>
   <Step title="Keep the System One request structure">
-    Preserve the `state`, question keys, primitive types, and criteria. Keep Choice and Noul
-    criteria as objects. Prefer an ordered array for Score criteria. GLiDE instructions are
-    strings, so convert structured TypeSafe instruction objects or arrays into clear text.
+    Preserve non-empty `state`, question keys, and primitive types. GLiDE requires every
+    `instructions` value to be a non-empty string, so convert omitted, null, object, or array
+    instructions into clear text. Keep Choice criteria as an object. Noul criteria are
+    optional, but their `true` and `false` values must be strings. Prefer an ordered array
+    for Score criteria.
   </Step>
   <Step title="Change the endpoint, credential, and model">
     Point the request at Fastino, read `FASTINO_API_KEY`, send it with `X-API-Key`, and set
-    `model` to `fastino/glide`. Remove TypeSafe SDK construction if the project uses the SDK.
+    `model` to `fastino/glide`. Fastino also accepts the Bearer header if retaining that
+    style makes a direct HTTP migration simpler. Expect `model: "glide"` in the response.
   </Step>
   <Step title="Update Score response handling">
     TypeSafe's `score` is a probability-weighted float. Its GLiDE equivalent is
     `expected_level`. GLiDE's `score` is instead the integer index of the most probable level.
+    GLiDE returns Score legend descriptions as strings, so update consumers that expect
+    structured legend values.
   </Step>
   <Step title="Check level keys and retry behavior">
     GLiDE returns Score `probabilities` and `legend` with string keys such as `"0"` and `"1"`.
-    Convert them to integers only if the application requires integer-keyed maps. Replace
-    TypeSafe's `529` retry handling with Fastino's `425` and `503` handling, while continuing
-    to back off on `429`.
+    TypeSafe's raw HTTP response does the same, but its Python SDK may expose integer keys.
+    Convert keys only if the application requires integer-keyed maps. Replace TypeSafe's
+    `529` retry handling with Fastino's `425` and `503` handling, and keep bounded backoff for
+    `429`. Honor `Retry-After` when present and apply the same retry budget to transport
+    failures.
   </Step>
   <Step title="Revalidate decision thresholds">
     Keep existing business actions intact during the port, then test GLiDE on representative
@@ -168,6 +176,22 @@ changes explicitly:
   `answers.&lt;key&gt;.expected_level` when existing code expects a weighted score. Read
   `answers.&lt;key&gt;.score` only when the code needs the single winning level index.
 </Warning>
+
+### Replace TypeSafe SDK usage
+
+If the project uses a TypeSafe SDK, migrate the complete client boundary:
+
+1. Find `typesafe-sdk`, `@typesafe-ai/sdk`, `TypeSafeClient`, `AsyncTypeSafeClient`, and
+   TypeSafe question constructors in manifests, imports, application code, and tests.
+2. Replace typed client calls with an HTTP client posting raw JSON to `/v1/systemone`.
+3. Replace SDK object access, such as `response.answers[key].score`, with access to the
+   decoded JSON response.
+4. Check non-2xx responses before reading `answers`. Use a read timeout of at least 300
+   seconds and bounded retries for transport failures, `425`, `429`, and `503`.
+5. Remove TypeSafe packages and imports only after no references remain.
+
+Send only the documented request fields your integration needs. Unsupported top-level fields
+return `422`, so do not copy arbitrary TypeSafe client options into the JSON body.
 
 For Score requests, GLiDE also accepts criteria objects with numeric string keys, such as
 `{"1": "low", "3": "medium", "5": "high"}`. The keys are sorted and discarded, and the
