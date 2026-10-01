@@ -143,7 +143,9 @@ not a drop-in replacement. Use this checklist to migrate safely:
     `instructions` value to be a non-empty string, so convert omitted, null, object, or array
     instructions into clear text. Keep Choice criteria as an object. Noul criteria are
     optional, but their `true` and `false` values must be strings. Prefer an ordered array
-    for Score criteria.
+    for Score criteria. Send only the documented request fields your integration needs.
+    Unsupported top-level fields return `422`, so do not copy arbitrary TypeSafe client
+    options into the JSON body.
   </Step>
   <Step title="Change the endpoint, credential, and model">
     Point the request at Fastino, read `FASTINO_API_KEY`, send it with `X-API-Key`, and set
@@ -154,7 +156,10 @@ not a drop-in replacement. Use this checklist to migrate safely:
     TypeSafe's `score` is a probability-weighted float. Its GLiDE equivalent is
     `expected_level`. GLiDE's `score` is instead the integer index of the most probable level.
     GLiDE returns Score legend descriptions as strings, so update consumers that expect
-    structured legend values.
+    structured legend values. GLiDE also accepts criteria objects with numeric string keys,
+    such as `{"1": "low", "3": "medium", "5": "high"}`. The keys are sorted and discarded,
+    and the response is reindexed from `0` through `N-1`. Use an ordered array when the
+    original numeric values must not be mistaken for returned level indexes.
   </Step>
   <Step title="Check level keys and retry behavior">
     GLiDE returns Score `probabilities` and `legend` with string keys such as `"0"` and `"1"`.
@@ -189,14 +194,6 @@ If the project uses a TypeSafe SDK, migrate the complete client boundary:
 4. Check non-2xx responses before reading `answers`. Use a read timeout of at least 300
    seconds and bounded retries for transport failures, `425`, `429`, and `503`.
 5. Remove TypeSafe packages and imports only after no references remain.
-
-Send only the documented request fields your integration needs. Unsupported top-level fields
-return `422`, so do not copy arbitrary TypeSafe client options into the JSON body.
-
-For Score requests, GLiDE also accepts criteria objects with numeric string keys, such as
-`{"1": "low", "3": "medium", "5": "high"}`. The keys are sorted and discarded, and the
-response is reindexed from `0` through `N-1`. Use an ordered array when the original numeric
-values must not be mistaken for returned level indexes.
 
 ## Errors
 
