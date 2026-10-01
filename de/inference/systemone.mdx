@@ -122,6 +122,83 @@ auf den jeweiligen Primitiv-Seiten.
 Hinweise zu State-Formen, Konfidenzformeln und eine gemischte Choice/Score-Anfrage finden Sie in der
 [GLiDE-Referenz](/de/concepts/decision-models).
 
+## Von TypeSafe migrieren
+
+Jev von TypeSafe und GLiDE von Fastino verwenden dieselbe System-One-Struktur aus `state`, benannten
+`questions` und passenden `answers`. Die meisten Anfragen lassen sich problemlos übertragen, die Integration ist
+jedoch kein Drop-in-Ersatz. Verwenden Sie diese Checkliste für eine sichere Migration:
+
+| TypeSafe oder Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| Anfragemodell `jev-latest` | Anfragemodell `fastino/glide` |
+| Jev-Modell-ID in der Antwort | Antwortmodell `glide` |
+| TypeSafe-SDK-Client | Ihr HTTP-Client, der `/v1/systemone` aufruft |
+| Wiederholung bei `429` und `529` | Wiederholung bei `425`, `429` und `503` mit begrenztem Backoff |
+
+<Steps>
+  <Step title="System-One-Anfragestruktur beibehalten">
+    Behalten Sie den nicht leeren `state`, die Fragenschlüssel und die Primitivtypen bei. GLiDE verlangt, dass jeder
+    `instructions`-Wert ein nicht leerer String ist. Wandeln Sie daher fehlende, null-, Objekt- oder Array-Anweisungen
+    in klaren Text um. Behalten Sie Choice-Kriterien als Objekt bei. Noul-Kriterien sind
+    optional, ihre `true`- und `false`-Werte müssen aber Strings sein. Verwenden Sie für Score-Kriterien
+    bevorzugt ein geordnetes Array.
+  </Step>
+  <Step title="Endpunkt, Zugangsdaten und Modell ändern">
+    Richten Sie die Anfrage an Fastino, lesen Sie `FASTINO_API_KEY`, senden Sie den Schlüssel mit `X-API-Key` und setzen Sie
+    `model` auf `fastino/glide`. Fastino akzeptiert auch den Bearer-Header, falls die Beibehaltung dieses
+    Stils eine direkte HTTP-Migration vereinfacht. Erwarten Sie `model: "glide"` in der Antwort.
+  </Step>
+  <Step title="Verarbeitung von Score-Antworten aktualisieren">
+    Der `score` von TypeSafe ist ein wahrscheinlichkeitsgewichteter Float. Das GLiDE-Äquivalent ist
+    `expected_level`. Der `score` von GLiDE ist dagegen der ganzzahlige Index der wahrscheinlichsten Stufe.
+    GLiDE gibt die Legendenbeschreibungen von Score als Strings zurück. Passen Sie daher Konsumenten an, die
+    strukturierte Legendenwerte erwarten.
+  </Step>
+  <Step title="Stufenschlüssel und Wiederholungsverhalten prüfen">
+    GLiDE gibt Score-`probabilities` und -`legend` mit String-Schlüsseln wie `"0"` und `"1"` zurück.
+    Die rohe HTTP-Antwort von TypeSafe macht das ebenso, das Python-SDK kann jedoch ganzzahlige Schlüssel bereitstellen.
+    Konvertieren Sie Schlüssel nur, wenn die Anwendung Maps mit ganzzahligen Schlüsseln benötigt. Ersetzen Sie die
+    `529`-Wiederholungslogik von TypeSafe durch die Behandlung von `425` und `503` bei Fastino und behalten Sie begrenztes Backoff für
+    `429` bei. Beachten Sie `Retry-After`, sofern vorhanden, und wenden Sie dasselbe Wiederholungsbudget auf
+    Transportfehler an.
+  </Step>
+  <Step title="Entscheidungsschwellenwerte neu validieren">
+    Lassen Sie bestehende Geschäftsaktionen bei der Portierung unverändert und testen Sie GLiDE vor dem Deployment
+    an repräsentativen Fällen. Gehen Sie nicht davon aus, dass für Jev kalibrierte Schwellenwerte unverändert
+    auf ein anderes Modell übertragbar sind.
+  </Step>
+</Steps>
+
+<Warning>
+  Bilden Sie den Gleitkomma-`score` von TypeSafe nicht auf den `score` von GLiDE ab. Lesen Sie
+  `answers.&lt;key&gt;.expected_level`, wenn bestehender Code einen gewichteten Score erwartet. Lesen Sie
+  `answers.&lt;key&gt;.score` nur, wenn der Code den Index der einzelnen gewinnenden Stufe benötigt.
+</Warning>
+
+### TypeSafe-SDK-Nutzung ersetzen
+
+Wenn das Projekt ein TypeSafe-SDK verwendet, migrieren Sie die gesamte Client-Schnittstelle:
+
+1. Suchen Sie `typesafe-sdk`, `@typesafe-ai/sdk`, `TypeSafeClient`, `AsyncTypeSafeClient` und
+   TypeSafe-Fragekonstruktoren in Manifesten, Imports, Anwendungscode und Tests.
+2. Ersetzen Sie typisierte Client-Aufrufe durch einen HTTP-Client, der rohes JSON an `/v1/systemone` sendet.
+3. Ersetzen Sie den Zugriff auf SDK-Objekte, etwa `response.answers[key].score`, durch den Zugriff auf die
+   dekodierte JSON-Antwort.
+4. Prüfen Sie Nicht-2xx-Antworten, bevor Sie `answers` lesen. Verwenden Sie ein Lese-Timeout von mindestens 300
+   Sekunden und begrenzte Wiederholungen bei Transportfehlern, `425`, `429` und `503`.
+5. Entfernen Sie TypeSafe-Pakete und -Imports erst, wenn keine Referenzen mehr vorhanden sind.
+
+Senden Sie nur die dokumentierten Anfragefelder, die Ihre Integration benötigt. Nicht unterstützte Felder auf oberster Ebene
+geben `422` zurück. Kopieren Sie daher keine beliebigen TypeSafe-Client-Optionen in den JSON-Body.
+
+Für Score-Anfragen akzeptiert GLiDE auch Kriterienobjekte mit numerischen String-Schlüsseln, etwa
+`{"1": "low", "3": "medium", "5": "high"}`. Die Schlüssel werden sortiert und verworfen, und die
+Antwort wird von `0` bis `N-1` neu indiziert. Verwenden Sie ein geordnetes Array, wenn die ursprünglichen numerischen
+Werte nicht mit zurückgegebenen Stufenindizes verwechselt werden dürfen.
+
 ## Fehler
 
 | Status | Wahrscheinliche Ursache | Maßnahme |

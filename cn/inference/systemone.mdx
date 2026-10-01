@@ -116,6 +116,76 @@ Choice 和 Score 返回的字段不同。确切的响应结构和集成示例，
 
 关于 state 结构的指导、置信度公式以及 Choice/Score 混合请求，请参阅 [GLiDE 参考](/cn/concepts/decision-models)。
 
+## 从 TypeSafe 迁移
+
+TypeSafe 的 Jev 与 Fastino 的 GLiDE 使用相同的 System One 结构：`state`、命名的
+`questions` 以及对应的 `answers`。大多数请求都可以顺利迁移，但该集成并不能直接替换。
+请按照以下清单安全地完成迁移：
+
+| TypeSafe 或 Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| 请求模型 `jev-latest` | 请求模型 `fastino/glide` |
+| 响应中的 Jev 模型 ID | 响应模型 `glide` |
+| TypeSafe SDK 客户端 | 调用 `/v1/systemone` 的你自己的 HTTP 客户端 |
+| 重试 `429` 和 `529` | 对 `425`、`429` 和 `503` 使用有上限的退避重试 |
+
+<Steps>
+  <Step title="保留 System One 请求结构">
+    保留非空的 `state`、问题键和基本类型。GLiDE 要求每个 `instructions` 值都是非空字符串，
+    因此请将省略、为 null、对象或数组形式的 instructions 转换为清晰的文本。Choice 的 criteria
+    保持为对象。Noul 的 criteria 是可选的，但其 `true` 和 `false` 值必须是字符串。Score 的
+    criteria 优先使用有序数组。
+  </Step>
+  <Step title="更改端点、凭据和模型">
+    将请求指向 Fastino，读取 `FASTINO_API_KEY`，通过 `X-API-Key` 发送，并将 `model` 设置为
+    `fastino/glide`。如果保留 Bearer 请求头能让直接 HTTP 迁移更简单，Fastino 也接受该请求头。
+    响应中应为 `model: "glide"`。
+  </Step>
+  <Step title="更新 Score 响应处理">
+    TypeSafe 的 `score` 是按概率加权的浮点数，其在 GLiDE 中的对应字段是 `expected_level`。
+    而 GLiDE 的 `score` 是概率最高的等级的整数索引。GLiDE 以字符串形式返回 Score 的 legend
+    描述，因此请更新那些期望结构化 legend 值的使用方代码。
+  </Step>
+  <Step title="检查等级键和重试行为">
+    GLiDE 返回的 Score `probabilities` 和 `legend` 使用字符串键，例如 `"0"` 和 `"1"`。
+    TypeSafe 的原始 HTTP 响应也是如此，但其 Python SDK 可能会暴露整数键。仅当应用需要以整数为键的
+    映射时才转换键。将 TypeSafe 的 `529` 重试处理替换为 Fastino 的 `425` 和 `503` 处理，并对
+    `429` 保留有上限的退避。存在 `Retry-After` 时请遵循它，并对传输故障应用相同的重试预算。
+  </Step>
+  <Step title="重新验证决策阈值">
+    移植期间保持现有业务操作不变，然后在部署前用具有代表性的案例测试 GLiDE。不要假定为 Jev
+    校准的阈值可以原封不动地用于另一个模型。
+  </Step>
+</Steps>
+
+<Warning>
+  不要将 TypeSafe 的浮点 `score` 映射到 GLiDE 的 `score`。当现有代码期望加权分数时，请读取
+  `answers.&lt;key&gt;.expected_level`。仅当代码需要单个胜出等级的索引时，才读取
+  `answers.&lt;key&gt;.score`。
+</Warning>
+
+### 替换 TypeSafe SDK 的用法
+
+如果项目使用了 TypeSafe SDK，请迁移完整的客户端边界：
+
+1. 在清单文件、导入语句、应用代码和测试中查找 `typesafe-sdk`、`@typesafe-ai/sdk`、
+   `TypeSafeClient`、`AsyncTypeSafeClient` 以及 TypeSafe 问题构造器。
+2. 将类型化客户端调用替换为向 `/v1/systemone` 发送原始 JSON 的 HTTP 客户端。
+3. 将 SDK 对象访问（例如 `response.answers[key].score`）替换为对解码后 JSON 响应的访问。
+4. 在读取 `answers` 之前检查非 2xx 响应。将读取超时设置为至少 300 秒，并对传输故障、
+   `425`、`429` 和 `503` 使用有上限的重试。
+5. 仅在不再有任何引用之后，才移除 TypeSafe 包和导入。
+
+只发送你的集成所需的、文档中列出的请求字段。不支持的顶层字段会返回 `422`，因此不要将任意
+TypeSafe 客户端选项复制到 JSON 请求体中。
+
+对于 Score 请求，GLiDE 也接受以数字字符串为键的 criteria 对象，例如
+`{"1": "low", "3": "medium", "5": "high"}`。这些键会被排序后丢弃，响应会从 `0` 到 `N-1`
+重新编号。如果原始数值不能与返回的等级索引混淆，请使用有序数组。
+
 ## 错误
 
 | 状态码 | 可能原因 | 处理措施 |
