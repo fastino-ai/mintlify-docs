@@ -1,0 +1,102 @@
+---
+title: "Score : la primitive de décision sur échelle ordonnée de GLiDE"
+sidebarTitle: "Score"
+description: "Demandez à GLiDE d'évaluer une situation selon une grille ordonnée que vous définissez et obtenez un niveau discret ainsi qu'une estimation continue pondérée par les probabilités."
+---
+
+Une question **Score** évalue une situation sur une échelle ordonnée que vous définissez. Elle renvoie un `score` discret (l'indice du niveau retenu) ainsi que `expected_level`, une estimation continue pondérée par les probabilités sur l'ensemble des niveaux, des `probabilities` par niveau et une `legend` qui reprend vos descriptions de niveaux par indice.
+
+Utilisez un Score lorsque la réponse est une position sur une échelle aux niveaux définis (urgence, gravité, intensité du sentiment) plutôt qu'une catégorie sans ordre.
+
+<Tip>
+  Score ou Noul : si vous avez simplement besoin d'une décision binaire, utilisez plutôt [Noul](/fr/concepts/glide-noul). C'est plus simple et cela renvoie une probabilité unique plutôt qu'une distribution sur des niveaux.
+</Tip>
+
+## Requête
+
+<ParamField body="type" type="string" required>
+  Toujours `"score"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  La question à évaluer, en langage naturel.
+</ParamField>
+
+<ParamField body="criteria" type="string[] | object" required>
+  Un tableau ordonné de descriptions de niveaux, l'indice `0` correspondant au niveau le plus bas : `["low urgency, can wait", "medium urgency, handle soon", "high urgency, handle immediately"]`.
+
+  Accepte également un objet avec des clés sous forme de chaînes numériques (par exemple `{"1": "...", "3": "...", "5": "..."}`) : les clés sont triées puis ignorées, et la réponse est toujours réindexée de `0..N-1`, quelles que soient les clés utilisées.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Réponse
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 1,
+    "expected_level": 0.9015099730675683,
+    "confidence": 0.7587802709097535,
+    "probabilities": {
+      "0": 0.11323658534089268,
+      "1": 0.8720168562506462,
+      "2": 0.014746558408461077
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+- `score` : un indice entier discret, le niveau argmax.
+- `expected_level` : `Σ(level × probability)`, la position continue, pondérée par les probabilités, sur l'ensemble des niveaux. Utilisez-le lorsque vous avez besoin de seuils plus fins que ceux permis par l'indice discret.
+- `legend` n'est pas généré par le modèle : l'API le construit à partir de vos propres `criteria`, indexés.
+- `confidence` : `top1 − top2`, la même formule que pour Choice, de `0` (deux niveaux adjacents à égalité) à `1` (un niveau concentre la quasi-totalité de la masse de probabilité). Consultez [Confiance](/fr/concepts/decision-models#confiance) pour savoir comment l'exploiter.
+
+## Utilisation du résultat
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
+
+## Voir aussi
+
+- [Noul](/fr/concepts/glide-noul) : une décision oui/non avec une probabilité
+- [Choice](/fr/concepts/glide-choice) : choisir une option parmi plusieurs options nommées
+- [Modèles de décision](/fr/concepts/decision-models) : vue d'ensemble des primitives, limites et contrat de requête complet
+- [GLiDE](/fr/concepts/glide) : ce qu'est GLiDE et quand l'utiliser

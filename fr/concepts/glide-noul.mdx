@@ -1,0 +1,85 @@
+---
+title: "Noul : la primitive de décision oui/non de GLiDE"
+sidebarTitle: "Noul"
+description: "Posez une question oui/non à GLiDE et obtenez une probabilité calibrée plutôt qu'un libellé, pour appliquer un seuil de confiance au lieu de deviner."
+---
+
+Une question **Noul** pose une question oui/non et renvoie une probabilité calibrée unique comprise entre `0` et `1` : la probabilité que la réponse soit « oui ». Il n'y a pas de champ de libellé distinct : appliquez vous-même un seuil à la probabilité pour prendre une décision binaire.
+
+Utilisez un Noul lorsque la probabilité elle-même constitue le signal utile, et pas seulement un booléen. « Cette demande est-elle éligible à un remboursement ? » pourrait renvoyer `0.999` (clairement oui) ou `0.52` (réellement ambigu). Un simple `true`/`false` masquerait cette différence.
+
+<Tip>
+  Noul ou Score : un Noul à `0.5` signifie une incertitude maximale entre oui et non ; il n'exprime pas un degré. Si vous devez mesurer un degré (urgence, gravité, frustration), utilisez plutôt [Score](/fr/concepts/glide-score) avec des niveaux définis.
+</Tip>
+
+## Requête
+
+<ParamField body="type" type="string" required>
+  Toujours `"noul"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  La question oui/non à évaluer, en langage naturel.
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  Un objet avec des clés de description `true` et `false`, par exemple `{"true": "Qualifies", "false": "Does not qualify"}`.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Réponse
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.99767683794902,
+    "confidence": 0.9953536758980399
+  }
+}
+```
+
+- `noul` : la probabilité que la réponse soit « oui ». `0.999` est un signal fort d'éligibilité.
+- `confidence` : `|2 × noul − 1|`, de `0` (incertitude maximale, `noul = 0.5`) à `1` (certitude totale, `noul = 0` ou `1`). Consultez [Confiance](/fr/concepts/decision-models#confiance) pour savoir comment l'exploiter.
+
+## Utilisation du résultat
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+Ajustez les seuils (`0.8` / `0.2` ci-dessus) sur des données réelles pour votre cas d'usage plutôt que de supposer qu'ils sont transposables : la probabilité et la confiance sont calibrées par modèle et ne correspondent pas nécessairement à une tolérance métier particulière vis-à-vis de l'ambiguïté.
+
+## Voir aussi
+
+- [Choice](/fr/concepts/glide-choice) : choisir une option parmi plusieurs options nommées
+- [Score](/fr/concepts/glide-score) : évaluer sur une échelle ordonnée
+- [Modèles de décision](/fr/concepts/decision-models) : vue d'ensemble des primitives, limites et contrat de requête complet
+- [GLiDE](/fr/concepts/glide) : ce qu'est GLiDE et quand l'utiliser

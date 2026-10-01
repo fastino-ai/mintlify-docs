@@ -1,0 +1,102 @@
+---
+title: "Score: la primitiva de decisión de GLiDE para escalas ordenadas"
+sidebarTitle: "Score"
+description: "Pide a GLiDE que valore una situación sobre una rúbrica ordenada que tú defines y obtén un nivel discreto más una estimación continua ponderada por probabilidad."
+---
+
+Una pregunta **Score** valora una situación en una escala ordenada que tú defines. Devuelve un `score` discreto (el índice del nivel ganador), además de `expected_level` (una estimación continua ponderada por probabilidad a lo largo de todos los niveles), las `probabilities` por nivel y un `legend` que devuelve tus descripciones de niveles por índice.
+
+Usa un Score cuando la respuesta sea una posición en una escala con niveles definidos (urgencia, gravedad, intensidad del sentimiento) en lugar de una categoría sin orden.
+
+<Tip>
+  Score frente a Noul: si solo necesitas una compuerta binaria, usa en su lugar un [Noul](/es/concepts/glide-noul). Es más sencillo y devuelve una única probabilidad en lugar de una distribución sobre niveles.
+</Tip>
+
+## Solicitud
+
+<ParamField body="type" type="string" required>
+  Siempre `"score"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  La pregunta que se va a evaluar, en lenguaje natural.
+</ParamField>
+
+<ParamField body="criteria" type="string[] | object" required>
+  Un array ordenado de descripciones de niveles, donde el índice `0` es el nivel más bajo: `["low urgency, can wait", "medium urgency, handle soon", "high urgency, handle immediately"]`.
+
+  También acepta un objeto con claves de cadena numérica (por ejemplo, `{"1": "...", "3": "...", "5": "..."}`): las claves se ordenan y luego se descartan, y la respuesta siempre se reindexa como `0..N-1` sin importar las claves que hayas usado.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Respuesta
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 1,
+    "expected_level": 0.9015099730675683,
+    "confidence": 0.7587802709097535,
+    "probabilities": {
+      "0": 0.11323658534089268,
+      "1": 0.8720168562506462,
+      "2": 0.014746558408461077
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+- `score`: un índice entero discreto, el nivel con mayor probabilidad (argmax).
+- `expected_level`: `Σ(level × probability)`, la posición continua ponderada por probabilidad a lo largo de todos los niveles. Úsalo cuando necesites umbrales más finos que los que ofrece el índice discreto.
+- `legend` no lo genera el modelo: la API lo construye a partir de tu propio `criteria`, indexado.
+- `confidence`: `top1 − top2`, la misma fórmula que en Choice, de `0` (dos niveles adyacentes empatados) a `1` (un nivel concentra ~toda la masa de probabilidad). Consulta [Confianza](/es/concepts/decision-models#confianza) para saber cómo actuar en consecuencia.
+
+## Uso del resultado
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
+
+## Relacionado
+
+- [Noul](/es/concepts/glide-noul): una decisión de sí/no con una probabilidad
+- [Choice](/es/concepts/glide-choice): elige una opción entre varias con nombre
+- [Modelos de decisión](/es/concepts/decision-models): resumen de las primitivas, límites y el contrato de solicitud completo
+- [GLiDE](/es/concepts/glide): qué es GLiDE y cuándo usarlo

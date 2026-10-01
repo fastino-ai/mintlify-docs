@@ -1,0 +1,85 @@
+---
+title: "Noul: das Ja/Nein-Entscheidungsprimitiv von GLiDE"
+sidebarTitle: "Noul"
+description: "Stellen Sie GLiDE eine Ja/Nein-Frage und erhalten Sie statt eines Labels eine kalibrierte Wahrscheinlichkeit, sodass Sie Schwellenwerte anhand der Konfidenz festlegen können, statt zu raten."
+---
+
+Eine **Noul**-Frage stellt eine Ja/Nein-Frage und gibt eine einzelne kalibrierte Wahrscheinlichkeit zwischen `0` und `1` zurück: die Wahrscheinlichkeit, dass die Antwort „Ja“ lautet. Es gibt kein separates Label-Feld. Legen Sie selbst einen Schwellenwert für die Wahrscheinlichkeit fest, um eine binäre Entscheidung zu treffen.
+
+Verwenden Sie ein Noul, wenn die Wahrscheinlichkeit selbst das nützliche Signal ist und nicht nur ein boolescher Wert. „Erfüllt diese Anfrage die Voraussetzungen für eine Rückerstattung?“ könnte `0.999` (eindeutig ja) oder `0.52` (wirklich mehrdeutig) zurückgeben. Ein einfaches `true`/`false` würde diesen Unterschied verbergen.
+
+<Tip>
+  Noul oder Score: Ein Noul bei `0.5` bedeutet maximale Unsicherheit zwischen Ja und Nein, drückt aber keinen Grad aus. Wenn Sie einen Grad messen müssen (Dringlichkeit, Schweregrad, Frustration), verwenden Sie stattdessen einen [Score](/de/concepts/glide-score) mit definierten Stufen.
+</Tip>
+
+## Anfrage
+
+<ParamField body="type" type="string" required>
+  Immer `"noul"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  Die zu bewertende Ja/Nein-Frage in natürlicher Sprache.
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  Ein Objekt mit den Beschreibungsschlüsseln `true` und `false`, z. B. `{"true": "Qualifies", "false": "Does not qualify"}`.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Antwort
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.99767683794902,
+    "confidence": 0.9953536758980399
+  }
+}
+```
+
+- `noul`: die Wahrscheinlichkeit, dass die Antwort „Ja“ lautet. `0.999` ist ein starkes Signal dafür, dass die Voraussetzungen erfüllt sind.
+- `confidence`: `|2 × noul − 1|`, von `0` (maximale Unsicherheit, `noul = 0.5`) bis `1` (vollständig sicher, `noul = 0` oder `1`). Wie Sie darauf reagieren, erfahren Sie unter [Konfidenz](/de/concepts/decision-models#konfidenz).
+
+## Verwendung des Ergebnisses
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+Passen Sie die Schwellenwerte (oben `0.8` / `0.2`) anhand echter Daten für Ihren Anwendungsfall an, statt davon auszugehen, dass sie sich übertragen lassen. Wahrscheinlichkeit und Konfidenz sind pro Modell kalibriert und entsprechen nicht zwangsläufig einer bestimmten geschäftlichen Toleranz für Mehrdeutigkeit.
+
+## Verwandte Themen
+
+- [Choice](/de/concepts/glide-choice): eine von mehreren benannten Optionen auswählen
+- [Score](/de/concepts/glide-score): auf einer geordneten Skala bewerten
+- [Entscheidungsmodelle](/de/concepts/decision-models): Überblick über die Primitive, Limits und der vollständige Anfragevertrag
+- [GLiDE](/de/concepts/glide): was GLiDE ist und wann Sie es verwenden sollten
