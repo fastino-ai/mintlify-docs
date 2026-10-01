@@ -1,0 +1,158 @@
+---
+title: "Fastino API 上兼容 OpenAI 的推理"
+sidebarTitle: "兼容 OpenAI"
+description: "在 Fastino 上直接替代 OpenAI。将 base_url 设置为 https://api.fastino.ai/v1，使用你的 Fastino 密钥，包括流式传输在内的所有 SDK 方法均可照常使用。"
+hidden: true
+noindex: true
+---
+
+Fastino 提供了一组兼容 OpenAI 的端点，因此你只需极少改动，即可将现有的 OpenAI SDK 代码用于你微调的 Fastino 模型。将 `base_url` 设置为 `https://api.fastino.ai/v1`，使用你的 Fastino API 密钥进行认证，并将训练任务 ID 作为 `model` 传入。Fastino 特有的字段（例如 `schema`）可以在 Python SDK 中通过 `extra_body` 传入，或直接包含在 JSON 请求体中。
+
+<Tip>
+  如果你已有 OpenAI 集成，切换到 Fastino 只需两处改动：更新 `base_url` 并换用你的 Fastino API 密钥。其余一切——SDK 方法、流式传输、消息格式——均保持不变。
+</Tip>
+
+## 端点
+
+| 方法 | 路径 | 描述 |
+|---|---|---|
+| `POST` | `/v1/chat/completions` | Chat completions |
+| `POST` | `/v1/responses` | Responses API |
+| `GET` | `/v1/models` | 列出可用模型 |
+
+<Warning>
+  旧版 `POST /v1/completions` 已被移除。请将基于 prompt 的请求迁移到 `POST /v1/chat/completions`，并将 prompt 作为用户消息发送。
+</Warning>
+
+## 配置 OpenAI SDK
+
+将 SDK 指向 Fastino 的基础 URL，并提供你的 Fastino API 密钥：
+
+<CodeGroup>
+
+```python Python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai/v1"
+)
+```
+
+```bash cURL (base URL)
+# Set this as the base for all requests
+https://api.fastino.ai/v1
+```
+
+</CodeGroup>
+
+## Chat completions
+
+`POST /v1/chat/completions` 接受与 OpenAI Chat Completions API 相同的请求结构。将训练任务 ID 作为 `model` 传入，并在请求体中或通过 `extra_body` 包含 Fastino 特有的字段，例如 `schema`。
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai/v1"
+)
+
+response = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
+)
+
+print(response.choices[0].message.content)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## 列出可用模型
+
+使用 `GET /v1/models` 获取可用于这些端点的模型列表。
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+```
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+</CodeGroup>
+
+## 流式传输
+
+所有 completions 端点均支持流式传输。在 SDK 中设置 `stream=True`，或在请求体中设置 `"stream": true`。
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+stream = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
+    stream=True
+)
+
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
+    "stream": true
+  }'
+```
+
+</CodeGroup>
+
+## 传入 Fastino 特有的字段
+
+`schema` 字段是 Fastino 的扩展字段。在 OpenAI Python SDK 中，请通过 `extra_body` 传入，这样它会被包含在请求中而不影响 SDK 的校验。在原始 HTTP 请求中，请将其放在 JSON 请求体的顶层，与 `model` 和 `messages` 等标准字段并列。
+
+## 相关内容
+
+- [Fastino 原生推理](/cn/api-reference/inference/pioneer) - 直接调用 Fastino 端点，附完整的 schema 文档
+- [兼容 Anthropic 的推理](/cn/api-reference/inference/anthropic-compatible) - 改用 Anthropic SDK
+- [推理历史与反馈](/cn/api-reference/inference/history) - 获取过往结果并提交更正

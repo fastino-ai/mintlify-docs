@@ -1,0 +1,208 @@
+---
+title: "Fastino mit KI-Coding-Agenten über Agent Skills verwenden"
+sidebarTitle: "Agent Skills"
+description: "Fügen Sie Ihrem KI-Coding-Agenten eine SKILL.md-Datei hinzu, damit Cursor, Claude Code oder ähnliche Agenten Fastino-Datensätze, Training und Inferenz selbstständig verwalten können."
+hidden: true
+noindex: true
+---
+
+KI-Coding-Agenten wie Cursor und Claude Code können Ihr Fastino-Konto direkt nutzen - Trainingsjobs starten, den Modellstatus prüfen, Inferenz ausführen und Datensätze verwalten -, sofern Sie ihnen den richtigen Kontext geben. Agent Skills ist eine `SKILL.md`-Datei, die einem Coding-Agenten vollständiges, strukturiertes Wissen über die Fastino API bereitstellt. Nach der Installation kann Ihr Agent Fastino-Aufgaben durchgängig erledigen, ohne dass Sie Endpunkte nachschlagen oder API-Schlüssel kopieren und einfügen müssen.
+
+## Installation
+
+<Steps>
+  <Step title="Den Inhalt von SKILL.md kopieren">
+    Kopieren Sie den vollständigen Inhalt von `SKILL.md` aus dem Codeblock im folgenden Abschnitt.
+  </Step>
+
+  <Step title="Die Datei in Ihrem Projekt speichern">
+    Speichern Sie die Datei unter `.claude/skills/pioneer-api/SKILL.md` im Stammverzeichnis Ihres Projekts. Dies ist der Standardspeicherort für Claude-Code-Skills. Wenn Sie einen anderen Agenten verwenden, sehen Sie in dessen Dokumentation nach, wo Skill-Dateien abgelegt werden.
+
+    ```text
+    your-project/
+    └── .claude/
+        └── skills/
+            └── pioneer-api/
+                └── SKILL.md
+    ```
+  </Step>
+
+  <Step title="Ihren API-Schlüssel generieren">
+    Gehen Sie zu [Fastino](https://agent.fastino.ai) → Settings → API Keys und erstellen Sie einen neuen Schlüssel. Geben Sie ihm einen Namen, der das Projekt oder den Agenten kennzeichnet, der ihn verwendet.
+  </Step>
+
+  <Step title="Ihren API-Schlüssel als Umgebungsvariable festlegen">
+    Legen Sie `FASTINO_API_KEY` (oder den Variablennamen, den Ihr Agent ausliest) in der Umgebung fest, in der Ihr Agent läuft. Zum Beispiel:
+
+    <CodeGroup>
+
+    ```bash Shell
+    export FASTINO_API_KEY="your-api-key-here"
+    ```
+
+    ```bash .env file
+    FASTINO_API_KEY=your-api-key-here
+    ```
+
+    </CodeGroup>
+
+    Ihr Agent erkennt den Skill automatisch und setzt den Schlüssel ein, wenn er Fastino-API-Aufrufe ausführt.
+  </Step>
+</Steps>
+
+<Warning>
+  Committen Sie Ihren API-Schlüssel niemals in die Versionsverwaltung. Fügen Sie `.env` zu Ihrer `.gitignore` hinzu und verwenden Sie in CI/CD-Umgebungen die Injektion von Umgebungsvariablen.
+</Warning>
+
+## Inhalt von SKILL.md
+
+Kopieren Sie diese gesamte Datei nach `.claude/skills/pioneer-api/SKILL.md`:
+
+````markdown
+---
+name: pioneer-api
+description: Interact with the Fastino API to manage datasets, training jobs, evaluations, and run inference. Use when the user wants to call the Fastino API, manage ML models, start training runs, run inference, or integrate Fastino into their workflow.
+---
+
+# Fastino API
+
+Base URL: https://api.fastino.ai
+Auth header: Authorization: Bearer $FASTINO_API_KEY
+
+Get your API key: agent.fastino.ai → Settings → API Keys.
+
+## GLiNER inference
+
+POST /v1/chat/completions - run predictions against a fine-tuned or base model
+GET  /v1/base-models - list available models (supports ?supports_inference=true&task_type=encoder filters)
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+ -H "Authorization: Bearer $FASTINO_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model": "fastino/gliner2.5-multi-v1",
+ "messages": [
+   {
+     "role": "user",
+     "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+   }
+ ],
+ "schema": {
+   "entities": [
+     {"name": "organization", "description": "business or institution name"},
+     {"name": "product", "description": "named commercial product"}
+   ]
+ },
+ "threshold": 0.5
+ }'
+```
+
+The schema is a dictionary with optional keys:
+- entities        - descriptive entity definitions (NER)
+- classifications - list of {task, labels} objects (text classification)
+- structures      - dict of structure definitions (JSON extraction)
+- relations       - relation definitions
+
+`model` can be the job ID returned from POST /v1/training-jobs or an
+inference-capable base model ID returned by GET /v1/base-models.
+
+## Decoder inference
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+ -H "Authorization: Bearer $FASTINO_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model": "job_abc123",
+ "messages": [{"role": "user", "content": "Summarize this: ..."}]
+ }'
+```
+
+## Inference (Anthropic-compatible)
+
+POST /v1/messages - Anthropic-compatible messages
+
+```bash
+curl -X POST https://api.fastino.ai/v1/messages \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model": "job_abc123",
+ "max_tokens": 1024,
+ "messages": [{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+ "schema": {"entities": ["organization", "product"]}
+ }'
+```
+
+## Inference History
+
+GET  /v1/inferences              - list past inferences
+GET  /v1/inferences/:id          - get a specific inference result
+POST /v1/inferences/:id/feedback - submit feedback on a result
+
+## Datasets
+
+GET    /v1/datasets           - list all datasets
+GET    /v1/datasets/:name     - get dataset details
+DELETE /v1/datasets/:name     - delete a dataset
+
+```bash
+curl https://api.fastino.ai/v1/datasets \
+ -H "X-API-Key: YOUR_API_KEY"
+```
+
+## Training Jobs
+
+POST   /v1/training-jobs          - start a training job
+GET    /v1/training-jobs          - list training jobs
+GET    /v1/training-jobs/:id      - get job status and metrics
+POST   /v1/training-jobs/:id/stop - stop a running job
+
+```bash
+curl -X POST https://api.fastino.ai/v1/training-jobs \
+ -H "X-API-Key: YOUR_API_KEY" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "model_name": "my-ner-model",
+ "base_model": "fastino/gliner2-base-v1",
+ "datasets": [{"name": "my-dataset"}],
+ "training_type": "lora",
+ "nr_epochs": 5,
+ "learning_rate": 5e-5
+ }'
+```
+
+base_model is required. Valid values: a supported model ID returned by GET /v1/base-models
+(e.g. fastino/gliner2-base-v1 or nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16)
+or a checkpoint UUID from a previous training job.
+
+Response: { "id": "uuid-of-training-job", "status": "requested" }
+
+Job status values: requested | running | complete | failed | stopped
+Metrics (on COMPLETED): { "f1": 0.94, "precision": 0.96, "recall": 0.92 }
+
+## Evaluations
+
+POST /v1/projects/{project_id}/evaluation-suites
+POST /v1/projects/{project_id}/evaluation-suites/{suite_id}/runs
+GET  /v1/projects/{project_id}/evaluation-runs/{run_id}
+GET  /v1/projects/{project_id}/evaluation-runs/{run_id}/results
+
+Pin held-out cases in one evaluation suite, run the same suite against every model being
+compared, and inspect both aggregate metrics and per-case failures.
+
+## Errors
+
+401 - invalid or missing API key
+402 - insufficient credits
+404 - resource not found
+422 - validation error (check request body)
+500 - server error
+````
+
+## Nächste Schritte
+
+- [Ein NER-Modell feinabstimmen](/de/guides/fine-tune-ner) - vollständige Anleitung, die Ihr Agent für Sie ausführen kann
+- [Ein LLM feinabstimmen](/de/guides/fine-tune-llm) - ein Decoder-Modell durchgängig trainieren
+- [Synthetische Daten](/de/guides/synthetic-data) - lassen Sie Ihren Agenten bei Bedarf Trainingsdaten generieren
