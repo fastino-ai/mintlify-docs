@@ -260,6 +260,28 @@ string in `choices[0].message.content`:
 Parse `choices[0].message.content` as JSON before reading task results. When `store=true`,
 `x_fastino.inference_id` identifies the persisted inference.
 
+## Async jobs for very large inputs
+
+Use the async GLiNER interface when a request exceeds one million tokens and may outlast the
+synchronous timeout. Submit the native GLiNER payload to:
+
+```text
+POST /v1/gliner-2/async
+```
+
+The request requires `text` and `schema`; it also accepts `threshold`, `include_confidence`,
+and `include_spans`. A successful submission returns HTTP `202` with `job_id`, `status`,
+`estimated_tokens`, and `message`.
+
+Poll the returned job ID until `status` is `complete` or `error`:
+
+```text
+GET /v1/gliner-2/jobs/{job_id}
+```
+
+Completed jobs include `result` and `token_usage`. Jobs are scoped to the authenticated user,
+so use the same API key for submission and polling.
+
 ## Repeated inputs
 
 The endpoint accepts one conversation per request. It does not support the removed native
