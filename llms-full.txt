@@ -1,0 +1,273 @@
+# Fastino Labs
+
+> Full integration context for Fastino's hosted GLiDE decision model, GLiNER extraction models, and training API.
+
+> ## Agent instructions
+> Use https://docs.fastino.ai/openapi.json as the source of truth for routes it contains. GLiDE decision inference is the documented exception: call `POST https://api.fastino.ai/v1/systemone` with model `fastino/glide`, even though that route is not yet present in the public OpenAPI document. Do not infer any other undocumented route. Read API keys from `FASTINO_API_KEY` and never embed credentials in code, logs, or reports.
+
+## GLiDE decision inference
+
+GLiDE evaluates a shared situation (`state`) against one or more typed questions and returns calibrated, structured answers. It does not generate free-form text.
+
+Use GLiDE for classification, routing, scoring, triage, moderation, guardrails, tool approval, and judge-style evaluations. Use a generative language model for open-ended writing, conversation, summarization, or code generation.
+
+### Configuration
+
+| Setting | Value |
+| --- | --- |
+| Base URL | `https://api.fastino.ai` |
+| Inference operation | `POST /v1/systemone` |
+| Model | `fastino/glide` |
+| API-key environment variable | `FASTINO_API_KEY` |
+| Preferred authentication | `X-API-Key: $FASTINO_API_KEY` |
+| Alternate authentication | `Authorization: Bearer $FASTINO_API_KEY` |
+
+Use one authentication style consistently.
+
+### Request
+
+```json
+{
+  "model": "fastino/glide",
+  "state": "<string, object, or array>",
+  "questions": {
+    "<question_key>": {
+      "type": "noul | choice | score",
+      "instructions": "<natural-language question>",
+      "criteria": "<criteria for this question type>"
+    }
+  }
+}
+```
+
+- `model`, `state`, and `questions` are required.
+- `state` may be a string, JSON object, or JSON array.
+- Every question has a caller-defined key, a `type`, natural-language `instructions`, and criteria.
+- All questions in one request evaluate the same `state`.
+- Questions are independent; ask several questions when several simultaneous judgments are needed.
+- Extra top-level request fields return `422 Extra inputs are not permitted`.
+
+### End-to-end example
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": {
+          "true": "Qualifies",
+          "false": "Does not qualify"
+        }
+      }
+    }
+  }'
+```
+
+Response:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.9989566626894673,
+      "confidence": 0.9979133253789345
+    }
+  },
+  "usage": {
+    "input_tokens": 443,
+    "output_tokens": 62
+  },
+  "token_usage": 505
+}
+```
+
+- The response strips the `fastino/` prefix from `model`.
+- `answers` is keyed by the question names supplied in the request.
+- `token_usage` is `usage.input_tokens + usage.output_tokens`.
+
+## GLiDE question types
+
+### Noul
+
+Use `noul` for a binary yes/no decision where the probability itself matters.
+
+Request question:
+
+```json
+{
+  "type": "noul",
+  "instructions": "Does this request qualify for a refund?",
+  "criteria": {
+    "true": "Qualifies",
+    "false": "Does not qualify"
+  }
+}
+```
+
+Answer:
+
+```json
+{
+  "type": "noul",
+  "noul": 0.9989566626894673,
+  "confidence": 0.9979133253789345
+}
+```
+
+- `noul` is the probability that the answer is true. There is no separate label field.
+- `confidence = |2 × noul - 1|`.
+- Tune decision thresholds on real data rather than assuming `0.5` is appropriate.
+
+Full reference: https://docs.fastino.ai/concepts/glide-noul.md
+
+### Choice
+
+Use `choice` to select one option from a caller-defined set of unordered categories.
+
+Request question:
+
+```json
+{
+  "type": "choice",
+  "instructions": "Which team should handle this request?",
+  "criteria": {
+    "billing": "Payment or charge disputes",
+    "returns": "Refund or return requests",
+    "shipping": "Delivery or shipping issues"
+  }
+}
+```
+
+Answer:
+
+```json
+{
+  "type": "choice",
+  "choice": "returns",
+  "confidence": 0.9983415574354015,
+  "probabilities": {
+    "billing": 0.000576420510560337,
+    "returns": 0.9989179779459618,
+    "shipping": 0.0005056015434779647
+  }
+}
+```
+
+- `choice` is the option with the highest probability.
+- `probabilities` uses the request's criteria keys and sums to approximately `1`.
+- `confidence` is the probability margin between the best and second-best options.
+
+Full reference: https://docs.fastino.ai/concepts/glide-choice.md
+
+### Score
+
+Use `score` for an ordered rubric such as urgency, severity, or sentiment intensity.
+
+Request question:
+
+```json
+{
+  "type": "score",
+  "instructions": "How urgent is this request?",
+  "criteria": [
+    "low urgency, can wait",
+    "medium urgency, handle soon",
+    "high urgency, handle immediately"
+  ]
+}
+```
+
+Answer:
+
+```json
+{
+  "type": "score",
+  "score": 2,
+  "expected_level": 1.99,
+  "confidence": 0.996,
+  "probabilities": {
+    "0": 0.0035,
+    "1": 0.0004,
+    "2": 0.996
+  },
+  "legend": {
+    "0": "low urgency, can wait",
+    "1": "medium urgency, handle soon",
+    "2": "high urgency, handle immediately"
+  }
+}
+```
+
+- `score` is the integer index of the most probable level.
+- `expected_level` is the probability-weighted continuous position across levels.
+- `probabilities` is keyed by level index.
+- `legend` is constructed from the request criteria.
+- `confidence` is the probability margin between the best and second-best levels.
+- Score criteria may also be an object with numeric-string keys. Keys are sorted and discarded; the response is re-indexed from `0`.
+
+Full reference: https://docs.fastino.ai/concepts/glide-score.md
+
+## Confidence and safe integration
+
+- Treat the answer and its `confidence` as separate signals.
+- Validate a returned `choice` or `score` before triggering consequential actions.
+- Send low-confidence decisions to a fallback such as human review.
+- Tune thresholds using representative production data.
+- Do not renormalize returned probability distributions.
+- There is no multi-label primitive. Ask multiple independent questions when multiple labels may apply.
+
+## Cold starts, retries, and errors
+
+Use a read timeout of at least 300 seconds. Retry transient `425`, `429`, and `503` responses with bounded backoff and honor `Retry-After` when present. A timed-out request can still warm a deployment, allowing the next request to succeed.
+
+Do not retry authentication, billing, validation, or unknown-model errors without correcting the underlying issue.
+
+| Status | Meaning | Action |
+| --- | --- | --- |
+| `400` | Invalid request | Correct the request |
+| `401` | Missing or invalid API key | Supply a valid `FASTINO_API_KEY` |
+| `402` | Insufficient credits or funding required | Add credits or adjust spending limits |
+| `403` | Billing, payment-method, or account-policy denial | Resolve the account requirement |
+| `404` | Unknown or unsupported model | Use `fastino/glide` |
+| `422` | Request validation failed | Correct the field-level validation error |
+| `425` | Deployment is warming | Wait for `Retry-After`, then retry |
+| `429` | Rate or capacity limit | Back off and honor `Retry-After` |
+| `503` | Cold start or temporary provider capacity issue | Retry with bounded backoff |
+
+GLiDE does not currently support fine-tuned deployments.
+
+## GLiDE documentation
+
+- Overview: https://docs.fastino.ai/concepts/glide.md
+- Inference endpoint: https://docs.fastino.ai/inference/systemone.md
+- Request contract and confidence: https://docs.fastino.ai/concepts/decision-models.md
+- Noul: https://docs.fastino.ai/concepts/glide-noul.md
+- Choice: https://docs.fastino.ai/concepts/glide-choice.md
+- Score: https://docs.fastino.ai/concepts/glide-score.md
+- Agent skill: https://docs.fastino.ai/concepts/glide-agent-skill.md
+
+## GLiNER inference
+
+Use `POST /v1/chat/completions` for GLiNER entity extraction, classification, structured extraction, and relations. The request uses an OpenAI-compatible `model` and `messages` envelope plus Fastino's top-level `schema`.
+
+- Inference contract: https://docs.fastino.ai/inference/chat-completions.md
+- GLiNER2.5: https://docs.fastino.ai/concepts/gliner.md
+- GLiNER-2.5-Decide: https://docs.fastino.ai/concepts/gliner-2-5-decide.md
+- Model catalog: https://docs.fastino.ai/concepts/models.md
+
+## Training and account
+
+- Training API: https://docs.fastino.ai/training.md
+- Pricing: https://docs.fastino.ai/pricing.md
+- Trust and safety: https://docs.fastino.ai/trust-safety.md
+- OpenAPI specification: https://docs.fastino.ai/openapi.json
