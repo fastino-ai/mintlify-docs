@@ -23,6 +23,13 @@ INFERENCE_OPERATIONS = (
     ("POST", "/v1/inferences/{inference_id}/feedback"),
 )
 LOCALES = {"cn", "de", "es", "fr"}
+EXPECTED_SKILLS = {
+    "fastino-datasets",
+    "fastino-fine-tune",
+    "fastino-glide",
+    "fastino-gliner",
+    "fastino-inference",
+}
 ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"https://api\.fastino\.ai/inference(?:\b|[/?#])"),
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
@@ -30,6 +37,52 @@ ACTIVE_LEGACY_INFERENCE = (
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
 RoutePatterns = dict[str, list[re.Pattern[str]]]
+
+
+def _skill_findings(root: Path) -> list[str]:
+    findings: list[str] = []
+    skills_root = root / ".mintlify" / "skills"
+    actual_skills = (
+        {path.name for path in skills_root.iterdir() if path.is_dir()}
+        if skills_root.is_dir()
+        else set()
+    )
+    if actual_skills != EXPECTED_SKILLS:
+        findings.append(
+            "Mintlify skills differ from the expected public set: "
+            f"expected {sorted(EXPECTED_SKILLS)}, found {sorted(actual_skills)}"
+        )
+    for skill_name in sorted(actual_skills):
+        skill_path = skills_root / skill_name / "SKILL.md"
+        if not skill_path.is_file():
+            findings.append(f"{skill_path.relative_to(root)} is missing")
+            continue
+        match = re.search(
+            r"\A---\s*\n.*?^name:\s*([^\s]+)\s*$.*?^---\s*$",
+            skill_path.read_text(encoding="utf-8"),
+            flags=re.DOTALL | re.MULTILINE,
+        )
+        if match is None:
+            findings.append(f"{skill_path.relative_to(root)} has invalid frontmatter")
+        elif match.group(1) != skill_name:
+            findings.append(
+                f"{skill_path.relative_to(root)} name is {match.group(1)!r}, "
+                f"expected {skill_name!r}"
+            )
+    for path in root.rglob("*.mdx"):
+        relative = path.relative_to(root)
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if "npx skills add https://api.fastino.ai" in line:
+                findings.append(
+                    f"{relative}:{number}: stale API-hosted skill install"
+                )
+            if "https://api.fastino.ai/.well-known/agent-skills/" in line:
+                findings.append(
+                    f"{relative}:{number}: stale API-hosted skill source"
+                )
+    return findings
 
 
 def _operations(spec: dict[str, object]) -> set[tuple[str, str]]:
@@ -195,6 +248,7 @@ def main() -> int:
     )
     route_patterns = _route_patterns(manifest)
     findings: list[str] = []
+    findings.extend(_skill_findings(root))
 
     actual_operations = _operations(destination)
     serialized_destination = json.dumps(destination)
