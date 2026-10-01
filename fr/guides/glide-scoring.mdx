@@ -1,0 +1,80 @@
+---
+title: "Évaluer selon une grille ordonnée avec GLiDE"
+sidebarTitle: "Scoring"
+description: "Mettez en place un scoring basé sur une grille avec GLiDE et exploitez à la fois les résultats discrets et continus."
+---
+
+Avec un LLM généraliste, un prompt de scoring demande au modèle de générer un nombre ou de renvoyer une sortie structurée. Avec GLiDE, vous fournissez une grille ordonnée et recevez une distribution de probabilités sur ces niveaux.
+
+Utilisez ce modèle pour l'urgence, la gravité, la qualité, l'intensité du sentiment, le risque et d'autres jugements ordonnés.
+
+## Évaluer l'urgence d'une demande de support
+
+```python
+import os
+
+import requests
+
+ticket_text = (
+    "Our production API is returning 500 errors on every request. "
+    "All customers are affected. Revenue impact is approximately $12,000 per hour. "
+    "Started 15 minutes ago."
+)
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": ticket_text,
+        "questions": {
+            "urgency": {
+                "type": "score",
+                "instructions": "How urgent is this support request?",
+                "criteria": [
+                    "Can wait: no immediate business impact",
+                    "Should handle today: minor inconvenience",
+                    "Time-sensitive: noticeable customer impact, needs attention within hours",
+                    "Critical: system failure affecting customers or revenue",
+                ],
+            }
+        },
+    },
+    timeout=300,
+)
+response.raise_for_status()
+
+answer = response.json()["answers"]["urgency"]
+level = answer["score"]  # Discrete winning level, such as 3.
+continuous_score = answer["expected_level"]  # Probability-weighted position, such as 2.999.
+confidence = answer["confidence"]
+distribution = answer["probabilities"]  # String keys: {"0": ..., "1": ..., "2": ..., "3": ...}
+```
+
+`score` est l'index entier du niveau le plus probable. Utilisez `expected_level` lorsque vous avez besoin d'une valeur continue entre les niveaux. La réponse inclut également `legend`, qui associe les clés d'index sous forme de chaîne aux descriptions que vous avez fournies.
+
+<Warning>
+  Ne traitez pas `score` comme une valeur continue. Par exemple, `2.999` relève de `expected_level` ; `score` serait le niveau entier gagnant, par exemple `3`.
+</Warning>
+
+## Transformer le score en action
+
+```python
+if level == 3 and confidence >= 0.7:
+    action = "page_on_call"
+elif continuous_score >= 2.0:
+    action = "escalate"
+else:
+    action = "standard_queue"
+```
+
+Ajustez les seuils sur des exemples étiquetés issus de votre application. `confidence` mesure l'écart entre les deux niveaux les plus probables ; ce n'est pas la même valeur que le score continu.
+
+## Ce qui change par rapport au scoring par LLM
+
+- La sortie est limitée à votre grille ordonnée ; il n'y a aucun nombre généré à valider.
+- Vous recevez à la fois le niveau gagnant et une position continue pondérée par les probabilités.
+- La distribution complète indique si l'entrée se situe nettement sur un niveau ou entre deux niveaux.
+- Vos critères figurent dans le champ `legend` de la réponse, ce qui rend l'interprétation du score explicite.
+
+Consultez [Inférence GLiDE](/fr/inference/systemone) pour l'authentification, les limites, les erreurs et le contrat de réponse complet.
