@@ -8,17 +8,17 @@ description: "The Noul, Choice, and Score primitives behind GLiDE decisions, plu
 
 Every question you ask [GLiDE](/concepts/glide) uses one of three types, sent to `POST /v1/systemone` against a shared `state`:
 
-- **[Noul](/concepts/glide-noul)** — a yes/no question that returns a probability between 0 and 1. Think of it as a boolean on a sliding scale. "Does this request qualify for a refund?" might return `0.999` — a 99.9% probability the answer is yes.
-- **[Choice](/concepts/glide-choice)** — a pick-one-from-many question that returns a probability distribution over up to 255 named options. "Which team should handle this?" might return `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/concepts/glide-score)** — a rate-on-a-scale question over an ordered rubric you define. "How urgent is this request?" with three levels might return `score: 1` (medium) and `expected_level: 0.9` — a probability-weighted result close to medium.
+- **[Noul](/concepts/glide-noul)** - a yes/no question that returns a probability between 0 and 1. Think of it as a boolean on a sliding scale. "Does this request qualify for a refund?" might return `0.999` - a 99.9% probability the answer is yes.
+- **[Choice](/concepts/glide-choice)** - a pick-one-from-many question that returns a probability distribution over up to 255 named options. "Which team should handle this?" might return `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
+- **[Score](/concepts/glide-score)** - a rate-on-a-scale question over an ordered rubric you define. "How urgent is this request?" with three levels might return `score: 1` (medium) and `expected_level: 0.9` - a probability-weighted result close to medium.
 
 Pick the type that matches the shape of the answer your code needs.
 
 <Tip>
-  Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no — it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use a Score with defined levels. If you need a binary gate, use a Noul.
+  Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no - it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use a Score with defined levels. If you need a binary gate, use a Noul.
 </Tip>
 
-There is no multi-label primitive — each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments; see [Combining multiple questions](#combining-multiple-questions).
+There is no multi-label primitive - each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments; see [Combining multiple questions](#combining-multiple-questions).
 
 ## Limits
 
@@ -42,7 +42,7 @@ response handling, retries, and errors.
 ## Request parameters
 
 <ParamField body="state" type="string | object | array" required>
-  The context to evaluate — a plain string, a JSON object, or a JSON array. See [State shapes](#state-shapes) below for guidance on which to use.
+  The context to evaluate - a plain string, a JSON object, or a JSON array. See [State shapes](#state-shapes) below for guidance on which to use.
 </ParamField>
 
 <ParamField body="questions" type="object" required>
@@ -53,15 +53,9 @@ response handling, retries, and errors.
   Which decision model to use, e.g. `fastino/glide`. Omitting it returns `422 'model' must be provided`. The response echoes it back with the provider prefix stripped (`fastino/glide` → `glide`).
 </ParamField>
 
-<Note>
-  OpenRouter compatibility fields `provider`, `user`, `session_id`, and `trace` are accepted
-  and not forwarded to GLiDE. Any other top-level request key returns
-  `422 Extra inputs are not permitted`.
-</Note>
-
 ### State shapes
 
-`state` is the material every question is evaluated against — think of it as what you'd hand a panel of experts before asking them to make a judgment.
+`state` is the material every question is evaluated against - think of it as what you'd hand a panel of experts before asking them to make a judgment.
 
 | Shape | Useful for | Example |
 | --- | --- | --- |
@@ -69,18 +63,18 @@ response handling, retries, and errors.
 | Object | Named fields, related records, or app state | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
 | Array | A sequence of messages or records | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
 
-Use an object when the decision depends on comparing several named parts (a ticket plus the policy it's evaluated against, for example) — it keeps each part labeled and its relationships clear. A plain string is enough when the case is a single self-contained passage. All questions in a request see the same `state` and are evaluated independently against it.
+Use an object when the decision depends on comparing several named parts (a ticket plus the policy it's evaluated against, for example) - it keeps each part labeled and its relationships clear. A plain string is enough when the case is a single self-contained passage. All questions in a request see the same `state` and are evaluated independently against it.
 
 ## Confidence
 
-Every answer carries a `confidence` value. The answer tells you *what* GLiDE concluded; confidence tells you *whether to act on it* — treat them as two separate axes, not one.
+Every answer carries a `confidence` value. The answer tells you *what* GLiDE concluded; confidence tells you *whether to act on it* - treat them as two separate axes, not one.
 
 | Question type | Formula | Range |
 | --- | --- | --- |
 | Noul | `\|2 × noul − 1\|` | `0` (maximum uncertainty, `noul = 0.5`) to `1` (fully certain, `noul = 0` or `1`) |
 | Choice / Score | `top1 − top2` (probability margin between the best and second-best option or level) | `0` (two options tied) to `1` (one option has ~all the probability mass) |
 
-A low-confidence answer isn't wrong — it means the probability mass is spread across two or more outcomes instead of concentrated on one, which is itself useful signal. A common pattern is **confidence-gated routing**: act automatically on high-confidence answers, and route low-confidence ones to a fallback (human review, a broader category, a secondary check):
+A low-confidence answer isn't wrong - it means the probability mass is spread across two or more outcomes instead of concentrated on one, which is itself useful signal. A common pattern is **confidence-gated routing**: act automatically on high-confidence answers, and route low-confidence ones to a fallback (human review, a broader category, a secondary check):
 
 ```python
 answer = response["answers"]["department"]
@@ -88,10 +82,10 @@ answer = response["answers"]["department"]
 if answer["confidence"] >= 0.6:
     route_to(answer["choice"])
 else:
-    route_to("triage-queue")  # ambiguous — let a human or a broader handler decide
+    route_to("triage-queue")  # ambiguous - let a human or a broader handler decide
 ```
 
-Tune the threshold on real data for your use case rather than assuming `0.5` is correct — confidence is calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
+Tune the threshold on real data for your use case rather than assuming `0.5` is correct - confidence is calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
 
 Each primitive page has a worked example and more on using its result: [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), [Score](/concepts/glide-score).
 
@@ -173,11 +167,11 @@ Response:
 
 ## Related
 
-- [GLiDE](/concepts/glide) — what GLiDE is and when to use it
-- [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), [Score](/concepts/glide-score) — the three question primitives in full, with worked examples
-- [GLiDE Agent Skill](/concepts/glide-agent-skill) — install GLiDE for Cursor, Claude Code, and Codex
-- [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) — a related decision model covering model routing, tool calling, guardrails, and other conceptual use cases
-- [Available models](/concepts/models) — encoder and decoder model catalog
-- [Pricing](/pricing) — GLiDE and GLiNER rates
-- [Quickstart](/quickstart) — generating and passing your API key
-- [`/v1/systemone`](/inference/systemone) — the raw HTTP contract for GLiDE decisions
+- [GLiDE](/concepts/glide) - what GLiDE is and when to use it
+- [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), [Score](/concepts/glide-score) - the three question primitives in full, with worked examples
+- [GLiDE Agent Skill](/concepts/glide-agent-skill) - install GLiDE for Cursor, Claude Code, and Codex
+- [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) - a related decision model covering model routing, tool calling, guardrails, and other conceptual use cases
+- [Available models](/concepts/models) - encoder and decoder model catalog
+- [Pricing](/pricing) - GLiDE and GLiNER rates
+- [Quickstart](/quickstart) - generating and passing your API key
+- [`/v1/systemone`](/inference/systemone) - the raw HTTP contract for GLiDE decisions

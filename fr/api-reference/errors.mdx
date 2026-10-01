@@ -18,22 +18,22 @@ La plupart des réponses d'erreur renvoient un corps JSON avec un champ `detail`
 
 Quelques familles de réponses utilisent une forme différente :
 
-- **Refus de facturation** (`402`, certains `403`) renvoient `{"code", "message", "resolution_url"}` au lieu de `detail` — voir [402](#402-—-paiement-requis) et [403](#403-—-interdit) ci-dessous.
-- **Réponses de limitation de débit** (`429`) ajoutent des champs `code` et `scope` à côté de `detail`, ainsi que les en-têtes `X-RateLimit-Scope` et `X-RateLimit-Code` — voir [429](#429-—-trop-de-requêtes) ci-dessous.
+- **Refus de facturation** (`402`, certains `403`) renvoient `{"code", "message", "resolution_url"}` au lieu de `detail` - voir [402](#402---paiement-requis) et [403](#403---interdit) ci-dessous.
+- **Réponses de limitation de débit** (`429`) ajoutent des champs `code` et `scope` à côté de `detail`, ainsi que les en-têtes `X-RateLimit-Scope` et `X-RateLimit-Code` - voir [429](#429---trop-de-requêtes) ci-dessous.
 - **Erreurs serveur non gérées** (`500`) renvoient `{"error", "message"}` plutôt que `detail`.
 - Les requêtes vers les endpoints compatibles OpenAI (`/v1/chat/completions`, `/v1/responses`) reçoivent une enveloppe au format OpenAI `{"error": {"code", "type", "param", "message"}}`, et les requêtes portant un en-tête `anthropic-version` reçoivent une enveloppe au format Anthropic `{"type": "error", "error": {"type", "message"}}` au lieu des formes génériques ci-dessus.
 
 ## Codes de statut
 
-### 400 — Requête incorrecte
+### 400 - Requête incorrecte
 
-La requête elle-même est mal formée — JSON invalide, ou un paramètre de requête/de chemin du mauvais type.
+La requête elle-même est mal formée - JSON invalide, ou un paramètre de requête/de chemin du mauvais type.
 
 **Comment corriger :** Vérifiez que le corps de votre requête est un JSON valide et que les paramètres de requête/de chemin correspondent aux types documentés dans la référence de l'endpoint.
 
 ---
 
-### 401 — Non autorisé
+### 401 - Non autorisé
 
 Votre requête ne contenait pas de clé API valide, la clé a été révoquée, ou votre compte a été bloqué pour raison de facturation ou d'examen antifraude.
 
@@ -41,19 +41,19 @@ Votre requête ne contenait pas de clé API valide, la clé a été révoquée, 
 
 ---
 
-### 402 — Paiement requis
+### 402 - Paiement requis
 
 <Warning>
   Une réponse `402` signifie que votre compte n'a plus de crédits utilisables ou qu'une action de facturation est requise avant de pouvoir exécuter l'inférence. Tous les appels API échoueront jusqu'à ce que vous ajoutiez des crédits ou passiez à un plan supérieur. Rendez-vous dans **Settings** → **Billing** ou consultez [Plans & tarifs](/pricing) pour résoudre cela.
 </Warning>
 
-Votre compte ne dispose pas de crédits suffisants pour effectuer la requête. Le champ `code` du corps de la réponse vous indique le cas concerné — le plus souvent `out_of_credits` (vos crédits inclus sont épuisés et il n'y a pas de solde payé utilisable) ou `direct_model_requires_credits` (les crédits inclus de votre plan sont réservés au routeur ; appeler un modèle directement au lieu de passer par `pioneer/auto` nécessite un solde de crédits payé).
+Votre compte ne dispose pas de crédits suffisants pour effectuer la requête. Le champ `code` du corps de la réponse vous indique le cas concerné - le plus souvent `out_of_credits` (vos crédits inclus sont épuisés et il n'y a pas de solde payé utilisable) ou `direct_model_requires_credits` (les crédits inclus de votre plan sont réservés au routeur ; appeler un modèle directement au lieu de passer par `pioneer/auto` nécessite un solde de crédits payé).
 
 **Comment corriger :** Connectez-vous à [Fastino](https://agent.fastino.ai), allez dans **Settings** → **Billing**, et rechargez votre solde ou passez à un plan supérieur. Consultez [Limites de crédits et plafond de dépassement](/api-reference/rate-limits#credit-limits-and-overage-spending-cap) pour comprendre le fonctionnement des limites de crédits et de la facturation en dépassement.
 
 ---
 
-### 403 — Interdit
+### 403 - Interdit
 
 Votre équipe a atteint le plafond mensuel maximum de dépassement de son plan (`code: "credit_ceiling_reached"`), ou votre compte doit disposer d'un moyen de paiement vérifié avant de pouvoir exécuter l'inférence (`code: "card_required"`).
 
@@ -61,7 +61,7 @@ Votre équipe a atteint le plafond mensuel maximum de dépassement de son plan (
 
 ---
 
-### 404 — Introuvable
+### 404 - Introuvable
 
 La ressource que vous avez demandée n'existe pas. Cela peut se produire lorsqu'un nom de jeu de données, un ID de tâche d'entraînement, un ID d'évaluation, un ID de projet ou un ID de modèle est mal orthographié ou a été supprimé.
 
@@ -69,23 +69,23 @@ La ressource que vous avez demandée n'existe pas. Cela peut se produire lorsqu'
 
 ---
 
-### 409 — Conflit
+### 409 - Conflit
 
-Le modèle existe dans le catalogue mais n'est pas actuellement servable — par exemple, un modèle de base uniquement destiné à l'entraînement demandé pour de l'inférence directe, ou un déploiement à la demande qui n'a pas fini d'être provisionné après la fin d'une tâche d'entraînement.
+Le modèle existe dans le catalogue mais n'est pas actuellement servable - par exemple, un modèle de base uniquement destiné à l'entraînement demandé pour de l'inférence directe, ou un déploiement à la demande qui n'a pas fini d'être provisionné après la fin d'une tâche d'entraînement.
 
 **Comment corriger :** Vérifiez `supports_inference` et `supports_on_demand_inference` pour le modèle via `GET /v1/base-models`, ou réessayez une fois le déploiement provisionné.
 
 ---
 
-### 413 — Charge utile trop volumineuse
+### 413 - Charge utile trop volumineuse
 
-Le corps de la requête — typiquement un envoi de fichier pour une évaluation ou un jeu de données — dépasse la limite de taille de l'endpoint.
+Le corps de la requête - typiquement un envoi de fichier pour une évaluation ou un jeu de données - dépasse la limite de taille de l'endpoint.
 
 **Comment corriger :** Consultez la référence de l'endpoint pour connaître sa limite de taille d'envoi et découpez ou compressez la charge utile avant de réessayer.
 
 ---
 
-### 422 — Entité non traitable
+### 422 - Entité non traitable
 
 Le corps de la requête a échoué à la validation. Un champ requis est manquant, un champ a le mauvais type, ou une valeur est hors de la plage acceptée.
 
@@ -104,7 +104,7 @@ Le corps de la requête a échoué à la validation. Un champ requis est manquan
 
 ---
 
-### 425 — Trop tôt
+### 425 - Trop tôt
 
 Le déploiement à la demande demandé est encore en cours de préchauffage (démarrage à froid) et n'est pas encore prêt à servir de l'inférence.
 
@@ -112,15 +112,15 @@ Le déploiement à la demande demandé est encore en cours de préchauffage (dé
 
 ---
 
-### 429 — Trop de requêtes
+### 429 - Trop de requêtes
 
-Vous avez dépassé la limite de débit de requêtes pour cet endpoint. La réponse inclut un en-tête `Retry-After`, ainsi que les en-têtes `X-RateLimit-Scope` et `X-RateLimit-Code` identifiant la limite atteinte — le corps JSON contient des champs `code` et `scope` correspondants à côté de `detail`.
+Vous avez dépassé la limite de débit de requêtes pour cet endpoint. La réponse inclut un en-tête `Retry-After`, ainsi que les en-têtes `X-RateLimit-Scope` et `X-RateLimit-Code` identifiant la limite atteinte - le corps JSON contient des champs `code` et `scope` correspondants à côté de `detail`.
 
-**Comment corriger :** Respectez la valeur `Retry-After` et attendez avant de réessayer. Consultez [Limites de débit](/api-reference/rate-limits) pour les limites par endpoint et un modèle de code pour les nouvelles tentatives. Notez que les refus liés aux crédits et au dépassement renvoient `402`/`403`, et non `429` — voir [Limites de crédits et plafond de dépassement](/api-reference/rate-limits#credit-limits-and-overage-spending-cap).
+**Comment corriger :** Respectez la valeur `Retry-After` et attendez avant de réessayer. Consultez [Limites de débit](/api-reference/rate-limits) pour les limites par endpoint et un modèle de code pour les nouvelles tentatives. Notez que les refus liés aux crédits et au dépassement renvoient `402`/`403`, et non `429` - voir [Limites de crédits et plafond de dépassement](/api-reference/rate-limits#credit-limits-and-overage-spending-cap).
 
 ---
 
-### 451 — Indisponible pour des raisons légales
+### 451 - Indisponible pour des raisons légales
 
 Le modèle demandé n'est pas disponible pour votre compte en raison de restrictions liées au contrôle des exportations ou aux sanctions dans votre région.
 
@@ -128,7 +128,7 @@ Le modèle demandé n'est pas disponible pour votre compte en raison de restrict
 
 ---
 
-### 500 — Erreur interne du serveur
+### 500 - Erreur interne du serveur
 
 Une erreur inattendue s'est produite sur les serveurs de Fastino. Elle n'est pas causée par votre requête. Le corps utilise les champs `error` et `message` plutôt que `detail` :
 
@@ -143,15 +143,15 @@ Une erreur inattendue s'est produite sur les serveurs de Fastino. Elle n'est pas
 
 ---
 
-### 503 — Service indisponible
+### 503 - Service indisponible
 
-Une dépendance nécessaire à la requête — vérification de facturation, ou endpoint de statut/métriques d'un fournisseur — est temporairement indisponible.
+Une dépendance nécessaire à la requête - vérification de facturation, ou endpoint de statut/métriques d'un fournisseur - est temporairement indisponible.
 
 **Comment corriger :** Attendez un instant et réessayez. Si l'erreur persiste, consultez [status.pioneer.ai](https://status.pioneer.ai) pour l'état des services en direct ou contactez le support.
 
 ---
 
-### 529 — Surchargé (endpoint compatible Anthropic uniquement)
+### 529 - Surchargé (endpoint compatible Anthropic uniquement)
 
 `POST /v1/messages` reproduit la propre réponse `overloaded_error` d'Anthropic lorsque la capacité amont de Claude est temporairement saturée.
 
