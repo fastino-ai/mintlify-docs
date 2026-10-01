@@ -122,6 +122,83 @@ y ejemplos de integración.
 Consulta la [referencia de GLiDE](/es/concepts/decision-models) para ver orientación sobre las formas de state, las fórmulas
 de confianza y una solicitud mixta de Choice/Score.
 
+## Migrar desde TypeSafe
+
+Jev de TypeSafe y GLiDE de Fastino usan la misma estructura de System One: `state`, `questions`
+con nombre y `answers` correspondientes. La mayoría de las solicitudes se transfieren sin problemas,
+pero la integración no es un reemplazo directo. Usa esta lista de comprobación para migrar con seguridad:
+
+| TypeSafe o Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| Modelo de solicitud `jev-latest` | Modelo de solicitud `fastino/glide` |
+| ID de modelo de Jev en la respuesta | Modelo de respuesta `glide` |
+| Cliente del SDK de TypeSafe | Tu cliente HTTP llamando a `/v1/systemone` |
+| Reintentar `429` y `529` | Reintentar `425`, `429` y `503` con backoff acotado |
+
+<Steps>
+  <Step title="Conserva la estructura de solicitud de System One">
+    Conserva el `state` no vacío, las claves de pregunta y los tipos de primitiva. GLiDE exige que cada
+    valor de `instructions` sea una cadena no vacía, así que convierte las instrucciones omitidas, nulas,
+    de tipo objeto o de tipo array en texto claro. Mantén los criterios de Choice como un objeto. Los
+    criterios de Noul son opcionales, pero sus valores `true` y `false` deben ser cadenas. Para los
+    criterios de Score, es preferible un array ordenado.
+  </Step>
+  <Step title="Cambia el endpoint, la credencial y el modelo">
+    Dirige la solicitud a Fastino, lee `FASTINO_API_KEY`, envíala con `X-API-Key` y establece
+    `model` en `fastino/glide`. Fastino también acepta el encabezado Bearer si mantener ese
+    estilo simplifica una migración HTTP directa. Espera `model: "glide"` en la respuesta.
+  </Step>
+  <Step title="Actualiza el manejo de respuestas de Score">
+    El `score` de TypeSafe es un número de coma flotante ponderado por probabilidad. Su equivalente en
+    GLiDE es `expected_level`. En cambio, el `score` de GLiDE es el índice entero del nivel más probable.
+    GLiDE devuelve las descripciones de la leyenda de Score como cadenas, así que actualiza los consumidores
+    que esperan valores de leyenda estructurados.
+  </Step>
+  <Step title="Revisa las claves de nivel y el comportamiento de reintento">
+    GLiDE devuelve `probabilities` y `legend` de Score con claves de cadena como `"0"` y `"1"`.
+    La respuesta HTTP sin procesar de TypeSafe hace lo mismo, pero su SDK de Python puede exponer claves
+    enteras. Convierte las claves solo si la aplicación requiere mapas con claves enteras. Sustituye el
+    manejo de reintentos de `529` de TypeSafe por el manejo de `425` y `503` de Fastino, y mantén un
+    backoff acotado para `429`. Respeta `Retry-After` cuando esté presente y aplica el mismo presupuesto
+    de reintentos a los fallos de transporte.
+  </Step>
+  <Step title="Vuelve a validar los umbrales de decisión">
+    Mantén intactas las acciones de negocio existentes durante la migración y luego prueba GLiDE con casos
+    representativos antes del despliegue. No des por hecho que los umbrales calibrados para Jev se
+    transfieren sin cambios a un modelo diferente.
+  </Step>
+</Steps>
+
+<Warning>
+  No asignes el `score` de coma flotante de TypeSafe al `score` de GLiDE. Lee
+  `answers.&lt;key&gt;.expected_level` cuando el código existente espere una puntuación ponderada. Lee
+  `answers.&lt;key&gt;.score` solo cuando el código necesite el índice del único nivel ganador.
+</Warning>
+
+### Sustituye el uso del SDK de TypeSafe
+
+Si el proyecto usa un SDK de TypeSafe, migra todo el límite del cliente:
+
+1. Busca `typesafe-sdk`, `@typesafe-ai/sdk`, `TypeSafeClient`, `AsyncTypeSafeClient` y los
+   constructores de preguntas de TypeSafe en manifiestos, importaciones, código de la aplicación y pruebas.
+2. Sustituye las llamadas del cliente tipado por un cliente HTTP que envíe JSON sin procesar a `/v1/systemone`.
+3. Sustituye el acceso a objetos del SDK, como `response.answers[key].score`, por el acceso a la
+   respuesta JSON decodificada.
+4. Comprueba las respuestas que no sean 2xx antes de leer `answers`. Usa un tiempo de espera de lectura de
+   al menos 300 segundos y reintentos acotados para fallos de transporte, `425`, `429` y `503`.
+5. Elimina los paquetes e importaciones de TypeSafe solo cuando no quede ninguna referencia.
+
+Envía solo los campos de solicitud documentados que necesite tu integración. Los campos de nivel superior
+no admitidos devuelven `422`, así que no copies opciones arbitrarias del cliente de TypeSafe en el cuerpo JSON.
+
+Para las solicitudes de Score, GLiDE también acepta objetos de criterios con claves de cadena numéricas, como
+`{"1": "low", "3": "medium", "5": "high"}`. Las claves se ordenan y se descartan, y la
+respuesta se reindexa de `0` a `N-1`. Usa un array ordenado cuando los valores numéricos originales
+no deban confundirse con los índices de nivel devueltos.
+
 ## Errores
 
 | Estado | Causa probable | Acción |
