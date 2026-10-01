@@ -1,0 +1,89 @@
+---
+title: "Decisiones de GLiDE"
+sidebarTitle: "Decisiones de GLiDE"
+description: "Ejecuta decisiones de clasificación, enrutamiento y puntuación de GLiDE a través de POST /v1/systemone."
+noindex: true
+---
+
+```text
+POST https://api.fastino.ai/v1/systemone
+```
+
+Envía un `state` (la situación que se va a evaluar) y una o varias `questions` con nombre, cada
+una de tipo `noul`, `choice` o `score`. GLiDE devuelve directamente probabilidades calibradas; no
+hay texto generado que analizar. Consulta la [descripción general de la API de
+inferencia](/es/inference) para ver la autenticación y el comportamiento de arranque en frío y
+reintentos que comparten las interfaces de inferencia de Fastino.
+
+El contrato completo de solicitud y respuesta de `/v1/systemone` (las formas de Noul, Choice y
+Score, los límites y la confianza) se encuentra en [Modelos de decisión](/es/concepts/decision-models),
+con una página dedicada a cada primitiva. Esta página cubre el contrato HTTP en crudo.
+
+## Ejemplo
+
+```bash
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## Respuesta
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+Comprueba qué despliegues admiten actualmente decisiones de GLiDE de la misma forma en que
+comprobarías la compatibilidad con codificadores GLiNER, con `task_type=systemone`:
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
+```
+
+<Card title="Modelos de decisión" icon="sparkle" href="/es/concepts/decision-models">
+  El contrato completo de `/v1/systemone` (las formas de solicitud y respuesta de Noul, Choice y
+  Score, los límites y la confianza), con ejemplos prácticos para cada tipo de pregunta.
+</Card>
+
+## Errores
+
+| Estado | Causa probable | Acción |
+| --- | --- | --- |
+| `400` | Solicitud o esquema no válidos | Corrige los campos de la solicitud o el esquema |
+| `401` | Clave de API ausente, mal formada o no válida | Exporta una clave `fast_sk_...` válida |
+| `402` | Créditos insuficientes, se requiere financiación o límite de gasto diario/mensual fijado por el propietario | Añade créditos o ajusta el límite de gasto |
+| `403` | Método de pago, verificación de tarjeta, techo de crédito o denegación por política de la cuenta | Resuelve el requisito de facturación o de la cuenta |
+| `404` | Modelo desconocido o no soportado | Usa un ID del catálogo con capacidad de inferencia |
+| `422` | Validación de la solicitud fallida | Lee y corrige los detalles de validación a nivel de campo |
+| `425` | El despliegue se está calentando | Reintenta tras el retraso indicado |
+| `429` | Límite de tasa o de capacidad | Respeta `Retry-After` y reintenta con retroceso |
+| `503` | Arranque en frío o problema temporal de capacidad del proveedor | Reintenta antes de tratarlo como terminal |
+
+GLiDE no admite actualmente despliegues ajustados, por lo que el caso `409` "el modelo ajustado
+existe pero no está desplegado" de [`/v1/chat/completions`](/es/inference/chat-completions#errores)
+no se aplica aquí.
+
+Consulta [Arranques en frío y reintentos](/es/inference#arranques-en-frío-y-reintentos) para ver el
+patrón de reintentos compartido.
