@@ -1,7 +1,7 @@
 ---
-title: "Decisiones de GLiDE"
-sidebarTitle: "Decisiones de GLiDE"
-description: "Ejecuta decisiones de clasificación, enrutamiento y puntuación de GLiDE a través de POST /v1/systemone."
+title: "Inferencia de GLiDE con /v1/systemone"
+sidebarTitle: "Inferencia de GLiDE"
+description: "Autentícate, elige una pregunta Noul, Choice o Score, llama a POST /v1/systemone y actúa según las probabilidades y la confianza de GLiDE."
 noindex: true
 ---
 
@@ -9,20 +9,68 @@ noindex: true
 POST https://api.fastino.ai/v1/systemone
 ```
 
-Envía un `state` (la situación que se va a evaluar) y una o varias `questions` con nombre, cada
-una de tipo `noul`, `choice` o `score`. GLiDE devuelve directamente probabilidades calibradas; no
-hay texto generado que analizar. Consulta la [descripción general de la API de
-inferencia](/es/inference) para ver la autenticación y el comportamiento de arranque en frío y
-reintentos que comparten las interfaces de inferencia de Fastino.
+Este es el endpoint de inferencia de **GLiDE**. Envía un `state` no vacío y una o varias `questions`
+tipadas y con nombre; lee las decisiones estructuradas en `answers`. GLiDE no usa
+`/v1/chat/completions`, `messages` ni un `schema` de GLiNER.
 
-El contrato completo de solicitud y respuesta de `/v1/systemone` (las formas de Noul, Choice y
-Score, los límites y la confianza) se encuentra en [Modelos de decisión](/es/concepts/decision-models),
-con una página dedicada a cada primitiva. Esta página cubre el contrato HTTP en crudo.
+## Autenticación
 
-## Ejemplo
+Crea una clave de API en [Fastino Settings](https://agent.fastino.ai/api-keys) y luego configúrala:
 
 ```bash
-curl -s https://api.fastino.ai/v1/systemone \
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+Envíala en cada solicitud:
+
+```http
+X-API-Key: $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+También se acepta `Authorization: Bearer $FASTINO_API_KEY`. Usa un solo estilo de forma coherente.
+
+## Elige un tipo de pregunta
+
+Cada pregunta es de una sola etiqueta y devuelve probabilidades. Elige la primitiva según la
+forma de respuesta que necesita tu código:
+
+| Primitiva | Úsala cuando | Forma de `criteria` | Resultado principal |
+| --- | --- | --- | --- |
+| [Noul](/es/concepts/glide-noul) | La respuesta es sí o no | Opcional `{"true": "...", "false": "..."}`; por defecto Yes/No | `noul`, la probabilidad de true |
+| [Choice](/es/concepts/glide-choice) | Debe ganar exactamente una opción sin orden | Objeto que asigna claves de opción a descripciones | `choice` más `probabilities` |
+| [Score](/es/concepts/glide-score) | La respuesta pertenece a una escala ordenada | Array ordenado de descripciones de niveles | `score`, `expected_level` y `probabilities` |
+
+No existe una primitiva multietiqueta. Haz varias preguntas independientes con nombre en una sola solicitud
+cuando necesites varios juicios sobre el mismo state.
+
+## Solicitud
+
+<ParamField body="model" type="string" required>
+  Usa `fastino/glide`. La respuesta devuelve el nombre del motor como `glide`.
+</ParamField>
+
+<ParamField body="state" type="string | object | array" required>
+  La situación no vacía que se va a evaluar. Usa una cadena para un solo pasaje, un objeto para campos
+  etiquetados o un array para una secuencia ordenada de mensajes o registros.
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  Un objeto no vacío cuyas claves son nombres que tú eliges. Cada valor debe contener `type` e
+  `instructions`; Choice y Score también requieren `criteria`. Las mismas claves aparecen bajo
+  `answers` en la respuesta.
+</ParamField>
+
+<Accordion title="Campos de compatibilidad con OpenRouter">
+  `provider`, `user`, `session_id` y `trace` se aceptan por compatibilidad con OpenRouter
+  y para observabilidad, pero no se reenvían a GLiDE. Otros campos de nivel superior desconocidos devuelven
+  `422 Extra inputs are not permitted`.
+</Accordion>
+
+### Solicitud completa
+
+```bash
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -50,40 +98,67 @@ curl -s https://api.fastino.ai/v1/systemone \
       "confidence": 0.9953536758980399
     }
   },
-  "usage": { "input_tokens": 89, "output_tokens": 1 },
-  "token_usage": 90
+  "usage": { "input_tokens": 89, "output_tokens": 1 }
 }
 ```
 
-Comprueba qué despliegues admiten actualmente decisiones de GLiDE de la misma forma en que
-comprobarías la compatibilidad con codificadores GLiNER, con `task_type=systemone`:
+`answers` usa las claves de pregunta de tu solicitud. Para este Noul:
 
-```bash
-curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
-```
+- `noul` es la probabilidad de que se cumpla el criterio `true`. No es un booleano.
+- `confidence` es la certeza sobre cualquiera de los dos resultados: `|2 × noul − 1|`.
+- Ajusta los umbrales de acción con datos representativos. No des por hecho que `0.5` es el umbral
+  adecuado para tu negocio.
 
-<Card title="Modelos de decisión" icon="sparkle" href="/es/concepts/decision-models">
-  El contrato completo de `/v1/systemone` (las formas de solicitud y respuesta de Noul, Choice y
-  Score, los límites y la confianza), con ejemplos prácticos para cada tipo de pregunta.
-</Card>
+Choice y Score devuelven campos distintos. Consulta sus páginas de primitiva para ver las formas exactas de respuesta
+y ejemplos de integración.
+
+## Límites y formas no admitidas
+
+- Cada prompt de pregunta renderizado (`state` más esa pregunta) debe caber en **40,000
+  tokens**.
+- Choice y Score aceptan como máximo **255 opciones o niveles**.
+- `usage.input_tokens` suma las pasadas internas de todas las preguntas, por lo que puede superar 40,000
+  aunque cada prompt renderizado individual quepa.
+- Una solicitud evalúa un único `state` compartido; pon varias preguntas bajo `questions`.
+- `/v1/systemone` no hace streaming y no acepta un lote de estados independientes.
+- GLiDE no admite actualmente ID de despliegues ajustados.
+
+Consulta la [referencia de GLiDE](/es/concepts/decision-models) para ver orientación sobre las formas de state, las fórmulas
+de confianza y una solicitud mixta de Choice/Score.
 
 ## Errores
 
 | Estado | Causa probable | Acción |
 | --- | --- | --- |
-| `400` | Solicitud o esquema no válidos | Corrige los campos de la solicitud o el esquema |
+| `400` | El prompt supera la ventana de contexto u otra entrada de inferencia no es válida | Acorta el state o corrige la pregunta |
 | `401` | Clave de API ausente, mal formada o no válida | Exporta una clave `fast_sk_...` válida |
 | `402` | Créditos insuficientes, se requiere financiación o límite de gasto diario/mensual fijado por el propietario | Añade créditos o ajusta el límite de gasto |
 | `403` | Método de pago, verificación de tarjeta, techo de crédito o denegación por política de la cuenta | Resuelve el requisito de facturación o de la cuenta |
-| `404` | Modelo desconocido o no soportado | Usa un ID del catálogo con capacidad de inferencia |
-| `422` | Validación de la solicitud fallida | Lee y corrige los detalles de validación a nivel de campo |
+| `404` | Modelo desconocido o un modelo que solo admite chat completions | Usa `fastino/glide` |
+| `422` | Falta un campo obligatorio, un valor tiene una forma incorrecta o se envió un campo adicional | Lee y corrige los detalles de validación a nivel de campo |
 | `425` | El despliegue se está calentando | Reintenta tras el retraso indicado |
 | `429` | Límite de tasa o de capacidad | Respeta `Retry-After` y reintenta con retroceso |
-| `503` | Arranque en frío o problema temporal de capacidad del proveedor | Reintenta antes de tratarlo como terminal |
+| `503` | Fallo temporal del proveedor o del servicio | Reintenta antes de tratarlo como terminal |
 
-GLiDE no admite actualmente despliegues ajustados, por lo que el caso `409` "el modelo ajustado
-existe pero no está desplegado" de [`/v1/chat/completions`](/es/inference/chat-completions#errores)
-no se aplica aquí.
+Usa un tiempo de espera de lectura de al menos 300 segundos y un backoff acotado para `425`, `429` y `503`.
+No reintentes `401`, `402`, `403`, `404` ni `422` sin corregir el problema subyacente.
 
-Consulta [Arranques en frío y reintentos](/es/inference#arranques-en-frío-y-reintentos) para ver el
-patrón de reintentos compartido.
+## Sigue aprendiendo
+
+<CardGroup cols={2}>
+  <Card title="Referencia de GLiDE" icon="book-open" href="/es/concepts/decision-models">
+    Entiende las formas de state, los límites, la confianza y cómo combinar varias preguntas.
+  </Card>
+
+  <Card title="Noul" icon="toggle-on" href="/es/concepts/glide-noul">
+    Integra una probabilidad de sí/no.
+  </Card>
+
+  <Card title="Choice" icon="list" href="/es/concepts/glide-choice">
+    Enruta a una opción con nombre.
+  </Card>
+
+  <Card title="Score" icon="gauge" href="/es/concepts/glide-score">
+    Evalúa una rúbrica ordenada.
+  </Card>
+</CardGroup>

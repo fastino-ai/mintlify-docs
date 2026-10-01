@@ -1,64 +1,73 @@
 ---
-title: "API de inferencia"
+title: "API de inferencia: elige un endpoint"
 sidebarTitle: "Descripción general"
-description: "Ejecuta predicciones GLiNER basadas en esquemas y decisiones de GLiDE a través de la API de inferencia de Fastino."
+description: "Elige el endpoint de decisión de GLiDE o el endpoint de chat-completions compatible con OpenAI sin mezclar sus contratos de solicitud y respuesta."
 noindex: true
 ---
 
-Fastino ofrece dos interfaces síncronas de inferencia. Elige la que se ajuste a lo que
-necesitas:
+Fastino tiene dos contratos de inferencia. Elige el endpoint según el resultado que necesites y
+luego sigue la forma de solicitud y respuesta de ese endpoint. Los campos no son intercambiables.
 
-| Capacidad | [`/v1/chat/completions`](/es/inference/chat-completions) | [`/v1/systemone`](/es/inference/systemone) |
-| --- | --- | --- |
-| Modelo | Selecciona un modelo base con capacidad de inferencia o el UUID de un trabajo de entrenamiento completado | Siempre usa `fastino/glide` |
-| Solicitud | `model` y `messages` compatibles con OpenAI, más el `schema` de nivel superior de Fastino | `state` nativo más una o varias `questions` tipadas |
-| Respuesta | Envoltorio de chat-completion de OpenAI; analiza `choices[0].message.content` como JSON | Cuerpo nativo `{ "answers": ..., "usage": ... }` |
-| Entrada por lotes | Una conversación por solicitud | Un `state` por solicitud, con varias `questions` evaluadas a la vez |
-| Ideal para | Extracción, clasificación, extracción estructurada y relaciones, en modelos base y ajustados | Decisiones de clasificación, enrutamiento y puntuación con probabilidades calibradas |
+<CardGroup cols={2}>
+  <Card title="Toma una decisión con GLiDE" icon="sparkle" href="/es/inference/systemone">
+    Llama a `POST /v1/systemone` con `state` y `questions` tipadas. Recibe respuestas Noul, Choice o
+    Score con probabilidades y confianza.
+  </Card>
 
-<Tip>
-  Usa [`/v1/chat/completions`](/es/inference/chat-completions) para extracción, clasificación,
-  extracción estructurada o relaciones. Usa [`/v1/systemone`](/es/inference/systemone) para
-  decisiones estructuradas (clasificación, enrutamiento, puntuación) en lugar de extracción.
-</Tip>
+  <Card title="Ejecuta GLiNER o un LLM" icon="braces" href="/es/inference/chat-completions">
+    Llama a `POST /v1/chat/completions` con `messages`. Añade un `schema` para extracción,
+    clasificación, estructuras o relaciones con GLiNER.
+  </Card>
+</CardGroup>
 
-Esta página cubre lo que comparten ambas interfaces. Consulta
-[`/v1/chat/completions`](/es/inference/chat-completions) para ver el contrato de solicitud y
-respuesta de GLiNER y la guía de migración heredada, o [`/v1/systemone`](/es/inference/systemone)
-para ver el contrato HTTP de GLiDE; las formas completas de solicitud y respuesta de
-Noul/Choice/Score se encuentran en [Modelos de decisión](/es/concepts/decision-models). El uso
-del SDK, el entrenamiento de modelos, la evaluación, el historial de inferencia y el feedback
-quedan fuera del alcance de esta página.
+| Si necesitas… | Familia de modelos | Endpoint | Forma de la solicitud | Lee el resultado de |
+| --- | --- | --- | --- | --- |
+| Decidir sí/no, enrutar a una opción o puntuar en una escala ordenada | GLiDE | [`POST /v1/systemone`](/es/inference/systemone) | `model`, `state`, `questions` | `answers.<question_key>` |
+| Extraer fragmentos, clasificar texto, construir registros o extraer relaciones | GLiNER | [`POST /v1/chat/completions`](/es/inference/chat-completions) | `model`, `messages`, `schema` | JSON analizado de `choices[0].message.content` |
+| Generar texto con un LLM decoder | Modelo decoder | [`POST /v1/chat/completions`](/es/inference/chat-completions) | `model`, `messages` | `choices[0].message.content` |
+
+<Warning>
+  No envíes GLiDE a `/v1/chat/completions` ni envíes `messages` o un `schema` de GLiNER
+  a `/v1/systemone`. GLiDE usa `fastino/glide`, `state` y `questions`.
+</Warning>
+
+## Ruta de GLiDE
+
+Si llegaste desde **Modelos de decisión**, sigue esta secuencia:
+
+1. [GLiDE](/es/concepts/glide): decide si el modelo se ajusta a tu caso de uso.
+2. [Referencia de GLiDE](/es/concepts/decision-models): entiende `state`, `questions`, los límites,
+   la confianza y cómo combinar preguntas.
+3. [Noul](/es/concepts/glide-noul), [Choice](/es/concepts/glide-choice) o
+   [Score](/es/concepts/glide-score): elige la forma de respuesta que necesita tu aplicación.
+4. [Inferencia de GLiDE](/es/inference/systemone): copia una solicitud completa e integra
+   `POST /v1/systemone`.
 
 ## Autenticación
 
-Envía una clave de API de Fastino en cada solicitud, sea cual sea la interfaz:
+Crea una clave de API en [Fastino Settings](https://agent.fastino.ai/api-keys) y luego ponla a disposición de
+tu aplicación:
 
 ```bash
 export FASTINO_API_KEY="fast_sk_..."
 ```
 
+Los ejemplos de GLiDE usan `X-API-Key`:
+
 ```http
-Authorization: Bearer $FASTINO_API_KEY
+X-API-Key: $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
+La API también acepta `Authorization: Bearer $FASTINO_API_KEY`. Los ejemplos compatibles con OpenAI usan
+esa forma. Elige un estilo de autenticación y úsalo de forma coherente en tu integración.
+
 ## Arranques en frío y reintentos
 
-Un modelo inactivo o recién desplegado puede tener un arranque en frío, en cualquiera de las dos
-interfaces. Usa un tiempo de espera de lectura de al menos 300 segundos y reintenta las
-respuestas `425`, `429` y `503`. Respeta la cabecera de respuesta `Retry-After` cuando esté
+Un modelo inactivo o recién desplegado puede tener un arranque en frío. Usa un tiempo de espera de lectura de al menos 300 segundos
+y un backoff acotado para las respuestas `425`, `429` y `503`. Respeta `Retry-After` cuando esté
 presente.
 
-Una solicitud que agota el tiempo aún puede calentar el despliegue, lo que permite que la
-siguiente solicitud tenga éxito. No reintentes errores de autenticación, facturación, validación
-ni de modelo desconocido sin corregir el problema subyacente.
-
-```bash
-curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d @request.json
-```
-
-El mismo patrón de tiempo de espera y reintentos se aplica a `/v1/systemone`.
+Una solicitud que agota el tiempo aún puede calentar el despliegue, lo que permite que la siguiente solicitud tenga éxito. No
+reintentes errores de autenticación, facturación, validación ni de modelo desconocido sin corregir el
+problema subyacente.

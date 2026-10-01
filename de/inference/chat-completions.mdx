@@ -1,7 +1,7 @@
 ---
-title: "GLiNER-Extraktion, -Klassifikation und -Relationen"
-sidebarTitle: "Chat Completions"
-description: "Führen Sie GLiNER-Entitätsextraktion, Klassifikation, strukturierte Extraktion und Relations-Schemas über POST /v1/chat/completions aus."
+title: "GLiNER-Inferenz mit /v1/chat/completions"
+sidebarTitle: "GLiNER-Inferenz"
+description: "Verwenden Sie POST /v1/chat/completions für GLiNER-Extraktion, -Klassifikation, -Datensätze und -Relationen – nicht für GLiDE-Entscheidungen."
 noindex: true
 ---
 
@@ -9,11 +9,32 @@ noindex: true
 POST https://api.fastino.ai/v1/chat/completions
 ```
 
-Dieser Endpunkt verwendet einen OpenAI-kompatiblen Umschlag: ein inferenzfähiges `model`, eine
-`messages`-Liste und ein `schema` auf oberster Ebene, das die GLiNER-Aufgabe beschreibt.
-Informationen zur Authentifizierung sowie zum Verhalten bei Kaltstarts und Wiederholungsversuchen,
-das für alle Inferenzschnittstellen von Fastino gilt, finden Sie in der [Übersicht zur
-Inferenz-API](/de/inference).
+Diese Seite dokumentiert den **GLiNER**-Vertrag auf Basis des OpenAI-kompatiblen Umschlags aus `model` und `messages`:
+
+- Fügen Sie ein `schema` auf oberster Ebene hinzu, das Extraktion, Klassifikation, strukturierte Datensätze oder
+  Relationen beschreibt.
+- Parsen Sie den JSON-String in `choices[0].message.content`.
+
+Decoder-LLMs verwenden ebenfalls `/v1/chat/completions`, lassen aber `schema` weg und geben generierten Text
+statt eines GLiNER-Ergebnisses zurück.
+
+<Warning>
+  Dies ist nicht der GLiDE-Endpunkt. Für GLiDE-Klassifikation, -Routing oder -Bewertung verwenden Sie
+  [`POST /v1/systemone`](/de/inference/systemone) mit `state` und typisierten `questions`.
+</Warning>
+
+## Authentifizieren
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+```http
+Authorization: Bearer $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+`X-API-Key: $FASTINO_API_KEY` wird ebenfalls akzeptiert. Verwenden Sie einen Stil konsistent.
 
 <Warning>
   `POST /inference` wurde entfernt. Senden Sie keine veralteten Felder wie `model_id`, `text`,
@@ -233,14 +254,14 @@ JSON-String in `choices[0].message.content` serialisiert:
     "completion_tokens": 0,
     "total_tokens": 0
   },
-  "x_pioneer": {
+  "x_fastino": {
     "inference_id": "..."
   }
 }
 ```
 
 Parsen Sie `choices[0].message.content` als JSON, bevor Sie die Aufgabenergebnisse lesen. Wenn
-`store=true`, identifiziert `x_pioneer.inference_id` die persistierte Inferenz.
+`store=true`, identifiziert `x_fastino.inference_id` die persistierte Inferenz.
 
 ## Wiederholte Eingaben
 

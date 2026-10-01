@@ -10,7 +10,7 @@ Chaque question posée à [GLiDE](/fr/concepts/glide) utilise l'un des trois typ
 
 - **[Noul](/fr/concepts/glide-noul)** : une question oui/non qui renvoie une probabilité comprise entre 0 et 1. Voyez-la comme un booléen sur une échelle continue. « Cette demande est-elle éligible à un remboursement ? » peut renvoyer `0.999`, soit une probabilité de 99,9 % que la réponse soit oui.
 - **[Choice](/fr/concepts/glide-choice)** : une question à choix unique parmi plusieurs options qui renvoie une distribution de probabilité sur jusqu'à 255 options nommées. « Quelle équipe doit traiter cette demande ? » peut renvoyer `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/fr/concepts/glide-score)** : une question de notation sur une échelle, selon une grille ordonnée que vous définissez. « Quelle est l'urgence de cette demande ? » avec trois niveaux peut renvoyer `score: 1` (moyenne) et `expected_level: 1.9`, ce qui est plus proche de « élevée » que d'une urgence strictement moyenne.
+- **[Score](/fr/concepts/glide-score)** : une question de notation sur une échelle, selon une grille ordonnée que vous définissez. « Quelle est l'urgence de cette demande ? » avec trois niveaux peut renvoyer `score: 1` (moyenne) et `expected_level: 0.9`, un résultat pondéré par les probabilités proche de « moyenne ».
 
 Choisissez le type qui correspond à la forme de la réponse dont votre code a besoin.
 
@@ -20,11 +20,24 @@ Choisissez le type qui correspond à la forme de la réponse dont votre code a b
 
 Il n'existe pas de primitive multi-libellé : chaque question n'accepte qu'un seul libellé. Posez plusieurs questions indépendantes dans un même appel si vous avez besoin de plusieurs jugements simultanés. Consultez [Combiner plusieurs questions](#combiner-plusieurs-questions).
 
+## Limites
+
+- Chaque prompt de question rendu (`state` plus cette question) doit tenir dans **40 000
+  tokens**.
+- Choice et Score acceptent jusqu'à **255 options ou niveaux**.
+- Une requête évalue un seul `state` partagé. Placez plusieurs questions nommées sous `questions` ;
+  `/v1/systemone` n'accepte pas de lot d'états indépendants.
+- `usage.input_tokens` additionne les passes internes de toutes les questions ; il peut donc dépasser 40 000
+  même si chaque prompt rendu individuellement tient dans la limite.
+
 ## Endpoint
 
 | Méthode | Chemin | Description |
 |---|---|---|
 | `POST` | `/v1/systemone` | Exécute une ou plusieurs questions de décision typées sur un état |
+
+Consultez [Inférence GLiDE](/fr/inference/systemone) pour l'authentification, une requête cURL complète,
+le traitement des réponses, les nouvelles tentatives et les erreurs.
 
 ## Paramètres de la requête
 
@@ -41,7 +54,9 @@ Il n'existe pas de primitive multi-libellé : chaque question n'accepte qu'un se
 </ParamField>
 
 <Note>
-  Toute autre clé de premier niveau dans la requête renvoie `422 Extra inputs are not permitted`.
+  Les champs de compatibilité OpenRouter `provider`, `user`, `session_id` et `trace` sont acceptés
+  et ne sont pas transmis à GLiDE. Toute autre clé de premier niveau dans la requête renvoie
+  `422 Extra inputs are not permitted`.
 </Note>
 
 ### Formes de state
@@ -88,7 +103,7 @@ Posez plusieurs questions de types différents sur le même `state` en un seul a
 
 ```bash cURL
 curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: YOUR_API_KEY" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "fastino/glide",

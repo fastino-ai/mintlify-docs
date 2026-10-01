@@ -1,7 +1,7 @@
 ---
-title: "Extraction, classification et relations GLiNER"
-sidebarTitle: "Chat Completions"
-description: "Exécutez des schémas GLiNER d'extraction d'entités, de classification, d'extraction structurée et de relations via POST /v1/chat/completions."
+title: "Inférence GLiNER avec /v1/chat/completions"
+sidebarTitle: "Inférence GLiNER"
+description: "Utilisez POST /v1/chat/completions pour l'extraction, la classification, les enregistrements et les relations GLiNER, et non pour les décisions GLiDE."
 noindex: true
 ---
 
@@ -9,10 +9,33 @@ noindex: true
 POST https://api.fastino.ai/v1/chat/completions
 ```
 
-Cet endpoint utilise une enveloppe compatible OpenAI : un `model` compatible avec l'inférence,
-une liste `messages` et un `schema` de premier niveau décrivant la tâche GLiNER. Consultez la
-[vue d'ensemble de l'API d'inférence](/fr/inference) pour l'authentification et le comportement
-de démarrage à froid et de nouvelles tentatives communs aux interfaces d'inférence de Fastino.
+Cette page documente le contrat **GLiNER** sur l'enveloppe `model` et `messages`
+compatible OpenAI :
+
+- Ajoutez un `schema` de premier niveau décrivant l'extraction, la classification, les enregistrements structurés ou
+  les relations.
+- Analysez la chaîne JSON dans `choices[0].message.content`.
+
+Les LLM décodeurs utilisent également `/v1/chat/completions`, mais omettent `schema` et renvoient du texte généré
+au lieu d'un résultat GLiNER.
+
+<Warning>
+  Ce n'est pas l'endpoint GLiDE. Pour la classification, le routage ou la notation avec GLiDE, utilisez
+  [`POST /v1/systemone`](/fr/inference/systemone) avec `state` et des `questions` typées.
+</Warning>
+
+## Authentification
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+```http
+Authorization: Bearer $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+`X-API-Key: $FASTINO_API_KEY` est également accepté. Utilisez un seul mode de manière cohérente.
 
 <Warning>
   `POST /inference` a été supprimé. N'envoyez pas ses champs hérités tels que `model_id`,
@@ -234,14 +257,14 @@ forme de chaîne JSON dans `choices[0].message.content` :
     "completion_tokens": 0,
     "total_tokens": 0
   },
-  "x_pioneer": {
+  "x_fastino": {
     "inference_id": "..."
   }
 }
 ```
 
 Analysez `choices[0].message.content` comme JSON avant de lire les résultats de la tâche.
-Lorsque `store=true`, `x_pioneer.inference_id` identifie l'inférence persistée.
+Lorsque `store=true`, `x_fastino.inference_id` identifie l'inférence persistée.
 
 ## Entrées répétées
 

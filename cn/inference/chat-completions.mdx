@@ -1,7 +1,7 @@
 ---
-title: "GLiNER 提取、分类和关系抽取"
-sidebarTitle: "Chat Completions"
-description: "通过 POST /v1/chat/completions 运行 GLiNER 实体提取、分类、结构化提取和关系 schema。"
+title: "使用 /v1/chat/completions 进行 GLiNER 推理"
+sidebarTitle: "GLiNER 推理"
+description: "使用 POST /v1/chat/completions 进行 GLiNER 提取、分类、记录构建和关系抽取，而不是用于 GLiDE 决策。"
 noindex: true
 ---
 
@@ -9,9 +9,32 @@ noindex: true
 POST https://api.fastino.ai/v1/chat/completions
 ```
 
-该端点使用与 OpenAI 兼容的信封：一个支持推理的 `model`、一个 `messages` 列表，以及描述
-GLiNER 任务的顶层 `schema`。有关 Fastino 各推理接口共享的身份验证和冷启动/重试行为，请参阅
-[推理 API 概览](/cn/inference)。
+本页介绍基于与 OpenAI 兼容的 `model` 和 `messages` 信封的 **GLiNER** 约定：
+
+- 添加一个顶层 `schema`，描述提取、分类、结构化记录或
+  关系抽取任务。
+- 解析 `choices[0].message.content` 中的 JSON 字符串。
+
+解码器 LLM 也使用 `/v1/chat/completions`，但不传 `schema`，并返回生成的文本，
+而不是 GLiNER 结果。
+
+<Warning>
+  这不是 GLiDE 端点。如需进行 GLiDE 分类、路由或评分，请使用
+  [`POST /v1/systemone`](/cn/inference/systemone)，并传入 `state` 和带类型的 `questions`。
+</Warning>
+
+## 身份验证
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+```http
+Authorization: Bearer $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+也接受 `X-API-Key: $FASTINO_API_KEY`。请始终使用同一种方式。
 
 <Warning>
   `POST /inference` 已被移除。请勿再发送其旧版字段，例如 `model_id`、`text`、
@@ -224,14 +247,14 @@ curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=en
     "completion_tokens": 0,
     "total_tokens": 0
   },
-  "x_pioneer": {
+  "x_fastino": {
     "inference_id": "..."
   }
 }
 ```
 
 在读取任务结果之前，请将 `choices[0].message.content` 解析为 JSON。当 `store=true` 时，
-`x_pioneer.inference_id` 标识已持久化的推理。
+`x_fastino.inference_id` 标识已持久化的推理。
 
 ## 重复输入
 

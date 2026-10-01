@@ -1,56 +1,71 @@
 ---
-title: "推理 API"
+title: "推理 API：选择端点"
 sidebarTitle: "概览"
-description: "通过 Fastino 的推理 API 运行基于 schema 的 GLiNER 预测和 GLiDE 决策。"
+description: "选择 GLiDE 决策端点或与 OpenAI 兼容的 chat-completions 端点，且不要混用二者的请求和响应约定。"
 noindex: true
 ---
 
-Fastino 提供两种同步推理接口。请选择与你的需求相匹配的接口：
+Fastino 提供两种推理约定。请根据所需的结果选择端点，然后遵循该端点的请求和响应结构。
+两者的字段不可互换。
 
-| 功能 | [`/v1/chat/completions`](/cn/inference/chat-completions) | [`/v1/systemone`](/cn/inference/systemone) |
-| --- | --- | --- |
-| 模型 | 选择支持推理的基础模型或已完成训练任务的 UUID | 始终使用 `fastino/glide` |
-| 请求 | 与 OpenAI 兼容的 `model` 和 `messages`，外加 Fastino 的顶层 `schema` | 原生 `state`，外加一个或多个带类型的 `questions` |
-| 响应 | OpenAI chat-completion 信封；将 `choices[0].message.content` 解析为 JSON | 原生 `{ "answers": ..., "usage": ... }` 响应体 |
-| 批量输入 | 每个请求一个对话 | 每个请求一个 `state`，多个 `questions` 一并评估 |
-| 适用场景 | 在基础模型和微调模型上进行提取、分类、结构化提取和关系抽取 | 带有校准概率的分类、路由和评分决策 |
+<CardGroup cols={2}>
+  <Card title="使用 GLiDE 做出决策" icon="sparkle" href="/cn/inference/systemone">
+    使用 `state` 和带类型的 `questions` 调用 `POST /v1/systemone`。获得带有概率和置信度的
+    Noul、Choice 或 Score 答案。
+  </Card>
 
-<Tip>
-  进行提取、分类、结构化提取或关系抽取时，请使用 [`/v1/chat/completions`](/cn/inference/chat-completions)。
-  需要结构化决策（分类、路由、评分）而非提取时，请使用 [`/v1/systemone`](/cn/inference/systemone)。
-</Tip>
+  <Card title="运行 GLiNER 或 LLM" icon="braces" href="/cn/inference/chat-completions">
+    使用 `messages` 调用 `POST /v1/chat/completions`。添加 `schema` 即可进行 GLiNER 提取、
+    分类、结构化提取或关系抽取。
+  </Card>
+</CardGroup>
 
-本页介绍两种接口的共同内容。有关 GLiNER 请求/响应契约和旧版迁移指南，请参阅
-[`/v1/chat/completions`](/cn/inference/chat-completions)；有关 GLiDE HTTP 契约，请参阅
-[`/v1/systemone`](/cn/inference/systemone)——完整的 Noul/Choice/Score 请求和响应结构位于
-[决策模型](/cn/concepts/decision-models)。SDK 使用、模型训练、评估、推理历史和反馈不在本页范围内。
+| 如果你需要…… | 模型系列 | 端点 | 请求结构 | 从何处读取结果 |
+| --- | --- | --- | --- | --- |
+| 做出是/否判断、路由到某个选项，或在有序量表上评分 | GLiDE | [`POST /v1/systemone`](/cn/inference/systemone) | `model`、`state`、`questions` | `answers.<question_key>` |
+| 提取片段、对文本分类、构建记录或抽取关系 | GLiNER | [`POST /v1/chat/completions`](/cn/inference/chat-completions) | `model`、`messages`、`schema` | 从 `choices[0].message.content` 解析出的 JSON |
+| 使用解码器 LLM 生成文本 | 解码器模型 | [`POST /v1/chat/completions`](/cn/inference/chat-completions) | `model`、`messages` | `choices[0].message.content` |
+
+<Warning>
+  不要将 GLiDE 请求发送到 `/v1/chat/completions`，也不要将 `messages` 或 GLiNER
+  `schema` 发送到 `/v1/systemone`。GLiDE 使用 `fastino/glide`、`state` 和 `questions`。
+</Warning>
+
+## GLiDE 路径
+
+如果你是从**决策模型**页面过来的，请按以下顺序阅读：
+
+1. [GLiDE](/cn/concepts/glide)：判断该模型是否适合你的使用场景。
+2. [GLiDE 参考](/cn/concepts/decision-models)：了解 `state`、`questions`、限制、
+   置信度以及如何组合多个问题。
+3. [Noul](/cn/concepts/glide-noul)、[Choice](/cn/concepts/glide-choice) 或
+   [Score](/cn/concepts/glide-score)：选择应用所需的答案形式。
+4. [GLiDE 推理](/cn/inference/systemone)：复制完整的请求并集成
+   `POST /v1/systemone`。
 
 ## 身份验证
 
-无论使用哪种接口，每个请求都需要发送 Fastino API 密钥：
+在 [Fastino 设置](https://agent.fastino.ai/api-keys)中创建 API 密钥，然后将其提供给
+你的应用：
 
 ```bash
 export FASTINO_API_KEY="fast_sk_..."
 ```
 
+GLiDE 示例使用 `X-API-Key`：
+
 ```http
-Authorization: Bearer $FASTINO_API_KEY
+X-API-Key: $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
+API 也接受 `Authorization: Bearer $FASTINO_API_KEY`。与 OpenAI 兼容的示例使用
+这种形式。请选择一种身份验证方式，并在集成中始终如一地使用。
+
 ## 冷启动与重试
 
-无论使用哪种接口，空闲或新部署的模型都可能会冷启动。请将读取超时设置为至少 300 秒，并对
-`425`、`429` 和 `503` 响应进行重试。当响应头中包含 `Retry-After` 时，请遵循该值。
+空闲或新部署的模型可能会冷启动。请将读取超时设置为至少 300 秒，并对 `425`、`429` 和
+`503` 响应使用有上限的退避重试。当响应中包含 `Retry-After` 时，请遵循该值。
 
 已超时的请求仍可能预热部署，从而让下一次请求成功。对于身份验证、计费、校验或未知模型等错误，
 请在解决根本问题之前不要重试。
-
-```bash
-curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d @request.json
-```
-
-同样的超时和重试模式也适用于 `/v1/systemone`。
