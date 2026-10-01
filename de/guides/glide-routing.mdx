@@ -1,0 +1,65 @@
+---
+title: "Anfragen mit GLiDE routen"
+sidebarTitle: "Routing"
+description: "Erstellen Sie einen Anfrage-Router mit GLiDE, prüfen Sie Wahrscheinlichkeiten und leiten Sie unsichere Entscheidungen an einen Fallback weiter."
+---
+
+Routing mit einem universellen LLM bedeutet in der Regel, dass Sie es einen Zielnamen generieren lassen und den Text anschließend validieren und parsen. Mit GLiDE definieren Sie die zulässigen Routen und erhalten eine ausgewählte Route plus eine Wahrscheinlichkeit für jede Option.
+
+Verwenden Sie dieses Muster für Support-Warteschlangen, Agent-Tools, Workflows, Modelle oder jede andere Routing-Entscheidung, bei der genau eine Option gewählt wird. Fügen Sie eine Route `other` oder `human_review` hinzu, wenn die aufgeführten Ziele nicht vollständig sind.
+
+## Ein Support-Ticket routen
+
+```python
+import os
+
+import requests
+
+ticket = {
+    "subject": "Charged twice for one subscription",
+    "body": "My card shows two charges for the same monthly plan. Please reverse one.",
+    "customer_tier": "enterprise",
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": ticket,
+        "questions": {
+            "destination": {
+                "type": "choice",
+                "instructions": "Which team should handle this request?",
+                "criteria": {
+                    "billing": "Payments, invoices, charges, and refunds",
+                    "technical": "Product errors, outages, and integration problems",
+                    "account": "Login, access, permissions, and account settings",
+                    "human_review": "Unclear or does not fit another route",
+                },
+            }
+        },
+    },
+    timeout=300,
+)
+response.raise_for_status()
+
+answer = response.json()["answers"]["destination"]
+route = answer["choice"]
+confidence = answer["confidence"]
+probabilities = answer["probabilities"]
+
+if confidence < 0.5:
+    route = "human_review"
+```
+
+`choice` ist immer einer Ihrer `criteria`-Schlüssel. `probabilities` zeigt die vollständige Verteilung, während `confidence` der Abstand zwischen den beiden wahrscheinlichsten Routen ist. Passen Sie den Fallback-Schwellenwert anhand von repräsentativem Traffic an, statt `0.5` als universellen Wert zu betrachten.
+
+## Was sich gegenüber einem LLM-Router ändert
+
+- Das Ziel ist auf die von Ihnen definierten Schlüssel beschränkt; es gibt keinen generierten Text, den Sie parsen müssen.
+- Sie erhalten die vollständige Verteilung über alle Routen, nicht nur ein Label.
+- Sie können unsichere oder nicht abgedeckte Fälle an einen expliziten Fallback weiterleiten.
+- Sie können in einer Anfrage mehrere Routing- oder Scoring-Fragen zum selben State stellen.
+
+Informationen zu Authentifizierung, Limits, Fehlern und dem vollständigen Antwortvertrag finden Sie unter [GLiDE-Inferenz](/de/inference/systemone).

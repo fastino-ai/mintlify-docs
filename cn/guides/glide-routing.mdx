@@ -1,0 +1,65 @@
+---
+title: "使用 GLiDE 路由请求"
+sidebarTitle: "路由"
+description: "使用 GLiDE 构建请求路由器，检查概率，并将不确定的决策发送到兜底路由。"
+---
+
+使用通用 LLM 进行路由，通常意味着让它生成一个目标名称，然后再对文本进行校验和解析。使用 GLiDE 时，你只需定义允许的路由，即可获得一个选中的路由以及每个选项的概率。
+
+此模式适用于支持队列、智能体工具、工作流、模型或任何其他单选路由决策。当列出的目标并不完备时，请添加一个 `other` 或 `human_review` 路由。
+
+## 路由支持工单
+
+```python
+import os
+
+import requests
+
+ticket = {
+    "subject": "Charged twice for one subscription",
+    "body": "My card shows two charges for the same monthly plan. Please reverse one.",
+    "customer_tier": "enterprise",
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": ticket,
+        "questions": {
+            "destination": {
+                "type": "choice",
+                "instructions": "Which team should handle this request?",
+                "criteria": {
+                    "billing": "Payments, invoices, charges, and refunds",
+                    "technical": "Product errors, outages, and integration problems",
+                    "account": "Login, access, permissions, and account settings",
+                    "human_review": "Unclear or does not fit another route",
+                },
+            }
+        },
+    },
+    timeout=300,
+)
+response.raise_for_status()
+
+answer = response.json()["answers"]["destination"]
+route = answer["choice"]
+confidence = answer["confidence"]
+probabilities = answer["probabilities"]
+
+if confidence < 0.5:
+    route = "human_review"
+```
+
+`choice` 始终是你的 `criteria` 键之一。`probabilities` 显示完整的分布，而 `confidence` 是可能性最高的两个路由之间的差值。请在具有代表性的流量上调整兜底阈值，而不要将 `0.5` 视为通用值。
+
+## 与 LLM 路由器相比有何不同
+
+- 目标被限定为你定义的键；无需解析生成的文本。
+- 你获得的是完整的路由分布，而不仅仅是一个标签。
+- 你可以将不确定或超出范围的情况发送到明确的兜底路由。
+- 你可以在一个请求中针对同一个 state 提出多个路由或评分问题。
+
+关于身份验证、限制、错误以及完整的响应约定，请参阅 [GLiDE 推理](/cn/inference/systemone)。

@@ -1,0 +1,107 @@
+---
+title: "使用 GLiDE 对检索到的段落重新排序"
+sidebarTitle: "重新排序"
+description: "使用 GLiDE 为查询与段落的相关性评分，过滤弱匹配，并对检索到的上下文重新排序。"
+---
+
+在检索增强生成（RAG）流水线中，通用 LLM 可以在生成之前为每个检索到的段落打分。使用 GLiDE 时，每个段落都会获得一个表示其与查询相关的概率。
+
+你可以直接使用该概率进行排序和过滤。
+
+## 为段落评分并重新排序
+
+```python
+import os
+
+import requests
+
+query = "How do I reset my API key?"
+chunks = [
+    "To reset your API key, go to Dashboard > API Keys and click 'Regenerate'.",
+    "Our pricing plans start at $29/month for the Starter tier.",
+    "API keys are scoped to a single project. Each project can have up to 5 active keys.",
+]
+
+passages = {f"passage_{index}": chunk for index, chunk in enumerate(chunks)}
+questions = {
+    passage_id: {
+        "type": "noul",
+        "instructions": f"Is {passage_id} relevant to answering the query?",
+        "criteria": {
+            "true": "Relevant to answering the query",
+            "false": "Not relevant to answering the query",
+        },
+    }
+    for passage_id in passages
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": {"query": query, "passages": passages},
+        "questions": questions,
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+scored_chunks = [
+    {
+        "chunk": passage,
+        "score": answers[passage_id]["noul"],
+        "confidence": answers[passage_id]["confidence"],
+    }
+    for passage_id, passage in passages.items()
+]
+
+top_chunks = sorted(scored_chunks, key=lambda item: item["score"], reverse=True)
+relevant_chunks = [item for item in top_chunks if item["score"] > 0.5]
+```
+
+每个 `score` 都是 `true` 条件成立的 Noul 概率。按降序排序可以将最强的匹配排在最前面；当下游生成只应接收足够相关的上下文时，请应用一个阈值。
+
+<Note>
+  此示例中的所有 Noul 问题共享同一个 `state`，因此 GLiDE 会在一个请求中为整个候选列表评分。完整的 state 会包含在每个内部渲染的问题中；请将其控制在[每个问题 40,000 个 token 的限制](/cn/inference/systemone#limits-and-unsupported-shapes)以内。请将较大的候选列表拆分为数量有限的并发请求，并对 `425`、`429` 和 `503` 使用退避重试。
+</Note>
+
+## 每个请求为一个段落评分
+
+当段落是独立到达时，请使用这种更简单的结构：
+
+```python
+def relevance_score(query: str, passage: str) -> float:
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": {"query": query, "passage": passage},
+            "questions": {
+                "relevant": {
+                    "type": "noul",
+                    "instructions": "Is this passage relevant to answering the query?",
+                    "criteria": {
+                        "true": "Relevant to answering the query",
+                        "false": "Not relevant to answering the query",
+                    },
+                }
+            },
+        },
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()["answers"]["relevant"]["noul"]
+```
+
+## 与 LLM 重新排序相比有何不同
+
+- 二元相关性是一个从 `0` 到 `1` 的概率，而不是生成的整数。
+- 你可以对同一个值进行排序和设定阈值，无需解析模型文本。
+- criteria 准确说明了在你的应用中“相关”的含义。
+
+在部署重新排序器之前，请在已标注的检索数据集上评估排序质量并选择阈值。
+
+关于身份验证、限制、错误以及完整的响应约定，请参阅 [GLiDE 推理](/cn/inference/systemone)。
