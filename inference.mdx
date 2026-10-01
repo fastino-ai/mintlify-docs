@@ -1,47 +1,45 @@
 ---
 title: "Inference API"
 sidebarTitle: "Inference API"
-description: "Run schema-based GLiNER predictions through Fastino's inference API."
+description: "Run schema-based GLiNER predictions and GLiDE decisions through Fastino's inference API."
 noindex: true
 ---
 
-Fastino provides two synchronous interfaces for GLiNER inference. Choose the interface that
-matches your model and payload requirements:
+Fastino provides three synchronous inference interfaces: two for GLiNER extraction and
+classification, and one for GLiDE decisions. Choose the interface that matches your model and
+payload requirements:
 
-| Capability | `/v1/chat/completions` | `/v1/gliner-2` |
-| --- | --- | --- |
-| Model | Select an inference-capable base model or completed training-job UUID | Always uses `fastino/gliner2-base-v1` |
-| Request | OpenAI-compatible `model` and `messages`, plus Fastino's top-level `schema` | Native `text`, `schema`, `threshold`, `include_confidence`, and `include_spans` fields |
-| Response | OpenAI chat-completion envelope; parse `choices[0].message.content` as JSON | Native `{ "result": ..., "token_usage": ... }` body |
-| Batch input | One conversation per request | Accepts one string or a list of strings |
-| Asynchronous processing | Not available | Submit with `POST /v1/gliner-2/async`, then poll `GET /v1/gliner-2/jobs/{job_id}` |
-| Best for | Standard integrations and fine-tuned models | Base GLiNER2 inference, native results, batching, or long-running jobs |
+| Capability | `/v1/chat/completions` | `/v1/gliner-2` | `/v1/systemone` |
+| --- | --- | --- | --- |
+| Model | Select an inference-capable base model or completed training-job UUID | Always uses `fastino/gliner2-base-v1` | Always uses `fastino/glide` |
+| Request | OpenAI-compatible `model` and `messages`, plus Fastino's top-level `schema` | Native `text`, `schema`, `threshold`, `include_confidence`, and `include_spans` fields | Native `state` plus one or more typed `questions` |
+| Response | OpenAI chat-completion envelope; parse `choices[0].message.content` as JSON | Native `{ "result": ..., "token_usage": ... }` body | Native `{ "answers": ..., "usage": ... }` body |
+| Batch input | One conversation per request | Accepts one string or a list of strings | One `state` per request, with multiple `questions` evaluated together |
+| Asynchronous processing | Not available | Submit with `POST /v1/gliner-2/async`, then poll `GET /v1/gliner-2/jobs/{job_id}` | Not available |
+| Best for | Standard integrations and fine-tuned models | Base GLiNER2 inference, native results, batching, or long-running jobs | Classification, routing, and scoring decisions with calibrated probabilities |
 
 <Tip>
   Start with `/v1/chat/completions` for a consistent API across base and fine-tuned models.
   Use `/v1/gliner-2` when you specifically need the fixed GLiNER2 base model's native
-  contract, batch input, or asynchronous processing.
+  contract, batch input, or asynchronous processing. Use `/v1/systemone` for structured
+  decisions — classification, routing, scoring — instead of extraction.
 </Tip>
 
-This page documents the raw `/v1/chat/completions` HTTP contract below. The native
-`/v1/gliner-2` schemas are published in the
-[OpenAPI document](https://docs.fastino.ai/openapi.json). SDK usage, model training,
-evaluation, inference history, and feedback are outside this page's scope.
+This page documents the raw `/v1/chat/completions` HTTP contract below, and a short pointer
+to `/v1/systemone`. The native `/v1/gliner-2` schemas are published in the
+[OpenAPI document](https://docs.fastino.ai/openapi.json). The full `/v1/systemone` contract —
+request and response shapes for each question type, limits, and confidence — lives on
+[Decision Models](/concepts/decision-models). SDK usage, model training, evaluation, inference
+history, and feedback are outside this page's scope.
 
 <Warning>
   `POST /inference` has been removed. Do not send its legacy fields such as `model_id`, `text`,
   `task`, `format_results`, or `is_warmup`.
 </Warning>
 
-## Endpoint
-
-```text
-POST https://api.fastino.ai/v1/chat/completions
-```
-
 ## Authentication
 
-Send a Fastino API key as a bearer token:
+Send a Fastino API key as a bearer token on every request, regardless of interface:
 
 ```bash
 export FASTINO_API_KEY="fast_sk_..."
@@ -52,7 +50,13 @@ Authorization: Bearer $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
-## Request
+## GLiNER extraction, classification, and relations (`/v1/chat/completions`)
+
+```text
+POST https://api.fastino.ai/v1/chat/completions
+```
+
+### Request
 
 <ParamField body="model" type="string" required>
   An inference-capable base-model ID or the UUID of a completed, deployable Fastino training
@@ -193,7 +197,7 @@ Run multiple tasks over the same text by combining keys:
 
 The schema identifies the operation automatically. Do not send `task` or `task_type`.
 
-## Example
+### Example
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/chat/completions" \
@@ -238,7 +242,7 @@ than assuming every Hugging Face checkpoint is available:
 curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=encoder"
 ```
 
-## Response
+### Response
 
 The endpoint returns a chat-completion envelope. The GLiNER result is serialized as a JSON
 string in `choices[0].message.content`:
@@ -273,16 +277,73 @@ string in `choices[0].message.content`:
 Parse `choices[0].message.content` as JSON before reading task results. When `store=true`,
 `x_pioneer.inference_id` identifies the persisted inference.
 
-## Repeated inputs
+### Repeated inputs
 
 The endpoint accepts one conversation per request. It does not support the removed native
 endpoint's `text: string[]` batch shape. Send separate requests concurrently when processing
 multiple inputs.
 
+## GLiDE decisions (`/v1/systemone`)
+
+```text
+POST https://api.fastino.ai/v1/systemone
+```
+
+Send a `state` (the situation to evaluate) and one or more named `questions`, each typed
+`noul`, `choice`, or `score`. GLiDE returns calibrated probabilities directly — there's no
+generated text to parse.
+
+```bash
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+Response:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+Check which deployments currently support GLiDE decisions the same way you'd check for
+GLiNER encoder support, with `task_type=systemone`:
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
+```
+
+<Card title="Decision Models" icon="sparkle" href="/concepts/decision-models">
+  The full `/v1/systemone` contract — Noul, Choice, and Score request and response shapes,
+  limits, and confidence — with worked examples for each question type.
+</Card>
+
 ## Cold starts and retries
 
-An idle or newly deployed model may cold-start. Use a read timeout of at least 300 seconds and
-retry `425`, `429`, and `503` responses. Respect the `Retry-After` response header when present.
+An idle or newly deployed model may cold-start, on any of the three interfaces above. Use a
+read timeout of at least 300 seconds and retry `425`, `429`, and `503` responses. Respect the
+`Retry-After` response header when present.
 
 A timed-out request can still warm the deployment, allowing the next request to succeed. Do
 not retry authentication, billing, validation, unknown-model, or non-deployable-job errors
@@ -296,6 +357,9 @@ curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
 ```
 
 ## Errors
+
+The same status codes apply across `/v1/chat/completions`, `/v1/gliner-2`, and
+`/v1/systemone`:
 
 | Status | Likely cause | Action |
 | --- | --- | --- |
