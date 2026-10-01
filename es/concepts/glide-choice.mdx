@@ -1,0 +1,94 @@
+---
+title: "Choice: la primitiva de decisión de GLiDE para elegir una opción entre varias"
+sidebarTitle: "Choice"
+description: "Pide a GLiDE que elija una opción de un conjunto definido y obtén la opción seleccionada, un valor de confianza y una distribución de probabilidad completa."
+---
+
+Una pregunta **Choice** pide a GLiDE que elija una opción de un conjunto fijo, definido por quien hace la llamada, de hasta 255 opciones con nombre. La respuesta incluye la opción seleccionada, un valor de confianza y una distribución de probabilidad completa sobre todas las opciones que definiste.
+
+Usa un Choice cuando la respuesta sea una de varias categorías sin orden: qué equipo debería encargarse de un ticket, a qué categoría pertenece un producto o en qué idioma está escrito un fragmento.
+
+## Solicitud
+
+<ParamField body="type" type="string" required>
+  Siempre `"choice"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  La pregunta que se va a evaluar, en lenguaje natural.
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  Un objeto que asigna hasta 255 claves de opción a cadenas de descripción, por ejemplo `{"billing": "Payment or charge disputes", "returns": "Refund or return requests"}`. Tanto los nombres de las opciones como sus descripciones se envían al modelo, así que escribe descripciones que distingan entre sí las opciones que suenan parecidas.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Respuesta
+
+```json
+{
+  "department": {
+    "type": "choice",
+    "choice": "returns",
+    "confidence": 0.9983415574354015,
+    "probabilities": {
+      "billing": 0.000576420510560337,
+      "returns": 0.9989179779459618,
+      "shipping": 0.0005056015434779647
+    }
+  }
+}
+```
+
+- `choice`: la opción con mayor probabilidad.
+- `probabilities`: la distribución completa sobre todas las opciones que definiste; las claves coinciden con las claves de tu `criteria` y suman ~1.
+- `confidence`: `top1 − top2`, el margen de probabilidad entre la mejor y la segunda mejor opción, de `0` (dos opciones empatadas) a `1` (una opción concentra ~toda la masa de probabilidad). Consulta [Confianza](/es/concepts/decision-models#confianza) para saber cómo actuar en consecuencia.
+
+## Uso del resultado
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain — runner-up may also apply")
+```
+
+## Haz todas las preguntas que necesites en una sola llamada
+
+Evalúa varias preguntas Choice sobre el mismo `state` en una sola solicitud en lugar de hacer una solicitud por pregunta. Se responden de forma independiente, así que añadir una pregunta consume tokens pero apenas cambia la latencia. Una llamada de triaje de soporte podría preguntar `department`, `urgency` y `tone` a la vez en lugar de hacer tres viajes de ida y vuelta; tu código puede actuar sobre `department` e ignorar el resto hasta que los necesite. Consulta [Combinar varias preguntas](/es/concepts/decision-models#combinar-varias-preguntas) para ver un ejemplo práctico.
+
+Dale al modelo la lista completa de opciones reales en lugar de una lista reducida: una pregunta Choice acepta hasta 255 opciones y cada una cuesta solo unos pocos tokens. Añade una opción `other` o `none of the above` cuando la entrada pueda no cubrir todos los casos, para que GLiDE tenga dónde colocar la masa de probabilidad en lugar de forzar una mala coincidencia con una de tus opciones con nombre.
+
+## Relacionado
+
+- [Noul](/es/concepts/glide-noul): una decisión de sí/no con una probabilidad
+- [Score](/es/concepts/glide-score): valora en una escala ordenada
+- [Modelos de decisión](/es/concepts/decision-models): resumen de las primitivas, límites y el contrato de solicitud completo
+- [GLiDE](/es/concepts/glide): qué es GLiDE y cuándo usarlo

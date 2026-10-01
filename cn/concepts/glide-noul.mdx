@@ -1,0 +1,85 @@
+---
+title: "Noul：GLiDE 的是/否决策基本类型"
+sidebarTitle: "Noul"
+description: "向 GLiDE 提出是/否问题，获得经过校准的概率而非标签，这样你就可以根据置信度设定阈值，而不必靠猜测。"
+---
+
+**Noul** 问题提出一个是/否问题，并返回一个介于 `0` 和 `1` 之间、经过校准的概率，即答案为“是”的概率。没有单独的标签字段，你需要自行对概率设定阈值来做出二元决策。
+
+当概率本身（而不仅仅是一个布尔值）就是有用的信号时，请使用 Noul。“此请求是否符合退款条件？”可能返回 `0.999`（明确为是）或 `0.52`（确实存在歧义），而简单的 `true`/`false` 会掩盖这种差异。
+
+<Tip>
+  Noul 与 Score 的区别：Noul 为 `0.5` 表示在是与否之间存在最大不确定性，它并不表达程度。如果需要衡量程度（紧急程度、严重程度、不满程度），请改用定义了等级的 [Score](/cn/concepts/glide-score)。
+</Tip>
+
+## 请求
+
+<ParamField body="type" type="string" required>
+  始终为 `"noul"`。
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  以自然语言描述的待评估是/否问题。
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  包含 `true` 和 `false` 描述键的对象，例如 `{"true": "Qualifies", "false": "Does not qualify"}`。
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/glide",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## 响应
+
+```json
+{
+  "refund_allowed": {
+    "type": "noul",
+    "noul": 0.99767683794902,
+    "confidence": 0.9953536758980399
+  }
+}
+```
+
+- `noul`：答案为“是”的概率。`0.999` 是强烈的符合条件信号。
+- `confidence`：`|2 × noul − 1|`，从 `0`（最大不确定性，`noul = 0.5`）到 `1`（完全确定，`noul = 0` 或 `1`）。关于如何据此采取行动，请参阅[置信度](/cn/concepts/decision-models#置信度)。
+
+## 使用结果
+
+```python
+answer = response["answers"]["refund_allowed"]
+
+if answer["noul"] > 0.8:
+    action = "auto_approve"
+elif answer["noul"] < 0.2:
+    action = "auto_deny"
+else:
+    action = "human_review"  # genuinely ambiguous — don't force a threshold here
+```
+
+请根据你使用场景的真实数据调整阈值（上例中的 `0.8` / `0.2`），而不要假定它们可以直接沿用。概率和置信度是按模型校准的，并不保证与任何特定业务对模糊性的容忍度相对应。
+
+## 相关内容
+
+- [Choice](/cn/concepts/glide-choice)：从多个命名选项中选择一个
+- [Score](/cn/concepts/glide-score)：在有序量表上评级
+- [决策模型](/cn/concepts/decision-models)：基本类型概览、限制以及完整的请求约定
+- [GLiDE](/cn/concepts/glide)：GLiDE 是什么以及何时使用它
