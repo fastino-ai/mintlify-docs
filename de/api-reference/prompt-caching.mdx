@@ -1,0 +1,144 @@
+---
+title: "Prompt Caching bei der Inferenz"
+sidebarTitle: "Prompt Caching"
+description: "So funktioniert Prompt Caching in der Inferenz-API von Fastino - was für das Caching infrage kommt, wie gecachte Eingabe-Tokens abgerechnet werden und wo Sie Cache-Trefferquoten einsehen."
+noindex: true
+hidden: true
+---
+
+Eine kurze Anleitung, wie Sie mit jedem Client oder Agenten-Harness (Pi, Claude Code, eigenes curl, SDKs usw.) zuverlässig Prompt-Cache-Treffer erzielen.
+
+## Das Wichtigste vorab
+
+**Bei Claude- bzw. Anthropic-artigen Modellen ist Caching auf API-Ebene Opt-in, ob es stattfindet, hängt also von Ihrem Client ab.** Fastino leitet Ihre Anfrage unverändert weiter und fügt niemals selbst Cache-Marker hinzu. Enthält die Anfrage keinen `cache_control`-Marker, wird das stabile Präfix **nicht** gecacht, und Sie zahlen bei jedem Turn den vollen Eingabepreis. Manche Clients aktivieren das Caching für Sie - Claude Code beispielsweise nutzt die Endpunkte von Anthropic (die `cache_control` erfordern) und sendet Marker daher automatisch. Ein einfacher eigener Client, der Prompts als reine Strings sendet, tut das nicht und erhält kein Caching.
+
+Modelle, die automatisch cachen (die OpenAI/GPT-Familie), tun dies transparent und **lehnen** explizite Marker **ab** - für diese müssen Sie nichts tun und sollten kein `cache_control` hinzufügen.
+
+| Modell | Was Sie tun |
+| --- | --- |
+| Claude / Anthropic-artig | `cache_control`-Marker hinzufügen (siehe unten) |
+| OpenAI / GPT-Familie (Auto-Caching) | Nichts - Caching erfolgt automatisch |
+| Andere Modelle | Im Zweifel einen Marker hinzufügen; er wird berücksichtigt, wo unterstützt, und ignoriert, wo das Modell automatisch cacht |
+
+Der zuverlässige Hebel, den Sie selbst steuern, ist `cache_control` bei Claude-Modellen. Der Rest dieser Anleitung erklärt, wie Sie ihn richtig einsetzen.
+
+## So markieren Sie ein cachebares Präfix
+
+Senden Sie den stabilen Teil Ihres Prompts als Content-Block mit einem `cache_control`-Marker. Alles **bis einschließlich** des markierten Blocks wird zum gecachten Präfix und bei späteren Anfragen wiederverwendet, die genau dieses Präfix teilen.
+
+Marker werden an jedem nachrichtenbasierten Endpunkt berücksichtigt und identisch normalisiert:
+
+- `POST /v1/chat/completions` (OpenAI-kompatibel) - markieren Sie einen Content-Block einer `system`/`user`-Nachricht.
+- `POST /v1/messages` (Anthropic-kompatibel) - markieren Sie einen `system`-Block, einen Nachrichtenblock oder einen Tools-Block.
+- `POST /v1/responses` (OpenAI Responses) - markieren Sie einen Content-Block einer Eingabenachricht. Das stabile Präfix wird über einen Block einer `system`/`developer`-Eingabenachricht markiert (der reine `instructions`-String bietet keinen Platz für einen Marker).
+
+### Beispiel (`/v1/chat/completions`)
+
+```bash
+curl https://api.fastino.ai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -d '{
+    "model": "claude-opus-5",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "Answer in one sentence: what is prompt caching?" }
+    ],
+    "max_tokens": 512
+  }'
+```
+
+Der System-Content muss ein **Content-Block-Array** sein (kein reiner String), damit der Marker an einen Block angehängt werden kann. Ein System-Prompt als reiner String kann keinen Marker tragen und wird nicht gecacht.
+
+## Wo Sie Marker platzieren
+
+Sie können bis zu **4 Breakpoints** pro Anfrage markieren. Setzen Sie sie in Präfix-Reihenfolge auf die Teile, die von Turn zu Turn gleich bleiben:
+
+1. **System-Prompt** - Ihre stabilen Anweisungen bzw. Ihr wiederverwendbarer Kontext.
+2. **Tool-Definitionen** - markieren Sie den Tools-Block, wenn Sie einen großen, festen Satz an Tools senden.
+3. **Eine Nachrichtengrenze** - markieren Sie die letzte Nachricht eines stabilen Konversationspräfixes, um in einer Multi-Turn-Sitzung den Verlauf bis zu diesem Punkt zu cachen.
+
+Alles, was sich bei jedem Turn ändert (die neueste Frage des Users), sollte **nach** Ihrem letzten Marker stehen, damit das gecachte Präfix identisch bleibt und weiterhin Treffer erzielt.
+
+Ein optionales `ttl` (z. B. `{ "type": "ephemeral", "ttl": "1h" }`) steuert die Lebensdauer des Caches; lassen Sie es weg, um das standardmäßige Ephemeral-Zeitfenster des Anbieters zu verwenden.
+
+## Mindestgröße für das Caching
+
+Caching greift erst, wenn das cachebare Präfix groß genug ist - in der Größenordnung von **~1K–4K Tokens, je nach Modell**. Ein kurzer System-Prompt kann unter diesem Schwellenwert liegen; in diesem Fall wird selbst mit korrektem Marker kein Cache-Eintrag erstellt. Wenn Sie Caching erwarten, aber keine Cache-Tokens sehen, prüfen Sie, ob das markierte Präfix tatsächlich groß genug ist.
+
+## Ein Agenten-Harness konfigurieren
+
+Die meisten Harnesses können diese Struktur erzeugen, müssen aber angewiesen werden, für die Claude-Modelle von Fastino Cache Control im Anthropic-Stil zu verwenden. Stellen Sie beim Konfigurieren eines eigenen Fastino-Providers sicher, dass der Client so eingestellt ist, dass er:
+
+- den System-Prompt als **Content-Block mit `cache_control`** sendet (nicht als reinen String) und
+- die stabile Anweisung in `role: "system"` belässt.
+
+Wenn Ihr Harness eine Kompatibilitätsoption des Providers für das Cache-Control-Format bietet, setzen Sie sie auf den Anthropic-Stil. Sendet es nur reine String-Prompts ohne `cache_control`, erhalten Sie bei Claude-Modellen kein Caching, obwohl dasselbe Harness bei automatisch cachenden Modellen problemlos cacht.
+
+## Überprüfen, ob es funktioniert
+
+Prüfen Sie den `usage`-Block in der Antwort. Die Feldnamen unterscheiden sich je nach Endpunkt:
+
+- **`/v1/chat/completions`** - meldet Cache-Lesevorgänge unter `usage.prompt_tokens_details.cached_tokens`.
+- **`/v1/messages`** - meldet `cache_read_input_tokens` und `cache_creation_input_tokens`.
+
+Was Sie erwarten können:
+
+- **Erste Anfrage** mit einem neuen Präfix: ein Wert ungleich null für Cache-Schreibvorgänge bzw. -Erstellung.
+- **Spätere Anfragen**, die dieses Präfix wiederverwenden: ein Wert ungleich null für Cache-Lesevorgänge und eine deutlich geringere Anzahl nicht gecachter Eingabe-Tokens.
+- **Nur Nullen** bedeutet, dass der Marker fehlte, das Präfix unter der Mindestgröße lag, sich das Präfix zwischen den Turns geändert hat oder das Modell automatisch cacht (die Einsparungen gelten trotzdem, werden aber nicht als Cache-Tokens ausgewiesen).
+
+<Note>
+  Manche Harnesses normalisieren diese Werte in eigene Felder (z. B. `cacheRead` / `cacheWrite` in ihren Logs) - gleiche Zahlen, andere Namen.
+</Note>
+
+## So lesen Sie die Werte aus
+
+Die Token-Nutzung in jeder Antwort schlüsselt die Eingabe-Tokens nach Cache-Status auf:
+
+| Feld | Bedeutung |
+| --- | --- |
+| `prompt_tokens` | Nicht gecachte Eingabe-Tokens |
+| `cache_read_tokens` | Aus dem Cache bediente Eingabe-Tokens (rabattiert) |
+| `cache_write_tokens` | In dieser Anfrage in den Cache geschriebene Eingabe-Tokens |
+| `completion_tokens` | Ausgabe-Tokens |
+| `total_tokens` | Summe der vier obigen Werte |
+
+## Abrechnung
+
+Gecachte Eingaben sind günstiger als neue Eingaben. Die Preise beziehen sich auf den Eingabepreis eines Modells:
+
+| Anbieter | Cache-Lesen | Cache-Schreiben |
+| --- | --- | --- |
+| Claude / Opus | 0.1× Eingabe | 1.25× Eingabe |
+| GPT-4-Familie | 0.5× Eingabe | zum Eingabepreis abgerechnet |
+| GPT-5-Familie | 0.1× Eingabe | zum Eingabepreis abgerechnet |
+
+Die erste Anfrage, die den Cache befüllt, zahlt für diese Tokens den Schreibpreis; nachfolgende Anfragen mit Cache-Treffer zahlen den niedrigeren Lesepreis. Caches sind kurzlebig, daher entstehen die Einsparungen, wenn Sie ähnliche Prompts in kurzen Abständen senden.
+
+<Warning>
+  Caching-Kosten sind unter **Settings → Credits** sichtbar und werden nach Modell oder nach einzelner Anfrage aufgeschlüsselt angezeigt.
+</Warning>
+
+<Info>
+  Bei den meisten Anthropic-Modellen muss der System-Prompt mindestens **4096 Tokens** umfassen, damit das Caching aktiviert wird. Cache-Einträge verfallen nach **5 Minuten** Inaktivität.
+</Info>
+
+## Häufige Fallstricke
+
+- **Kein `cache_control` in einer Claude-Anfrage** → kein Caching, voller Preis bei jedem Turn. Das ist die häufigste Ursache für einen plötzlichen Kostenanstieg.
+- **System-Prompt als reiner String gesendet** → es gibt nichts, woran der Marker angehängt werden kann.
+- **Präfix zu klein** → unter der Mindestgröße für das Caching, daher wird kein Eintrag erstellt.
+- **Das gecachte Präfix ändert sich zwischen den Turns** (z. B. ein Zeitstempel am Anfang des System-Prompts) → der Cache kann nicht wiederverwendet werden. Halten Sie das markierte Präfix Byte für Byte stabil.
+- **Bei `/v1/responses` das Feld `instructions` markieren** → es ist ein reiner String und kann keinen Marker tragen; platzieren Sie das stabile Präfix stattdessen in einem Block einer `system`/`developer`-Eingabenachricht.
+- **`cache_control` zu einem automatisch cachenden Modell hinzufügen** → wird ignoriert oder abgelehnt; lassen Sie das Modell selbst cachen.
+- **Mehr als 4 Marker** → nur die ersten 4 werden angewendet.

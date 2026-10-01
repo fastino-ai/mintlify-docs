@@ -1,0 +1,144 @@
+---
+title: "Mise en cache des prompts pour l'inférence"
+sidebarTitle: "Mise en cache des prompts"
+description: "Fonctionnement de la mise en cache des prompts sur l'API d'inférence de Fastino : ce qui peut être mis en cache, comment les tokens d'entrée en cache sont facturés et où consulter les taux de succès du cache."
+noindex: true
+hidden: true
+---
+
+Un guide rapide pour obtenir des succès de cache de prompt réguliers depuis n'importe quel client ou harnais d'agent (Pi, Claude Code, curl personnalisé, SDK, etc.).
+
+## L'essentiel à retenir
+
+**Pour les modèles Claude / de type Anthropic, la mise en cache est optionnelle (opt-in) au niveau de l'API : elle dépend donc de votre client.** Fastino transmet votre requête telle quelle et n'ajoute jamais de marqueurs de cache à votre place. Si la requête ne contient pas de marqueur `cache_control`, le préfixe stable n'est **pas** mis en cache et vous payez le prix d'entrée complet à chaque tour. Certains clients activent la mise en cache pour vous : Claude Code, par exemple, utilise les endpoints d'Anthropic (qui exigent `cache_control`) et envoie donc automatiquement les marqueurs. Un client personnalisé minimal qui envoie des prompts sous forme de chaînes simples ne le fait pas et ne bénéficie d'aucune mise en cache.
+
+Les modèles qui mettent en cache automatiquement (la famille OpenAI/GPT) le font de manière transparente et **rejettent** les marqueurs explicites : pour ceux-ci, vous n'avez rien à faire et ne devez pas ajouter `cache_control`.
+
+| Modèle | Ce que vous faites |
+| --- | --- |
+| Claude / type Anthropic | Ajoutez des marqueurs `cache_control` (voir ci-dessous) |
+| Famille OpenAI / GPT (mise en cache automatique) | Rien - la mise en cache est automatique |
+| Autres modèles | En cas de doute, ajoutez un marqueur ; il est respecté lorsqu'il est pris en charge et ignoré lorsque le modèle met en cache automatiquement |
+
+Le levier fiable que vous contrôlez est `cache_control` sur les modèles Claude. La suite de ce guide explique comment l'utiliser correctement.
+
+## Comment marquer un préfixe pouvant être mis en cache
+
+Envoyez la partie stable de votre prompt sous forme de bloc de contenu doté d'un marqueur `cache_control`. Tout ce qui précède le bloc marqué, **bloc inclus**, devient le préfixe en cache et est réutilisé lors des requêtes ultérieures partageant exactement ce préfixe.
+
+Les marqueurs sont respectés sur tous les endpoints basés sur des messages et normalisés de la même manière :
+
+- `POST /v1/chat/completions` (compatible OpenAI) - marquez un bloc de contenu d'un message `system`/`user`.
+- `POST /v1/messages` (compatible Anthropic) - marquez un bloc `system`, un bloc de message ou un bloc d'outils.
+- `POST /v1/responses` (OpenAI Responses) - marquez un bloc de contenu d'un message d'entrée. Le préfixe stable se marque via un bloc de message d'entrée `system`/`developer` (la chaîne simple `instructions` ne peut pas accueillir de marqueur).
+
+### Exemple (`/v1/chat/completions`)
+
+```bash
+curl https://api.fastino.ai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -d '{
+    "model": "claude-opus-5",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "Answer in one sentence: what is prompt caching?" }
+    ],
+    "max_tokens": 512
+  }'
+```
+
+Le contenu système doit être un **tableau de blocs de contenu** (et non une chaîne simple) afin que le marqueur puisse s'attacher à un bloc. Un prompt système sous forme de chaîne simple ne peut pas porter de marqueur et ne sera pas mis en cache.
+
+## Où placer les marqueurs
+
+Vous pouvez placer jusqu'à **4 points d'arrêt** par requête. Placez-les sur les parties qui restent constantes d'un tour à l'autre, dans l'ordre du préfixe :
+
+1. **Prompt système** - vos instructions stables / votre contexte réutilisable.
+2. **Définitions d'outils** - marquez le bloc d'outils si vous envoyez un ensemble d'outils volumineux et fixe.
+3. **Une limite de message** - marquez le dernier message d'un préfixe de conversation stable pour mettre en cache l'historique jusqu'à ce point dans une session multi-tours.
+
+Tout ce qui change à chaque tour (la dernière question de l'utilisateur) doit venir **après** votre dernier marqueur, afin que le préfixe en cache reste identique et continue de produire des succès de cache.
+
+Un `ttl` facultatif (par ex. `{ "type": "ephemeral", "ttl": "1h" }`) contrôle la durée de vie du cache ; omettez-le pour utiliser la fenêtre éphémère par défaut du fournisseur.
+
+## Taille minimale pouvant être mise en cache
+
+La mise en cache ne s'active que lorsque le préfixe pouvant être mis en cache est suffisamment grand - de l'ordre de **~1K à 4K tokens selon le modèle**. Un prompt système court peut se situer sous ce seuil, auquel cas aucune entrée de cache n'est créée, même avec un marqueur correct. Si vous attendez une mise en cache mais ne voyez aucun token de cache, vérifiez que le préfixe marqué est réellement volumineux.
+
+## Configurer un harnais d'agent
+
+La plupart des harnais peuvent produire cette forme, mais doivent être configurés pour utiliser le contrôle de cache de style Anthropic avec les modèles Claude de Fastino. Lorsque vous configurez un fournisseur Fastino personnalisé, assurez-vous que le client est réglé pour :
+
+- Envoyer le prompt système sous forme de **bloc de contenu avec `cache_control`** (et non de simple chaîne), et
+- Conserver l'instruction stable sur `role: "system"`.
+
+Si votre harnais propose une option de compatibilité fournisseur pour le format du contrôle de cache, réglez-la sur le style Anthropic. S'il n'envoie que des prompts sous forme de chaînes simples sans `cache_control`, vous n'obtiendrez pas de mise en cache sur les modèles Claude, même si ce même harnais met correctement en cache avec les modèles à mise en cache automatique.
+
+## Vérifier le fonctionnement
+
+Consultez le bloc `usage` de la réponse. Les noms de champs diffèrent selon l'endpoint :
+
+- **`/v1/chat/completions`** - indique les lectures de cache dans `usage.prompt_tokens_details.cached_tokens`.
+- **`/v1/messages`** - indique `cache_read_input_tokens` et `cache_creation_input_tokens`.
+
+Ce à quoi vous attendre :
+
+- **Première requête** avec un nouveau préfixe : un nombre non nul d'écritures/créations de cache.
+- **Requêtes suivantes** réutilisant ce préfixe : un nombre non nul de lectures de cache et un nombre d'entrées non mises en cache nettement plus faible.
+- **Uniquement des zéros** signifie que le marqueur était absent, que le préfixe était sous la taille minimale, que le préfixe a changé entre les tours ou que le modèle met en cache automatiquement (les économies s'appliquent tout de même, mais ne sont pas signalées comme tokens de cache).
+
+<Note>
+  Certains harnais normalisent ces valeurs dans leurs propres champs (par ex. `cacheRead` / `cacheWrite` dans leurs logs) - mêmes chiffres, noms différents.
+</Note>
+
+## Comment lire les résultats
+
+L'utilisation des tokens dans chaque réponse répartit les tokens d'entrée selon leur statut de cache :
+
+| Champ | Signification |
+| --- | --- |
+| `prompt_tokens` | Tokens d'entrée non mis en cache |
+| `cache_read_tokens` | Tokens d'entrée servis depuis le cache (à tarif réduit) |
+| `cache_write_tokens` | Tokens d'entrée écrits dans le cache lors de cette requête |
+| `completion_tokens` | Tokens de sortie |
+| `total_tokens` | Somme des quatre champs ci-dessus |
+
+## Facturation
+
+Les entrées en cache coûtent moins cher que les nouvelles entrées. Les tarifs sont exprimés par rapport au prix d'entrée du modèle :
+
+| Fournisseur | Lecture du cache | Écriture du cache |
+| --- | --- | --- |
+| Claude / Opus | 0,1× entrée | 1,25× entrée |
+| Famille GPT-4 | 0,5× entrée | facturée au tarif d'entrée |
+| Famille GPT-5 | 0,1× entrée | facturée au tarif d'entrée |
+
+La première requête qui alimente le cache paie le tarif d'écriture sur ces tokens ; les requêtes suivantes qui touchent le cache paient le tarif de lecture, plus bas. Les caches ont une durée de vie courte : les économies proviennent donc de l'envoi de prompts similaires à intervalles rapprochés.
+
+<Warning>
+  Les frais de mise en cache sont visibles dans **Settings → Credits** et sont détaillés par modèle ou par requête individuelle.
+</Warning>
+
+<Info>
+  Pour la plupart des modèles Anthropic, le prompt système doit comporter au moins **4096 tokens** pour que la mise en cache s'active. Les entrées de cache expirent après **5 minutes** d'inactivité.
+</Info>
+
+## Pièges courants
+
+- **Pas de `cache_control` sur une requête Claude** → pas de mise en cache, prix complet à chaque tour. C'est la cause la plus fréquente d'une hausse soudaine des coûts.
+- **Prompt système envoyé sous forme de chaîne simple** → rien à quoi attacher le marqueur.
+- **Préfixe trop petit** → sous la taille minimale pouvant être mise en cache, donc aucune entrée n'est créée.
+- **Le préfixe en cache change entre les tours** (par ex. un horodatage au début du prompt système) → le cache ne peut pas être réutilisé. Gardez le préfixe marqué strictement identique, octet par octet.
+- **Sur `/v1/responses`, marquer le champ `instructions`** → c'est une chaîne simple qui ne peut pas porter de marqueur ; placez plutôt le préfixe stable dans un bloc de message d'entrée `system`/`developer`.
+- **Ajouter `cache_control` à un modèle à mise en cache automatique** → ignoré ou rejeté ; laissez-le mettre en cache de lui-même.
+- **Plus de 4 marqueurs** → seuls les 4 premiers sont appliqués.

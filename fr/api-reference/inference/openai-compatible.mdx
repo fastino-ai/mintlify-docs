@@ -1,0 +1,158 @@
+---
+title: "Inférence compatible OpenAI sur l'API Fastino"
+sidebarTitle: "Compatible OpenAI"
+description: "Remplacement direct d'OpenAI sur Fastino. Définissez base_url sur https://api.fastino.ai/v1, utilisez votre clé Fastino, et toutes les méthodes du SDK, y compris le streaming, fonctionnent sans modification."
+hidden: true
+noindex: true
+---
+
+Fastino expose un ensemble d'endpoints compatibles OpenAI afin que vous puissiez utiliser votre code existant basé sur le SDK OpenAI avec vos modèles Fastino fine-tunés, moyennant un minimum de modifications. Définissez `base_url` sur `https://api.fastino.ai/v1`, authentifiez-vous avec votre clé d'API Fastino et transmettez l'ID de votre job d'entraînement comme `model`. Les champs propres à Fastino, comme `schema`, peuvent être transmis via `extra_body` dans le SDK Python ou inclus directement dans le corps JSON.
+
+<Tip>
+  Si vous disposez déjà d'une intégration OpenAI, passer à Fastino ne nécessite que deux modifications : mettre à jour `base_url` et remplacer la clé par votre clé d'API Fastino. Tout le reste - méthodes du SDK, streaming, format des messages - reste identique.
+</Tip>
+
+## Endpoints
+
+| Méthode | Chemin | Description |
+|---|---|---|
+| `POST` | `/v1/chat/completions` | Chat completions |
+| `POST` | `/v1/responses` | API Responses |
+| `GET` | `/v1/models` | Lister les modèles disponibles |
+
+<Warning>
+  L'ancien endpoint `POST /v1/completions` a été supprimé. Migrez les requêtes basées sur un prompt vers `POST /v1/chat/completions` et envoyez le prompt sous forme de message utilisateur.
+</Warning>
+
+## Configurer le SDK OpenAI
+
+Faites pointer le SDK vers l'URL de base de Fastino et fournissez votre clé d'API Fastino :
+
+<CodeGroup>
+
+```python Python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai/v1"
+)
+```
+
+```bash cURL (base URL)
+# Set this as the base for all requests
+https://api.fastino.ai/v1
+```
+
+</CodeGroup>
+
+## Chat completions
+
+`POST /v1/chat/completions` accepte la même forme de requête que l'API Chat Completions d'OpenAI. Transmettez l'ID de votre job d'entraînement comme `model` et incluez les champs propres à Fastino, comme `schema`, dans le corps de la requête ou via `extra_body`.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai/v1"
+)
+
+response = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
+)
+
+print(response.choices[0].message.content)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Lister les modèles disponibles
+
+Utilisez `GET /v1/models` pour récupérer la liste des modèles utilisables avec ces endpoints.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+```
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+</CodeGroup>
+
+## Streaming
+
+Tous les endpoints de complétion prennent en charge le streaming. Définissez `stream=True` dans le SDK ou `"stream": true` dans le corps de la requête.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+stream = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
+    stream=True
+)
+
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
+    "stream": true
+  }'
+```
+
+</CodeGroup>
+
+## Transmettre des champs propres à Fastino
+
+Le champ `schema` est une extension Fastino. Dans le SDK Python d'OpenAI, transmettez-le via `extra_body` afin qu'il soit inclus dans la requête sans affecter la validation du SDK. Dans une requête HTTP brute, incluez-le au niveau supérieur du corps JSON, à côté des champs standard comme `model` et `messages`.
+
+## Voir aussi
+
+- [Inférence native Fastino](/fr/api-reference/inference/pioneer) - endpoint Fastino direct avec la documentation complète du schéma
+- [Inférence compatible Anthropic](/fr/api-reference/inference/anthropic-compatible) - utilisez plutôt le SDK Anthropic
+- [Historique d'inférence et feedback](/fr/api-reference/inference/history) - récupérez les résultats passés et soumettez des corrections

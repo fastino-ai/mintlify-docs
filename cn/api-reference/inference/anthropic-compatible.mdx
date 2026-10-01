@@ -1,0 +1,144 @@
+---
+title: "Fastino API 上兼容 Anthropic 的 POST /v1/messages"
+sidebarTitle: "兼容 Anthropic"
+description: "将 Fastino 用作 Anthropic SDK 的直接替代方案。将 base_url 指向 https://api.fastino.ai，并使用你的 Fastino API 密钥访问微调模型。"
+hidden: true
+noindex: true
+---
+
+Fastino 实现了 Anthropic Messages API，因此你可以将现有的 Anthropic SDK 代码路由到你微调的 Fastino 模型。将 `base_url` 设置为 `https://api.fastino.ai`，使用你的 Fastino API 密钥进行认证，并将训练任务 ID 用作模型名称。Anthropic SDK 会自行追加 `/v1/messages`。
+
+## 端点
+
+| 方法 | 路径 | 描述 |
+|---|---|---|
+| `POST` | `/v1/messages` | 创建消息（兼容 Anthropic） |
+
+## 配置 Anthropic SDK
+
+在构造客户端时传入你的 Fastino API 密钥和基础 URL：
+
+<CodeGroup>
+
+```python Python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+```
+
+</CodeGroup>
+
+## 创建消息
+
+`POST /v1/messages` 接受与 Anthropic Messages API 相同的请求结构。将 `model` 设置为你的训练任务 ID，并包含 `messages` 数组。你可以在标准 Anthropic 字段之外同时传入 Fastino 特有的字段，例如 `schema`。
+
+### 请求参数
+
+<ParamField body="model" type="string" required>
+  训练任务 ID（例如 `job_abc123`）或基础模型 ID。这是处理你请求的模型。
+</ParamField>
+
+<ParamField body="max_tokens" type="number" required>
+  响应中生成的最大 token 数。
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  对话消息。每个对象包含一个 `role`（`"user"` 或 `"assistant"`）和一个 `content` 字符串。
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Fastino 特有的抽取 schema。定义 `entities`、`classifications`、`structures` 或 `relations` 以控制模型抽取的内容。完整的 schema 文档请参阅 [Fastino 推理](/cn/api-reference/inference/pioneer)。
+</ParamField>
+
+### 示例
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+
+message = client.messages.create(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ]
+)
+
+print(message.content[0].text)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## 流式传输
+
+`/v1/messages` 端点支持流式传输。在 SDK 中设置 `stream=True`，或在原始请求体中设置 `"stream": true`。
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+
+with client.messages.stream(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Summarize the following: ..."}]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Summarize the following: ..."}],
+    "stream": true
+  }'
+```
+
+</CodeGroup>
+
+## 相关内容
+
+- [Fastino 原生推理](/cn/api-reference/inference/pioneer) - 直接调用 Fastino 端点，附完整的 schema 文档
+- [兼容 OpenAI 的推理](/cn/api-reference/inference/openai-compatible) - 改用 OpenAI SDK
+- [推理历史与反馈](/cn/api-reference/inference/history) - 获取过往结果并提交更正

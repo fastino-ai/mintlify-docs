@@ -1,0 +1,144 @@
+---
+title: "Anthropic-kompatibles POST /v1/messages in der Fastino API"
+sidebarTitle: "Anthropic-kompatibel"
+description: "Verwenden Sie Fastino als direkten Ersatz für das Anthropic SDK. Setzen Sie base_url auf https://api.fastino.ai und verwenden Sie Ihren Fastino-API-Schlüssel, um auf feinabgestimmte Modelle zuzugreifen."
+hidden: true
+noindex: true
+---
+
+Fastino implementiert die Anthropic Messages API, sodass Sie bestehenden Anthropic-SDK-Code an Ihre feinabgestimmten Fastino-Modelle weiterleiten können. Setzen Sie `base_url` auf `https://api.fastino.ai`, authentifizieren Sie sich mit Ihrem Fastino-API-Schlüssel und verwenden Sie Ihre Trainingsjob-ID als Modellnamen. Das Anthropic SDK hängt `/v1/messages` selbst an.
+
+## Endpunkte
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `POST` | `/v1/messages` | Eine Nachricht erstellen (Anthropic-kompatibel) |
+
+## Das Anthropic SDK konfigurieren
+
+Übergeben Sie beim Erstellen des Clients Ihren Fastino-API-Schlüssel und die Basis-URL:
+
+<CodeGroup>
+
+```python Python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+```
+
+</CodeGroup>
+
+## Eine Nachricht erstellen
+
+`POST /v1/messages` akzeptiert dieselbe Anfragestruktur wie die Anthropic Messages API. Setzen Sie `model` auf Ihre Trainingsjob-ID und fügen Sie Ihr `messages`-Array hinzu. Fastino-spezifische Felder wie `schema` können Sie zusammen mit den Standardfeldern von Anthropic übergeben.
+
+### Anfrageparameter
+
+<ParamField body="model" type="string" required>
+  Trainingsjob-ID (z. B. `job_abc123`) oder eine Basismodell-ID. Dies ist das Modell, das Ihre Anfrage verarbeitet.
+</ParamField>
+
+<ParamField body="max_tokens" type="number" required>
+  Maximale Anzahl der Tokens, die in der Antwort generiert werden.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Nachrichten der Konversation. Jedes Objekt hat eine `role` (`"user"` oder `"assistant"`) und einen `content`-String.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Fastino-spezifisches Extraktionsschema. Definieren Sie `entities`, `classifications`, `structures` oder `relations`, um festzulegen, was das Modell extrahiert. Die vollständige Schema-Dokumentation finden Sie unter [Fastino-Inferenz](/de/api-reference/inference/pioneer).
+</ParamField>
+
+### Beispiele
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+
+message = client.messages.create(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ]
+)
+
+print(message.content[0].text)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Streaming
+
+Der Endpunkt `/v1/messages` unterstützt Streaming. Setzen Sie `stream=True` im SDK oder `"stream": true` im Body der direkten Anfrage.
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+
+with client.messages.stream(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Summarize the following: ..."}]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Summarize the following: ..."}],
+    "stream": true
+  }'
+```
+
+</CodeGroup>
+
+## Verwandte Themen
+
+- [Native Fastino-Inferenz](/de/api-reference/inference/pioneer) - direkter Fastino-Endpunkt mit vollständiger Schema-Dokumentation
+- [OpenAI-kompatible Inferenz](/de/api-reference/inference/openai-compatible) - verwenden Sie stattdessen das OpenAI SDK
+- [Inferenzverlauf und Feedback](/de/api-reference/inference/history) - frühere Ergebnisse abrufen und Korrekturen einreichen
