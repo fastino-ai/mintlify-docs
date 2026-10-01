@@ -25,7 +25,14 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
 
 ## Integration guidance
 
-- Follow the [Inference API](https://docs.fastino.ai/inference) for GLiNER inference requests.
+- For GLiDE decisions, read [GLiDE](https://docs.fastino.ai/concepts/glide) and
+  [GLiDE Inference](https://docs.fastino.ai/inference/systemone). Use
+  `POST /v1/systemone` with `fastino/glide`, `state`, and typed `questions`.
+- Install the [GLiDE Agent Skill](https://docs.fastino.ai/concepts/glide-agent-skill)
+  for agent-ready GLiDE instructions and examples.
+- For GLiNER extraction and classification, read
+  [GLiNER Inference](https://docs.fastino.ai/inference/chat-completions). Use
+  `POST /v1/chat/completions` with `model`, `messages`, and `schema`.
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
 - Do not invent routes, model IDs, request fields, or response fields.
 - If an operation is absent from the public OpenAPI specification, treat it as unsupported for customer integrations.
