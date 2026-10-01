@@ -5,14 +5,14 @@ description: "Limites de débit par endpoint, quotas WAF, limites basées sur le
 
 ## Quotas de débit de requêtes et plafonds de crédits / de dépenses pour l'API Fastino, gestion des erreurs 429, et demande de limites plus élevées
 
-L'API Fastino applique deux mécanismes indépendants pouvant bloquer une requête : les **limites de débit de requêtes** qui plafonnent le nombre d'appels API que vous pouvez effectuer par minute ou par heure, et les **limites d'utilisation basées sur les crédits** qui plafonnent le montant que vous pouvez dépenser. Dépasser une limite de débit renvoie `429 Too Many Requests`. Épuiser vos crédits ou atteindre le plafond de dépassement de votre plan renvoie plutôt `402 Payment Required` ou `403 Forbidden` — voir [Limites de crédits et plafond de dépassement](#limites-de-crédits-et-plafond-de-dépassement) ci-dessous.
+L'API Fastino applique deux mécanismes indépendants pouvant bloquer une requête : les **limites de débit de requêtes** qui plafonnent le nombre d'appels API que vous pouvez effectuer par minute ou par heure, et les **limites d'utilisation basées sur les crédits** qui plafonnent le montant que vous pouvez dépenser. Dépasser une limite de débit renvoie `429 Too Many Requests`. Épuiser vos crédits ou atteindre le plafond de dépassement de votre plan renvoie plutôt `402 Payment Required` ou `403 Forbidden` - voir [Limites de crédits et plafond de dépassement](#limites-de-crédits-et-plafond-de-dépassement) ci-dessous.
 
 ## Limites de débit de requêtes
 
 Deux couches indépendantes protègent l'API :
 
-1. **Limite de débit en périphérie** — toujours appliquée à chaque requête au niveau du répartiteur de charge, avant qu'elle n'atteigne l'API, indépendamment de l'endpoint ou de l'authentification. Agrégée par l'adresse IP observée en périphérie, qui n'est pas toujours l'IP client réelle de votre application (par exemple, les requêtes acheminées via un point de sortie mutualisé sont agrégées ensemble). Limite : 100 000 requêtes / 60 secondes.
-2. **Limite par endpoint** — la plupart des endpoints ci-dessous appliquent leur propre limite dans le périmètre de votre équipe de facturation (en repliant sur la clé API, puis l'utilisateur, puis l'IP client pour les requêtes non authentifiées). C'est la limite qui régit un appelant normal et authentifié. Elle remplace la limite générique par IP pour cet endpoint plutôt que de s'y ajouter — la limite par IP par défaut ne régit que les endpoints sans surcharge listée.
+1. **Limite de débit en périphérie** - toujours appliquée à chaque requête au niveau du répartiteur de charge, avant qu'elle n'atteigne l'API, indépendamment de l'endpoint ou de l'authentification. Agrégée par l'adresse IP observée en périphérie, qui n'est pas toujours l'IP client réelle de votre application (par exemple, les requêtes acheminées via un point de sortie mutualisé sont agrégées ensemble). Limite : 100 000 requêtes / 60 secondes.
+2. **Limite par endpoint** - la plupart des endpoints ci-dessous appliquent leur propre limite dans le périmètre de votre équipe de facturation (en repliant sur la clé API, puis l'utilisateur, puis l'IP client pour les requêtes non authentifiées). C'est la limite qui régit un appelant normal et authentifié. Elle remplace la limite générique par IP pour cet endpoint plutôt que de s'y ajouter - la limite par IP par défaut ne régit que les endpoints sans surcharge listée.
 
 | Endpoint | Portée | Limite |
 | --- | --- | --- |
@@ -22,11 +22,11 @@ Deux couches indépendantes protègent l'API :
 | `POST /v1/generate/*` | Par utilisateur | 120 / min |
 | `POST /v1/training-jobs` | Par utilisateur | 20 / min |
 
-Pour une seule clé API ou équipe, c'est la limite par endpoint ci-dessus qui s'applique réellement. La limite en périphérie de 100 000 requêtes / 60 secondes est un plafond distinct et toujours actif, partagé par tout le trafic passant par le même répartiteur de charge — elle n'intervient que lorsque de nombreux appelants différents partagent la même IP observée et la dépassent collectivement.
+Pour une seule clé API ou équipe, c'est la limite par endpoint ci-dessus qui s'applique réellement. La limite en périphérie de 100 000 requêtes / 60 secondes est un plafond distinct et toujours actif, partagé par tout le trafic passant par le même répartiteur de charge - elle n'intervient que lorsque de nombreux appelants différents partagent la même IP observée et la dépassent collectivement.
 
 ## Limites de crédits et plafond de dépassement
 
-L'inférence est facturée sur un solde de crédits plutôt que sur une fenêtre de débit de requêtes (1 crédit = \$0.01). Chaque plan inclut une allocation de crédits — le plan Free accorde une allocation ponctuelle qui ne se renouvelle pas, tandis que les plans payants renouvellent leurs crédits inclus chaque mois de facturation. Une fois les crédits inclus d'un plan payant utilisés, l'usage supplémentaire est facturé en dépassement (si activé) jusqu'au maximum mensuel de dépassement du plan ; sur le plan Free, l'épuisement stoppe simplement l'inférence jusqu'à l'ajout de crédits ou la montée en gamme.
+L'inférence est facturée sur un solde de crédits plutôt que sur une fenêtre de débit de requêtes (1 crédit = \$0.01). Chaque plan inclut une allocation de crédits - le plan Free accorde une allocation ponctuelle qui ne se renouvelle pas, tandis que les plans payants renouvellent leurs crédits inclus chaque mois de facturation. Une fois les crédits inclus d'un plan payant utilisés, l'usage supplémentaire est facturé en dépassement (si activé) jusqu'au maximum mensuel de dépassement du plan ; sur le plan Free, l'épuisement stoppe simplement l'inférence jusqu'à l'ajout de crédits ou la montée en gamme.
 
 Dépasser une limite de crédits ne renvoie **pas** `429 Too Many Requests`. Cela renvoie plutôt :
 
@@ -88,7 +88,7 @@ def call_with_retry(url, headers, payload, max_retries=5):
 ```
 
 <Note>
-  Les refus liés aux crédits et au dépassement (`402`/`403`, voir [Limites de crédits et plafond de dépassement](#limites-de-crédits-et-plafond-de-dépassement)) ne se résolvent pas en attendant — la boucle de nouvelle tentative ci-dessus ne s'applique qu'aux réponses `429`. Un `402`/`403` nécessite une action de facturation (ajouter des crédits, activer la recharge automatique ou passer à un plan supérieur) avant que la requête suivante puisse aboutir.
+  Les refus liés aux crédits et au dépassement (`402`/`403`, voir [Limites de crédits et plafond de dépassement](#limites-de-crédits-et-plafond-de-dépassement)) ne se résolvent pas en attendant - la boucle de nouvelle tentative ci-dessus ne s'applique qu'aux réponses `429`. Un `402`/`403` nécessite une action de facturation (ajouter des crédits, activer la recharge automatique ou passer à un plan supérieur) avant que la requête suivante puisse aboutir.
 </Note>
 
 ## Demander des limites plus élevées
