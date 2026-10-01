@@ -8,10 +8,6 @@ A **Noul** question asks a yes/no question and returns a single calibrated proba
 
 Use a Noul when the probability itself is the useful signal, not just a boolean. "Does this request qualify for a refund?" might return `0.999` (clearly yes) or `0.52` (genuinely ambiguous) - a plain `true`/`false` would hide that difference.
 
-<Tip>
-  Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no - it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use [Score](/concepts/glide-score) with defined levels instead.
-</Tip>
-
 ## Request
 
 <ParamField body="type" type="string" required>
@@ -27,26 +23,19 @@ Use a Noul when the probability itself is the useful signal, not just a boolean.
   `{"true": "Qualifies", "false": "Does not qualify"}`. Omit it to use `"Yes"` and `"No"`.
 </ParamField>
 
-<CodeGroup>
-
-```bash cURL
-curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "fastino/glide",
-    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
-    "questions": {
-      "refund_allowed": {
-        "type": "noul",
-        "instructions": "Does this request qualify for a refund?",
-        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
-      }
+```json Request body
+{
+  "model": "fastino/glide",
+  "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+  "questions": {
+    "refund_allowed": {
+      "type": "noul",
+      "instructions": "Does this request qualify for a refund?",
+      "criteria": { "true": "Qualifies", "false": "Does not qualify" }
     }
-  }'
+  }
+}
 ```
-
-</CodeGroup>
 
 ## Answer object
 
@@ -63,7 +52,8 @@ The matching entry inside `answers` is:
 ```
 
 - `noul` - the probability the answer is "yes." `0.999` is a strong qualifying signal.
-- `confidence` - `|2 × noul − 1|`, from `0` (maximum uncertainty, `noul = 0.5`) to `1` (fully certain, `noul = 0` or `1`). See [Confidence](/concepts/decision-models#confidence) for how to act on it.
+- `confidence` - certainty about either outcome. See
+  [Confidence](/concepts/decision-models#confidence) for its formula and usage guidance.
 
 ## Using the result
 
@@ -78,12 +68,5 @@ else:
     action = "human_review"  # genuinely ambiguous - don't force a threshold here
 ```
 
-Tune the thresholds (`0.8` / `0.2` above) on real data for your use case rather than assuming they transfer - probability and confidence are calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
-
-## Related
-
-- [Choice](/concepts/glide-choice) - pick one of several named options
-- [Score](/concepts/glide-score) - rate on an ordered scale
-- [Decision Models](/concepts/decision-models) - primitives overview, limits, and the full request contract
-- [GLiDE](/concepts/glide) - what GLiDE is and when to use it
-- [GLiDE inference](/inference/systemone) - authentication, complete HTTP contract, retries, and errors
+Tune thresholds on representative data. See
+[Confidence](/concepts/decision-models#confidence) for calibration guidance.

@@ -30,19 +30,8 @@ Content-Type: application/json
 
 `Authorization: Bearer $FASTINO_API_KEY` is also accepted. Use one style consistently.
 
-## Choose a question type
-
-Every question is single-label and returns probabilities. Choose the primitive from the
-answer shape your code needs:
-
-| Primitive | Use when | `criteria` shape | Primary result |
-| --- | --- | --- | --- |
-| [Noul](/concepts/glide-noul) | The answer is yes or no | Optional `{"true": "...", "false": "..."}`; defaults to Yes/No | `noul`, the probability of true |
-| [Choice](/concepts/glide-choice) | Exactly one unordered option should win | Object mapping option keys to descriptions | `choice` plus `probabilities` |
-| [Score](/concepts/glide-score) | The answer belongs on an ordered scale | Ordered array of level descriptions | `score`, `expected_level`, and `probabilities` |
-
-There is no multi-label primitive. Ask multiple independently named questions in one request
-when you need several judgments about the same state.
+Choose [Noul, Choice, or Score](/concepts/decision-models#primitives) from the answer shape
+your application needs.
 
 ## Request
 
@@ -99,26 +88,19 @@ curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
 `answers` uses the question keys from your request. For this Noul:
 
 - `noul` is the probability that the `true` criterion holds. It is not a boolean.
-- `confidence` is certainty about either outcome: `|2 × noul − 1|`.
-- Tune action thresholds on representative data. Do not assume `0.5` is the right business
-  threshold.
+- `confidence` is certainty about either outcome. See
+  [Confidence](/concepts/decision-models#confidence) for its formula and threshold guidance.
 
 Choice and Score return different fields. See their primitive pages for exact response shapes
 and integration examples.
 
 ## Limits and unsupported shapes
 
-- Each rendered question prompt (`state` plus that question) must fit within **40,000
-  tokens**.
-- Choice and Score accept at most **255 options or levels**.
-- `usage.input_tokens` sums the internal passes for all questions, so it can exceed 40,000
-  even though every individual rendered prompt fits.
-- One request evaluates one shared `state`; put multiple questions under `questions`.
+See [GLiDE limits](/concepts/decision-models#limits) for prompt size, option count, token
+accounting, and shared-state behavior.
+
 - `/v1/systemone` does not stream and does not accept a batch of independent states.
 - GLiDE does not currently support fine-tuned deployment IDs.
-
-See [GLiDE Reference](/concepts/decision-models) for state-shape guidance, confidence
-formulas, and a mixed Choice/Score request.
 
 ## Errors
 
@@ -136,23 +118,3 @@ formulas, and a mixed Choice/Score request.
 
 Use a read timeout of at least 300 seconds and bounded backoff for `425`, `429`, and `503`.
 Do not retry `401`, `402`, `403`, `404`, or `422` without correcting the underlying problem.
-
-## Continue learning
-
-<CardGroup cols={2}>
-  <Card title="GLiDE Reference" icon="book-open" href="/concepts/decision-models">
-    Understand state shapes, limits, confidence, and combining multiple questions.
-  </Card>
-
-  <Card title="Noul" icon="toggle-on" href="/concepts/glide-noul">
-    Integrate a yes/no probability.
-  </Card>
-
-  <Card title="Choice" icon="list" href="/concepts/glide-choice">
-    Route to one named option.
-  </Card>
-
-  <Card title="Score" icon="gauge" href="/concepts/glide-score">
-    Evaluate an ordered rubric.
-  </Card>
-</CardGroup>

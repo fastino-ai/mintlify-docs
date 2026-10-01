@@ -6,13 +6,14 @@ description: "The Noul, Choice, and Score primitives behind GLiDE decisions, plu
 
 ## Primitives
 
-Every question you ask [GLiDE](/concepts/glide) uses one of three types, sent to `POST /v1/systemone` against a shared `state`:
+Every question you ask [GLiDE](/concepts/glide) uses one of three types against a shared
+`state`:
 
-- **[Noul](/concepts/glide-noul)** - a yes/no question that returns a probability between 0 and 1. Think of it as a boolean on a sliding scale. "Does this request qualify for a refund?" might return `0.999` - a 99.9% probability the answer is yes.
-- **[Choice](/concepts/glide-choice)** - a pick-one-from-many question that returns a probability distribution over up to 255 named options. "Which team should handle this?" might return `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/concepts/glide-score)** - a rate-on-a-scale question over an ordered rubric you define. "How urgent is this request?" with three levels might return `score: 1` (medium) and `expected_level: 0.9` - a probability-weighted result close to medium.
-
-Pick the type that matches the shape of the answer your code needs.
+| Primitive | Use when | Primary result |
+| --- | --- | --- |
+| **[Noul](/concepts/glide-noul)** | The answer is yes or no | Probability that the answer is true |
+| **[Choice](/concepts/glide-choice)** | One unordered option should win | Selected option and probability distribution |
+| **[Score](/concepts/glide-score)** | The answer belongs on an ordered scale | Discrete score and probability-weighted level |
 
 <Tip>
   Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no - it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use a Score with defined levels. If you need a binary gate, use a Noul.
@@ -30,14 +31,9 @@ There is no multi-label primitive - each question is single-label. Ask several i
 - `usage.input_tokens` sums internal passes across questions, so it can exceed 40,000 even
   though every individual rendered prompt fits.
 
-## Endpoint
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/v1/systemone` | Run one or more typed decision questions against a state |
-
-See [GLiDE inference](/inference/systemone) for authentication, a complete cURL request,
-response handling, retries, and errors.
+Send GLiDE requests to `POST /v1/systemone`. See
+[GLiDE inference](/inference/systemone) for authentication, a complete request, retries,
+and errors.
 
 ## Request parameters
 
@@ -128,51 +124,6 @@ curl -s https://api.fastino.ai/v1/systemone \
 
 </CodeGroup>
 
-Response:
-
-```json
-{
-  "model": "glide",
-  "answers": {
-    "department": {
-      "type": "choice",
-      "choice": "returns",
-      "confidence": 0.9983415574354015,
-      "probabilities": {
-        "billing": 0.000576420510560337,
-        "returns": 0.9989179779459618,
-        "shipping": 0.0005056015434779647
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "score": 1,
-      "expected_level": 0.9015099730675683,
-      "confidence": 0.7587802709097535,
-      "probabilities": {
-        "0": 0.11323658534089268,
-        "1": 0.8720168562506462,
-        "2": 0.014746558408461077
-      },
-      "legend": {
-        "0": "low urgency, can wait",
-        "1": "medium urgency, handle soon",
-        "2": "high urgency, handle immediately"
-      }
-    }
-  },
-  "usage": { "input_tokens": 1055, "output_tokens": 181 },
-  "token_usage": 1236
-}
-```
-
-## Related
-
-- [GLiDE](/concepts/glide) - what GLiDE is and when to use it
-- [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), [Score](/concepts/glide-score) - the three question primitives in full, with worked examples
-- [GLiDE Agent Skill](/concepts/glide-agent-skill) - install GLiDE for Cursor, Claude Code, and Codex
-- [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) - a classification-tuned GLiNER model for intent, routing, priority, moderation, and other operational labels
-- [Available models](/concepts/models) - encoder and decoder model catalog
-- [Pricing](/pricing) - GLiDE and GLiNER rates
-- [Quickstart](/quickstart) - generating and passing your API key
-- [`/v1/systemone`](/inference/systemone) - the raw HTTP contract for GLiDE decisions
+The response contains one entry under `answers` for each question key. See
+[Choice](/concepts/glide-choice) and [Score](/concepts/glide-score) for their exact answer
+objects.
