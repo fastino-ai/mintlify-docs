@@ -252,6 +252,27 @@ curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=en
 在读取任务结果之前，请将 `choices[0].message.content` 解析为 JSON。当 `store=true` 时，
 `x_fastino.inference_id` 标识已持久化的推理。
 
+## 超大输入的异步作业
+
+当请求超过一百万个 token 且可能超出同步超时时间时，请使用异步 GLiNER 接口。将原生 GLiNER 负载提交到：
+
+```text
+POST /v1/gliner-2/async
+```
+
+请求必须包含 `text` 和 `schema`；还可接受 `threshold`、`include_confidence`
+和 `include_spans`。提交成功后会返回 HTTP `202`，其中包含 `job_id`、`status`、
+`estimated_tokens` 和 `message`。
+
+轮询返回的作业 ID，直到 `status` 为 `complete` 或 `error`：
+
+```text
+GET /v1/gliner-2/jobs/{job_id}
+```
+
+已完成的作业包含 `result` 和 `token_usage`。作业的作用域限定为经过身份验证的用户，
+因此请使用同一个 API 密钥进行提交和轮询。
+
 ## 重复输入
 
 该端点每个请求接受一段会话。它不支持已移除的原生端点的 `text: string[]` 批量形式。
