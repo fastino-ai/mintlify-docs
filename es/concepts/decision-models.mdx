@@ -10,7 +10,7 @@ Cada pregunta que le haces a [GLiDE](/es/concepts/glide) usa uno de tres tipos y
 
 - **[Noul](/es/concepts/glide-noul)**: una pregunta de sí o no que devuelve una probabilidad entre 0 y 1. Piensa en ella como un booleano en una escala continua. "¿Esta solicitud cumple los requisitos para un reembolso?" podría devolver `0.999`, es decir, un 99,9 % de probabilidad de que la respuesta sea sí.
 - **[Choice](/es/concepts/glide-choice)**: una pregunta de elegir una entre varias opciones que devuelve una distribución de probabilidad sobre hasta 255 opciones con nombre. "¿Qué equipo debería encargarse de esto?" podría devolver `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/es/concepts/glide-score)**: una pregunta de calificar en una escala según una rúbrica ordenada que tú defines. "¿Qué tan urgente es esta solicitud?" con tres niveles podría devolver `score: 1` (media) y `expected_level: 1.9`, más cerca de "alta" que de una urgencia media pura.
+- **[Score](/es/concepts/glide-score)**: una pregunta de calificar en una escala según una rúbrica ordenada que tú defines. "¿Qué tan urgente es esta solicitud?" con tres niveles podría devolver `score: 1` (media) y `expected_level: 0.9`, un resultado ponderado por probabilidad cercano a media.
 
 Elige el tipo que coincida con la forma de la respuesta que necesita tu código.
 
@@ -20,11 +20,24 @@ Elige el tipo que coincida con la forma de la respuesta que necesita tu código.
 
 No existe una primitiva multietiqueta: cada pregunta es de una sola etiqueta. Si necesitas varios juicios simultáneos, haz varias preguntas independientes en una misma llamada; consulta [Combinar varias preguntas](#combinar-varias-preguntas).
 
+## Límites
+
+- Cada prompt de pregunta renderizado (`state` más esa pregunta) debe caber en **40,000
+  tokens**.
+- Choice y Score aceptan hasta **255 opciones o niveles**.
+- Una solicitud evalúa un único `state` compartido. Pon varias preguntas con nombre bajo `questions`;
+  `/v1/systemone` no acepta un lote de estados independientes.
+- `usage.input_tokens` suma las pasadas internas de todas las preguntas, por lo que puede superar 40,000
+  aunque cada prompt renderizado individual quepa.
+
 ## Endpoint
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `POST` | `/v1/systemone` | Ejecuta una o más preguntas de decisión tipadas sobre un estado |
+
+Consulta [Inferencia de GLiDE](/es/inference/systemone) para la autenticación, una solicitud cURL completa,
+el manejo de respuestas, los reintentos y los errores.
 
 ## Parámetros de la solicitud
 
@@ -41,7 +54,9 @@ No existe una primitiva multietiqueta: cada pregunta es de una sola etiqueta. Si
 </ParamField>
 
 <Note>
-  Cualquier otra clave de nivel superior en la solicitud devuelve `422 Extra inputs are not permitted`.
+  Los campos de compatibilidad con OpenRouter `provider`, `user`, `session_id` y `trace` se aceptan
+  y no se reenvían a GLiDE. Cualquier otra clave de nivel superior en la solicitud devuelve
+  `422 Extra inputs are not permitted`.
 </Note>
 
 ### Formas de state
@@ -88,7 +103,7 @@ Haz varias preguntas de distintos tipos sobre el mismo `state` en una sola llama
 
 ```bash cURL
 curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: YOUR_API_KEY" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "fastino/glide",

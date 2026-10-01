@@ -1,7 +1,7 @@
 ---
-title: "GLiDE 决策"
-sidebarTitle: "GLiDE 决策"
-description: "通过 POST /v1/systemone 运行 GLiDE 分类、路由和评分决策。"
+title: "使用 /v1/systemone 进行 GLiDE 推理"
+sidebarTitle: "GLiDE 推理"
+description: "完成身份验证，选择 Noul、Choice 或 Score 问题，调用 POST /v1/systemone，并根据 GLiDE 的概率和置信度采取行动。"
 noindex: true
 ---
 
@@ -9,17 +9,65 @@ noindex: true
 POST https://api.fastino.ai/v1/systemone
 ```
 
-发送一个 `state`（待评估的情境）以及一个或多个命名的 `questions`，每个问题的类型为
-`noul`、`choice` 或 `score`。GLiDE 直接返回校准后的概率——无需解析生成的文本。有关 Fastino
-各推理接口共享的身份验证和冷启动/重试行为，请参阅[推理 API 概览](/cn/inference)。
+这是 **GLiDE** 的推理端点。发送一个非空的 `state` 以及一个或多个命名的类型化
+`questions`；从 `answers` 中读取结构化决策。GLiDE 不使用
+`/v1/chat/completions`、`messages` 或 GLiNER `schema`。
 
-完整的 `/v1/systemone` 请求和响应契约（Noul、Choice 和 Score 结构、限制以及置信度）位于
-[决策模型](/cn/concepts/decision-models)，每种基本类型都有专门的页面。本页介绍原始 HTTP 契约。
+## 身份验证
 
-## 示例
+在 [Fastino 设置](https://agent.fastino.ai/api-keys)中创建 API 密钥，然后设置：
 
 ```bash
-curl -s https://api.fastino.ai/v1/systemone \
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+在每个请求中发送该密钥：
+
+```http
+X-API-Key: $FASTINO_API_KEY
+Content-Type: application/json
+```
+
+也接受 `Authorization: Bearer $FASTINO_API_KEY`。请始终使用同一种方式。
+
+## 选择问题类型
+
+每个问题都是单标签的，并返回概率。请根据代码所需的答案形式选择基本类型：
+
+| 基本类型 | 适用场景 | `criteria` 结构 | 主要结果 |
+| --- | --- | --- | --- |
+| [Noul](/cn/concepts/glide-noul) | 答案为是或否 | 可选的 `{"true": "...", "false": "..."}`；默认为 Yes/No | `noul`，即为 true 的概率 |
+| [Choice](/cn/concepts/glide-choice) | 恰好有一个无序选项胜出 | 将选项键映射到描述的对象 | `choice` 以及 `probabilities` |
+| [Score](/cn/concepts/glide-score) | 答案位于有序量表上 | 由等级描述组成的有序数组 | `score`、`expected_level` 和 `probabilities` |
+
+不存在多标签基本类型。当你需要对同一个 state 做出多个判断时，请在一个请求中提出多个独立命名的问题。
+
+## 请求
+
+<ParamField body="model" type="string" required>
+  使用 `fastino/glide`。响应会以 `glide` 回显引擎名称。
+</ParamField>
+
+<ParamField body="state" type="string | object | array" required>
+  要评估的非空情境。单个段落使用字符串，带标签的字段使用对象，有序的消息或记录序列使用数组。
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  一个非空对象，键为你自定义的名称。每个值必须包含 `type` 和
+  `instructions`；Choice 和 Score 还需要 `criteria`。相同的键会出现在响应的
+  `answers` 下。
+</ParamField>
+
+<Accordion title="OpenRouter 兼容字段">
+  为了 OpenRouter 兼容性和可观测性，接受 `provider`、`user`、`session_id` 和 `trace`，
+  但这些字段不会转发给 GLiDE。其他未知的顶层字段会返回
+  `422 Extra inputs are not permitted`。
+</Accordion>
+
+### 完整请求
+
+```bash
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -47,38 +95,64 @@ curl -s https://api.fastino.ai/v1/systemone \
       "confidence": 0.9953536758980399
     }
   },
-  "usage": { "input_tokens": 89, "output_tokens": 1 },
-  "token_usage": 90
+  "usage": { "input_tokens": 89, "output_tokens": 1 }
 }
 ```
 
-查看当前哪些部署支持 GLiDE 决策的方式与查看 GLiNER 编码器支持的方式相同，只需使用
-`task_type=systemone`：
+`answers` 使用你请求中的问题键。对于这个 Noul：
 
-```bash
-curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=systemone"
-```
+- `noul` 是 `true` 条件成立的概率。它不是布尔值。
+- `confidence` 是对任一结果的确定程度：`|2 × noul − 1|`。
+- 请在具有代表性的数据上调整行动阈值。不要假定 `0.5` 就是合适的业务阈值。
 
-<Card title="决策模型" icon="sparkle" href="/cn/concepts/decision-models">
-  完整的 `/v1/systemone` 契约（Noul、Choice 和 Score 请求与响应结构、限制以及置信度），
-  并为每种问题类型提供完整示例。
-</Card>
+Choice 和 Score 返回的字段不同。确切的响应结构和集成示例，请参阅各自的基本类型页面。
+
+## 限制与不支持的结构
+
+- 每个渲染后的问题提示词（`state` 加上该问题）必须控制在 **40,000
+  个 token** 以内。
+- Choice 和 Score 最多接受 **255 个选项或等级**。
+- `usage.input_tokens` 会累加所有问题的内部推理轮次，因此即使每个单独渲染的提示词都在限制内，
+  该值也可能超过 40,000。
+- 一个请求评估一个共享的 `state`；请将多个问题放在 `questions` 下。
+- `/v1/systemone` 不支持流式传输，也不接受一批相互独立的 state。
+- GLiDE 目前不支持微调部署 ID。
+
+关于 state 结构的指导、置信度公式以及 Choice/Score 混合请求，请参阅 [GLiDE 参考](/cn/concepts/decision-models)。
 
 ## 错误
 
 | 状态码 | 可能原因 | 处理措施 |
 | --- | --- | --- |
-| `400` | 请求或 schema 无效 | 修正请求字段或 schema |
+| `400` | 提示词超出上下文窗口，或其他推理输入无效 | 缩短 state 或修正问题 |
 | `401` | 缺少、格式错误或无效的 API 密钥 | 导出有效的 `fast_sk_...` 密钥 |
 | `402` | 额度不足、需要充值，或所有者设置了每日/每月的支出上限 | 添加额度或调整支出上限 |
 | `403` | 支付方式、卡片验证、信用额度或账户策略拒绝 | 解决相应的计费或账户要求 |
-| `404` | 未知或不受支持的模型 | 使用支持推理的目录 ID |
-| `422` | 请求校验失败 | 阅读并修正字段级别的校验详情 |
+| `404` | 未知模型，或仅支持 chat completions 的模型 | 使用 `fastino/glide` |
+| `422` | 缺少必填字段、值的结构错误，或发送了额外字段 | 阅读并修正字段级别的校验详情 |
 | `425` | 部署正在预热 | 按提示的延迟时间后重试 |
 | `429` | 触发速率或容量限制 | 遵循 `Retry-After` 并使用退避机制重试 |
-| `503` | 冷启动或提供方暂时性容量问题 | 视为终止之前先重试 |
+| `503` | 提供方或服务暂时性故障 | 视为终止之前先重试 |
 
-GLiDE 目前不支持微调部署，因此 [`/v1/chat/completions`](/cn/inference/chat-completions#错误)
-中“微调模型存在但未部署”的 `409` 情况在此不适用。
+请将读取超时设置为至少 300 秒，并对 `425`、`429` 和 `503` 使用有上限的退避重试。
+对于 `401`、`402`、`403`、`404` 或 `422`，请在解决根本问题之前不要重试。
 
-有关共享的重试模式，请参阅[冷启动与重试](/cn/inference#冷启动与重试)。
+## 继续学习
+
+<CardGroup cols={2}>
+  <Card title="GLiDE 参考" icon="book-open" href="/cn/concepts/decision-models">
+    了解 state 结构、限制、置信度以及如何组合多个问题。
+  </Card>
+
+  <Card title="Noul" icon="toggle-on" href="/cn/concepts/glide-noul">
+    集成是/否概率。
+  </Card>
+
+  <Card title="Choice" icon="list" href="/cn/concepts/glide-choice">
+    路由到某个命名选项。
+  </Card>
+
+  <Card title="Score" icon="gauge" href="/cn/concepts/glide-score">
+    按有序评分标准进行评估。
+  </Card>
+</CardGroup>
