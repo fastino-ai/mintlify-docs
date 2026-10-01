@@ -1,35 +1,34 @@
 ---
 title: "GLiNER-2.5-Decide"
 sidebarTitle: "GLiNER-2.5-Decide"
-description: "Learn when and how to use GLiNER-2.5-Decide to combine typed decisions with span extraction, relations, and structured records in one low-latency call."
+description: "Learn when and how to use GLiNER-2.5-Decide for fast, schema-defined text classification."
 ---
 
-GLiNER-2.5-Decide is a decision model for applications that need to make several related judgments from the same text. It combines typed decisions with explicit constraints, span extraction, relations, and structured records.
+GLiNER-2.5-Decide is Fastino's English classification-tuned GLiNER model. Supply your own labels at request time and classify intent, routing, sentiment, priority, policy, and other operational decisions without prompting a generative model.
 
 ## When to use GLiNER-2.5-Decide
 
-Reach for GLiNER-2.5-Decide when the task is a decision — a label, a route, a score — rather than the underlying extracted text. It's particularly useful when software must make several related judgments from the same input in one low-latency call.
+Use GLiNER-2.5-Decide when classification is the primary task:
 
-1. **Model routing.** Route requests by destination, complexity, or escalation level. Return the selected route with probabilities and confidence scores.
-2. **Tool calling.** Select from a permitted set of tools and capture arguments from the request as structured records.
-3. **Browser and computer use.** Evaluate the current state to select the next action. Represent the action, target, and parameters as a structured record.
-4. **Guardrails.** Evaluate safety, harm type, and escalation together, extracting harmful spans verbatim. Apply constraints when combinations of answers would be contradictory.
-5. **Context pruning.** Decide which information in the context is relevant and return the exact character spans associated with that decision.
-6. **LLM-as-a-judge.** Express rubric criteria as categorical or ordinal questions. Return selected values with probability distributions and confidence scores.
-7. **Games and simulations.** Evaluate game state to determine intent, action, or outcome. Represent actors and state information through entities, relations, and structured records.
+- **Intent and routing** — send support messages, emails, or agent requests to the right workflow.
+- **Several decisions per input** — classify intent, urgency, route, and handoff in one model call.
+- **Single- and multi-label classification** — select one category or every applicable tag.
+- **Operational gates** — decide whether an agent finished, a human should take over, or content violates a policy.
+- **Ordinal labels** — score severity, urgency, or ratings using an ordered label set.
+- **Custom taxonomies** — define labels and short descriptions at request time instead of retraining for every category change.
 
-Use [GLiNER 2.5](/concepts/gliner) instead when you need the literal spans, structured records, or a relation graph back, not a decision label.
+The hosted model retains entity, relation, and structured-extraction support, but classification is the reason to choose it. Use [GLiNER2.5](/concepts/gliner) when extraction is primary, you need span attributes or joint entity-relation decoding, or the input is multilingual.
 
 ## How to use GLiNER-2.5-Decide
 
-Call it through the same Fastino inference endpoint as any GLiNER model, using a `classifications` schema. Score several related judgments in one call by adding more task entries:
+Call it through Fastino's OpenAI-compatible inference endpoint with a `classifications` schema. Add multiple tasks to classify several aspects of the same text in one call:
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   -H "Authorization: Bearer $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "fastino/gliner2.5-decide",
+    "model": "fastino/GLiNER-2.5-Decide",
     "messages": [
       { "role": "user", "content": "My subscription renewed on April 15 after the service was already down. Can I get that refunded?" }
     ],
@@ -50,11 +49,11 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   }'
 ```
 
-`intent` and `urgency` are both scored in the same forward pass, so a router gets every judgment it needs from one call instead of chaining several model requests. See the [Inference API](/inference) reference for the full request and response contract, including multi-label classification and confidence thresholds.
+`intent` and `urgency` are scored together, so a router gets both judgments from one request. See the [Chat Completions API](/inference/chat-completions) for the response contract, multi-label classification, and confidence thresholds.
 
 <CardGroup cols={2}>
-  <Card title="GLiNER 2.5" icon="blocks" href="/concepts/gliner">
-    Need the extracted text, not a decision? Compare use cases.
+  <Card title="GLiNER2.5" icon="blocks" href="/concepts/gliner">
+    Use the multilingual multi-task model for extraction-first workflows.
   </Card>
 
   <Card title="View the model catalog" icon="table-list" href="/concepts/models">
