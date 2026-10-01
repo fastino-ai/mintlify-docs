@@ -1,47 +1,37 @@
 ---
 title: "Inference API"
-sidebarTitle: "Inference API"
-description: "Run schema-based GLiNER predictions through Fastino's inference API."
+sidebarTitle: "Overview"
+description: "Run schema-based GLiNER predictions and GLiDE decisions through Fastino's inference API."
 noindex: true
 ---
 
-Fastino provides two synchronous interfaces for GLiNER inference. Choose the interface that
-matches your model and payload requirements:
+Fastino provides two synchronous inference interfaces. Choose the one that matches what you
+need:
 
-| Capability | `/v1/chat/completions` | `/v1/gliner-2` |
+| Capability | [`/v1/chat/completions`](/inference/chat-completions) | [`/v1/systemone`](/inference/systemone) |
 | --- | --- | --- |
-| Model | Select an inference-capable base model or completed training-job UUID | Always uses `fastino/gliner2-base-v1` |
-| Request | OpenAI-compatible `model` and `messages`, plus Fastino's top-level `schema` | Native `text`, `schema`, `threshold`, `include_confidence`, and `include_spans` fields |
-| Response | OpenAI chat-completion envelope; parse `choices[0].message.content` as JSON | Native `{ "result": ..., "token_usage": ... }` body |
-| Batch input | One conversation per request | Accepts one string or a list of strings |
-| Asynchronous processing | Not available | Submit with `POST /v1/gliner-2/async`, then poll `GET /v1/gliner-2/jobs/{job_id}` |
-| Best for | Standard integrations and fine-tuned models | Base GLiNER2 inference, native results, batching, or long-running jobs |
+| Model | Select an inference-capable base model or completed training-job UUID | Always uses `fastino/glide` |
+| Request | OpenAI-compatible `model` and `messages`, plus Fastino's top-level `schema` | Native `state` plus one or more typed `questions` |
+| Response | OpenAI chat-completion envelope; parse `choices[0].message.content` as JSON | Native `{ "answers": ..., "usage": ... }` body |
+| Batch input | One conversation per request | One `state` per request, with multiple `questions` evaluated together |
+| Best for | Extraction, classification, structured extraction, and relations, on base and fine-tuned models | Classification, routing, and scoring decisions with calibrated probabilities |
 
 <Tip>
-  Start with `/v1/chat/completions` for a consistent API across base and fine-tuned models.
-  Use `/v1/gliner-2` when you specifically need the fixed GLiNER2 base model's native
-  contract, batch input, or asynchronous processing.
+  Use [`/v1/chat/completions`](/inference/chat-completions) for extraction, classification,
+  structured extraction, or relations. Use [`/v1/systemone`](/inference/systemone) for
+  structured decisions — classification, routing, scoring — instead of extraction.
 </Tip>
 
-This page documents the raw `/v1/chat/completions` HTTP contract below. The native
-`/v1/gliner-2` schemas are published in the
-[OpenAPI document](https://docs.fastino.ai/openapi.json). SDK usage, model training,
-evaluation, inference history, and feedback are outside this page's scope.
-
-<Warning>
-  `POST /inference` has been removed. Do not send its legacy fields such as `model_id`, `text`,
-  `task`, `format_results`, or `is_warmup`.
-</Warning>
-
-## Endpoint
-
-```text
-POST https://api.fastino.ai/v1/chat/completions
-```
+This page covers what's shared across both interfaces. See
+[`/v1/chat/completions`](/inference/chat-completions) for the GLiNER request/response contract
+and legacy migration guidance, or [`/v1/systemone`](/inference/systemone) for the GLiDE HTTP
+contract — the full Noul/Choice/Score request and response shapes live on
+[Decision Models](/concepts/decision-models). SDK usage, model training, evaluation, inference
+history, and feedback are outside this page's scope.
 
 ## Authentication
 
-Send a Fastino API key as a bearer token:
+Send a Fastino API key on every request, regardless of interface:
 
 ```bash
 export FASTINO_API_KEY="fast_sk_..."
@@ -52,241 +42,15 @@ Authorization: Bearer $FASTINO_API_KEY
 Content-Type: application/json
 ```
 
-## Request
-
-<ParamField body="model" type="string" required>
-  An inference-capable base-model ID or the UUID of a completed, deployable Fastino training
-  job.
-</ParamField>
-
-<ParamField body="messages" type="object[]" required>
-  A non-empty list of messages. For GLiNER inference, put the text to analyze in a user
-  message's `content`.
-</ParamField>
-
-<ParamField body="schema" type="object">
-  Defines custom encoder tasks. Supply a dictionary containing one or more of `entities`,
-  `classifications`, `structures`, or `relations`. Omit it only when the selected model has
-  a configured default task.
-
-  A flat array of entity labels is deprecated. Always use the dictionary shape.
-</ParamField>
-
-<ParamField body="threshold" type="number" default="0.5">
-  Confidence threshold from `0` to `1`. Lower values favor recall; higher values favor
-  precision.
-</ParamField>
-
-<ParamField body="include_confidence" type="boolean" default="true">
-  Include confidence values in extracted results.
-</ParamField>
-
-<ParamField body="include_spans" type="boolean" default="true">
-  Include half-open character offsets (`start`, `end`) in entity results.
-</ParamField>
-
-<ParamField body="store" type="boolean" default="true">
-  Persist the inference. Set to `false` to opt out.
-</ParamField>
-
-### Entity schema
-
-Use descriptive entity definitions when possible:
-
-```json
-{
-  "entities": [
-    {
-      "name": "organization",
-      "description": "business or institution name"
-    },
-    {
-      "name": "product",
-      "description": "named commercial product"
-    }
-  ]
-}
-```
-
-### Classification schema
-
-```json
-{
-  "classifications": [
-    {
-      "task": "sentiment",
-      "labels": ["positive", "negative", "neutral"],
-      "multi_label": false,
-      "top_k": 1
-    }
-  ]
-}
-```
-
-### Structured extraction schema
-
-Structure fields use `field::type::description` specifications:
-
-```json
-{
-  "structures": {
-    "product": [
-      "name::str::product name",
-      "price::str::listed price",
-      "features::list::named features"
-    ]
-  }
-}
-```
-
-### Relation schema
-
-The simplest relation schema is a flat list of relation names:
-
-```json
-{
-  "relations": ["works_for", "lives_in"]
-}
-```
-
-You can also use a dictionary to add descriptions or per-relation configuration:
-
-```json
-{
-  "relations": {
-    "works_for": {
-      "description": "employment relationship",
-      "threshold": 0.6
-    }
-  }
-}
-```
-
-Do not send relation objects containing head and tail definitions.
-
-### Combined schema
-
-Run multiple tasks over the same text by combining keys:
-
-```json
-{
-  "entities": [
-    {
-      "name": "organization",
-      "description": "business or institution name"
-    },
-    {
-      "name": "product",
-      "description": "named commercial product"
-    }
-  ],
-  "classifications": [
-    {
-      "task": "sentiment",
-      "labels": ["positive", "negative", "neutral"],
-      "multi_label": false,
-      "top_k": 1
-    }
-  ]
-}
-```
-
-The schema identifies the operation automatically. Do not send `task` or `task_type`.
-
-## Example
-
-```bash
-curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "fastino/gliner2.5-multi-v1",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
-      }
-    ],
-    "schema": {
-      "entities": [
-        {
-          "name": "organization",
-          "description": "business or institution name"
-        },
-        {
-          "name": "product",
-          "description": "named commercial product"
-        },
-        {
-          "name": "event",
-          "description": "named conference or event"
-        },
-        {
-          "name": "location",
-          "description": "city, region, or place"
-        }
-      ]
-    },
-    "threshold": 0.5
-  }'
-```
-
-The `model` value must currently support hosted inference. Use the live model catalog rather
-than assuming every Hugging Face checkpoint is available:
-
-```bash
-curl "https://api.fastino.ai/v1/base-models?supports_inference=true&task_type=encoder"
-```
-
-## Response
-
-The endpoint returns a chat-completion envelope. The GLiNER result is serialized as a JSON
-string in `choices[0].message.content`:
-
-```json
-{
-  "id": "chatcmpl_...",
-  "object": "chat.completion",
-  "created": 1790123456,
-  "model": "fastino/gliner2.5-multi-v1",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "{\"entities\":[{\"organization\":[{\"text\":\"Apple\",\"confidence\":0.99,\"start\":0,\"end\":5}],\"product\":[{\"text\":\"MacBook Pro\",\"confidence\":0.98,\"start\":20,\"end\":31}],\"event\":[{\"text\":\"WWDC\",\"confidence\":0.97,\"start\":35,\"end\":39}],\"location\":[{\"text\":\"Cupertino\",\"confidence\":0.99,\"start\":43,\"end\":52}]}],\"classifications\":{},\"structures\":{},\"relations\":{}}"
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 0,
-    "completion_tokens": 0,
-    "total_tokens": 0
-  },
-  "x_pioneer": {
-    "inference_id": "..."
-  }
-}
-```
-
-Parse `choices[0].message.content` as JSON before reading task results. When `store=true`,
-`x_pioneer.inference_id` identifies the persisted inference.
-
-## Repeated inputs
-
-The endpoint accepts one conversation per request. It does not support the removed native
-endpoint's `text: string[]` batch shape. Send separate requests concurrently when processing
-multiple inputs.
-
 ## Cold starts and retries
 
-An idle or newly deployed model may cold-start. Use a read timeout of at least 300 seconds and
-retry `425`, `429`, and `503` responses. Respect the `Retry-After` response header when present.
+An idle or newly deployed model may cold-start, on either interface. Use a read timeout of at
+least 300 seconds and retry `425`, `429`, and `503` responses. Respect the `Retry-After`
+response header when present.
 
 A timed-out request can still warm the deployment, allowing the next request to succeed. Do
-not retry authentication, billing, validation, unknown-model, or non-deployable-job errors
-without correcting the underlying problem.
+not retry authentication, billing, validation, or unknown-model errors without correcting the
+underlying problem.
 
 ```bash
 curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
@@ -295,29 +59,13 @@ curl --max-time 300 -X POST "https://api.fastino.ai/v1/chat/completions" \
   -d @request.json
 ```
 
+The same timeout and retry pattern applies to `/v1/systemone`.
+
 ## Errors
 
-| Status | Likely cause | Action |
-| --- | --- | --- |
-| `400` | Invalid request or schema | Correct the request fields or schema |
-| `401` | Missing, malformed, or invalid API key | Export a valid `fast_sk_...` key |
-| `402` | Insufficient credits, funding required, or an owner-set daily/monthly spend limit | Add credits or adjust the spend limit |
-| `403` | Payment method, card verification, credit ceiling, or account policy denial | Resolve the billing or account requirement |
-| `404` | Unknown or unsupported model | Use an inference-capable catalog ID or deployable job UUID |
-| `409` | Fine-tuned model exists but is not deployed | Wait for or repair the model deployment |
-| `422` | Request validation failed | Read and correct the field-level validation details |
-| `425` | Fine-tuned deployment is warming | Retry after the indicated delay |
-| `429` | Rate or capacity limit | Respect `Retry-After` and retry with backoff |
-| `503` | Cold start or temporary provider capacity issue | Retry before treating it as terminal |
-
-## Legacy request migration
-
-| Removed `/inference` field | Current field |
-| --- | --- |
-| `model_id` | `model` |
-| `text` | `messages: [{"role": "user", "content": "..."}]` |
-| Flat `schema` entity list | `schema` dictionary |
-| `task` or `task_type` | Remove; the schema identifies the operation |
-| `text: string[]` | Send separate requests |
-| `format_results` or `is_warmup` | Remove |
-| Native result body | Parse `choices[0].message.content` |
+Both interfaces share the same status codes for authentication, billing, validation, rate
+limiting, and cold starts. A couple of codes differ slightly by interface — for example,
+`/v1/systemone` has no fine-tuned deployments today, so its `409` case doesn't apply. See the
+exact table on each endpoint page: [`/v1/chat/completions`
+errors](/inference/chat-completions#errors) or [`/v1/systemone`
+errors](/inference/systemone#errors).
