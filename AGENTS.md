@@ -27,7 +27,7 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
 
 - For GLiDE decisions, read [GLiDE](https://docs.fastino.ai/concepts/glide) and
   [GLiDE Inference](https://docs.fastino.ai/inference/systemone). Use
-  `POST /v1/systemone` with `fastino/glide`, `state`, and typed `questions`.
+  `POST /v1/systemone` with `fastino/GLiDE`, `state`, and typed `questions`.
 - Install the [GLiDE Agent Skill](https://docs.fastino.ai/concepts/glide-agent-skill)
   for agent-ready GLiDE instructions and examples.
 - For GLiNER extraction and classification, read
