@@ -1,0 +1,107 @@
+---
+title: "Rerank retrieved passages with GLiDE"
+sidebarTitle: "Reranking"
+description: "Score query-to-passage relevance with GLiDE, filter weak matches, and rerank retrieved context."
+---
+
+In a retrieval-augmented generation pipeline, a general-purpose LLM can grade each retrieved passage before generation. With GLiDE, each passage receives a probability that it is relevant to the query.
+
+Use the probability directly for ranking and filtering.
+
+## Score and rerank passages
+
+```python
+import os
+
+import requests
+
+query = "How do I reset my API key?"
+chunks = [
+    "To reset your API key, go to Dashboard > API Keys and click 'Regenerate'.",
+    "Our pricing plans start at $29/month for the Starter tier.",
+    "API keys are scoped to a single project. Each project can have up to 5 active keys.",
+]
+
+passages = {f"passage_{index}": chunk for index, chunk in enumerate(chunks)}
+questions = {
+    passage_id: {
+        "type": "noul",
+        "instructions": f"Is {passage_id} relevant to answering the query?",
+        "criteria": {
+            "true": "Relevant to answering the query",
+            "false": "Not relevant to answering the query",
+        },
+    }
+    for passage_id in passages
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": {"query": query, "passages": passages},
+        "questions": questions,
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+scored_chunks = [
+    {
+        "chunk": passage,
+        "score": answers[passage_id]["noul"],
+        "confidence": answers[passage_id]["confidence"],
+    }
+    for passage_id, passage in passages.items()
+]
+
+top_chunks = sorted(scored_chunks, key=lambda item: item["score"], reverse=True)
+relevant_chunks = [item for item in top_chunks if item["score"] > 0.5]
+```
+
+Each `score` is the Noul probability that the `true` criterion holds. Rank descending to put the strongest matches first, and apply a threshold when downstream generation should only receive sufficiently relevant context.
+
+<Note>
+  All Noul questions in this example share one `state`, so GLiDE scores the shortlist in one request. The complete state is included in each internally rendered question; keep it within the [40,000-token per-question limit](/inference/systemone#limits-and-unsupported-shapes). Split larger shortlists into bounded concurrent requests and retry `425`, `429`, and `503` with backoff.
+</Note>
+
+## Score one passage per request
+
+Use this simpler shape when passages arrive independently:
+
+```python
+def relevance_score(query: str, passage: str) -> float:
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": {"query": query, "passage": passage},
+            "questions": {
+                "relevant": {
+                    "type": "noul",
+                    "instructions": "Is this passage relevant to answering the query?",
+                    "criteria": {
+                        "true": "Relevant to answering the query",
+                        "false": "Not relevant to answering the query",
+                    },
+                }
+            },
+        },
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()["answers"]["relevant"]["noul"]
+```
+
+## What changes from LLM reranking
+
+- Binary relevance is a probability from `0` to `1`, not a generated integer.
+- You can rank and threshold the same value without parsing model text.
+- The criteria state exactly what “relevant” means for your application.
+
+Evaluate ranking quality and choose thresholds on a labeled retrieval set before deploying the reranker.
+
+See [GLiDE Inference](/inference/systemone) for authentication, limits, errors, and the complete response contract.
