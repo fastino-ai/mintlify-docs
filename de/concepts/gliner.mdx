@@ -46,6 +46,35 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
 
 Fügen Sie demselben `schema` die Schlüssel `classifications`, `structures` oder `relations` hinzu, um mehrere Aufgaben in einem Aufruf über denselben Text auszuführen. In der Referenz zur [Inferenz-API](/de/inference/chat-completions) finden Sie den vollständigen Request- und Response-Vertrag, einschließlich strukturierter Datensätze und Relationsschemas.
 
+## Eingeschränkte Klassifikation mit GLiNER2.5 Multi
+
+Verwenden Sie eingeschränkte Klassifikation, wenn mehrere Antworten gemeinsam eine gültige Entscheidung ergeben müssen. Anders als klassische `classifications`, die jede Aufgabe unabhängig auswählen, sucht der eingeschränkte Decoder nach einer gemeinsamen Zuweisung, die die deklarierten Regeln erfüllt.
+
+GLiNER2.5 Multi unterstützt drei Aufgabenformen:
+
+| Aufgabenform | Auswahlregel | Typische Verwendung |
+| --- | --- | --- |
+| Einzelne Antwort | Genau eine zulässige Antwort auswählen | Absicht, Route oder Richtlinienurteil |
+| Mehrere Antworten | Null oder mehr Antworten auswählen, optional mit Mindest- und Höchstanzahl | Themen, Auswirkungen oder erkannte Schäden |
+| Ordinal | Genau eine Antwort aus einer von niedrig nach hoch geordneten Skala auswählen | Schweregrad, Dringlichkeit oder Bewertung |
+
+Jede Aufgabe kann Antwortbeschreibungen, eine Anweisung und gelabelte Beispiele enthalten. Diese Felder geben dem Encoder Kontext für die Bewertung, während die Ausgabe auf die deklarierten Antworten beschränkt bleibt.
+
+Constraints verknüpfen diese Aufgabenergebnisse:
+
+| Constraint | Bedeutung |
+| --- | --- |
+| Implikation | Die Auswahl einer Antwort erfordert eine andere Antwort oder Bedingung |
+| Ausschluss | Zwei Antworten können nicht beide ausgewählt werden |
+| Kardinalität | Legt fest oder begrenzt, wie viele Antworten eine Aufgabe auswählt |
+| Ordinale Schranke | Erfordert eine exakte, minimale, maximale oder begrenzte Stufe |
+
+Das Ergebnis enthält für jede Aufgabe die ausgewählte Antwort, die Antwortwahrscheinlichkeiten, die Konfidenz und `_meta.feasible`. Constraints können eine weniger wahrscheinliche Antwort auswählen, wenn die unabhängig besten Antworten gegen eine Regel verstoßen würden. Sie erzwingen Konsistenz. Sie erhöhen oder rekalibrieren weder Wahrscheinlichkeiten noch Konfidenz.
+
+Bei Aufgaben mit einzelner Antwort und ordinalen Aufgaben ist die Konfidenz die Wahrscheinlichkeit der ausgewählten Antwort. Bei Aufgaben mit mehreren Antworten ist sie das geometrische Mittel aus der Wahrscheinlichkeit jeder ausgewählten Antwort und dem Komplement jeder nicht ausgewählten Antwort (`1 - probability`). Ein leeres Ergebnis bei mehreren Antworten ohne Standardwert hat keinen Konfidenzwert.
+
+Im [API-Beispiel zur eingeschränkten Klassifikation](/de/inference/chat-completions#schema-für-eingeschränkte-klassifikation) finden Sie die vollständige gehostete Anfrage, die unterstützten Schemafelder, Constraints und die Antwort.
+
 <CardGroup cols={2}>
   <Card title="GLiNER2.5 erkunden" icon="sparkles" href="https://fastino.ai/models/gliner2-5">
     Lesen Sie über die Architektur, Benchmarks und Anwendungsfälle.
