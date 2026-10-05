@@ -44,6 +44,10 @@ Content-Type: application/json
 - Classification: `{"classifications": [{"task": "category", "labels": ["spam", "ham"], "multi_label": false}]}`. Every classification task requires at least two labels.
 - Structured extraction: `{"structures": {"Person": {"fields": [{"name": "name", "dtype": "str"}]}}}`
 
+**Breaking change:** classification schemas with zero or one label now return
+HTTP 400, including entries with `"multi_label": true`. Represent a binary
+detector with two explicit labels rather than a one-label task.
+
 **Legacy request shape (deprecated):**
 
 The flat `task` + `list[str]`/`{"categories": [...]}` form is still
