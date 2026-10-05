@@ -36,7 +36,61 @@ ACTIVE_LEGACY_INFERENCE = (
 )
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
+LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
+REQUIRED_AGENT_RESOURCES = {
+    "https://docs.fastino.ai/.well-known/agent-skills/index.json",
+    "https://docs.fastino.ai/openapi.json",
+}
 RoutePatterns = dict[str, list[re.Pattern[str]]]
+
+
+def _visible_navigation_pages(node: object) -> set[str]:
+    if isinstance(node, str):
+        return {node}
+    if not isinstance(node, dict) or node.get("hidden") is True:
+        return set()
+    pages: set[str] = set()
+    for key in ("groups", "pages"):
+        children = node.get(key)
+        if isinstance(children, list):
+            for child in children:
+                pages.update(_visible_navigation_pages(child))
+    return pages
+
+
+def _llms_findings(root: Path) -> list[str]:
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    navigation = config.get("navigation")
+    languages = navigation.get("languages") if isinstance(navigation, dict) else None
+    english = next(
+        (
+            language
+            for language in languages or []
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    if not isinstance(english, dict):
+        return ["docs.json has no English navigation"]
+
+    visible_pages: set[str] = set()
+    groups = english.get("groups")
+    if isinstance(groups, list):
+        for group in groups:
+            visible_pages.update(_visible_navigation_pages(group))
+
+    llms_text = (root / "llms.txt").read_text(encoding="utf-8")
+    indexed_pages = set(LLMS_PAGE_URL.findall(llms_text))
+    findings = [
+        f"llms.txt is missing visible English page: {page}"
+        for page in sorted(visible_pages - indexed_pages)
+    ]
+    findings.extend(
+        f"llms.txt is missing agent resource: {url}"
+        for url in sorted(REQUIRED_AGENT_RESOURCES)
+        if f"]({url})" not in llms_text
+    )
+    return findings
 
 
 def _skill_findings(root: Path) -> list[str]:
@@ -248,6 +302,7 @@ def main() -> int:
     )
     route_patterns = _route_patterns(manifest)
     findings: list[str] = []
+    findings.extend(_llms_findings(root))
     findings.extend(_skill_findings(root))
 
     actual_operations = _operations(destination)
