@@ -6,20 +6,24 @@ description: "Descubre cuándo y cómo usar GLiNER-2.5-Decide para clasificació
 
 GLiNER-2.5-Decide es el modelo de decisión en inglés de Fastino, con 340 millones de parámetros, para clasificación definida por esquema. Proporciona tus etiquetas en la solicitud y recibe respuestas estructuradas, probabilidades y puntuaciones de confianza sin recurrir a un modelo generativo.
 
+<Note>
+  Decide no es generativo. Selecciona entre las etiquetas declaradas en el esquema; no produce explicaciones, conversaciones ni respuestas abiertas.
+</Note>
+
 ## Por qué usar un modelo de decisión definido por esquema
 
 Un modelo definido por esquema encaja en aplicaciones que deben convertir texto en una acción permitida:
 
-- **Resultados predecibles** — el modelo elige entre las etiquetas que defines, sin texto generado que el código posterior deba analizar o validar.
-- **Incertidumbre accionable** — las probabilidades y la confianza permiten usar umbrales, revisión humana y alternativas.
-- **Juicios relacionados en una sola pasada** — clasifica intención, urgencia, ruta y transferencia desde la misma entrada, sin llamadas de generación separadas.
+- **Resultados predecibles** - el modelo elige entre las etiquetas que defines, sin texto generado que el código posterior deba analizar o validar.
+- **Incertidumbre accionable** - las probabilidades y la confianza permiten usar umbrales, revisión humana y alternativas.
+- **Juicios relacionados en una sola pasada** - clasifica intención, urgencia, ruta y transferencia desde la misma entrada, sin llamadas de generación separadas.
 
 ## Por qué GLiNER-2.5-Decide
 
-- **Compacto y rápido** — el checkpoint publicado de 340 millones de parámetros alcanzó 38,3 ms p50 en una NVIDIA V100 y 167,3 ms en un Intel Xeon de 48 vCPU en el benchmark publicado de entradas cortas.
-- **Abierto y desplegable** — los pesos abiertos con licencia Apache 2.0 permiten inferencia local en CPU, despliegues aislados y ajuste completo o mediante LoRA.
-- **Más que clasificación** — la misma arquitectura GLiNER puede combinar clasificación con entidades, relaciones y registros estructurados.
-- **Esquemas flexibles** — cambia etiquetas y descripciones en cada solicitud sin volver a entrenar ante cada cambio de taxonomía.
+- **Compacto y rápido** - el checkpoint publicado de 340 millones de parámetros alcanzó 38,3 ms p50 en una NVIDIA V100 y 167,3 ms en un Intel Xeon de 48 vCPU en el benchmark publicado de entradas cortas.
+- **Abierto y desplegable** - los pesos abiertos con licencia Apache 2.0 permiten inferencia local en CPU, despliegues aislados y ajuste fino con LoRA en Fastino.
+- **Más que clasificación** - la misma arquitectura GLiNER puede combinar clasificación con entidades, relaciones y registros estructurados.
+- **Esquemas flexibles** - cambia las etiquetas en cada solicitud en lugar de volver a entrenar ante cada cambio de taxonomía.
 
 ## Cuándo usar GLiNER-2.5-Decide
 
@@ -29,14 +33,14 @@ Usa GLiNER-2.5-Decide cuando la clasificación sea la tarea principal:
 - **Varias decisiones por entrada** - clasifica intención, urgencia, ruta y transferencia a una persona en una sola llamada.
 - **Clasificación de una o varias etiquetas** - elige una categoría o todas las etiquetas aplicables.
 - **Controles operativos** - determina si un agente terminó, si debe intervenir una persona o si el contenido infringe una política.
-- **Etiquetas ordinales** - puntúa gravedad, urgencia o valoraciones mediante un conjunto ordenado.
-- **Taxonomías personalizadas** - define etiquetas y descripciones breves en cada solicitud sin volver a entrenar el modelo.
+- **Categorías de gravedad y valoración** - elige una categoría definida por quien llama para la urgencia, la gravedad o las valoraciones.
+- **Taxonomías personalizadas** - define etiquetas en cada solicitud en lugar de volver a entrenar ante cada cambio de categoría.
 
-El modelo alojado conserva la extracción de entidades, relaciones y estructuras, pero la clasificación es el motivo para elegirlo. Usa [GLiNER2.5](/es/concepts/gliner) cuando la extracción sea prioritaria, necesites atributos de spans o extracción conjunta de entidades y relaciones, o el texto sea multilingüe. Usa un modelo de lenguaje de propósito general cuando el resultado deba ser texto abierto, una conversación o contenido nuevo, no una decisión definida por esquema.
+El modelo alojado conserva la extracción de entidades, relaciones y estructuras, pero la clasificación es el motivo para elegirlo. El esquema alojado `classifications` de Decide admite tareas de una o varias etiquetas, incluidas varias tareas en una sola pasada hacia delante. Las etiquetas de la clasificación clásica no tienen orden; enumerar etiquetas de gravedad o valoración de menor a mayor no crea restricciones ordinales. Usa [GLiNER2.5 Multi](/es/concepts/gliner) cuando la extracción o la cobertura multilingüe sean prioritarias, o cuando las clasificaciones relacionadas requieran implicaciones, exclusiones, reglas de cardinalidad o límites ordinales estrictos. Usa un modelo de lenguaje de propósito general cuando el resultado deba ser texto abierto, una conversación o contenido nuevo, no una decisión definida por esquema.
 
 ## Cómo usar GLiNER-2.5-Decide
 
-Llámalo a través del mismo endpoint de inferencia de Fastino que cualquier modelo GLiNER, usando un esquema `classifications`. Cada tarea de clasificación requiere al menos dos etiquetas candidatas. Puntúa varios juicios relacionados en una sola llamada añadiendo más entradas de tarea:
+Llámalo a través del endpoint de inferencia de Fastino compatible con OpenAI, usando un esquema `classifications`. Cada tarea de clasificación requiere al menos dos etiquetas candidatas. Añade varias tareas para clasificar distintos aspectos del mismo texto en una sola llamada:
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/chat/completions" \
@@ -64,7 +68,9 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   }'
 ```
 
-`intent` y `urgency` se puntúan juntos, por lo que el enrutador obtiene ambas decisiones en una solicitud. Envía un esquema explícito para usar tu propia taxonomía. Si omites tanto `schema` como `response_format`, Decide usa su tarea `intent` predeterminada (`book`, `cancel`, `change` y `status`) y devuelve `x_fastino.default_schema_applied: true`.
+`intent` y `urgency` se puntúan en una sola pasada hacia delante, por lo que el enrutador obtiene ambas decisiones en una solicitud. Este esquema de clasificación clásica no aplica reglas entre las tareas. Para obtener una asignación globalmente coherente con restricciones entre tareas, usa el [esquema de clasificación con restricciones](/es/inference/chat-completions#esquema-de-clasificación-con-restricciones) de GLiNER2.5 Multi.
+
+Envía un esquema explícito cuando necesites tu propia taxonomía. Si omites tanto `schema` como `response_format`, Decide usa su tarea `intent` predeterminada del catálogo (`book`, `cancel`, `change` y `status`) y devuelve `x_fastino.default_schema_applied: true`.
 
 Consulta la [API de Chat Completions](/es/inference/chat-completions) para ver el contrato de respuesta, la clasificación multietiqueta y los umbrales de confianza.
 

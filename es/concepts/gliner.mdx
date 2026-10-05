@@ -46,6 +46,35 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
 
 Añade las claves `classifications`, `structures` o `relations` al mismo `schema` para ejecutar varias tareas sobre el mismo texto en una sola llamada. Consulta la referencia de la [API de inferencia](/es/inference/chat-completions) para ver el contrato completo de solicitud y respuesta, incluidos los registros estructurados y los esquemas de relaciones.
 
+## Clasificación con restricciones con GLiNER2.5 Multi
+
+Usa la clasificación con restricciones cuando varias respuestas deban formar una única decisión válida. A diferencia de `classifications` clásico, que selecciona cada tarea de forma independiente, el decodificador con restricciones busca una asignación conjunta que cumpla las reglas declaradas.
+
+GLiNER2.5 Multi admite tres formas de tarea:
+
+| Forma de tarea | Regla de selección | Uso típico |
+| --- | --- | --- |
+| Respuesta única | Selecciona exactamente una respuesta permitida | Intención, ruta o veredicto de política |
+| Varias respuestas | Selecciona cero o más respuestas, opcionalmente con un número mínimo y máximo | Temas, efectos o daños detectados |
+| Ordinal | Selecciona exactamente una respuesta de una escala ordenada de menor a mayor | Gravedad, urgencia o valoración |
+
+Cada tarea puede incluir descripciones de las respuestas, una instrucción y ejemplos etiquetados. Estos campos dan contexto al codificador para la puntuación, mientras la salida se mantiene limitada a las respuestas declaradas.
+
+Las restricciones conectan los resultados de esas tareas:
+
+| Restricción | Significado |
+| --- | --- |
+| Implicación | Seleccionar una respuesta exige otra respuesta o condición |
+| Exclusión | Dos respuestas no pueden seleccionarse a la vez |
+| Cardinalidad | Exige o limita cuántas respuestas selecciona una tarea |
+| Límite ordinal | Exige un nivel exacto, mínimo, máximo o acotado |
+
+El resultado contiene la respuesta seleccionada de cada tarea, las probabilidades de las respuestas, la confianza y `_meta.feasible`. Las restricciones pueden seleccionar una respuesta de menor probabilidad cuando las opciones principales independientes infringirían una regla. Garantizan la coherencia; no aumentan ni recalibran las probabilidades ni la confianza.
+
+En las tareas de respuesta única y ordinales, la confianza es la probabilidad de la respuesta seleccionada. En las tareas de varias respuestas, es la media geométrica de la probabilidad de cada respuesta seleccionada y del complemento de cada respuesta no seleccionada (`1 - probability`). Un resultado vacío de varias respuestas sin valor predeterminado no tiene valor de confianza.
+
+Consulta el [ejemplo de API de clasificación con restricciones](/es/inference/chat-completions#esquema-de-clasificación-con-restricciones) para ver la solicitud alojada completa, los campos de esquema admitidos, las restricciones y la respuesta.
+
 <CardGroup cols={2}>
   <Card title="Explora GLiNER2.5" icon="sparkles" href="https://fastino.ai/models/gliner2-5">
     Lee sobre la arquitectura, los benchmarks y los casos de uso.
