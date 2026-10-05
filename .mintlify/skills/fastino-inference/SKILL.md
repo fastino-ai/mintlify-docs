@@ -41,8 +41,12 @@ Content-Type: application/json
 **Recommended schema shape (unified):**
 
 - Entity extraction: `{"entities": [{"name": "organization"}, {"name": "product"}]}`
-- Classification: `{"classifications": [{"task": "category", "labels": ["spam", "ham"], "multi_label": false}]}`
+- Classification: `{"classifications": [{"task": "category", "labels": ["spam", "ham"], "multi_label": false}]}`. Every classification task requires at least two labels.
 - Structured extraction: `{"structures": {"Person": {"fields": [{"name": "name", "dtype": "str"}]}}}`
+
+**Breaking change:** classification schemas with zero or one label now return
+HTTP 400, including entries with `"multi_label": true`. Represent a binary
+detector with two explicit labels rather than a one-label task.
 
 **Legacy request shape (deprecated):**
 
@@ -72,6 +76,27 @@ Content-Type: application/json
 `task_type` and list-form `schema` are still accepted on the
 OpenAI/Anthropic/Responses compat routes too, but trigger the same
 `Deprecation` + `Sunset` response headers.
+
+### GLiNER-2.5-Decide defaults
+
+`fastino/GLiNER-2.5-Decide` can run without a supplied schema. Fastino then
+uses the catalog default classification task:
+
+```json
+{"classifications": [{"task": "intent", "labels": ["book", "cancel", "change", "status"]}]}
+```
+
+Use this default only for a quick trial. For custom intent names or
+reproducible production behavior, send an explicit classification schema;
+each task must contain at least two labels. When Fastino supplies the default,
+the response includes:
+
+```json
+{"x_fastino": {"default_schema_applied": true}}
+```
+
+In a stream, `x_fastino` arrives in a separate metadata frame after the frame
+carrying `finish_reason` and before the optional usage frame and `[DONE]`.
 
 ## OpenAI Responses API Endpoint
 
@@ -134,5 +159,6 @@ entity configs limited to `description`, `threshold`, `candidate_threshold`,
 | 401 | Invalid or missing API key |
 | 402 | Insufficient credits |
 | 404 | Resource not found |
-| 422 | Validation error — check request body fields |
+| 400 | Invalid GLiNER schema or model-aware inference input |
+| 422 | Request body does not match the endpoint schema |
 | 500 | Server error — safe to retry |
