@@ -1,18 +1,20 @@
 ---
 title: "Anthropic-compatible POST /v1/messages on Fastino API"
 sidebarTitle: "Anthropic Compatible"
-description: "Use Fastino as a drop-in Anthropic SDK replacement. Point base_url to https://api.fastino.ai and use your Fastino API key to access fine-tuned models."
-hidden: true
-noindex: true
+description: "Run structured GLiNER extraction and classification through the Anthropic SDK Messages API."
 ---
 
-Fastino implements the Anthropic Messages API so you can route existing Anthropic SDK code to your fine-tuned Fastino models. Set `base_url` to `https://api.fastino.ai`, authenticate with your Fastino API key, and use your training job ID as the model name. The Anthropic SDK appends `/v1/messages` itself.
+Fastino implements an Anthropic-compatible Messages endpoint so you can run GLiNER models through the Anthropic SDK. Set `base_url` to `https://api.fastino.ai`, authenticate with your Fastino API key, and use a GLiNER model ID from `GET /v1/models` or your GLiNER training job ID as the model name. The Anthropic SDK appends `/v1/messages` itself.
 
-## Endpoints
+## Supported SDK surface
 
-| Method | Path | Description |
+| Anthropic SDK method | Fastino endpoint | GLiNER result |
 |---|---|---|
-| `POST` | `/v1/messages` | Create a message (Anthropic-compatible) |
+| `client.messages.create(...)` | `POST /v1/messages` | Structured JSON in `message.content[0].text` |
+
+<Warning>
+  GLiNER inference returns one structured result and does not support `stream=True` or `client.messages.stream(...)`. Fastino does not implement every Anthropic API or SDK resource.
+</Warning>
 
 ## Configure the Anthropic SDK
 
@@ -33,7 +35,7 @@ client = anthropic.Anthropic(
 
 ## Create a message
 
-`POST /v1/messages` accepts the same request shape as the Anthropic Messages API. Set `model` to your training job ID and include your `messages` array. You can pass Fastino-specific fields like `schema` alongside the standard Anthropic fields.
+`POST /v1/messages` accepts the core Anthropic Messages fields. Set `model` to a supported GLiNER model ID, include your `messages` array, and pass the extraction or classification `schema` through `extra_body`.
 
 ### Request parameters
 
@@ -42,7 +44,7 @@ client = anthropic.Anthropic(
 </ParamField>
 
 <ParamField body="max_tokens" type="number" required>
-  Maximum number of tokens to generate in the response.
+  Required by the Anthropic SDK for request compatibility. GLiNER returns structured output rather than generated tokens.
 </ParamField>
 
 <ParamField body="messages" type="object[]" required>
@@ -73,7 +75,12 @@ message = client.messages.create(
             "role": "user",
             "content": "Extract entities from: Apple launched the iPhone."
         }
-    ]
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
 )
 
 print(message.content[0].text)
@@ -102,40 +109,7 @@ curl -X POST https://api.fastino.ai/v1/messages \
 
 ## Streaming
 
-The `/v1/messages` endpoint supports streaming. Set `stream=True` in the SDK or `"stream": true` in the raw request body.
-
-<CodeGroup>
-
-```python Python (Anthropic SDK)
-import anthropic
-
-client = anthropic.Anthropic(
-    api_key="YOUR_API_KEY",
-    base_url="https://api.fastino.ai"
-)
-
-with client.messages.stream(
-    model="YOUR_TRAINING_JOB_ID",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Summarize the following: ..."}]
-) as stream:
-    for text in stream.text_stream:
-        print(text, end="", flush=True)
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/messages \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Summarize the following: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+GLiNER inference is non-streaming. Use `client.messages.create(...)` without `stream=True`; the API returns the complete structured result after processing the input.
 
 ## Related
 

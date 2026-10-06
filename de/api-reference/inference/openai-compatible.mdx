@@ -1,27 +1,25 @@
 ---
 title: "OpenAI-kompatible Inferenz in der Fastino API"
 sidebarTitle: "OpenAI-kompatibel"
-description: "Direkter OpenAI-Ersatz mit Fastino. Setzen Sie base_url auf https://api.fastino.ai/v1, verwenden Sie Ihren Fastino-Schlüssel, und alle SDK-Methoden einschließlich Streaming funktionieren unverändert."
-hidden: true
-noindex: true
+description: "Führen Sie strukturierte GLiNER-Extraktion und -Klassifikation über unterstützte OpenAI-SDK-Methoden aus."
 ---
 
-Fastino stellt eine Reihe OpenAI-kompatibler Endpunkte bereit, sodass Sie Ihren bestehenden OpenAI-SDK-Code mit minimalen Änderungen für Ihre feinabgestimmten Fastino-Modelle verwenden können. Setzen Sie `base_url` auf `https://api.fastino.ai/v1`, authentifizieren Sie sich mit Ihrem Fastino-API-Schlüssel und übergeben Sie Ihre Trainingsjob-ID als `model`. Fastino-spezifische Felder wie `schema` können im Python SDK über `extra_body` übergeben oder direkt in den JSON-Body aufgenommen werden.
+Fastino stellt OpenAI-kompatible Endpunkte bereit, über die Sie GLiNER-Modelle mit unterstützten OpenAI-SDK-Methoden ausführen können. Setzen Sie `base_url` auf `https://api.fastino.ai/v1`, authentifizieren Sie sich mit Ihrem Fastino-API-Schlüssel und übergeben Sie eine GLiNER-Modell-ID aus `GET /v1/models` oder Ihre GLiNER-Trainingsjob-ID als `model`. Übergeben Sie das `schema` über `extra_body` oder direkt im JSON-Body.
 
 <Tip>
-  Wenn Sie bereits eine OpenAI-Integration haben, sind für den Wechsel zu Fastino nur zwei Änderungen nötig: Aktualisieren Sie `base_url` und setzen Sie Ihren Fastino-API-Schlüssel ein. Alles andere - SDK-Methoden, Streaming, Nachrichtenformat - bleibt gleich.
+  Verwenden Sie Ihren OpenAI-Client für GLiNER weiter, indem Sie `base_url`, API-Schlüssel und Modell-ID ändern und das Fastino-`schema` hinzufügen.
 </Tip>
 
-## Endpunkte
+## Unterstützte SDK-Oberfläche
 
-| Methode | Pfad | Beschreibung |
+| OpenAI-SDK-Methode | Fastino-Endpunkt | GLiNER-Ergebnis |
 |---|---|---|
-| `POST` | `/v1/chat/completions` | Chat Completions |
-| `POST` | `/v1/responses` | Responses API |
-| `GET` | `/v1/models` | Verfügbare Modelle auflisten |
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | Strukturiertes JSON in `choices[0].message.content` |
+| `client.responses.create(...)` | `POST /v1/responses` | Strukturiertes JSON in `response.output_text` |
+| `client.models.list()` | `GET /v1/models` | Verfügbare Modell-IDs |
 
 <Warning>
-  Das veraltete `POST /v1/completions` wurde entfernt. Migrieren Sie promptbasierte Anfragen zu `POST /v1/chat/completions` und senden Sie den Prompt als User-Nachricht.
+  GLiNER-Inferenz gibt ein einzelnes strukturiertes Ergebnis zurück und unterstützt `stream=True` nicht. Fastino implementiert nicht jede OpenAI-API oder SDK-Ressource.
 </Warning>
 
 ## Das OpenAI SDK konfigurieren
@@ -48,7 +46,7 @@ https://api.fastino.ai/v1
 
 ## Chat Completions
 
-`POST /v1/chat/completions` akzeptiert dieselbe Anfragestruktur wie die OpenAI Chat Completions API. Übergeben Sie Ihre Trainingsjob-ID als `model` und fügen Sie Fastino-spezifische Felder wie `schema` in den Anfrage-Body oder über `extra_body` ein.
+`POST /v1/chat/completions` akzeptiert die zentralen OpenAI-Chat-Completions-Felder. Übergeben Sie eine unterstützte GLiNER-Modell-ID als `model` und das `schema` über `extra_body`.
 
 <CodeGroup>
 
@@ -98,6 +96,33 @@ curl -X POST https://api.fastino.ai/v1/chat/completions \
 
 </CodeGroup>
 
+## Responses
+
+Für GLiNER erwartet die Responses API das Schema unter `text.format.schema`.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+response = client.responses.create(
+    model="YOUR_TRAINING_JOB_ID",
+    input="Extract entities from: Apple launched the iPhone.",
+    max_output_tokens=128,
+    extra_body={
+        "text": {
+            "format": {
+                "schema": {
+                    "entities": ["organization", "product"]
+                }
+            }
+        }
+    }
+)
+
+print(response.output_text)
+```
+
+</CodeGroup>
+
 ## Verfügbare Modelle auflisten
 
 Verwenden Sie `GET /v1/models`, um die Liste der Modelle abzurufen, die Sie mit diesen Endpunkten nutzen können.
@@ -119,37 +144,11 @@ curl https://api.fastino.ai/v1/models \
 
 ## Streaming
 
-Alle Completions-Endpunkte unterstützen Streaming. Setzen Sie `stream=True` im SDK oder `"stream": true` im Anfrage-Body.
-
-<CodeGroup>
-
-```python Python (OpenAI SDK)
-stream = client.chat.completions.create(
-    model="YOUR_TRAINING_JOB_ID",
-    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
-    stream=True
-)
-
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="")
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/chat/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+GLiNER-Inferenz unterstützt kein Streaming. Setzen Sie `stream=True` nicht; die API gibt das vollständige strukturierte Ergebnis zurück.
 
 ## Fastino-spezifische Felder übergeben
 
-Das Feld `schema` ist eine Fastino-Erweiterung. Übergeben Sie es im OpenAI Python SDK über `extra_body`, damit es in die Anfrage aufgenommen wird, ohne die SDK-Validierung zu beeinträchtigen. Fügen Sie es in einer direkten HTTP-Anfrage auf der obersten Ebene des JSON-Bodys neben Standardfeldern wie `model` und `messages` ein.
+Übergeben Sie für Chat Completions `schema` über `extra_body={"schema": ...}`. Für Responses übergeben Sie es über `extra_body={"text": {"format": {"schema": ...}}}`. HTTP-Anfragen verwenden dieselben endpunktspezifischen Formen.
 
 ## Verwandte Themen
 

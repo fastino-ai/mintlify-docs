@@ -1,27 +1,25 @@
 ---
 title: "Fastino API 上兼容 OpenAI 的推理"
 sidebarTitle: "兼容 OpenAI"
-description: "在 Fastino 上直接替代 OpenAI。将 base_url 设置为 https://api.fastino.ai/v1，使用你的 Fastino 密钥，包括流式传输在内的所有 SDK 方法均可照常使用。"
-hidden: true
-noindex: true
+description: "通过受支持的 OpenAI SDK 方法运行结构化的 GLiNER 抽取和分类。"
 ---
 
-Fastino 提供了一组兼容 OpenAI 的端点，因此你只需极少改动，即可将现有的 OpenAI SDK 代码用于你微调的 Fastino 模型。将 `base_url` 设置为 `https://api.fastino.ai/v1`，使用你的 Fastino API 密钥进行认证，并将训练任务 ID 作为 `model` 传入。Fastino 特有的字段（例如 `schema`）可以在 Python SDK 中通过 `extra_body` 传入，或直接包含在 JSON 请求体中。
+Fastino 提供兼容 OpenAI 的端点，让你可以通过受支持的 OpenAI SDK 方法运行 GLiNER 模型。将 `base_url` 设置为 `https://api.fastino.ai/v1`，使用 Fastino API 密钥进行认证，并将 `GET /v1/models` 返回的 GLiNER 模型 ID 或 GLiNER 训练任务 ID 作为 `model`。在 Python SDK 中通过 `extra_body` 传入抽取或分类 `schema`，或直接在 JSON 请求体中传入。
 
 <Tip>
-  如果你已有 OpenAI 集成，切换到 Fastino 只需两处改动：更新 `base_url` 并换用你的 Fastino API 密钥。其余一切——SDK 方法、流式传输、消息格式——均保持不变。
+  通过更改 `base_url`、API 密钥和模型 ID，并添加 Fastino `schema`，即可复用现有 OpenAI 客户端运行 GLiNER。
 </Tip>
 
-## 端点
+## 支持的 SDK 功能
 
-| 方法 | 路径 | 描述 |
+| OpenAI SDK 方法 | Fastino 端点 | GLiNER 结果 |
 |---|---|---|
-| `POST` | `/v1/chat/completions` | Chat completions |
-| `POST` | `/v1/responses` | Responses API |
-| `GET` | `/v1/models` | 列出可用模型 |
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | `choices[0].message.content` 中的结构化 JSON |
+| `client.responses.create(...)` | `POST /v1/responses` | `response.output_text` 中的结构化 JSON |
+| `client.models.list()` | `GET /v1/models` | 可用模型 ID |
 
 <Warning>
-  旧版 `POST /v1/completions` 已被移除。请将基于 prompt 的请求迁移到 `POST /v1/chat/completions`，并将 prompt 作为用户消息发送。
+  GLiNER 推理返回一个结构化结果，不支持 `stream=True`。Fastino 并未实现所有 OpenAI API 或 SDK 资源；请仅使用上表列出的方法。
 </Warning>
 
 ## 配置 OpenAI SDK
@@ -48,7 +46,7 @@ https://api.fastino.ai/v1
 
 ## Chat completions
 
-`POST /v1/chat/completions` 接受与 OpenAI Chat Completions API 相同的请求结构。将训练任务 ID 作为 `model` 传入，并在请求体中或通过 `extra_body` 包含 Fastino 特有的字段，例如 `schema`。
+`POST /v1/chat/completions` 接受 OpenAI Chat Completions 的核心字段。将受支持的 GLiNER 模型 ID 作为 `model`，并通过 `extra_body` 传入抽取或分类 `schema`。
 
 <CodeGroup>
 
@@ -98,6 +96,33 @@ curl -X POST https://api.fastino.ai/v1/chat/completions \
 
 </CodeGroup>
 
+## Responses
+
+对于 GLiNER，Responses API 要求将 schema 放在 `text.format.schema`。
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+response = client.responses.create(
+    model="YOUR_TRAINING_JOB_ID",
+    input="Extract entities from: Apple launched the iPhone.",
+    max_output_tokens=128,
+    extra_body={
+        "text": {
+            "format": {
+                "schema": {
+                    "entities": ["organization", "product"]
+                }
+            }
+        }
+    }
+)
+
+print(response.output_text)
+```
+
+</CodeGroup>
+
 ## 列出可用模型
 
 使用 `GET /v1/models` 获取可用于这些端点的模型列表。
@@ -119,37 +144,11 @@ curl https://api.fastino.ai/v1/models \
 
 ## 流式传输
 
-所有 completions 端点均支持流式传输。在 SDK 中设置 `stream=True`，或在请求体中设置 `"stream": true`。
-
-<CodeGroup>
-
-```python Python (OpenAI SDK)
-stream = client.chat.completions.create(
-    model="YOUR_TRAINING_JOB_ID",
-    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
-    stream=True
-)
-
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="")
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/chat/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+GLiNER 推理不支持流式传输。请勿设置 `stream=True`；API 会在处理输入后返回完整的结构化结果。
 
 ## 传入 Fastino 特有的字段
 
-`schema` 字段是 Fastino 的扩展字段。在 OpenAI Python SDK 中，请通过 `extra_body` 传入，这样它会被包含在请求中而不影响 SDK 的校验。在原始 HTTP 请求中，请将其放在 JSON 请求体的顶层，与 `model` 和 `messages` 等标准字段并列。
+对于 Chat Completions，请通过 `extra_body={"schema": ...}` 传入 `schema`。对于 Responses，请通过 `extra_body={"text": {"format": {"schema": ...}}}` 传入。原始 HTTP 请求使用相同的端点特定结构。
 
 ## 相关内容
 

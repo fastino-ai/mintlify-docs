@@ -1,18 +1,20 @@
 ---
 title: "POST /v1/messages compatible Anthropic sur l'API Fastino"
 sidebarTitle: "Compatible Anthropic"
-description: "Utilisez Fastino comme remplacement direct du SDK Anthropic. Faites pointer base_url vers https://api.fastino.ai et utilisez votre clé d'API Fastino pour accéder à vos modèles fine-tunés."
-hidden: true
-noindex: true
+description: "Exécutez l’extraction et la classification structurées avec GLiNER via l’API Messages du SDK Anthropic."
 ---
 
-Fastino implémente l'API Messages d'Anthropic afin que vous puissiez rediriger votre code existant basé sur le SDK Anthropic vers vos modèles Fastino fine-tunés. Définissez `base_url` sur `https://api.fastino.ai`, authentifiez-vous avec votre clé d'API Fastino et utilisez l'ID de votre job d'entraînement comme nom de modèle. Le SDK Anthropic ajoute lui-même `/v1/messages`.
+Fastino implémente un endpoint Messages compatible Anthropic permettant d’exécuter des modèles GLiNER via le SDK Anthropic. Définissez `base_url` sur `https://api.fastino.ai`, authentifiez-vous avec votre clé d’API Fastino et utilisez un ID GLiNER renvoyé par `GET /v1/models` ou l’ID de votre job d’entraînement GLiNER. Le SDK Anthropic ajoute lui-même `/v1/messages`.
 
-## Endpoints
+## Surface SDK prise en charge
 
-| Méthode | Chemin | Description |
+| Méthode du SDK Anthropic | Endpoint Fastino | Résultat GLiNER |
 |---|---|---|
-| `POST` | `/v1/messages` | Créer un message (compatible Anthropic) |
+| `client.messages.create(...)` | `POST /v1/messages` | JSON structuré dans `message.content[0].text` |
+
+<Warning>
+  L’inférence GLiNER renvoie un résultat structuré unique et ne prend pas en charge `stream=True` ni `client.messages.stream(...)`. Fastino n’implémente pas toutes les API ni toutes les ressources du SDK Anthropic.
+</Warning>
 
 ## Configurer le SDK Anthropic
 
@@ -33,7 +35,7 @@ client = anthropic.Anthropic(
 
 ## Créer un message
 
-`POST /v1/messages` accepte la même forme de requête que l'API Messages d'Anthropic. Définissez `model` sur l'ID de votre job d'entraînement et incluez votre tableau `messages`. Vous pouvez transmettre des champs propres à Fastino, comme `schema`, en plus des champs Anthropic standard.
+`POST /v1/messages` accepte les principaux champs d’Anthropic Messages. Définissez `model` sur un ID GLiNER pris en charge, incluez `messages` et transmettez le `schema` via `extra_body`.
 
 ### Paramètres de la requête
 
@@ -42,7 +44,7 @@ client = anthropic.Anthropic(
 </ParamField>
 
 <ParamField body="max_tokens" type="number" required>
-  Nombre maximal de tokens à générer dans la réponse.
+  Champ requis par le SDK Anthropic pour la compatibilité de la requête. GLiNER renvoie une sortie structurée plutôt que des tokens générés.
 </ParamField>
 
 <ParamField body="messages" type="object[]" required>
@@ -73,7 +75,12 @@ message = client.messages.create(
             "role": "user",
             "content": "Extract entities from: Apple launched the iPhone."
         }
-    ]
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
 )
 
 print(message.content[0].text)
@@ -102,40 +109,7 @@ curl -X POST https://api.fastino.ai/v1/messages \
 
 ## Streaming
 
-L'endpoint `/v1/messages` prend en charge le streaming. Définissez `stream=True` dans le SDK ou `"stream": true` dans le corps de la requête brute.
-
-<CodeGroup>
-
-```python Python (Anthropic SDK)
-import anthropic
-
-client = anthropic.Anthropic(
-    api_key="YOUR_API_KEY",
-    base_url="https://api.fastino.ai"
-)
-
-with client.messages.stream(
-    model="YOUR_TRAINING_JOB_ID",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Summarize the following: ..."}]
-) as stream:
-    for text in stream.text_stream:
-        print(text, end="", flush=True)
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/messages \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Summarize the following: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+L’inférence GLiNER ne prend pas en charge le streaming. Utilisez `client.messages.create(...)` sans `stream=True` ; l’API renvoie le résultat structuré complet après le traitement.
 
 ## Voir aussi
 
