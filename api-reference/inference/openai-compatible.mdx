@@ -1,25 +1,25 @@
 ---
-title: "OpenAI-compatible inference on Fastino API"
+title: "OpenAI-compatible GLiNER inference"
 sidebarTitle: "OpenAI Compatible"
-description: "Use supported OpenAI SDK methods with Fastino chat completions, Responses, model listing, and streaming."
+description: "Run structured GLiNER extraction and classification through supported OpenAI SDK methods."
 ---
 
-Fastino exposes OpenAI-compatible endpoints so you can use supported OpenAI SDK methods with Fastino models. Set `base_url` to `https://api.fastino.ai/v1`, authenticate with your Fastino API key, and pass a model ID from `GET /v1/models` or your training job ID as `model`. Fastino-specific fields such as `schema` can be passed through `extra_body` in the Python SDK or included directly in the JSON body.
+Fastino exposes OpenAI-compatible endpoints so you can run GLiNER models through supported OpenAI SDK methods. Set `base_url` to `https://api.fastino.ai/v1`, authenticate with your Fastino API key, and pass a GLiNER model ID from `GET /v1/models` or your GLiNER training job ID as `model`. Pass the extraction or classification `schema` through `extra_body` in the Python SDK or directly in the JSON body.
 
 <Tip>
-  For the supported methods below, an existing OpenAI integration usually needs only a new `base_url`, API key, and model ID.
+  Reuse your OpenAI client for GLiNER by changing `base_url`, the API key, and the model ID, then adding the Fastino `schema`.
 </Tip>
 
 ## Supported SDK surface
 
-| OpenAI SDK method | Fastino endpoint | Streaming |
+| OpenAI SDK method | Fastino endpoint | GLiNER result |
 |---|---|---|
-| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | Yes |
-| `client.responses.create(...)` | `POST /v1/responses` | Yes |
-| `client.models.list()` | `GET /v1/models` | Not applicable |
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | Structured JSON in `choices[0].message.content` |
+| `client.responses.create(...)` | `POST /v1/responses` | Structured JSON in `response.output_text` |
+| `client.models.list()` | `GET /v1/models` | Available model IDs |
 
 <Warning>
-  Fastino does not implement every OpenAI API or SDK resource. Use only the methods listed above. Legacy `POST /v1/completions` has been removed; migrate prompt-based requests to Chat Completions.
+  GLiNER inference returns one structured result and does not support `stream=True`. Fastino does not implement every OpenAI API or SDK resource; use only the methods listed above.
 </Warning>
 
 ## Configure the OpenAI SDK
@@ -46,7 +46,7 @@ https://api.fastino.ai/v1
 
 ## Chat completions
 
-`POST /v1/chat/completions` accepts the core OpenAI Chat Completions fields. Pass a supported model ID as `model` and include Fastino-specific fields like `schema` in the request body or through `extra_body`.
+`POST /v1/chat/completions` accepts the core OpenAI Chat Completions fields. Pass a supported GLiNER model ID as `model` and include the extraction or classification `schema` through `extra_body`.
 
 <CodeGroup>
 
@@ -117,33 +117,7 @@ curl https://api.fastino.ai/v1/models \
 
 ## Streaming
 
-Chat Completions and Responses support streaming. Set `stream=True` in the SDK or `"stream": true` in the request body.
-
-<CodeGroup>
-
-```python Python (OpenAI SDK)
-stream = client.chat.completions.create(
-    model="YOUR_TRAINING_JOB_ID",
-    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
-    stream=True
-)
-
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="")
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/chat/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+GLiNER inference is non-streaming. Do not set `stream=True`; the API returns the complete structured result after processing the input.
 
 ## Passing Fastino-specific fields
 

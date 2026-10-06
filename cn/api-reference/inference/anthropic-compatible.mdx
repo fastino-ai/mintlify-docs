@@ -1,21 +1,19 @@
 ---
-title: "Fastino API 上兼容 Anthropic 的 POST /v1/messages"
+title: "兼容 Anthropic 的 GLiNER 推理"
 sidebarTitle: "兼容 Anthropic"
-description: "通过 Fastino 使用 Anthropic SDK Messages 方法，包括非流式和流式推理。"
+description: "通过 Anthropic SDK Messages API 运行结构化的 GLiNER 抽取和分类。"
 ---
 
-Fastino 提供兼容 Anthropic 的 Messages 端点，让你可以通过受支持的 Anthropic SDK 方法调用 Fastino 模型。将 `base_url` 设置为 `https://api.fastino.ai`，使用 Fastino API 密钥进行认证，并将 `GET /v1/models` 返回的模型 ID 或训练任务 ID 用作模型名称。Anthropic SDK 会自行追加 `/v1/messages`。
+Fastino 提供兼容 Anthropic 的 Messages 端点，让你可以通过 Anthropic SDK 运行 GLiNER 模型。将 `base_url` 设置为 `https://api.fastino.ai`，使用 Fastino API 密钥进行认证，并将 `GET /v1/models` 返回的 GLiNER 模型 ID 或 GLiNER 训练任务 ID 用作模型名称。Anthropic SDK 会自行追加 `/v1/messages`。
 
 ## 支持的 SDK 功能
 
-| Anthropic SDK 方法 | Fastino 端点 | 流式传输 |
+| Anthropic SDK 方法 | Fastino 端点 | GLiNER 结果 |
 |---|---|---|
-| `client.messages.create(...)` | `POST /v1/messages` | 否（默认） |
-| `client.messages.create(..., stream=True)` | `POST /v1/messages` | 支持 |
-| `client.messages.stream(...)` | `POST /v1/messages` | 支持 |
+| `client.messages.create(...)` | `POST /v1/messages` | `message.content[0].text` 中的结构化 JSON |
 
 <Warning>
-  Fastino 并未实现所有 Anthropic API 或 SDK 资源。请仅使用上表列出的 Messages 方法。
+  GLiNER 推理返回一个结构化结果，不支持 `stream=True` 或 `client.messages.stream(...)`。Fastino 并未实现所有 Anthropic API 或 SDK 资源。
 </Warning>
 
 ## 配置 Anthropic SDK
@@ -37,7 +35,7 @@ client = anthropic.Anthropic(
 
 ## 创建消息
 
-`POST /v1/messages` 接受 Anthropic Messages 的核心字段。将 `model` 设置为受支持的模型 ID，并包含 `messages` 数组。你可以在标准 Anthropic 字段之外同时传入 Fastino 特有的字段，例如 `schema`。
+`POST /v1/messages` 接受 Anthropic Messages 的核心字段。将 `model` 设置为受支持的 GLiNER 模型 ID，包含 `messages` 数组，并通过 `extra_body` 传入抽取或分类 `schema`。
 
 ### 请求参数
 
@@ -111,40 +109,7 @@ curl -X POST https://api.fastino.ai/v1/messages \
 
 ## 流式传输
 
-`/v1/messages` 端点支持流式传输。在 SDK 中设置 `stream=True`，或在原始请求体中设置 `"stream": true`。
-
-<CodeGroup>
-
-```python Python (Anthropic SDK)
-import anthropic
-
-client = anthropic.Anthropic(
-    api_key="YOUR_API_KEY",
-    base_url="https://api.fastino.ai"
-)
-
-with client.messages.stream(
-    model="YOUR_TRAINING_JOB_ID",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Summarize the following: ..."}]
-) as stream:
-    for text in stream.text_stream:
-        print(text, end="", flush=True)
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/messages \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Summarize the following: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+GLiNER 推理不支持流式传输。请使用不带 `stream=True` 的 `client.messages.create(...)`；API 会在处理输入后返回完整的结构化结果。
 
 ## 相关内容
 

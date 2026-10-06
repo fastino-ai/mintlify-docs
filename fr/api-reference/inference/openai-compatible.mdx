@@ -1,25 +1,25 @@
 ---
-title: "Inférence compatible OpenAI sur l'API Fastino"
+title: "Inférence GLiNER compatible OpenAI"
 sidebarTitle: "Compatible OpenAI"
-description: "Utilisez les méthodes prises en charge du SDK OpenAI avec Chat Completions, Responses, la liste des modèles et le streaming Fastino."
+description: "Exécutez l’extraction et la classification structurées avec GLiNER via les méthodes prises en charge du SDK OpenAI."
 ---
 
-Fastino expose des endpoints compatibles OpenAI permettant d'utiliser les méthodes prises en charge du SDK OpenAI avec les modèles Fastino. Définissez `base_url` sur `https://api.fastino.ai/v1`, authentifiez-vous avec votre clé d'API Fastino et transmettez comme `model` un ID renvoyé par `GET /v1/models` ou l'ID de votre job d'entraînement. Les champs propres à Fastino, comme `schema`, peuvent être transmis via `extra_body` dans le SDK Python ou inclus directement dans le corps JSON.
+Fastino expose des endpoints compatibles OpenAI permettant d’exécuter des modèles GLiNER via les méthodes prises en charge du SDK OpenAI. Définissez `base_url` sur `https://api.fastino.ai/v1`, authentifiez-vous avec votre clé d’API Fastino et transmettez comme `model` un ID GLiNER renvoyé par `GET /v1/models` ou l’ID de votre job d’entraînement GLiNER. Transmettez le `schema` via `extra_body` dans le SDK Python ou directement dans le corps JSON.
 
 <Tip>
-  Pour les méthodes prises en charge ci-dessous, une intégration OpenAI existante nécessite généralement uniquement un nouveau `base_url`, une clé d'API et un ID de modèle.
+  Réutilisez votre client OpenAI pour GLiNER en modifiant `base_url`, la clé API et l’ID du modèle, puis en ajoutant le `schema` Fastino.
 </Tip>
 
 ## Surface SDK prise en charge
 
-| Méthode du SDK OpenAI | Endpoint Fastino | Streaming |
+| Méthode du SDK OpenAI | Endpoint Fastino | Résultat GLiNER |
 |---|---|---|
-| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | Oui |
-| `client.responses.create(...)` | `POST /v1/responses` | Oui |
-| `client.models.list()` | `GET /v1/models` | Non applicable |
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | JSON structuré dans `choices[0].message.content` |
+| `client.responses.create(...)` | `POST /v1/responses` | JSON structuré dans `response.output_text` |
+| `client.models.list()` | `GET /v1/models` | ID de modèles disponibles |
 
 <Warning>
-  Fastino n'implémente pas toutes les API ni toutes les ressources du SDK OpenAI. Utilisez uniquement les méthodes répertoriées ci-dessus. L'ancien endpoint `POST /v1/completions` a été supprimé ; migrez les requêtes basées sur un prompt vers Chat Completions.
+  L’inférence GLiNER renvoie un résultat structuré unique et ne prend pas en charge `stream=True`. Fastino n’implémente pas toutes les API ni toutes les ressources du SDK OpenAI.
 </Warning>
 
 ## Configurer le SDK OpenAI
@@ -46,7 +46,7 @@ https://api.fastino.ai/v1
 
 ## Chat completions
 
-`POST /v1/chat/completions` accepte les principaux champs d'OpenAI Chat Completions. Transmettez un ID de modèle pris en charge comme `model` et incluez les champs propres à Fastino, comme `schema`, dans le corps de la requête ou via `extra_body`.
+`POST /v1/chat/completions` accepte les principaux champs d’OpenAI Chat Completions. Transmettez un ID GLiNER pris en charge comme `model` et le `schema` via `extra_body`.
 
 <CodeGroup>
 
@@ -117,33 +117,7 @@ curl https://api.fastino.ai/v1/models \
 
 ## Streaming
 
-Chat Completions et Responses prennent en charge le streaming. Définissez `stream=True` dans le SDK ou `"stream": true` dans le corps de la requête.
-
-<CodeGroup>
-
-```python Python (OpenAI SDK)
-stream = client.chat.completions.create(
-    model="YOUR_TRAINING_JOB_ID",
-    messages=[{"role": "user", "content": "Summarize the following article: ..."}],
-    stream=True
-)
-
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="")
-```
-
-```bash cURL
-curl -X POST https://api.fastino.ai/v1/chat/completions \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "YOUR_TRAINING_JOB_ID",
-    "messages": [{"role": "user", "content": "Summarize the following article: ..."}],
-    "stream": true
-  }'
-```
-
-</CodeGroup>
+L’inférence GLiNER ne prend pas en charge le streaming. Ne définissez pas `stream=True` ; l’API renvoie le résultat structuré complet après le traitement.
 
 ## Transmettre des champs propres à Fastino
 
