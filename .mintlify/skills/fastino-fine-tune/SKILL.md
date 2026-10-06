@@ -98,21 +98,28 @@ These are two distinct operations with different consequences:
 | Action | Endpoint | Effect | Reversible? |
 |--------|----------|--------|-------------|
 | Stop | `POST /v1/training-jobs/{id}/stop` | Graceful stop; all checkpoints preserved; status → `stopped` | Yes — checkpoints remain usable |
-| Terminate | `POST /v1/training-jobs/{id}/terminate` | Force-stops the job **and deletes all checkpoints and artifacts**; status → `terminated` | **No — irreversible** |
+| Terminate | `POST /v1/training-jobs/{id}/terminate` | Force-stops the job; status → `terminated`. Checkpoints are **preserved by default**; send `{"delete_checkpoints": true}` to permanently delete all checkpoints and artifacts | Job: no. Checkpoints remain usable unless `delete_checkpoints: true` (irreversible) |
 
 ```http
 # Stop gracefully (checkpoints preserved)
 POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/stop
 X-API-Key: YOUR_API_KEY
 
+# Terminate (checkpoints preserved)
+POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate
+X-API-Key: YOUR_API_KEY
+
 # Terminate and delete all artifacts (irreversible)
 POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate
 X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+
+{"delete_checkpoints": true}
 ```
 
-Prefer `stop` unless you explicitly want to destroy all artifacts.
+Only send `delete_checkpoints: true` when you explicitly want to destroy all artifacts. Never set it as part of a routine "make sure it is dead" cleanup after `stop`.
 
-Either call may return **202** while the provider confirms the cancel: `stop` returns `status: "stopping"` and the job stays `running` until it flips to `stopped`; `terminate` flips to `terminated` and deletes checkpoints on confirmation. Poll `GET /v1/training-jobs/{id}` instead of calling again. A **409** with `error.code` `training_job_already_finished` means the job completed or failed first.
+Either call may return **202** while the provider confirms the cancel: `stop` returns `status: "stopping"` and the job stays `running` until it flips to `stopped`; `terminate` flips to `terminated` on confirmation and deletes checkpoints then only if `delete_checkpoints: true` was sent. Poll `GET /v1/training-jobs/{id}` instead of calling again. A **409** with `error.code` `training_job_already_finished` means the job completed or failed first.
 
 ## After Training
 

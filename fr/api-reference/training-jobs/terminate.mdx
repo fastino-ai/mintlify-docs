@@ -1,14 +1,14 @@
 ---
 title: "Terminer un job d'entraînement"
 sidebarTitle: "Terminer un job"
-description: "Appelez POST /v1/training-jobs/{job_id}/terminate pour arrêter un job, supprimer tous ses checkpoints et le marquer terminé. Utilisez stop pour les conserver."
+description: "Appelez POST /v1/training-jobs/{job_id}/terminate pour arrêter un job et le marquer terminé. Les checkpoints sont conservés sauf avec delete_checkpoints."
 api: "POST /v1/training-jobs/{job_id}/terminate"
 ---
 
-Arrête le job du fournisseur s'il est actif, supprime chaque checkpoint et marque le job comme terminé.
+Arrête le job du fournisseur s'il est actif et marque le job comme terminé. Les checkpoints sont conservés par défaut. Ils ne sont supprimés que si vous envoyez `{"delete_checkpoints": true}`, et seulement après que le fournisseur a confirmé l'arrêt du job.
 
 <Warning>
-  La terminaison est irréversible. Utilisez l'endpoint stop lorsque vous avez besoin de conserver les checkpoints.
+  La terminaison est irréversible. La suppression des checkpoints avec `delete_checkpoints: true` est également irréversible : tous les checkpoints et artefacts stockés du job sont définitivement supprimés.
 </Warning>
 
 ## Requête
@@ -21,11 +21,24 @@ Arrête le job du fournisseur s'il est actif, supprime chaque checkpoint et marq
   UUID du job d'entraînement.
 </ParamField>
 
+Le corps JSON est facultatif. Omettez-le pour terminer le job en conservant ses checkpoints.
+
+<ParamField body="delete_checkpoints" type="boolean" default="false">
+  Supprime définitivement tous les checkpoints et artefacts de ce job. Irréversible. La valeur par défaut est `false`, afin que la terminaison ne détruise jamais des artefacts que vous avez déjà payés.
+</ParamField>
+
 <RequestExample>
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate \
   -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+```bash cURL (delete checkpoints)
+curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"delete_checkpoints": true}'
 ```
 
 </RequestExample>
@@ -37,12 +50,16 @@ curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/termin
 ```json Response
 {
   "success": true,
-  "message": "Training job terminated",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
-  "deleted_checkpoints": 3
+  "deleted_checkpoints": 0
 }
 ```
 
 </ResponseExample>
+
+Avec `delete_checkpoints: true`, le message indique combien de checkpoints ont été supprimés et `deleted_checkpoints` contient ce nombre.
+
+Si le fournisseur n'a pas encore confirmé l'annulation, l'endpoint renvoie `202` avec `status: "stopping"` et `deleted_checkpoints: 0`. Le job passe à `terminated` dès que le fournisseur confirme ; les checkpoints ne sont alors supprimés que si vous avez défini `delete_checkpoints: true`. Interrogez `GET /v1/training-jobs/{job_id}` au lieu de rappeler terminate.
 
 Un job inconnu ou un job qui ne peut pas être terminé renvoie une erreur `4xx` spécifique à la requête.
