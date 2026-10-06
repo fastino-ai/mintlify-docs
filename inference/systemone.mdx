@@ -107,6 +107,112 @@ curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
 Choice and Score return different fields. See their primitive pages for exact response shapes
 and integration examples.
 
+## First call after idle
+
+<Note>
+  When GLiDE has scaled to zero after a period without traffic, your first request can return
+  HTTP `425` with error code `model_warming`. This is expected and does not mean your request
+  is wrong. The model is usually ready within 30 to 60 seconds. The response includes a
+  `Retry-After` header with the number of seconds to wait, and `x-should-retry: true`.
+</Note>
+
+Send the same request again after the `Retry-After` delay. Each example retries at most 5
+times, waits `Retry-After` seconds (30 if the header is missing), sets a 300-second client
+timeout, and stops on any other non-2xx response.
+
+<CodeGroup>
+
+```bash cURL
+for attempt in 0 1 2 3 4 5; do
+  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
+    https://api.fastino.ai/v1/systemone \
+    -H "X-API-Key: $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/GLiDE",
+      "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+      "questions": {
+        "refund_allowed": { "type": "noul", "instructions": "Does this request qualify for a refund?" }
+      }
+    }')
+  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
+  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
+  sleep "${delay:-30}"
+done
+
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+  cat response.json
+else
+  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
+fi
+```
+
+```python Python
+import os
+import time
+import requests
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+            "questions": {
+                "refund_allowed": {
+                    "type": "noul",
+                    "instructions": "Does this request qualify for a refund?",
+                }
+            },
+        },
+        timeout=300,
+    )
+    if response.status_code != 425 or attempt == MAX_RETRIES:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+
+if not 200 <= response.status_code < 300:
+    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
+print(response.json())
+```
+
+```javascript JavaScript
+const MAX_RETRIES = 5;
+let response;
+
+for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/systemone", {
+    method: "POST",
+    headers: {
+      "X-API-Key": process.env.FASTINO_API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/GLiDE",
+      state: "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+      questions: {
+        refund_allowed: { type: "noul", instructions: "Does this request qualify for a refund?" },
+      },
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (response.status !== 425 || attempt === MAX_RETRIES) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
+}
+console.log(await response.json());
+```
+
+</CodeGroup>
+
 ## Limits and unsupported shapes
 
 - Each rendered question prompt (`state` plus that question) must fit within **40,000
@@ -196,8 +302,8 @@ The endpoint, validation, retry, and Score rules above still apply.
 
 ## Errors
 
-A first request to a cold model may return `425 model_warming` while it warms up; retry
-after about 60 seconds.
+A first request to a cold model may return `425 model_warming` while it warms up; wait
+`Retry-After` seconds and retry. See [First call after idle](#first-call-after-idle).
 
 | Status | Likely cause | Action |
 | --- | --- | --- |
@@ -207,7 +313,7 @@ after about 60 seconds.
 | `403` | Payment method, card verification, credit ceiling, or account policy denial | Resolve the billing or account requirement |
 | `404` | Unknown model or a model that only supports chat completions | Use `fastino/GLiDE` |
 | `422` | A required field is missing, a value has the wrong shape, or an extra field was sent | Read and correct the field-level validation details |
-| `425` | Deployment is warming | Retry after the indicated delay |
+| `425` | `model_warming`: the model is warming up after idle | Wait `Retry-After` seconds and retry; see [First call after idle](#first-call-after-idle) |
 | `429` | Rate or capacity limit | Respect `Retry-After` and retry with backoff |
 | `503` | Temporary provider or serving failure | Retry before treating it as terminal |
 

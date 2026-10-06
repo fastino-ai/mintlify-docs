@@ -107,6 +107,25 @@ curl -X POST https://api.fastino.ai/v1/messages \
 
 </CodeGroup>
 
+## First call after idle
+
+<Note>
+  When a model has scaled to zero after a period without traffic, your first request can return HTTP `425` with error code `model_warming`. This is expected and does not mean your request is wrong. The model is usually ready within 30 to 60 seconds. The response includes a `Retry-After` header with the number of seconds to wait, and `x-should-retry: true`.
+</Note>
+
+The official Anthropic SDKs retry this response automatically because it carries `x-should-retry: true`. By default they retry 2 times and wait the `Retry-After` value between attempts. The default can run out before a slow warm-up finishes, so raise `max_retries` for a first call:
+
+```python Python (Anthropic SDK)
+message = client.with_options(max_retries=5).messages.create(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+    extra_body={"schema": {"entities": ["organization", "product"]}},
+)
+```
+
+To apply the limit to every request, pass `max_retries=5` to `anthropic.Anthropic(...)` instead. Without an SDK, use the cURL, Python, or JavaScript retry loop in [GLiNER inference](/inference/chat-completions#first-call-after-idle).
+
 ## Streaming
 
 GLiNER inference is non-streaming. Use `client.messages.create(...)` without `stream=True`; the API returns the complete structured result after processing the input.
