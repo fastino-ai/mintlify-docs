@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+from generate_localized_llms import localized_index_findings
+
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 INFERENCE_OPERATIONS = (
     ("POST", "/v1/chat/completions"),
@@ -90,6 +92,7 @@ def _llms_findings(root: Path) -> list[str]:
         for url in sorted(REQUIRED_AGENT_RESOURCES)
         if f"]({url})" not in llms_text
     )
+    findings.extend(localized_index_findings(root))
     return findings
 
 

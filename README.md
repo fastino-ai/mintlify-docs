@@ -57,7 +57,14 @@ python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
 The check also enforces two-way parity with the existing public endpoint pages,
 validates the five canonical Mintlify skills, and rejects stale Pioneer API
 origins, retired inference routes, skill-install hosts, and doubled `/v1`
-prefixes.
+prefixes. It also verifies that each published language has a current
+`llms.txt` index and that the English root index links to every localized
+index. Regenerate localized indexes after changing navigation or page
+frontmatter:
+
+```bash
+python3 scripts/generate_localized_llms.py
+```
 
 ## Publishing changes
 
