@@ -92,6 +92,28 @@ See the [Chat Completions API](/inference/chat-completions) for the response con
   </Card>
 </CardGroup>
 
+## Classification schema
+
+Each entry in `classifications` accepts exactly these keys: `task`, `labels`, `multi_label`, `cls_threshold`, and `top_k`. Any other key is rejected with a `400` that names it.
+
+- `task` names the classification task.
+- `labels` is a list of at least two strings, such as `"labels": ["book", "cancel", "reschedule"]`.
+- `multi_label` selects every applicable label when `true`. It defaults to `false`, which returns the single highest-scoring label.
+- `cls_threshold` is a score from `0` to `1` that a label must reach to be selected in a multi-label task. Single-label tasks always return the highest-scoring label.
+
+Decide does not support label descriptions, either as a `{label: description}` object in `labels` or as a separate `label_descriptions` key. Label descriptions are a GLiNER2.5 Multi feature; see the [constrained classification schema](/inference/chat-completions#constrained-classification-schema).
+
+<Warning>
+  **Common mistakes.** Decide rejects each of these shapes with a `400`:
+
+  | You sent | Send instead |
+  | --- | --- |
+  | `"labels": {"book": "user wants to book", "cancel": "user wants to cancel"}` | `"labels": ["book", "cancel"]` |
+  | A `label_descriptions` key | Remove it and keep `labels` as a list of strings |
+  | A `description` key on a classification entry | Remove it |
+  | `"threshold": 0.5` on a classification entry | `"cls_threshold": 0.5` with `"multi_label": true` |
+</Warning>
+
 ## Evaluation
 
 On Fastino's 17-dataset Fast Decisions benchmark, GLiNER-2.5-Decide achieved the highest average score at **60.1%** and led 9 datasets. It outperformed the 4B-class JevK5 reproduction (**57.5%**) and SemIf (**56.4%**), as well as the encoder models GLiFormer and Laya. This is an internal benchmark, not JevBench, and JevK5 is not TypeSafe's Jev.
