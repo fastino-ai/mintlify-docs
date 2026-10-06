@@ -1,27 +1,25 @@
 ---
 title: "Fastino API 上兼容 OpenAI 的推理"
 sidebarTitle: "兼容 OpenAI"
-description: "在 Fastino 上直接替代 OpenAI。将 base_url 设置为 https://api.fastino.ai/v1，使用你的 Fastino 密钥，包括流式传输在内的所有 SDK 方法均可照常使用。"
-hidden: true
-noindex: true
+description: "通过 Fastino 使用受支持的 OpenAI SDK 方法，包括 Chat Completions、Responses、模型列表和流式传输。"
 ---
 
-Fastino 提供了一组兼容 OpenAI 的端点，因此你只需极少改动，即可将现有的 OpenAI SDK 代码用于你微调的 Fastino 模型。将 `base_url` 设置为 `https://api.fastino.ai/v1`，使用你的 Fastino API 密钥进行认证，并将训练任务 ID 作为 `model` 传入。Fastino 特有的字段（例如 `schema`）可以在 Python SDK 中通过 `extra_body` 传入，或直接包含在 JSON 请求体中。
+Fastino 提供兼容 OpenAI 的端点，让你可以通过受支持的 OpenAI SDK 方法调用 Fastino 模型。将 `base_url` 设置为 `https://api.fastino.ai/v1`，使用 Fastino API 密钥进行认证，并将 `GET /v1/models` 返回的模型 ID 或训练任务 ID 作为 `model`。Fastino 特有的字段（例如 `schema`）可以在 Python SDK 中通过 `extra_body` 传入，或直接包含在 JSON 请求体中。
 
 <Tip>
-  如果你已有 OpenAI 集成，切换到 Fastino 只需两处改动：更新 `base_url` 并换用你的 Fastino API 密钥。其余一切——SDK 方法、流式传输、消息格式——均保持不变。
+  对于下列受支持的方法，现有 OpenAI 集成通常只需更改 `base_url`、API 密钥和模型 ID。
 </Tip>
 
-## 端点
+## 支持的 SDK 功能
 
-| 方法 | 路径 | 描述 |
+| OpenAI SDK 方法 | Fastino 端点 | 流式传输 |
 |---|---|---|
-| `POST` | `/v1/chat/completions` | Chat completions |
-| `POST` | `/v1/responses` | Responses API |
-| `GET` | `/v1/models` | 列出可用模型 |
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | 支持 |
+| `client.responses.create(...)` | `POST /v1/responses` | 支持 |
+| `client.models.list()` | `GET /v1/models` | 不适用 |
 
 <Warning>
-  旧版 `POST /v1/completions` 已被移除。请将基于 prompt 的请求迁移到 `POST /v1/chat/completions`，并将 prompt 作为用户消息发送。
+  Fastino 并未实现所有 OpenAI API 或 SDK 资源。请仅使用上表列出的方法。旧版 `POST /v1/completions` 已移除；请将基于提示词的请求迁移到 Chat Completions。
 </Warning>
 
 ## 配置 OpenAI SDK
@@ -48,7 +46,7 @@ https://api.fastino.ai/v1
 
 ## Chat completions
 
-`POST /v1/chat/completions` 接受与 OpenAI Chat Completions API 相同的请求结构。将训练任务 ID 作为 `model` 传入，并在请求体中或通过 `extra_body` 包含 Fastino 特有的字段，例如 `schema`。
+`POST /v1/chat/completions` 接受 OpenAI Chat Completions 的核心字段。将受支持的模型 ID 作为 `model` 传入，并在请求体中或通过 `extra_body` 包含 Fastino 特有的字段，例如 `schema`。
 
 <CodeGroup>
 
@@ -119,7 +117,7 @@ curl https://api.fastino.ai/v1/models \
 
 ## 流式传输
 
-所有 completions 端点均支持流式传输。在 SDK 中设置 `stream=True`，或在请求体中设置 `"stream": true`。
+Chat Completions 和 Responses 均支持流式传输。在 SDK 中设置 `stream=True`，或在请求体中设置 `"stream": true`。
 
 <CodeGroup>
 

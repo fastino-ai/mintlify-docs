@@ -1,27 +1,25 @@
 ---
 title: "Inferencia compatible con OpenAI en la API de Fastino"
 sidebarTitle: "Compatible con OpenAI"
-description: "Reemplazo directo de OpenAI en Fastino. Define base_url como https://api.fastino.ai/v1, usa tu clave de Fastino y todos los métodos del SDK, incluido el streaming, funcionan sin cambios."
-hidden: true
-noindex: true
+description: "Usa métodos compatibles del SDK de OpenAI con Chat Completions, Responses, listado de modelos y streaming de Fastino."
 ---
 
-Fastino expone un conjunto de endpoints compatibles con OpenAI para que puedas usar tu código existente del SDK de OpenAI con tus modelos ajustados de Fastino con cambios mínimos. Define `base_url` como `https://api.fastino.ai/v1`, autentícate con tu clave de API de Fastino y pasa el ID de tu trabajo de entrenamiento como `model`. Los campos específicos de Fastino, como `schema`, se pueden pasar mediante `extra_body` en el SDK de Python o incluirse directamente en el cuerpo JSON.
+Fastino ofrece endpoints compatibles con OpenAI para usar métodos compatibles del SDK de OpenAI con modelos de Fastino. Define `base_url` como `https://api.fastino.ai/v1`, autentícate con tu clave de API de Fastino y pasa como `model` un ID devuelto por `GET /v1/models` o el ID de tu trabajo de entrenamiento. Los campos específicos de Fastino, como `schema`, se pueden pasar mediante `extra_body` en el SDK de Python o incluir directamente en el cuerpo JSON.
 
 <Tip>
-  Si ya tienes una integración con OpenAI, cambiar a Fastino solo requiere dos cambios: actualizar `base_url` y sustituir tu clave de API por la de Fastino. Todo lo demás - métodos del SDK, streaming, formato de los mensajes - sigue igual.
+  Para los métodos compatibles que se indican a continuación, una integración existente con OpenAI normalmente solo necesita un nuevo `base_url`, una clave de API y un ID de modelo.
 </Tip>
 
-## Endpoints
+## Superficie compatible del SDK
 
-| Method | Path | Descripción |
+| Método del SDK de OpenAI | Endpoint de Fastino | Streaming |
 |---|---|---|
-| `POST` | `/v1/chat/completions` | Chat completions |
-| `POST` | `/v1/responses` | Responses API |
-| `GET` | `/v1/models` | Lista los modelos disponibles |
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | Sí |
+| `client.responses.create(...)` | `POST /v1/responses` | Sí |
+| `client.models.list()` | `GET /v1/models` | No aplica |
 
 <Warning>
-  El endpoint heredado `POST /v1/completions` se ha eliminado. Migra las solicitudes basadas en prompts a `POST /v1/chat/completions` y envía el prompt como mensaje de usuario.
+  Fastino no implementa todas las API ni todos los recursos del SDK de OpenAI. Usa únicamente los métodos indicados arriba. El endpoint heredado `POST /v1/completions` se eliminó; migra las solicitudes basadas en prompts a Chat Completions.
 </Warning>
 
 ## Configurar el SDK de OpenAI
@@ -48,7 +46,7 @@ https://api.fastino.ai/v1
 
 ## Chat completions
 
-`POST /v1/chat/completions` acepta la misma estructura de solicitud que la OpenAI Chat Completions API. Pasa el ID de tu trabajo de entrenamiento como `model` e incluye campos específicos de Fastino, como `schema`, en el cuerpo de la solicitud o mediante `extra_body`.
+`POST /v1/chat/completions` acepta los campos principales de OpenAI Chat Completions. Pasa un ID de modelo compatible como `model` e incluye campos específicos de Fastino, como `schema`, en el cuerpo de la solicitud o mediante `extra_body`.
 
 <CodeGroup>
 
@@ -119,7 +117,7 @@ curl https://api.fastino.ai/v1/models \
 
 ## Streaming
 
-Todos los endpoints de completions admiten streaming. Define `stream=True` en el SDK o `"stream": true` en el cuerpo de la solicitud.
+Chat Completions y Responses admiten streaming. Define `stream=True` en el SDK o `"stream": true` en el cuerpo de la solicitud.
 
 <CodeGroup>
 
