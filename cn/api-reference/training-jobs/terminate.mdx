@@ -1,16 +1,16 @@
 ---
 title: "终止训练任务"
 sidebarTitle: "终止任务"
-description: "调用 POST /v1/training-jobs/{job_id}/terminate，终止 Fastino 训练任务并删除全部检查点。此操作不可撤销。"
+description: "调用 POST /v1/training-jobs/{job_id}/terminate，终止 Fastino 训练任务。默认保留检查点，仅在设置 delete_checkpoints 时删除。"
 api: "POST /v1/training-jobs/{job_id}/terminate"
 ---
 
 `POST /v1/training-jobs/{job_id}/terminate`
 
-如果提供方任务仍处于活动状态,则将其停止,删除每一个检查点,并将任务标记为已终止。
+如果提供方任务仍处于活动状态,则将其停止,并将任务标记为已终止。默认情况下会保留检查点。只有在您发送 `{"delete_checkpoints": true}` 时才会删除检查点,并且仅在提供方确认任务已停止之后删除。
 
 <Warning>
-  终止操作不可撤销。如果您需要保留检查点,请使用停止端点。
+  终止操作不可撤销。使用 `delete_checkpoints: true` 删除检查点同样不可撤销:该任务的所有检查点和已存储的工件都将被永久移除。
 </Warning>
 
 ## 请求
@@ -23,11 +23,24 @@ api: "POST /v1/training-jobs/{job_id}/terminate"
   训练任务 UUID。
 </ParamField>
 
+JSON 请求体是可选的。省略请求体即可终止任务并保留其检查点。
+
+<ParamField body="delete_checkpoints" type="boolean" default="false">
+  永久删除该任务的所有检查点和工件。此操作不可撤销。默认为 `false`,因此终止操作绝不会销毁您已付费生成的工件。
+</ParamField>
+
 <RequestExample>
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate \
   -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+```bash cURL (delete checkpoints)
+curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"delete_checkpoints": true}'
 ```
 
 </RequestExample>
@@ -39,12 +52,16 @@ curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/termin
 ```json Response
 {
   "success": true,
-  "message": "Training job terminated",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
-  "deleted_checkpoints": 3
+  "deleted_checkpoints": 0
 }
 ```
 
 </ResponseExample>
+
+使用 `delete_checkpoints: true` 时,消息会报告已删除的检查点数量,`deleted_checkpoints` 即为该数量。
+
+如果提供方尚未确认取消,端点返回 `202`,其中 `status: "stopping"`,`deleted_checkpoints: 0`。提供方确认后,任务变为 `terminated`;仅当您设置了 `delete_checkpoints: true` 时,检查点才会随后被删除。请轮询 `GET /v1/training-jobs/{job_id}`,而不是再次调用终止端点。
 
 未知任务或无法终止的任务返回请求相关的 `4xx` 错误。
