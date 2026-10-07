@@ -92,6 +92,29 @@ Consulta la [API de Chat Completions](/es/inference/chat-completions) para ver e
   </Card>
 </CardGroup>
 
+## Esquema de clasificación
+
+Cada entrada de `classifications` acepta exactamente estas claves: `task`, `labels`, `multi_label`, `cls_threshold` y `top_k`. Cualquier otra clave se rechaza con un `400` que la nombra.
+
+- `task` da nombre a la tarea de clasificación.
+- `labels` es una lista de al menos dos cadenas, como `"labels": ["book", "cancel", "reschedule"]`.
+- `multi_label` selecciona todas las etiquetas aplicables cuando es `true`. Su valor predeterminado es `false`, que devuelve la única etiqueta con la puntuación más alta.
+- `cls_threshold` es un umbral de inferencia de `0` a `1` que la puntuación de una etiqueta debe alcanzar para seleccionarse en una tarea multietiqueta. No afecta al entrenamiento. Las tareas de una sola etiqueta siempre devuelven la etiqueta con la puntuación más alta.
+- `top_k` se acepta, pero actualmente no tiene efecto en Decide: las solicitudes con distintos valores de `top_k` devuelven las mismas etiquetas. Usa `multi_label` y `cls_threshold` para controlar qué etiquetas se devuelven.
+
+Decide no admite descripciones de etiquetas, ni como objeto `{label: description}` en `labels` ni como clave `label_descriptions` independiente. Las descripciones de etiquetas son una función de GLiNER2.5 Multi; consulta el [esquema de clasificación con restricciones](/es/inference/chat-completions#esquema-de-clasificación-con-restricciones).
+
+<Warning>
+  **Errores comunes.** Decide rechaza cada una de estas formas con un `400`:
+
+  | Enviaste | Envía en su lugar |
+  | --- | --- |
+  | `"labels": {"book": "user wants to book", "cancel": "user wants to cancel"}` | `"labels": ["book", "cancel"]` |
+  | Una clave `label_descriptions` | Elimínala y mantén `labels` como lista de cadenas |
+  | Una clave `description` en una entrada de clasificación | Elimínala |
+  | `"threshold": 0.5` en una entrada de clasificación | `"cls_threshold": 0.5` con `"multi_label": true` |
+</Warning>
+
 ## Evaluación
 
 En Fast Decisions, el benchmark de Fastino con 17 datasets, GLiNER-2.5-Decide obtuvo la mayor puntuación media con **60,1 %** y lideró 9 datasets. Superó a la reproducción JevK5 de clase 4B (**57,5 %**), SemIf (**56,4 %**) y los modelos codificadores GLiFormer y Laya. Es un benchmark interno, no JevBench, y JevK5 no es el Jev de TypeSafe.
