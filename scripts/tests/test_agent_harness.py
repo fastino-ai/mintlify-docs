@@ -536,7 +536,7 @@ class AgentHarnessTests(unittest.TestCase):
             },
             {
                 "id": "unexpected-active",
-                "model_name": "docs-agent-canary-replay",
+                "model_name": "docs-agent-canary-replay_2",
                 "status": "running",
                 "is_terminal_status": False,
             },

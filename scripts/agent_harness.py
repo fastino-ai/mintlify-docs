@@ -1120,7 +1120,11 @@ def _cleanup_unexpected_replay_jobs(
     expected_job_id: str,
 ) -> None:
     for job in _list_training_jobs(api_key):
-        if job.get("model_name") != "docs-agent-canary-replay":
+        model_name = job.get("model_name")
+        if not isinstance(model_name, str) or not (
+            model_name == "docs-agent-canary-replay"
+            or model_name.startswith("docs-agent-canary-replay_")
+        ):
             continue
         job_id = job.get("id")
         if job_id == expected_job_id:
