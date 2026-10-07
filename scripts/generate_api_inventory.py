@@ -12,7 +12,7 @@ HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 TAG_ORDER = (
     "model-catalog",
     "inference",
-    "gliner-2",
+    "gliner",
     "inference-history",
     "anthropic-compat",
     "openai-compat",
@@ -21,6 +21,18 @@ TAG_ORDER = (
     "training-jobs",
     "deprecated",
 )
+TAG_DISPLAY_NAMES = {
+    "model-catalog": "Model Catalog",
+    "inference": "Inference",
+    "gliner": "GLiNER",
+    "inference-history": "Inference History",
+    "anthropic-compat": "Anthropic Compatibility",
+    "openai-compat": "OpenAI Compatibility",
+    "systemone": "SystemOne",
+    "datasets": "Datasets",
+    "training-jobs": "Training Jobs",
+    "deprecated": "Deprecated",
+}
 
 
 @dataclass(frozen=True)
@@ -130,7 +142,7 @@ def render_inventory(root: Path, locale: str) -> str:
         lines.extend(
             [
                 "",
-                f"## {tag.replace('-', ' ').title()}",
+                f"## {TAG_DISPLAY_NAMES.get(tag, tag.replace('-', ' ').title())}",
                 "",
                 f"| {copy.operation} | {copy.summary} |",
                 "| --- | --- |",
