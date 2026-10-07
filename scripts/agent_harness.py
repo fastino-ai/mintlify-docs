@@ -891,9 +891,10 @@ def _run_training_replay(api_key: str) -> None:
     if replay_id != job_id:
         if isinstance(replay_id, str):
             _stop_and_confirm(api_key, replay_id)
+            _cleanup_training_job(api_key, replay_id)
         fail(
             "TRAINING: idempotent replay returned a different job; "
-            "the unexpected job reached a confirmed terminal state"
+            "the unexpected job was stopped and deleted"
         )
 
 

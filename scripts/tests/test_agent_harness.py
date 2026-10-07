@@ -419,6 +419,53 @@ class AgentHarnessTests(unittest.TestCase):
         ):
             HARNESS._recover_training_job("fast_sk_test", "canary")
 
+    def test_replay_stops_and_deletes_unexpected_job(self) -> None:
+        existing = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs/expected-job",
+            {},
+            json.dumps(
+                {
+                    "id": "expected-job",
+                    "status": "artifact_ready",
+                    "is_terminal_status": True,
+                }
+            ).encode(),
+        )
+        unexpected = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs",
+            {},
+            json.dumps({"id": "unexpected-job"}).encode(),
+        )
+        with (
+            mock.patch.dict(
+                HARNESS.os.environ,
+                {
+                    "FASTINO_DOCS_CANARY_TRAINING_JOB_ID": "expected-job",
+                    "FASTINO_DOCS_CANARY_IDEMPOTENCY_KEY": "fixed-key",
+                },
+                clear=False,
+            ),
+            mock.patch.object(
+                HARNESS,
+                "_ready_dataset_reference",
+                return_value={"name": "canary", "version": "1"},
+            ),
+            mock.patch.object(
+                HARNESS,
+                "_request_with_retry",
+                side_effect=[existing, unexpected],
+            ),
+            mock.patch.object(HARNESS, "_stop_and_confirm") as stop,
+            mock.patch.object(HARNESS, "_cleanup_training_job") as cleanup,
+            self.assertRaisesRegex(HARNESS.HarnessFailure, "stopped and deleted"),
+        ):
+            HARNESS._run_training_replay("fast_sk_test")
+
+        stop.assert_called_once_with("fast_sk_test", "unexpected-job")
+        cleanup.assert_called_once_with("fast_sk_test", "unexpected-job")
+
     def test_lifecycle_cleans_up_when_post_training_verification_fails(self) -> None:
         created = {
             "id": "job-1",
