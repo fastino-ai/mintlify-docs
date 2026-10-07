@@ -92,6 +92,29 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   </Card>
 </CardGroup>
 
+## 分类 schema
+
+`classifications` 中的每个条目只接受以下键：`task`、`labels`、`multi_label`、`cls_threshold` 和 `top_k`。任何其他键都会被拒绝并返回 `400`，错误信息会指出该键。
+
+- `task` 为分类任务命名。
+- `labels` 是至少包含两个字符串的列表，例如 `"labels": ["book", "cancel", "reschedule"]`。
+- `multi_label` 为 `true` 时选择所有适用的标签。默认值为 `false`，即返回得分最高的单个标签。
+- `cls_threshold` 是推理时使用的阈值，取值范围为 `0` 到 `1`：在多标签任务中，标签得分必须达到该值才会被选中。它不影响训练。单标签任务始终返回得分最高的标签。
+- `top_k` 可以传入，但目前对 Decide 不起作用：使用不同 `top_k` 值的请求会返回相同的标签。请使用 `multi_label` 和 `cls_threshold` 控制返回哪些标签。
+
+Decide 不支持标签描述，无论是在 `labels` 中使用 `{label: description}` 对象，还是使用单独的 `label_descriptions` 键。标签描述是 GLiNER2.5 Multi 的功能；参见[受约束分类 schema](/cn/inference/chat-completions#受约束分类-schema)。
+
+<Warning>
+  **常见错误。** Decide 会对以下每种结构返回 `400`：
+
+  | 你发送的内容 | 应改为发送 |
+  | --- | --- |
+  | `"labels": {"book": "user wants to book", "cancel": "user wants to cancel"}` | `"labels": ["book", "cancel"]` |
+  | `label_descriptions` 键 | 删除该键，并将 `labels` 保持为字符串列表 |
+  | 分类条目上的 `description` 键 | 删除该键 |
+  | 分类条目上的 `"threshold": 0.5` | `"cls_threshold": 0.5`，并设置 `"multi_label": true` |
+</Warning>
+
 ## 评估
 
 在 Fastino 包含 17 个数据集的 Fast Decisions 基准上，GLiNER-2.5-Decide 以 **60.1%** 获得最高平均分，并在 9 个数据集上领先。它超过了 4B 级 JevK5 复现版（**57.5%**）、SemIf（**56.4%**）以及编码器模型 GLiFormer 和 Laya。这是内部基准，不是 JevBench；JevK5 也不是 TypeSafe 的 Jev。
