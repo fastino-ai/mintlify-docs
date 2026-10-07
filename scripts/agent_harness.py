@@ -15,8 +15,15 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NoReturn
+
+from check_api_docs import local_docs_findings
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_ORIGIN = os.getenv("FASTINO_DOCS_ORIGIN", "https://docs.fastino.ai").rstrip("/")
@@ -256,16 +263,6 @@ def _validate_openapi(document: dict[str, object]) -> dict[tuple[str, str], dict
     return operations
 
 
-def _schema(document: dict[str, object], schema: object) -> dict[str, object]:
-    if not isinstance(schema, dict):
-        return {}
-    reference = schema.get("$ref")
-    if isinstance(reference, str):
-        resolved = _resolve_pointer(document, reference)
-        return _schema(document, resolved)
-    return schema
-
-
 def _validate_value(
     value: object,
     schema: object,
@@ -273,109 +270,28 @@ def _validate_value(
     *,
     location: str,
 ) -> None:
-    resolved = _schema(document, schema)
-    for union_key in ("anyOf", "oneOf"):
-        alternatives = resolved.get(union_key)
-        if isinstance(alternatives, list):
-            for alternative in alternatives:
-                try:
-                    _validate_value(value, alternative, document, location=location)
-                    return
-                except HarnessFailure:
-                    continue
-            fail(f"CONTRACT: {location} matches no {union_key} alternative")
-    all_of = resolved.get("allOf")
-    if isinstance(all_of, list):
-        for part in all_of:
-            _validate_value(value, part, document, location=location)
-    expected_type = resolved.get("type")
-    type_ok = {
-        "object": isinstance(value, dict),
-        "array": isinstance(value, list),
-        "string": isinstance(value, str),
-        "integer": isinstance(value, int) and not isinstance(value, bool),
-        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
-        "boolean": isinstance(value, bool),
-        "null": value is None,
-    }.get(expected_type, True)
-    if not type_ok:
-        fail(f"CONTRACT: {location} expected {expected_type}, got {type(value).__name__}")
-    enum = resolved.get("enum")
-    if isinstance(enum, list) and value not in enum:
-        fail(f"CONTRACT: {location} value {value!r} is outside {enum!r}")
-    if "const" in resolved and value != resolved["const"]:
-        fail(f"CONTRACT: {location} must equal {resolved['const']!r}")
-    if isinstance(value, str):
-        minimum_length = resolved.get("minLength")
-        maximum_length = resolved.get("maxLength")
-        pattern = resolved.get("pattern")
-        if isinstance(minimum_length, int) and len(value) < minimum_length:
-            fail(f"CONTRACT: {location} is shorter than {minimum_length}")
-        if isinstance(maximum_length, int) and len(value) > maximum_length:
-            fail(f"CONTRACT: {location} is longer than {maximum_length}")
-        if isinstance(pattern, str) and re.search(pattern, value) is None:
-            fail(f"CONTRACT: {location} does not match {pattern!r}")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        minimum = resolved.get("minimum")
-        maximum = resolved.get("maximum")
-        exclusive_minimum = resolved.get("exclusiveMinimum")
-        exclusive_maximum = resolved.get("exclusiveMaximum")
-        multiple = resolved.get("multipleOf")
-        if isinstance(minimum, (int, float)) and value < minimum:
-            fail(f"CONTRACT: {location} is below {minimum}")
-        if isinstance(maximum, (int, float)) and value > maximum:
-            fail(f"CONTRACT: {location} is above {maximum}")
-        if (
-            isinstance(exclusive_minimum, (int, float))
-            and not isinstance(exclusive_minimum, bool)
-            and value <= exclusive_minimum
-        ):
-            fail(f"CONTRACT: {location} must be above {exclusive_minimum}")
-        if (
-            isinstance(exclusive_maximum, (int, float))
-            and not isinstance(exclusive_maximum, bool)
-            and value >= exclusive_maximum
-        ):
-            fail(f"CONTRACT: {location} must be below {exclusive_maximum}")
-        if (
-            isinstance(multiple, (int, float))
-            and not isinstance(multiple, bool)
-            and multiple > 0
-        ):
-            quotient = value / multiple
-            if abs(quotient - round(quotient)) > 1e-9:
-                fail(f"CONTRACT: {location} must be a multiple of {multiple}")
-    if isinstance(value, dict):
-        required = resolved.get("required", [])
-        if isinstance(required, list):
-            missing = [key for key in required if key not in value]
-            if missing:
-                fail(f"CONTRACT: {location} is missing required fields {missing}")
-        properties = resolved.get("properties")
-        if isinstance(properties, dict):
-            for key, child in value.items():
-                if key in properties:
-                    _validate_value(child, properties[key], document, location=f"{location}.{key}")
-                elif resolved.get("additionalProperties") is False:
-                    fail(f"CONTRACT: {location} has undocumented field {key!r}")
-                elif isinstance(resolved.get("additionalProperties"), dict):
-                    _validate_value(
-                        child,
-                        resolved["additionalProperties"],
-                        document,
-                        location=f"{location}.{key}",
-                    )
-    if isinstance(value, list):
-        minimum = resolved.get("minItems")
-        maximum = resolved.get("maxItems")
-        if isinstance(minimum, int) and len(value) < minimum:
-            fail(f"CONTRACT: {location} requires at least {minimum} items")
-        if isinstance(maximum, int) and len(value) > maximum:
-            fail(f"CONTRACT: {location} allows at most {maximum} items")
-        item_schema = resolved.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                _validate_value(item, item_schema, document, location=f"{location}[{index}]")
+    if not isinstance(schema, dict) or not schema:
+        return
+    base_uri = "urn:fastino:agent-harness"
+    validation_document = {**document, "$id": base_uri, "x-agent-schema": schema}
+    resource = Resource.from_contents(
+        validation_document,
+        default_specification=DRAFT202012,
+    )
+    registry = Registry().with_resource(base_uri, resource)
+    try:
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(
+            {"$ref": f"{base_uri}#/x-agent-schema"},
+            registry=registry,
+        )
+    except SchemaError as error:
+        fail(f"CONTRACT: invalid schema for {location}: {error.message}")
+    errors = sorted(validator.iter_errors(value), key=lambda error: list(error.path))
+    if errors:
+        error = errors[0]
+        suffix = "".join(f"[{part!r}]" for part in error.path)
+        fail(f"CONTRACT: {location}{suffix}: {error.message}")
 
 
 def _operation_for_path(
@@ -467,7 +383,7 @@ def _local_link_findings() -> list[str]:
     return findings
 
 
-def _llms_findings() -> list[str]:
+def _journey_discovery_findings() -> list[str]:
     text = (ROOT / "llms.txt").read_text(encoding="utf-8")
     indexed_paths = {match.group("path") for match in LLMS_URL.finditer(text)}
     findings = [
@@ -544,7 +460,9 @@ def _journey_findings(
 def run_static() -> None:
     document = _load_openapi()
     operations = _validate_openapi(document)
-    findings = _llms_findings() + _local_link_findings()
+    findings = local_docs_findings(ROOT, document)
+    findings.extend(_journey_discovery_findings())
+    findings.extend(_local_link_findings())
     try:
         findings.extend(_journey_findings(document, operations))
     except HarnessFailure as error:
@@ -807,6 +725,25 @@ def _run_gliner(
         payload=body,
     )
     payload = _json_response(response, label="INFERENCE GLiNER")
+    _validate_gliner_response(
+        document,
+        operations,
+        response,
+        payload,
+        label="INFERENCE GLiNER",
+        expected_entities={"person", "location"},
+    )
+
+
+def _validate_gliner_response(
+    document: dict[str, object],
+    operations: dict[tuple[str, str], dict[str, object]],
+    response: Response,
+    payload: object,
+    *,
+    label: str,
+    expected_entities: set[str],
+) -> None:
     _validate_operation_response(
         document,
         operations,
@@ -819,13 +756,21 @@ def _run_gliner(
     message = choices[0].get("message") if isinstance(choices, list) and choices else None
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str):
-        fail("INFERENCE: GLiNER response has no choices[0].message.content")
+        fail(f"{label}: response has no choices[0].message.content")
     try:
         result = json.loads(content)
     except json.JSONDecodeError as error:
-        fail(f"INFERENCE: GLiNER content is not serialized JSON: {error}")
-    if not isinstance(result, dict) or "entities" not in result:
-        fail("INFERENCE: GLiNER content does not contain entities")
+        fail(f"{label}: content is not serialized JSON: {error}")
+    entities = result.get("entities") if isinstance(result, dict) else None
+    if not isinstance(entities, dict):
+        fail(f"{label}: content does not contain an entities object")
+    missing = expected_entities - set(entities)
+    if missing:
+        fail(f"{label}: content is missing requested entities: {sorted(missing)}")
+    if any(not isinstance(entities[name], list) for name in expected_entities):
+        fail(f"{label}: requested entity values must be arrays")
+    if not any(entities[name] for name in expected_entities):
+        fail(f"{label}: did not extract any requested entity")
 
 
 def _ready_dataset_reference(api_key: str) -> dict[str, str]:
@@ -1019,8 +964,7 @@ def _stop_and_confirm(api_key: str, job_id: str, *, timeout_seconds: int = 300) 
     )
 
 
-def _recover_training_job(api_key: str, model_name: str) -> dict[str, object]:
-    """Recover an idempotent create whose HTTP response was lost."""
+def _list_training_jobs(api_key: str) -> list[dict[str, object]]:
     response = _request_with_retry(
         "GET",
         f"{API_ORIGIN}/v1/training-jobs?limit=200",
@@ -1031,10 +975,15 @@ def _recover_training_job(api_key: str, model_name: str) -> dict[str, object]:
     jobs = payload.get("training_jobs") if isinstance(payload, dict) else None
     if not isinstance(jobs, list):
         fail("TRAINING: job-list response has no training_jobs list")
+    return [job for job in jobs if isinstance(job, dict)]
+
+
+def _recover_training_job(api_key: str, model_name: str) -> dict[str, object]:
+    """Recover an idempotent create whose HTTP response was lost."""
     matches = [
         job
-        for job in jobs
-        if isinstance(job, dict) and job.get("model_name") == model_name
+        for job in _list_training_jobs(api_key)
+        if job.get("model_name") == model_name
     ]
     if len(matches) != 1:
         fail(
@@ -1044,18 +993,168 @@ def _recover_training_job(api_key: str, model_name: str) -> dict[str, object]:
     return matches[0]
 
 
+def _lifecycle_identity(run_id: str, run_attempt: int) -> tuple[uuid.UUID, str]:
+    marker = (
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"fastino-docs-training:{run_id}:attempt:{run_attempt}",
+        )
+        if run_id
+        else uuid.uuid4()
+    )
+    return marker, f"docs-agent-canary-{marker.hex[:12]}"
+
+
+def _reconcile_previous_attempts(
+    api_key: str,
+    run_id: str,
+    run_attempt: int,
+) -> None:
+    if not run_id or run_attempt <= 1:
+        return
+    previous_names = {
+        _lifecycle_identity(run_id, attempt)[1]
+        for attempt in range(1, run_attempt)
+    }
+    for job in _list_training_jobs(api_key):
+        if job.get("model_name") not in previous_names:
+            continue
+        job_id = job.get("id")
+        if not isinstance(job_id, str):
+            fail("TRAINING: prior canary attempt has no job id")
+        _, terminal = _training_status(job)
+        if not terminal:
+            _stop_and_confirm(api_key, job_id)
+
+
+def _billing_minutes(payload: object) -> Decimal | None:
+    if not isinstance(payload, dict):
+        fail("TRAINING: billing response is not an object")
+    if payload.get("billed") is not True:
+        return None
+    raw_minutes = payload.get("gpu_minutes")
+    if raw_minutes is None:
+        fail("TRAINING: billed job has no gpu_minutes")
+    try:
+        minutes = Decimal(str(raw_minutes))
+    except InvalidOperation:
+        fail(f"TRAINING: invalid gpu_minutes value: {raw_minutes!r}")
+    if not minutes.is_finite() or minutes < 0:
+        fail(f"TRAINING: invalid gpu_minutes value: {raw_minutes!r}")
+    return minutes
+
+
+def _wait_for_billing(
+    api_key: str,
+    job_id: str,
+    *,
+    timeout_seconds: int,
+) -> Decimal:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        response = _request_with_retry(
+            "GET",
+            f"{API_ORIGIN}/v1/training-jobs/{job_id}/billing",
+            headers=_auth_headers(api_key),
+        )
+        payload = _json_response(response, label="TRAINING lifecycle billing")
+        minutes = _billing_minutes(payload)
+        if minutes is not None:
+            return minutes
+        if time.monotonic() >= deadline:
+            fail(
+                f"TRAINING: billing for {job_id} was not finalized within "
+                f"{timeout_seconds} seconds"
+            )
+        time.sleep(10)
+
+
+def _verify_completed_training_job(
+    api_key: str,
+    job_id: str,
+    final_payload: dict[str, object],
+    document: dict[str, object],
+    operations: dict[tuple[str, str], dict[str, object]],
+) -> None:
+    if final_payload.get("is_deployable") is not True:
+        fail(
+            "TRAINING: successful canary is not deployable: "
+            f"{final_payload.get('deployability_reason')!r}"
+        )
+    for suffix, label in (("logs", "logs"), ("checkpoints", "checkpoints")):
+        result = _request_with_retry(
+            "GET",
+            f"{API_ORIGIN}/v1/training-jobs/{job_id}/{suffix}",
+            headers=_auth_headers(api_key),
+        )
+        _json_response(result, label=f"TRAINING lifecycle {label}")
+
+    billing_timeout = int(
+        os.getenv("FASTINO_DOCS_CANARY_BILLING_TIMEOUT_SECONDS", "300")
+    )
+    minutes = _wait_for_billing(
+        api_key,
+        job_id,
+        timeout_seconds=billing_timeout,
+    )
+    raw_maximum = os.getenv("FASTINO_DOCS_CANARY_MAX_GPU_MINUTES", "28")
+    try:
+        maximum = Decimal(raw_maximum)
+    except InvalidOperation:
+        fail(
+            "TRAINING: FASTINO_DOCS_CANARY_MAX_GPU_MINUTES "
+            f"is invalid: {raw_maximum!r}"
+        )
+    if not maximum.is_finite() or maximum < 0:
+        fail("TRAINING: FASTINO_DOCS_CANARY_MAX_GPU_MINUTES must be non-negative")
+    if minutes > maximum:
+        fail(
+            f"TRAINING: canary used {minutes} GPU minutes, "
+            f"above the configured {maximum}"
+        )
+
+    inference = _request_with_retry(
+        "POST",
+        f"{API_ORIGIN}/v1/chat/completions",
+        headers=_auth_headers(api_key),
+        payload={
+            "model": job_id,
+            "messages": [
+                {"role": "user", "content": "Ada Lovelace worked in London."}
+            ],
+            "schema": {
+                "entities": [{"name": "person"}, {"name": "location"}]
+            },
+            "store": False,
+        },
+    )
+    inference_payload = _json_response(
+        inference,
+        label="TRAINING trained-model inference",
+    )
+    _validate_gliner_response(
+        document,
+        operations,
+        inference,
+        inference_payload,
+        label="TRAINING trained-model inference",
+        expected_entities={"person", "location"},
+    )
+
+
 def run_training_lifecycle() -> None:
     api_key = _require_api_key()
+    document = _load_openapi()
+    operations = _validate_openapi(document)
     dataset_reference = _ready_dataset_reference(api_key)
 
     model = _discover_training_model(api_key)
     run_id = os.getenv("GITHUB_RUN_ID", "")
-    marker = (
-        uuid.uuid5(uuid.NAMESPACE_URL, f"fastino-docs-training:{run_id}")
-        if run_id
-        else uuid.uuid4()
-    )
-    model_name = f"docs-agent-canary-{marker.hex[:12]}"
+    run_attempt = int(os.getenv("GITHUB_RUN_ATTEMPT", "1"))
+    if run_attempt < 1:
+        fail("TRAINING: GITHUB_RUN_ATTEMPT must be at least 1")
+    _reconcile_previous_attempts(api_key, run_id, run_attempt)
+    marker, model_name = _lifecycle_identity(run_id, run_attempt)
     body = {
         "model_name": model_name,
         "base_model": model,
@@ -1113,48 +1212,13 @@ def run_training_lifecycle() -> None:
         os.getenv("FASTINO_DOCS_CANARY_DELETE_SUCCESSFUL", "true").lower() == "true"
     )
     try:
-        if final_payload.get("is_deployable") is not True:
-            fail(
-                "TRAINING: successful canary is not deployable: "
-                f"{final_payload.get('deployability_reason')!r}"
-            )
-        for suffix, label in (
-            ("logs", "logs"),
-            ("checkpoints", "checkpoints"),
-            ("billing", "billing"),
-        ):
-            result = _request_with_retry(
-                "GET",
-                f"{API_ORIGIN}/v1/training-jobs/{job_id}/{suffix}",
-                headers=_auth_headers(api_key),
-            )
-            result_payload = _json_response(result, label=f"TRAINING lifecycle {label}")
-            if suffix == "billing" and isinstance(result_payload, dict):
-                raw_minutes = result_payload.get("gpu_minutes")
-                if raw_minutes is not None:
-                    maximum = float(os.getenv("FASTINO_DOCS_CANARY_MAX_GPU_MINUTES", "28"))
-                    if float(raw_minutes) > maximum:
-                        fail(
-                            f"TRAINING: canary used {raw_minutes} GPU minutes, "
-                            f"above the configured {maximum}"
-                        )
-
-        inference = _request_with_retry(
-            "POST",
-            f"{API_ORIGIN}/v1/chat/completions",
-            headers=_auth_headers(api_key),
-            payload={
-                "model": job_id,
-                "messages": [
-                    {"role": "user", "content": "Ada Lovelace worked in London."}
-                ],
-                "schema": {
-                    "entities": [{"name": "person"}, {"name": "location"}]
-                },
-                "store": False,
-            },
+        _verify_completed_training_job(
+            api_key,
+            job_id,
+            final_payload,
+            document,
+            operations,
         )
-        _json_response(inference, label="TRAINING trained-model inference")
     finally:
         active_error = sys.exc_info()[0] is not None
         if delete_successful:

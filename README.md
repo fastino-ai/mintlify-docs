@@ -72,6 +72,7 @@ python3 scripts/generate_localized_llms.py
 autonomous client:
 
 ```bash
+python3 -m pip install -r scripts/requirements-agent-harness.txt
 python3 scripts/agent_harness.py static
 python3 scripts/agent_harness.py published
 ```
