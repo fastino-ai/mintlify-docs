@@ -41,6 +41,7 @@ METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
 LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
 REQUIRED_AGENT_RESOURCES = {
     "https://docs.fastino.ai/.well-known/agent-skills/index.json",
+    "https://docs.fastino.ai/llms-full.txt",
     "https://docs.fastino.ai/openapi.json",
 }
 RoutePatterns = dict[str, list[re.Pattern[str]]]
@@ -290,6 +291,27 @@ def _line_findings(
     return findings
 
 
+def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]:
+    """Return checks that need only this documentation repository."""
+    findings = _llms_findings(root)
+    findings.extend(_skill_findings(root))
+
+    serialized_destination = json.dumps(destination)
+    for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
+        if retired_contract in serialized_destination:
+            findings.append(
+                f"openapi.json contains retired public contract text: {retired_contract}"
+            )
+
+    docs = _documentation_files(root, include_locales=False)
+    corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
+    for method, path in INFERENCE_OPERATIONS:
+        visible_path = path.replace("{inference_id}", ":id")
+        if path not in corpus and visible_path not in corpus:
+            findings.append(f"English docs do not mention {method} {path}")
+    return findings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pioneer-root", type=Path, required=True)
@@ -304,24 +326,9 @@ def main() -> int:
         )
     )
     route_patterns = _route_patterns(manifest)
-    findings: list[str] = []
-    findings.extend(_llms_findings(root))
-    findings.extend(_skill_findings(root))
-
     actual_operations = _operations(destination)
-    serialized_destination = json.dumps(destination)
-    for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
-        if retired_contract in serialized_destination:
-            findings.append(
-                f"openapi.json contains retired public contract text: {retired_contract}"
-            )
-
+    findings = local_docs_findings(root, destination)
     docs = _documentation_files(root, include_locales=args.include_locales)
-    corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
-    for method, path in INFERENCE_OPERATIONS:
-        visible_path = path.replace("{inference_id}", ":id")
-        if path not in corpus and visible_path not in corpus:
-            findings.append(f"English docs do not mention {method} {path}")
     for path in docs:
         findings.extend(
             _line_findings(
