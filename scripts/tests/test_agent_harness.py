@@ -476,7 +476,10 @@ class AgentHarnessTests(unittest.TestCase):
         ):
             HARNESS._run_training_replay("fast_sk_test")
 
-        cleanup.assert_called_once_with("fast_sk_test", "expected-job")
+        self.assertEqual(cleanup.call_count, 2)
+        cleanup.assert_has_calls(
+            [mock.call("fast_sk_test", "expected-job")] * 2
+        )
 
     def test_replay_ambiguous_responses_trigger_reconciliation(self) -> None:
         existing = HARNESS.Response(
@@ -524,7 +527,60 @@ class AgentHarnessTests(unittest.TestCase):
                 self.assertRaises(HARNESS.HarnessFailure),
             ):
                 HARNESS._run_training_replay("fast_sk_test")
-            cleanup.assert_called_once_with("fast_sk_test", "expected-job")
+            self.assertEqual(cleanup.call_count, 2)
+            cleanup.assert_has_calls(
+                [mock.call("fast_sk_test", "expected-job")] * 2
+            )
+
+    def test_successful_replay_reconciles_before_and_after_request(self) -> None:
+        expected = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs/expected-job",
+            {},
+            json.dumps(
+                {
+                    "id": "expected-job",
+                    "status": "artifact_ready",
+                    "is_terminal_status": True,
+                }
+            ).encode(),
+        )
+        replay = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs",
+            {},
+            json.dumps({"id": "expected-job"}).encode(),
+        )
+        with (
+            mock.patch.dict(
+                HARNESS.os.environ,
+                {
+                    "FASTINO_DOCS_CANARY_TRAINING_JOB_ID": "expected-job",
+                    "FASTINO_DOCS_CANARY_IDEMPOTENCY_KEY": "fixed-key",
+                },
+                clear=False,
+            ),
+            mock.patch.object(
+                HARNESS,
+                "_ready_dataset_reference",
+                return_value={"name": "canary", "version": "1"},
+            ),
+            mock.patch.object(
+                HARNESS,
+                "_request_with_retry",
+                side_effect=[expected, replay],
+            ),
+            mock.patch.object(
+                HARNESS,
+                "_cleanup_unexpected_replay_jobs",
+            ) as cleanup,
+        ):
+            HARNESS._run_training_replay("fast_sk_test")
+
+        self.assertEqual(cleanup.call_count, 2)
+        cleanup.assert_has_calls(
+            [mock.call("fast_sk_test", "expected-job")] * 2
+        )
 
     def test_replay_reconciliation_stops_and_deletes_nonfixture_jobs(self) -> None:
         jobs = [

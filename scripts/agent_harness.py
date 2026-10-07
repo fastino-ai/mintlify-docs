@@ -864,6 +864,7 @@ def _run_training_replay(api_key: str) -> None:
             f"TRAINING: replay fixture {job_id} is not a successful job: "
             f"{existing_status!r}"
         )
+    _cleanup_unexpected_replay_jobs(api_key, job_id)
     body = {
         "model_name": "docs-agent-canary-replay",
         "base_model": os.getenv(
@@ -908,6 +909,7 @@ def _run_training_replay(api_key: str) -> None:
             "TRAINING: idempotent replay returned a different job; "
             "unexpected jobs were stopped and deleted"
         )
+    _cleanup_unexpected_replay_jobs(api_key, job_id)
 
 
 def run_api(*, replay_training: bool) -> None:
