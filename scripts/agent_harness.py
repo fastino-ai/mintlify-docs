@@ -716,6 +716,8 @@ def _run_gliner(
             ]
         },
         "threshold": 0.3,
+        "include_confidence": False,
+        "include_spans": False,
         "store": False,
     }
     response = _request_with_retry(
@@ -731,7 +733,7 @@ def _run_gliner(
         response,
         payload,
         label="INFERENCE GLiNER",
-        expected_entities={"person", "location"},
+        expected_entities={"person": "Ada Lovelace", "location": "London"},
     )
 
 
@@ -742,7 +744,7 @@ def _validate_gliner_response(
     payload: object,
     *,
     label: str,
-    expected_entities: set[str],
+    expected_entities: dict[str, str],
 ) -> None:
     _validate_operation_response(
         document,
@@ -764,13 +766,18 @@ def _validate_gliner_response(
     entities = result.get("entities") if isinstance(result, dict) else None
     if not isinstance(entities, dict):
         fail(f"{label}: content does not contain an entities object")
-    missing = expected_entities - set(entities)
+    missing = set(expected_entities) - set(entities)
     if missing:
         fail(f"{label}: content is missing requested entities: {sorted(missing)}")
     if any(not isinstance(entities[name], list) for name in expected_entities):
         fail(f"{label}: requested entity values must be arrays")
-    if not any(entities[name] for name in expected_entities):
-        fail(f"{label}: did not extract any requested entity")
+    wrong_values = {
+        name: expected
+        for name, expected in expected_entities.items()
+        if expected not in entities[name]
+    }
+    if wrong_values:
+        fail(f"{label}: content is missing expected values: {wrong_values}")
 
 
 def _ready_dataset_reference(api_key: str) -> dict[str, str]:
@@ -810,6 +817,12 @@ def _ready_dataset_reference(api_key: str) -> dict[str, str]:
         fail(
             "TRAINING: canary dataset version must be an NER training dataset, got "
             f"dataset_type={selected.get('dataset_type')!r}, type={selected.get('type')!r}"
+        )
+    labels = selected.get("labels")
+    if not isinstance(labels, list) or not {"person", "location"} <= set(labels):
+        fail(
+            "TRAINING: canary dataset must contain person and location labels, got "
+            f"{labels!r}"
         )
     return {"name": dataset_name, "version": dataset_version}
 
@@ -936,27 +949,57 @@ def _cleanup_training_job(api_key: str, job_id: str) -> None:
     _require_status(response, {200}, "TRAINING cleanup")
 
 
-def _stop_and_confirm(api_key: str, job_id: str, *, timeout_seconds: int = 300) -> None:
-    stop = _request_with_retry(
-        "POST",
-        f"{API_ORIGIN}/v1/training-jobs/{job_id}/stop",
+def _error_code(response: Response) -> str | None:
+    try:
+        payload = response.json()
+    except json.JSONDecodeError:
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    return code if isinstance(code, str) else None
+
+
+def _training_job_is_terminal(api_key: str, job_id: str) -> bool:
+    poll = _request_with_retry(
+        "GET",
+        f"{API_ORIGIN}/v1/training-jobs/{job_id}",
         headers=_auth_headers(api_key),
         timeout=20,
     )
-    _require_status(stop, {200, 202, 409}, f"TRAINING stop {job_id}")
+    payload = _json_response(poll, label=f"TRAINING confirm stop {job_id}")
+    _, terminal = _training_status(payload)
+    return terminal
+
+
+def _stop_and_confirm(api_key: str, job_id: str, *, timeout_seconds: int = 300) -> None:
     deadline = time.monotonic() + timeout_seconds
     last_status = "unknown"
-    while time.monotonic() < deadline:
-        poll = _request_with_retry(
-            "GET",
-            f"{API_ORIGIN}/v1/training-jobs/{job_id}",
+    while True:
+        stop = _request_with_retry(
+            "POST",
+            f"{API_ORIGIN}/v1/training-jobs/{job_id}/stop",
             headers=_auth_headers(api_key),
             timeout=20,
         )
-        payload = _json_response(poll, label=f"TRAINING confirm stop {job_id}")
-        last_status, terminal = _training_status(payload)
-        if terminal:
+        if stop.status in {200, 202}:
+            break
+        if stop.status != 409:
+            _require_status(stop, {200, 202}, f"TRAINING stop {job_id}")
+        code = _error_code(stop)
+        if code == "training_job_already_finished":
+            break
+        if code != "cancellation_unconfirmed":
+            fail(f"TRAINING stop {job_id}: unexpected 409 error code {code!r}")
+        if _training_job_is_terminal(api_key, job_id):
             return
+        if time.monotonic() >= deadline:
+            fail(f"TRAINING: cancellation remained unconfirmed for {job_id}")
+        time.sleep(5)
+
+    while time.monotonic() < deadline:
+        if _training_job_is_terminal(api_key, job_id):
+            return
+        last_status = "non-terminal"
         time.sleep(10)
     fail(
         f"TRAINING: could not confirm stop for {job_id} within "
@@ -965,17 +1008,29 @@ def _stop_and_confirm(api_key: str, job_id: str, *, timeout_seconds: int = 300) 
 
 
 def _list_training_jobs(api_key: str) -> list[dict[str, object]]:
-    response = _request_with_retry(
-        "GET",
-        f"{API_ORIGIN}/v1/training-jobs?limit=200",
-        headers=_auth_headers(api_key),
-        timeout=30,
-    )
-    payload = _json_response(response, label="TRAINING recover create")
-    jobs = payload.get("training_jobs") if isinstance(payload, dict) else None
-    if not isinstance(jobs, list):
-        fail("TRAINING: job-list response has no training_jobs list")
-    return [job for job in jobs if isinstance(job, dict)]
+    jobs: list[dict[str, object]] = []
+    offset = 0
+    while True:
+        response = _request_with_retry(
+            "GET",
+            f"{API_ORIGIN}/v1/training-jobs?limit=200&offset={offset}",
+            headers=_auth_headers(api_key),
+            timeout=30,
+        )
+        payload = _json_response(response, label="TRAINING list canary jobs")
+        page = payload.get("training_jobs") if isinstance(payload, dict) else None
+        if not isinstance(page, list):
+            fail("TRAINING: job-list response has no training_jobs list")
+        typed_page = [job for job in page if isinstance(job, dict)]
+        if len(typed_page) != len(page):
+            fail("TRAINING: job-list response contains a non-object job")
+        jobs.extend(typed_page)
+        has_more = payload.get("has_more") if isinstance(payload, dict) else None
+        if has_more is not True:
+            return jobs
+        if not page:
+            fail("TRAINING: job-list pagination reports has_more with an empty page")
+        offset += len(page)
 
 
 def _recover_training_job(api_key: str, model_name: str) -> dict[str, object]:
@@ -993,6 +1048,38 @@ def _recover_training_job(api_key: str, model_name: str) -> dict[str, object]:
     return matches[0]
 
 
+def _create_or_recover_training_job(
+    api_key: str,
+    marker: uuid.UUID,
+    model_name: str,
+    body: dict[str, object],
+) -> dict[str, object]:
+    try:
+        response = _request_with_retry(
+            "POST",
+            f"{API_ORIGIN}/v1/training-jobs",
+            headers={
+                **_auth_headers(api_key),
+                "Idempotency-Key": str(marker),
+            },
+            payload=body,
+        )
+    except (OSError, TimeoutError, urllib.error.URLError):
+        return _recover_training_job(api_key, model_name)
+    if response.status == 200:
+        try:
+            payload = _json_response(response, label="TRAINING lifecycle create")
+        except HarnessFailure:
+            return _recover_training_job(api_key, model_name)
+        if isinstance(payload, dict):
+            return payload
+        return _recover_training_job(api_key, model_name)
+    if response.status == 409 or response.status >= 500:
+        return _recover_training_job(api_key, model_name)
+    _json_response(response, label="TRAINING lifecycle create")
+    fail(f"TRAINING: unexpected create response HTTP {response.status}")
+
+
 def _lifecycle_identity(run_id: str, run_attempt: int) -> tuple[uuid.UUID, str]:
     marker = (
         uuid.uuid5(
@@ -1002,22 +1089,26 @@ def _lifecycle_identity(run_id: str, run_attempt: int) -> tuple[uuid.UUID, str]:
         if run_id
         else uuid.uuid4()
     )
-    return marker, f"docs-agent-canary-{marker.hex[:12]}"
+    return marker, f"docs-agent-lifecycle-{marker.hex[:12]}"
 
 
-def _reconcile_previous_attempts(
+def _is_lifecycle_canary_name(value: object) -> bool:
+    return isinstance(value, str) and (
+        value.startswith("docs-agent-lifecycle-")
+        or (
+            value.startswith("docs-agent-canary-")
+            and value != "docs-agent-canary-replay"
+        )
+    )
+
+
+def _reconcile_canary_jobs(
     api_key: str,
-    run_id: str,
-    run_attempt: int,
+    current_model_name: str,
 ) -> None:
-    if not run_id or run_attempt <= 1:
-        return
-    previous_names = {
-        _lifecycle_identity(run_id, attempt)[1]
-        for attempt in range(1, run_attempt)
-    }
     for job in _list_training_jobs(api_key):
-        if job.get("model_name") not in previous_names:
+        model_name = job.get("model_name")
+        if model_name == current_model_name or not _is_lifecycle_canary_name(model_name):
             continue
         job_id = job.get("id")
         if not isinstance(job_id, str):
@@ -1025,6 +1116,7 @@ def _reconcile_previous_attempts(
         _, terminal = _training_status(job)
         if not terminal:
             _stop_and_confirm(api_key, job_id)
+        _cleanup_training_job(api_key, job_id)
 
 
 def _billing_minutes(payload: object) -> Decimal | None:
@@ -1125,6 +1217,8 @@ def _verify_completed_training_job(
             "schema": {
                 "entities": [{"name": "person"}, {"name": "location"}]
             },
+            "include_confidence": False,
+            "include_spans": False,
             "store": False,
         },
     )
@@ -1138,7 +1232,7 @@ def _verify_completed_training_job(
         inference,
         inference_payload,
         label="TRAINING trained-model inference",
-        expected_entities={"person", "location"},
+        expected_entities={"person": "Ada Lovelace", "location": "London"},
     )
 
 
@@ -1153,8 +1247,8 @@ def run_training_lifecycle() -> None:
     run_attempt = int(os.getenv("GITHUB_RUN_ATTEMPT", "1"))
     if run_attempt < 1:
         fail("TRAINING: GITHUB_RUN_ATTEMPT must be at least 1")
-    _reconcile_previous_attempts(api_key, run_id, run_attempt)
     marker, model_name = _lifecycle_identity(run_id, run_attempt)
+    _reconcile_canary_jobs(api_key, model_name)
     body = {
         "model_name": model_name,
         "base_model": model,
@@ -1165,19 +1259,12 @@ def run_training_lifecycle() -> None:
         "auto_data_sizing": True,
         "max_samples_per_dataset": 100,
     }
-    try:
-        response = _request_with_retry(
-            "POST",
-            f"{API_ORIGIN}/v1/training-jobs",
-            headers={
-                **_auth_headers(api_key),
-                "Idempotency-Key": str(marker),
-            },
-            payload=body,
-        )
-        payload = _json_response(response, label="TRAINING lifecycle create")
-    except (OSError, TimeoutError, urllib.error.URLError):
-        payload = _recover_training_job(api_key, model_name)
+    payload = _create_or_recover_training_job(
+        api_key,
+        marker,
+        model_name,
+        body,
+    )
     job_id = payload.get("id") if isinstance(payload, dict) else None
     if not isinstance(job_id, str):
         fail("TRAINING: create response has no job id")

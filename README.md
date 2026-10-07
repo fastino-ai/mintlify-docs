@@ -92,7 +92,7 @@ enabling them:
 | `ENABLE_DOCS_API_CANARY` | Run daily authentication, catalog, GLiDE, GLiNER, dataset, and training-read checks |
 | `ENABLE_DOCS_TRAINING_REPLAY` | Replay one existing job's fixed idempotency key and assert that no new job is created |
 | `ENABLE_FULL_TRAINING_CANARY` | Run the weekly one-epoch dataset-to-inference lifecycle |
-| `FASTINO_DOCS_CANARY_DATASET` | Immutable, ready NER dataset name used by the canaries |
+| `FASTINO_DOCS_CANARY_DATASET` | Immutable, ready NER dataset with `person` and `location` labels used by the canaries |
 | `FASTINO_DOCS_CANARY_DATASET_VERSION` | Exact ready version of the immutable canary dataset |
 | `FASTINO_DOCS_CANARY_BASE_MODEL` | Optional trainable GLiNER base-model override |
 | `FASTINO_DOCS_CANARY_TRAINING_JOB_ID` | Existing job expected from the replay key |

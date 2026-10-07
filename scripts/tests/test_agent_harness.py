@@ -228,7 +228,7 @@ class AgentHarnessTests(unittest.TestCase):
                 response,
                 payload,
                 label="test",
-                expected_entities={"person", "location"},
+                expected_entities={"person": "Ada Lovelace", "location": "London"},
             )
 
     def test_gliner_response_accepts_nonempty_requested_entities(self) -> None:
@@ -256,8 +256,135 @@ class AgentHarnessTests(unittest.TestCase):
                 response,
                 payload,
                 label="test",
-                expected_entities={"person", "location"},
+                expected_entities={"person": "Ada Lovelace", "location": "London"},
             )
+
+    def test_gliner_response_rejects_unrelated_entity_values(self) -> None:
+        response = HARNESS.Response(200, "https://api.fastino.ai/v1/chat/completions", {}, b"")
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "entities": {
+                                    "person": ["Ada Lovelace"],
+                                    "location": ["Paris"],
+                                }
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+        with (
+            mock.patch.object(HARNESS, "_validate_operation_response"),
+            self.assertRaisesRegex(HARNESS.HarnessFailure, "expected values"),
+        ):
+            HARNESS._validate_gliner_response(
+                {},
+                {("post", "/v1/chat/completions"): {}},
+                response,
+                payload,
+                label="test",
+                expected_entities={"person": "Ada Lovelace", "location": "London"},
+            )
+
+    def test_stop_retries_cancellation_unconfirmed_until_terminal(self) -> None:
+        stop_unconfirmed = HARNESS.Response(
+            409,
+            "https://api.fastino.ai/v1/training-jobs/job-1/stop",
+            {},
+            json.dumps({"error": {"code": "cancellation_unconfirmed"}}).encode(),
+        )
+        stop_accepted = HARNESS.Response(202, stop_unconfirmed.url, {}, b"{}")
+        running = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs/job-1",
+            {},
+            json.dumps(
+                {"status": "running", "is_terminal_status": False}
+            ).encode(),
+        )
+        stopped = HARNESS.Response(
+            200,
+            running.url,
+            {},
+            json.dumps(
+                {"status": "stopped", "is_terminal_status": True}
+            ).encode(),
+        )
+        with (
+            mock.patch.object(
+                HARNESS,
+                "_request_with_retry",
+                side_effect=[stop_unconfirmed, running, stop_accepted, stopped],
+            ) as request,
+            mock.patch.object(HARNESS.time, "monotonic", side_effect=[0, 1, 2]),
+            mock.patch.object(HARNESS.time, "sleep"),
+        ):
+            HARNESS._stop_and_confirm("fast_sk_test", "job-1", timeout_seconds=30)
+
+        self.assertEqual(request.call_count, 4)
+
+    def test_create_recovers_after_ambiguous_server_response(self) -> None:
+        unavailable = HARNESS.Response(
+            503,
+            "https://api.fastino.ai/v1/training-jobs",
+            {},
+            b"temporarily unavailable",
+        )
+        recovered = {"id": "job-1", "model_name": "canary"}
+        with (
+            mock.patch.object(HARNESS, "_request_with_retry", return_value=unavailable),
+            mock.patch.object(
+                HARNESS,
+                "_recover_training_job",
+                return_value=recovered,
+            ) as recover,
+        ):
+            actual = HARNESS._create_or_recover_training_job(
+                "fast_sk_test",
+                HARNESS.uuid.uuid4(),
+                "canary",
+                {"model_name": "canary"},
+            )
+
+        self.assertEqual(actual, recovered)
+        recover.assert_called_once_with("fast_sk_test", "canary")
+
+    def test_training_job_listing_follows_pagination(self) -> None:
+        first = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs?limit=200&offset=0",
+            {},
+            json.dumps(
+                {
+                    "training_jobs": [{"id": "job-1"}],
+                    "has_more": True,
+                }
+            ).encode(),
+        )
+        second = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs?limit=200&offset=1",
+            {},
+            json.dumps(
+                {
+                    "training_jobs": [{"id": "job-2"}],
+                    "has_more": False,
+                }
+            ).encode(),
+        )
+        with mock.patch.object(
+            HARNESS,
+            "_request_with_retry",
+            side_effect=[first, second],
+        ) as request:
+            jobs = HARNESS._list_training_jobs("fast_sk_test")
+
+        self.assertEqual([job["id"] for job in jobs], ["job-1", "job-2"])
+        self.assertIn("offset=1", request.call_args_list[1].args[1])
 
     def test_lifecycle_rerun_uses_new_identity_and_stops_active_prior_job(self) -> None:
         first_marker, first_name = HARNESS._lifecycle_identity("run-1", 1)
@@ -275,10 +402,12 @@ class AgentHarnessTests(unittest.TestCase):
         with (
             mock.patch.object(HARNESS, "_list_training_jobs", return_value=[prior_job]),
             mock.patch.object(HARNESS, "_stop_and_confirm") as stop,
+            mock.patch.object(HARNESS, "_cleanup_training_job") as cleanup,
         ):
-            HARNESS._reconcile_previous_attempts("fast_sk_test", "run-1", 2)
+            HARNESS._reconcile_canary_jobs("fast_sk_test", "current-canary")
 
         stop.assert_called_once_with("fast_sk_test", "job-1")
+        cleanup.assert_called_once_with("fast_sk_test", "job-1")
 
     def test_recover_training_job_requires_unique_model_name(self) -> None:
         job = {"id": "job-1", "model_name": "canary"}
@@ -297,12 +426,6 @@ class AgentHarnessTests(unittest.TestCase):
             "is_terminal_status": True,
             "is_deployable": True,
         }
-        response = HARNESS.Response(
-            200,
-            "https://api.fastino.ai/v1/training-jobs",
-            {},
-            json.dumps(created).encode(),
-        )
         with (
             mock.patch.dict(
                 HARNESS.os.environ,
@@ -326,8 +449,12 @@ class AgentHarnessTests(unittest.TestCase):
                 "_discover_training_model",
                 return_value="fastino/gliner2-base-v1",
             ),
-            mock.patch.object(HARNESS, "_reconcile_previous_attempts"),
-            mock.patch.object(HARNESS, "_request_with_retry", return_value=response),
+            mock.patch.object(HARNESS, "_reconcile_canary_jobs"),
+            mock.patch.object(
+                HARNESS,
+                "_create_or_recover_training_job",
+                return_value=created,
+            ),
             mock.patch.object(
                 HARNESS,
                 "_verify_completed_training_job",
