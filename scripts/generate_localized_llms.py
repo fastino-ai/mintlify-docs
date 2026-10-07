@@ -139,6 +139,37 @@ def _visible_pages(node: object) -> list[str]:
     return pages
 
 
+def _navigation_groups(language: dict[str, object]) -> list[dict[str, object]]:
+    """Return visible groups from either language-level groups or tabs."""
+    containers = language.get("tabs", language.get("groups"))
+    if not isinstance(containers, list):
+        raise ValueError(f"{language.get('language')} navigation has no groups or tabs")
+
+    groups: list[dict[str, object]] = []
+    for container in containers:
+        if not isinstance(container, dict) or container.get("hidden") is True:
+            continue
+        if "tab" in container:
+            children = container.get("pages")
+            if not isinstance(children, list):
+                raise ValueError(
+                    f"{language.get('language')} navigation tab has no pages"
+                )
+            direct_pages = [child for child in children if isinstance(child, str)]
+            if direct_pages:
+                groups.append({"group": container["tab"], "pages": direct_pages})
+            groups.extend(
+                child
+                for child in children
+                if isinstance(child, dict)
+                and isinstance(child.get("group"), str)
+                and child.get("hidden") is not True
+            )
+        elif isinstance(container.get("group"), str):
+            groups.append(container)
+    return groups
+
+
 def _frontmatter(root: Path, path: Path) -> tuple[str, str]:
     """Return a page's title and description."""
     text = path.read_text(encoding="utf-8")
@@ -188,12 +219,7 @@ def _render_index(root: Path, language: dict[str, object]) -> str:
             f"{copy.skills_description}"
         ),
     ]
-    groups = language.get("groups")
-    if not isinstance(groups, list):
-        raise ValueError(f"{locale} navigation has no groups")
-    for group in groups:
-        if not isinstance(group, dict) or group.get("hidden") is True:
-            continue
+    for group in _navigation_groups(language):
         heading = group.get("group")
         if not isinstance(heading, str):
             raise ValueError(f"{locale} navigation contains a group without a name")
