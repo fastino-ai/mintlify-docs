@@ -22,6 +22,17 @@ SPEC.loader.exec_module(HARNESS)
 
 
 class AgentHarnessTests(unittest.TestCase):
+    def test_secret_bearing_workflows_are_pinned_to_main(self) -> None:
+        daily = (HARNESS.ROOT / ".github/workflows/agent-docs-harness.yml").read_text()
+        lifecycle = (
+            HARNESS.ROOT / ".github/workflows/agent-docs-training-lifecycle.yml"
+        ).read_text()
+
+        self.assertEqual(daily.count("github.ref == 'refs/heads/main'"), 2)
+        self.assertEqual(daily.count("ref: main"), 2)
+        self.assertIn("github.ref == 'refs/heads/main'", lifecycle)
+        self.assertIn("ref: main", lifecycle)
+
     def test_openapi_resolves_required_agent_operations(self) -> None:
         document = HARNESS._load_openapi()
         operations = HARNESS._validate_openapi(document)
@@ -457,14 +468,97 @@ class AgentHarnessTests(unittest.TestCase):
                 "_request_with_retry",
                 side_effect=[existing, unexpected],
             ),
-            mock.patch.object(HARNESS, "_stop_and_confirm") as stop,
-            mock.patch.object(HARNESS, "_cleanup_training_job") as cleanup,
+            mock.patch.object(
+                HARNESS,
+                "_cleanup_unexpected_replay_jobs",
+            ) as cleanup,
             self.assertRaisesRegex(HARNESS.HarnessFailure, "stopped and deleted"),
         ):
             HARNESS._run_training_replay("fast_sk_test")
 
-        stop.assert_called_once_with("fast_sk_test", "unexpected-job")
-        cleanup.assert_called_once_with("fast_sk_test", "unexpected-job")
+        cleanup.assert_called_once_with("fast_sk_test", "expected-job")
+
+    def test_replay_ambiguous_responses_trigger_reconciliation(self) -> None:
+        existing = HARNESS.Response(
+            200,
+            "https://api.fastino.ai/v1/training-jobs/expected-job",
+            {},
+            json.dumps(
+                {
+                    "id": "expected-job",
+                    "status": "artifact_ready",
+                    "is_terminal_status": True,
+                }
+            ).encode(),
+        )
+        ambiguous = (
+            urllib.error.URLError("lost response"),
+            HARNESS.Response(503, "https://api.fastino.ai/v1/training-jobs", {}, b""),
+            HARNESS.Response(200, "https://api.fastino.ai/v1/training-jobs", {}, b"{}"),
+        )
+        for outcome in ambiguous:
+            with (
+                self.subTest(outcome=type(outcome).__name__),
+                mock.patch.dict(
+                    HARNESS.os.environ,
+                    {
+                        "FASTINO_DOCS_CANARY_TRAINING_JOB_ID": "expected-job",
+                        "FASTINO_DOCS_CANARY_IDEMPOTENCY_KEY": "fixed-key",
+                    },
+                    clear=False,
+                ),
+                mock.patch.object(
+                    HARNESS,
+                    "_ready_dataset_reference",
+                    return_value={"name": "canary", "version": "1"},
+                ),
+                mock.patch.object(
+                    HARNESS,
+                    "_request_with_retry",
+                    side_effect=[existing, outcome],
+                ),
+                mock.patch.object(
+                    HARNESS,
+                    "_cleanup_unexpected_replay_jobs",
+                ) as cleanup,
+                self.assertRaises(HARNESS.HarnessFailure),
+            ):
+                HARNESS._run_training_replay("fast_sk_test")
+            cleanup.assert_called_once_with("fast_sk_test", "expected-job")
+
+    def test_replay_reconciliation_stops_and_deletes_nonfixture_jobs(self) -> None:
+        jobs = [
+            {
+                "id": "expected-job",
+                "model_name": "docs-agent-canary-replay",
+                "status": "artifact_ready",
+                "is_terminal_status": True,
+            },
+            {
+                "id": "unexpected-active",
+                "model_name": "docs-agent-canary-replay",
+                "status": "running",
+                "is_terminal_status": False,
+            },
+            {
+                "id": "unrelated",
+                "model_name": "customer-model",
+                "status": "running",
+                "is_terminal_status": False,
+            },
+        ]
+        with (
+            mock.patch.object(HARNESS, "_list_training_jobs", return_value=jobs),
+            mock.patch.object(HARNESS, "_stop_and_confirm") as stop,
+            mock.patch.object(HARNESS, "_cleanup_training_job") as cleanup,
+        ):
+            HARNESS._cleanup_unexpected_replay_jobs(
+                "fast_sk_test",
+                "expected-job",
+            )
+
+        stop.assert_called_once_with("fast_sk_test", "unexpected-active")
+        cleanup.assert_called_once_with("fast_sk_test", "unexpected-active")
 
     def test_lifecycle_cleans_up_when_post_training_verification_fails(self) -> None:
         created = {

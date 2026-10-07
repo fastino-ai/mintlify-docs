@@ -880,21 +880,33 @@ def _run_training_replay(api_key: str) -> None:
         **_auth_headers(api_key),
         "Idempotency-Key": idempotency_key,
     }
-    replay = _request_with_retry(
-        "POST",
-        f"{API_ORIGIN}/v1/training-jobs",
-        headers=headers,
-        payload=body,
-    )
-    payload = _json_response(replay, label="TRAINING idempotent create replay")
+    try:
+        replay = _request_with_retry(
+            "POST",
+            f"{API_ORIGIN}/v1/training-jobs",
+            headers=headers,
+            payload=body,
+        )
+    except (OSError, TimeoutError, urllib.error.URLError):
+        _cleanup_unexpected_replay_jobs(api_key, job_id)
+        fail("TRAINING: idempotent replay response was lost; unexpected jobs were cleaned")
+    if replay.status != 200:
+        _cleanup_unexpected_replay_jobs(api_key, job_id)
+        fail(
+            f"TRAINING: idempotent replay returned HTTP {replay.status}; "
+            "unexpected jobs were cleaned"
+        )
+    try:
+        payload = _json_response(replay, label="TRAINING idempotent create replay")
+    except HarnessFailure:
+        _cleanup_unexpected_replay_jobs(api_key, job_id)
+        fail("TRAINING: idempotent replay response was malformed; unexpected jobs were cleaned")
     replay_id = payload.get("id") if isinstance(payload, dict) else None
     if replay_id != job_id:
-        if isinstance(replay_id, str):
-            _stop_and_confirm(api_key, replay_id)
-            _cleanup_training_job(api_key, replay_id)
+        _cleanup_unexpected_replay_jobs(api_key, job_id)
         fail(
             "TRAINING: idempotent replay returned a different job; "
-            "the unexpected job was stopped and deleted"
+            "unexpected jobs were stopped and deleted"
         )
 
 
@@ -1101,6 +1113,24 @@ def _is_lifecycle_canary_name(value: object) -> bool:
             and value != "docs-agent-canary-replay"
         )
     )
+
+
+def _cleanup_unexpected_replay_jobs(
+    api_key: str,
+    expected_job_id: str,
+) -> None:
+    for job in _list_training_jobs(api_key):
+        if job.get("model_name") != "docs-agent-canary-replay":
+            continue
+        job_id = job.get("id")
+        if job_id == expected_job_id:
+            continue
+        if not isinstance(job_id, str):
+            fail("TRAINING: unexpected replay job has no job id")
+        _, terminal = _training_status(job)
+        if not terminal:
+            _stop_and_confirm(api_key, job_id)
+        _cleanup_training_job(api_key, job_id)
 
 
 def _reconcile_canary_jobs(
