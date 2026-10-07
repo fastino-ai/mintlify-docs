@@ -3,6 +3,7 @@ title: "Fastino API 错误代码与响应格式"
 sidebarTitle: "错误"
 description: "Fastino API 返回的 4xx 与 5xx HTTP 状态代码、每种错误族的 JSON 响应结构,以及计费、速率限制与校验错误的解决步骤。"
 noindex: true
+hidden: true
 ---
 
 Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx` 范围的代码表示成功。`4xx` 范围的代码表示您的请求存在可修复的问题。`5xx` 范围的代码表示服务器端问题。
@@ -19,8 +20,8 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 少数几类响应使用不同的结构：
 
-- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非 `detail`--参见下方的 [402](#402---需要付款-payment-required) 和 [403](#403---禁止访问-forbidden)。
-- **速率限制响应**（`429`）在 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头--参见下方的 [429](#429---请求过多-too-many-requests)。
+- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非 `detail`--参见下方的 [402](#402-需要付款-payment-required) 和 [403](#403-禁止访问-forbidden)。
+- **速率限制响应**（`429`）在 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头--参见下方的 [429](#429-请求过多-too-many-requests)。
 - **未处理的服务器错误**（`500`）返回 `{"error", "message"}` 而不是 `detail`。
 - 针对 OpenAI 兼容端点（`/v1/chat/completions`、`/v1/responses`）的请求会收到 OpenAI 格式的 `{"error": {"code", "type", "param", "message"}}` 封装，而携带 `anthropic-version` 请求头的请求则会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装，而非上述通用格式。
 
@@ -38,19 +39,19 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 您的请求未包含有效的 API 密钥、密钥已被撤销，或者您的账户因计费或欺诈审查而被封禁。
 
-**如何修复：** 确认 `X-API-Key` 请求头存在并且包含您当前的密钥。如果您最近撤销了密钥，请在 **Settings** → **API Keys** 中生成新的密钥。如果您的账户被封禁，请联系 [support@pioneer.ai](mailto:support@pioneer.ai)。设置说明请参见[身份验证](/api-reference/authentication)。
+**如何修复：** 确认 `X-API-Key` 请求头存在并且包含您当前的密钥。如果您最近撤销了密钥，请在 **Settings** → **API Keys** 中生成新的密钥。如果您的账户被封禁，请联系 [support@pioneer.ai](mailto:support@pioneer.ai)。设置说明请参见[身份验证](/cn/api-reference/authentication)。
 
 ---
 
 ### 402 - 需要付款 (Payment Required)
 
 <Warning>
-  `402` 响应表示您的账户没有可用的付费余额，或需要执行计费操作才能运行推理。在您充值或升级套餐之前，所有 API 调用都会失败。请前往 **Settings** → **Billing** 或参见[套餐和定价](/pricing)来解决此问题。
+  `402` 响应表示您的账户没有可用的付费余额，或需要执行计费操作才能运行推理。在您充值或升级套餐之前，所有 API 调用都会失败。请前往 **Settings** → **Billing** 或参见[套餐和定价](/cn/pricing)来解决此问题。
 </Warning>
 
-您的账户余额不足以完成请求。响应主体的 `code` 字段会告诉您具体属于哪种情况--最常见的是 `out_of_credits`（您的赠送额度已耗尽且没有可用的付费余额）或 `direct_model_requires_credits`（套餐包含的额度仅适用于路由器；直接调用模型而非通过 `pioneer/auto` 需要付费余额）。
+您的账户余额不足以完成请求。响应主体的 `code` 字段会告诉您具体属于哪种情况--最常见的是 `out_of_credits`（您的赠送额度已耗尽且没有可用的付费余额）或 `direct_model_requires_credits`（直接调用受支持的模型需要付费额度余额）。
 
-**如何修复：** 登录 [Fastino](https://agent.fastino.ai)，前往 **Settings** → **Billing**，充值或升级套餐。有关额度限制及超额计费的工作方式，请参见[额度限制和超额消费上限](/api-reference/rate-limits#credit-limits-and-overage-spending-cap)。
+**如何修复：** 登录 [Fastino](https://agent.fastino.ai)，前往 **Settings** → **Billing**，充值或升级套餐。有关额度限制及超额计费的工作方式，请参见[额度限制和超额消费上限](/cn/api-reference/rate-limits#额度限制和超额消费上限)。
 
 ---
 
@@ -117,7 +118,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 您已超出该端点的请求速率限制。响应包括一个 `Retry-After` 响应头，以及 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头，用于标识您触发了哪项限制--JSON 主体在 `detail` 之外携带对应的 `code` 和 `scope` 字段。
 
-**如何修复：** 遵循 `Retry-After` 的值并在重试前退避等待。按端点划分的限制以及重试代码模式请参见[速率限制](/api-reference/rate-limits)。请注意，额度和超额拒绝返回的是 `402`/`403`，而不是 `429`--请参见[额度限制和超额消费上限](/api-reference/rate-limits#credit-limits-and-overage-spending-cap)。
+**如何修复：** 遵循 `Retry-After` 的值并在重试前退避等待。按端点划分的限制以及重试代码模式请参见[速率限制](/cn/api-reference/rate-limits)。请注意，额度和超额拒绝返回的是 `402`/`403`，而不是 `429`--请参见[额度限制和超额消费上限](/cn/api-reference/rate-limits#额度限制和超额消费上限)。
 
 ---
 
@@ -125,7 +126,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 由于您所在地区的出口管制或制裁限制，请求的模型不对您的账户开放。
 
-**如何修复：** 请参见 [FAQ](/faq) 获取当前受限地区列表和特定提供商的政策。如果您认为访问被错误地限制，请联系支持团队。
+**如何修复：** 请参见 [FAQ](/cn/faq) 获取当前受限地区列表和特定提供商的政策。如果您认为访问被错误地限制，请联系支持团队。
 
 ---
 

@@ -1,0 +1,81 @@
+---
+title: "GLiNER2-PII：PII 检测 SLM"
+sidebarTitle: "GLiNER2-PII"
+description: "运行 GLiNER2-PII——Fastino 开源的多语言 PII 检测 SLM，用于识别文本中的姓名、电子邮件、电话号码及其他个人数据。"
+hidden: true
+noindex: true
+---
+
+GLiNER2-PII 是我们用于检测和脱敏个人身份信息（PII）的开源小语言模型。它拥有 3 亿参数，可在一次前向传播中识别 7 种语言中的 42 种细粒度 PII 实体类型。
+
+## 在 Fastino 中进行 GLiNER2-PII 推理
+
+`POST /v1/chat/completions`
+
+对提供的消息运行 GLiNER2-PII，并返回 `schema` 中定义的实体。Fastino 在 `https://api.fastino.ai/v1` 提供兼容 OpenAI 的端点，因此你可以通过标准的 chat completions 路由，使用模型 ID `fastino/gliner2-privacy-filter-PII-multi` 调用 GLiNER2-PII。
+
+**请求体**
+
+<ParamField body="model" type="string" required>
+  GLiNER2-PII 模型 ID：`fastino/gliner2-privacy-filter-PII-multi`。
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  需要扫描 PII 的文本，采用标准的 OpenAI chat 格式。
+</ParamField>
+
+<ParamField body="schema" type="object" required>
+  抽取 schema。包含一个 `entities` 数组，列出要检测的 PII 类型。可传入 42 种受支持类型中的任意子集（参见[下方标签表](#gliner2-pii-检测的内容)）。示例检测 `person`、`email` 和 `phone_number`。
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean">
+  为每个检测到的实体返回置信度分数。示例中设置为 `true`。
+</ParamField>
+
+<ParamField body="include_spans" type="boolean">
+  返回每个检测到的实体的字符跨度。示例中设置为 `true`。
+</ParamField>
+
+### 示例：PII 检测
+
+该请求在单条用户消息中检测三种实体类型：`person`、`email` 和 `phone_number`。
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_FASTINO_API_KEY>" \
+  -d '{
+  "model": "fastino/gliner2-privacy-filter-PII-multi",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi, my name is John Smith. You can reach me at john.smith@acme.com or +1-555-0192."
+    }
+  ],
+  "schema": {
+    "entities": [
+      "person",
+      "email",
+      "phone_number"
+    ]
+  },
+  "include_confidence": true,
+  "include_spans": true
+}'
+```
+
+## GLiNER2-PII 检测的内容
+
+GLiNER2-PII 可识别 42 种细粒度 PII 实体类型，分为七组。
+
+| 分组 | 实体类型 |
+| --- | --- |
+| **人物/姓名** | `person`, `full_name`, `first_name`, `middle_name`, `last_name`, `date_of_birth` |
+| **联系方式/地址** | `email`, `phone_number`, `address`, `street_address`, `city`, `state_or_region`, `postal_code`, `country` |
+| **政府/税务 ID** | `government_id`, `national_id_number`, `passport_number`, `drivers_license_number`, `license_number`, `tax_id`, `tax_number` |
+| **银行/支付** | `bank_account`, `account_number`, `routing_number`, `iban`, `payment_card`, `card_number`, `card_expiry`, `card_cvv` |
+| **数字身份** | `username`, `ip_address`, `account_id`, `sensitive_account_id` |
+| **机密/凭据** | `password`, `secret`, `api_key`, `access_token`, `recovery_code` |
+| **敏感日期** | `sensitive_date`, `document_date`, `expiration_date`, `transaction_date` |
+
+支持的语言：英语、法语、西班牙语、德语、意大利语、葡萄牙语和荷兰语。

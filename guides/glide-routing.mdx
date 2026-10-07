@@ -1,0 +1,65 @@
+---
+title: "Route requests with GLiDE"
+sidebarTitle: "Routing"
+description: "Build a request router with GLiDE, inspect probabilities, and send uncertain decisions to a fallback."
+---
+
+Routing with a general-purpose LLM usually means asking it to generate a destination name, then validating and parsing the text. With GLiDE, you define the allowed routes and receive one selected route plus a probability for every option.
+
+Use this pattern for support queues, agent tools, workflows, models, or any other pick-one routing decision. Add an `other` or `human_review` route when the listed destinations are not exhaustive.
+
+## Route a support ticket
+
+```python
+import os
+
+import requests
+
+ticket = {
+    "subject": "Charged twice for one subscription",
+    "body": "My card shows two charges for the same monthly plan. Please reverse one.",
+    "customer_tier": "enterprise",
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": ticket,
+        "questions": {
+            "destination": {
+                "type": "choice",
+                "instructions": "Which team should handle this request?",
+                "criteria": {
+                    "billing": "Payments, invoices, charges, and refunds",
+                    "technical": "Product errors, outages, and integration problems",
+                    "account": "Login, access, permissions, and account settings",
+                    "human_review": "Unclear or does not fit another route",
+                },
+            }
+        },
+    },
+    timeout=300,
+)
+response.raise_for_status()
+
+answer = response.json()["answers"]["destination"]
+route = answer["choice"]
+confidence = answer["confidence"]
+probabilities = answer["probabilities"]
+
+if confidence < 0.5:
+    route = "human_review"
+```
+
+`choice` is always one of your `criteria` keys. `probabilities` shows the complete distribution, while `confidence` is the margin between the two most likely routes. Tune the fallback threshold on representative traffic rather than treating `0.5` as universal.
+
+## What changes from an LLM router
+
+- The destination is constrained to keys you define; there is no generated text to parse.
+- You receive the full route distribution, not only a label.
+- You can send uncertain or out-of-scope cases to an explicit fallback.
+- You can ask several routing or scoring questions against the same state in one request.
+
+See [GLiDE Inference](/inference/systemone) for authentication, limits, errors, and the complete response contract.

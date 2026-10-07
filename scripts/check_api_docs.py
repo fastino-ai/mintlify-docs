@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+from generate_localized_llms import localized_index_findings
+
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 INFERENCE_OPERATIONS = (
     ("POST", "/v1/chat/completions"),
@@ -23,13 +25,122 @@ INFERENCE_OPERATIONS = (
     ("POST", "/v1/inferences/{inference_id}/feedback"),
 )
 LOCALES = {"cn", "de", "es", "fr"}
+EXPECTED_SKILLS = {
+    "fastino-datasets",
+    "fastino-fine-tune",
+    "fastino-glide",
+    "fastino-gliner",
+    "fastino-inference",
+}
 ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"https://api\.fastino\.ai/inference(?:\b|[/?#])"),
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
 )
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
+LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
+REQUIRED_AGENT_RESOURCES = {
+    "https://docs.fastino.ai/.well-known/agent-skills/index.json",
+    "https://docs.fastino.ai/llms-full.txt",
+    "https://docs.fastino.ai/openapi.json",
+}
 RoutePatterns = dict[str, list[re.Pattern[str]]]
+
+
+def _visible_navigation_pages(node: object) -> set[str]:
+    if isinstance(node, str):
+        return {node}
+    if not isinstance(node, dict) or node.get("hidden") is True:
+        return set()
+    pages: set[str] = set()
+    for key in ("groups", "pages"):
+        children = node.get(key)
+        if isinstance(children, list):
+            for child in children:
+                pages.update(_visible_navigation_pages(child))
+    return pages
+
+
+def _llms_findings(root: Path) -> list[str]:
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    navigation = config.get("navigation")
+    languages = navigation.get("languages") if isinstance(navigation, dict) else None
+    english = next(
+        (
+            language
+            for language in languages or []
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    if not isinstance(english, dict):
+        return ["docs.json has no English navigation"]
+
+    visible_pages: set[str] = set()
+    groups = english.get("groups")
+    if isinstance(groups, list):
+        for group in groups:
+            visible_pages.update(_visible_navigation_pages(group))
+
+    llms_text = (root / "llms.txt").read_text(encoding="utf-8")
+    indexed_pages = set(LLMS_PAGE_URL.findall(llms_text))
+    findings = [
+        f"llms.txt is missing visible English page: {page}"
+        for page in sorted(visible_pages - indexed_pages)
+    ]
+    findings.extend(
+        f"llms.txt is missing agent resource: {url}"
+        for url in sorted(REQUIRED_AGENT_RESOURCES)
+        if f"]({url})" not in llms_text
+    )
+    findings.extend(localized_index_findings(root))
+    return findings
+
+
+def _skill_findings(root: Path) -> list[str]:
+    findings: list[str] = []
+    skills_root = root / ".mintlify" / "skills"
+    actual_skills = (
+        {path.name for path in skills_root.iterdir() if path.is_dir()}
+        if skills_root.is_dir()
+        else set()
+    )
+    if actual_skills != EXPECTED_SKILLS:
+        findings.append(
+            "Mintlify skills differ from the expected public set: "
+            f"expected {sorted(EXPECTED_SKILLS)}, found {sorted(actual_skills)}"
+        )
+    for skill_name in sorted(actual_skills):
+        skill_path = skills_root / skill_name / "SKILL.md"
+        if not skill_path.is_file():
+            findings.append(f"{skill_path.relative_to(root)} is missing")
+            continue
+        match = re.search(
+            r"\A---\s*\n.*?^name:\s*([^\s]+)\s*$.*?^---\s*$",
+            skill_path.read_text(encoding="utf-8"),
+            flags=re.DOTALL | re.MULTILINE,
+        )
+        if match is None:
+            findings.append(f"{skill_path.relative_to(root)} has invalid frontmatter")
+        elif match.group(1) != skill_name:
+            findings.append(
+                f"{skill_path.relative_to(root)} name is {match.group(1)!r}, "
+                f"expected {skill_name!r}"
+            )
+    for path in root.rglob("*.mdx"):
+        relative = path.relative_to(root)
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if "npx skills add https://api.fastino.ai" in line:
+                findings.append(
+                    f"{relative}:{number}: stale API-hosted skill install"
+                )
+            if "https://api.fastino.ai/.well-known/agent-skills/" in line:
+                findings.append(
+                    f"{relative}:{number}: stale API-hosted skill source"
+                )
+    return findings
 
 
 def _operations(spec: dict[str, object]) -> set[tuple[str, str]]:
@@ -180,6 +291,27 @@ def _line_findings(
     return findings
 
 
+def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]:
+    """Return checks that need only this documentation repository."""
+    findings = _llms_findings(root)
+    findings.extend(_skill_findings(root))
+
+    serialized_destination = json.dumps(destination)
+    for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
+        if retired_contract in serialized_destination:
+            findings.append(
+                f"openapi.json contains retired public contract text: {retired_contract}"
+            )
+
+    docs = _documentation_files(root, include_locales=False)
+    corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
+    for method, path in INFERENCE_OPERATIONS:
+        visible_path = path.replace("{inference_id}", ":id")
+        if path not in corpus and visible_path not in corpus:
+            findings.append(f"English docs do not mention {method} {path}")
+    return findings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pioneer-root", type=Path, required=True)
@@ -194,22 +326,9 @@ def main() -> int:
         )
     )
     route_patterns = _route_patterns(manifest)
-    findings: list[str] = []
-
     actual_operations = _operations(destination)
-    serialized_destination = json.dumps(destination)
-    for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
-        if retired_contract in serialized_destination:
-            findings.append(
-                f"openapi.json contains retired public contract text: {retired_contract}"
-            )
-
+    findings = local_docs_findings(root, destination)
     docs = _documentation_files(root, include_locales=args.include_locales)
-    corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
-    for method, path in INFERENCE_OPERATIONS:
-        visible_path = path.replace("{inference_id}", ":id")
-        if path not in corpus and visible_path not in corpus:
-            findings.append(f"English docs do not mention {method} {path}")
     for path in docs:
         findings.extend(
             _line_findings(

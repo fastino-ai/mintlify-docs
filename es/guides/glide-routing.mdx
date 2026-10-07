@@ -1,0 +1,65 @@
+---
+title: "Enruta solicitudes con GLiDE"
+sidebarTitle: "Enrutamiento"
+description: "Crea un enrutador de solicitudes con GLiDE, inspecciona las probabilidades y envía las decisiones inciertas a una ruta de respaldo."
+---
+
+Enrutar con un LLM de propósito general suele implicar pedirle que genere el nombre de un destino y, después, validar y analizar el texto. Con GLiDE, defines las rutas permitidas y recibes una ruta seleccionada más una probabilidad para cada opción.
+
+Usa este patrón para colas de soporte, herramientas de agentes, flujos de trabajo, modelos o cualquier otra decisión de enrutamiento en la que haya que elegir una sola opción. Añade una ruta `other` o `human_review` cuando los destinos de la lista no sean exhaustivos.
+
+## Enruta un ticket de soporte
+
+```python
+import os
+
+import requests
+
+ticket = {
+    "subject": "Charged twice for one subscription",
+    "body": "My card shows two charges for the same monthly plan. Please reverse one.",
+    "customer_tier": "enterprise",
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": ticket,
+        "questions": {
+            "destination": {
+                "type": "choice",
+                "instructions": "Which team should handle this request?",
+                "criteria": {
+                    "billing": "Payments, invoices, charges, and refunds",
+                    "technical": "Product errors, outages, and integration problems",
+                    "account": "Login, access, permissions, and account settings",
+                    "human_review": "Unclear or does not fit another route",
+                },
+            }
+        },
+    },
+    timeout=300,
+)
+response.raise_for_status()
+
+answer = response.json()["answers"]["destination"]
+route = answer["choice"]
+confidence = answer["confidence"]
+probabilities = answer["probabilities"]
+
+if confidence < 0.5:
+    route = "human_review"
+```
+
+`choice` siempre es una de tus claves de `criteria`. `probabilities` muestra la distribución completa, mientras que `confidence` es el margen entre las dos rutas más probables. Ajusta el umbral de respaldo con tráfico representativo en lugar de tratar `0.5` como un valor universal.
+
+## Qué cambia respecto a un enrutador basado en LLM
+
+- El destino está limitado a las claves que defines; no hay texto generado que analizar.
+- Recibes la distribución completa de rutas, no solo una etiqueta.
+- Puedes enviar los casos inciertos o fuera de alcance a una ruta de respaldo explícita.
+- Puedes hacer varias preguntas de enrutamiento o puntuación sobre el mismo state en una sola solicitud.
+
+Consulta [Inferencia de GLiDE](/es/inference/systemone) para ver la autenticación, los límites, los errores y el contrato de respuesta completo.

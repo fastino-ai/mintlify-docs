@@ -54,7 +54,55 @@ uv run --directory ../Pioneer/brain --locked \
 python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
 ```
 
-The check also enforces two-way parity with the existing public endpoint pages and rejects stale Pioneer API origins, retired inference routes, and doubled `/v1` prefixes.
+The check also enforces two-way parity with the existing public endpoint pages,
+validates the five canonical Mintlify skills, and rejects stale Pioneer API
+origins, retired inference routes, skill-install hosts, and doubled `/v1`
+prefixes. It also verifies that each published language has a current
+`llms.txt` index and that the English root index links to every localized
+index. Regenerate localized indexes after changing navigation or page
+frontmatter:
+
+```bash
+python3 scripts/generate_localized_llms.py
+```
+
+## Agent documentation canaries
+
+`scripts/agent_harness.py` follows the same discovery and API path expected from an
+autonomous client:
+
+```bash
+python3 -m pip install -r scripts/requirements-agent-harness.txt
+python3 scripts/agent_harness.py static
+python3 scripts/agent_harness.py published
+```
+
+The static check validates OpenAPI references, cURL JSON requests on the critical journey
+pages, local links, and the GLiDE, GLiNER, dataset, authentication, and training journeys
+exposed through `llms.txt`.
+The published check validates content negotiation at `docs.fastino.ai`, public links, and the
+deployed OpenAPI contract. Both run without credentials.
+
+Authenticated canaries use a dedicated account and the
+`FASTINO_DOCS_CANARY_API_KEY` repository secret. Configure these repository variables before
+enabling them:
+
+| Variable | Purpose |
+| --- | --- |
+| `ENABLE_DOCS_API_CANARY` | Run daily authentication, catalog, GLiDE, GLiNER, dataset, and training-read checks |
+| `ENABLE_DOCS_TRAINING_REPLAY` | Replay one existing job's fixed idempotency key and assert that no new job is created |
+| `ENABLE_FULL_TRAINING_CANARY` | Run the weekly one-epoch dataset-to-inference lifecycle |
+| `FASTINO_DOCS_CANARY_DATASET` | Immutable, ready NER dataset with `person` and `location` labels used by the canaries |
+| `FASTINO_DOCS_CANARY_DATASET_VERSION` | Exact ready version of the immutable canary dataset |
+| `FASTINO_DOCS_CANARY_BASE_MODEL` | Optional trainable GLiNER base-model override |
+| `FASTINO_DOCS_CANARY_TRAINING_JOB_ID` | Existing job expected from the replay key |
+| `FASTINO_DOCS_CANARY_IDEMPOTENCY_KEY` | Fixed key originally used to create that job |
+
+The full lifecycle has a 28 GPU-minute post-run threshold and deletes successful canary jobs.
+Use a dedicated canary account with `$3/day` and `$10/month` account spending ceilings; a
+post-run assertion cannot prevent an unexpectedly expensive active job. At the documented
+`$0.07/GPU-minute` rate, the recommended per-run budget is `$2`, with weekly execution capped
+at `$10/month`.
 
 ## Publishing changes
 

@@ -1,0 +1,118 @@
+---
+title: "POST /v1/messages compatible con Anthropic en Fastino"
+sidebarTitle: "Compatible con Anthropic"
+description: "Ejecuta extracción y clasificación estructuradas con GLiNER mediante la API Messages del SDK de Anthropic."
+---
+
+Fastino implementa un endpoint Messages compatible con Anthropic para ejecutar modelos GLiNER mediante el SDK de Anthropic. Define `base_url` como `https://api.fastino.ai`, autentícate con tu clave de API de Fastino y usa un ID de GLiNER devuelto por `GET /v1/models` o el ID de tu trabajo de entrenamiento GLiNER. El SDK de Anthropic añade `/v1/messages` por sí mismo.
+
+## Superficie compatible del SDK
+
+| Método del SDK de Anthropic | Endpoint de Fastino | Resultado GLiNER |
+|---|---|---|
+| `client.messages.create(...)` | `POST /v1/messages` | JSON estructurado en `message.content[0].text` |
+
+<Warning>
+  La inferencia GLiNER devuelve un único resultado estructurado y no admite `stream=True` ni `client.messages.stream(...)`. Fastino no implementa todas las API ni todos los recursos del SDK de Anthropic.
+</Warning>
+
+## Configurar el SDK de Anthropic
+
+Pasa tu clave de API de Fastino y la URL base al construir el cliente:
+
+<CodeGroup>
+
+```python Python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+```
+
+</CodeGroup>
+
+## Crear un mensaje
+
+`POST /v1/messages` acepta los campos principales de Anthropic Messages. Define `model` con un ID de modelo GLiNER compatible, incluye tu array `messages` y pasa el `schema` de extracción o clasificación mediante `extra_body`.
+
+### Parámetros de la solicitud
+
+<ParamField body="model" type="string" required>
+  ID del trabajo de entrenamiento (por ejemplo `job_abc123`) o ID de un modelo base. Es el modelo que procesa tu solicitud.
+</ParamField>
+
+<ParamField body="max_tokens" type="number" required>
+  El SDK de Anthropic requiere este campo para la compatibilidad de la solicitud. GLiNER devuelve una salida estructurada en lugar de tokens generados.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Mensajes de la conversación. Cada objeto tiene un `role` (`"user"` o `"assistant"`) y una cadena `content`.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Esquema de extracción específico de Fastino. Define `entities`, `classifications`, `structures` o `relations` para controlar qué extrae el modelo. Consulta [Inferencia de Fastino](/es/api-reference/inference/pioneer) para ver la documentación completa del esquema.
+</ParamField>
+
+### Ejemplos
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+
+message = client.messages.create(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
+)
+
+print(message.content[0].text)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Streaming
+
+La inferencia GLiNER no admite streaming. Usa `client.messages.create(...)` sin `stream=True`; la API devuelve el resultado estructurado completo después de procesar la entrada.
+
+## Relacionado
+
+- [Inferencia nativa de Fastino](/es/api-reference/inference/pioneer) - endpoint directo de Fastino con la documentación completa del esquema
+- [Inferencia compatible con OpenAI](/es/api-reference/inference/openai-compatible) - usa el SDK de OpenAI en su lugar
+- [Historial de inferencia y feedback](/es/api-reference/inference/history) - recupera resultados pasados y envía correcciones

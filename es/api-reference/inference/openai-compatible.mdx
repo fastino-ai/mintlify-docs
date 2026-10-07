@@ -1,0 +1,157 @@
+---
+title: "Inferencia compatible con OpenAI en la API de Fastino"
+sidebarTitle: "Compatible con OpenAI"
+description: "Ejecuta extracción y clasificación estructuradas con GLiNER mediante métodos compatibles del SDK de OpenAI."
+---
+
+Fastino ofrece endpoints compatibles con OpenAI para ejecutar modelos GLiNER mediante métodos compatibles del SDK de OpenAI. Define `base_url` como `https://api.fastino.ai/v1`, autentícate con tu clave de API de Fastino y pasa como `model` un ID de modelo GLiNER devuelto por `GET /v1/models` o el ID de tu trabajo de entrenamiento GLiNER. Pasa el `schema` mediante `extra_body` en el SDK de Python o directamente en el cuerpo JSON.
+
+<Tip>
+  Reutiliza tu cliente de OpenAI para GLiNER cambiando `base_url`, la clave de API y el ID del modelo, y añadiendo el `schema` de Fastino.
+</Tip>
+
+## Superficie compatible del SDK
+
+| Método del SDK de OpenAI | Endpoint de Fastino | Resultado GLiNER |
+|---|---|---|
+| `client.chat.completions.create(...)` | `POST /v1/chat/completions` | JSON estructurado en `choices[0].message.content` |
+| `client.responses.create(...)` | `POST /v1/responses` | JSON estructurado en `response.output_text` |
+| `client.models.list()` | `GET /v1/models` | IDs de modelo disponibles |
+
+<Warning>
+  La inferencia GLiNER devuelve un único resultado estructurado y no admite `stream=True`. Fastino no implementa todas las API ni todos los recursos del SDK de OpenAI; usa solo los métodos indicados arriba.
+</Warning>
+
+## Configurar el SDK de OpenAI
+
+Apunta el SDK a la URL base de Fastino y proporciona tu clave de API de Fastino:
+
+<CodeGroup>
+
+```python Python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai/v1"
+)
+```
+
+```bash cURL (base URL)
+# Set this as the base for all requests
+https://api.fastino.ai/v1
+```
+
+</CodeGroup>
+
+## Chat completions
+
+`POST /v1/chat/completions` acepta los campos principales de OpenAI Chat Completions. Pasa un ID de modelo GLiNER compatible como `model` e incluye el `schema` de extracción o clasificación mediante `extra_body`.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai/v1"
+)
+
+response = client.chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
+)
+
+print(response.choices[0].message.content)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Responses
+
+Para GLiNER, la API Responses espera el esquema en `text.format.schema`.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+response = client.responses.create(
+    model="YOUR_TRAINING_JOB_ID",
+    input="Extract entities from: Apple launched the iPhone.",
+    max_output_tokens=128,
+    extra_body={
+        "text": {
+            "format": {
+                "schema": {
+                    "entities": ["organization", "product"]
+                }
+            }
+        }
+    }
+)
+
+print(response.output_text)
+```
+
+</CodeGroup>
+
+## Listar los modelos disponibles
+
+Usa `GET /v1/models` para obtener la lista de modelos que puedes usar con estos endpoints.
+
+<CodeGroup>
+
+```python Python (OpenAI SDK)
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+```
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+</CodeGroup>
+
+## Streaming
+
+La inferencia GLiNER no admite streaming. No definas `stream=True`; la API devuelve el resultado estructurado completo después de procesar la entrada.
+
+## Pasar campos específicos de Fastino
+
+Para Chat Completions, pasa `schema` mediante `extra_body={"schema": ...}`. Para Responses, pásalo mediante `extra_body={"text": {"format": {"schema": ...}}}`. Las solicitudes HTTP usan las mismas estructuras específicas de cada endpoint.
+
+## Relacionado
+
+- [Inferencia nativa de Fastino](/es/api-reference/inference/pioneer) - endpoint directo de Fastino con la documentación completa del esquema
+- [Inferencia compatible con Anthropic](/es/api-reference/inference/anthropic-compatible) - usa el SDK de Anthropic en su lugar
+- [Historial de inferencia y feedback](/es/api-reference/inference/history) - recupera resultados pasados y envía correcciones

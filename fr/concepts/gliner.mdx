@@ -46,6 +46,35 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
 
 Ajoutez les clés `classifications`, `structures` ou `relations` au même `schema` pour exécuter plusieurs tâches sur le même texte en un seul appel. Consultez la référence de l'[API d'inférence](/fr/inference/chat-completions) pour le contrat complet de requête et de réponse, y compris les enregistrements structurés et les schémas de relations.
 
+## Classification contrainte avec GLiNER2.5 Multi
+
+Utilisez la classification contrainte lorsque plusieurs réponses doivent former une seule décision valide. Contrairement aux `classifications` classiques, qui sélectionnent chaque tâche indépendamment, le décodeur contraint recherche une affectation conjointe qui respecte les règles déclarées.
+
+GLiNER2.5 Multi prend en charge trois formes de tâche :
+
+| Forme de tâche | Règle de sélection | Usage type |
+| --- | --- | --- |
+| Réponse unique | Sélectionne exactement une réponse autorisée | Intention, routage ou verdict de politique |
+| Réponses multiples | Sélectionne zéro ou plusieurs réponses, avec éventuellement un nombre minimal et maximal | Sujets, effets ou préjudices détectés |
+| Ordinale | Sélectionne exactement une réponse sur une échelle ordonnée du plus bas au plus haut | Gravité, urgence ou évaluation |
+
+Chaque tâche peut inclure des descriptions de réponses, une instruction et des exemples étiquetés. Ces champs fournissent du contexte à l'encodeur pour le scoring, tout en limitant la sortie aux réponses déclarées.
+
+Les contraintes relient les résultats de ces tâches :
+
+| Contrainte | Signification |
+| --- | --- |
+| Implication | Sélectionner une réponse exige une autre réponse ou condition |
+| Exclusion | Deux réponses ne peuvent pas être sélectionnées ensemble |
+| Cardinalité | Impose ou limite le nombre de réponses sélectionnées par une tâche |
+| Borne ordinale | Impose un niveau exact, minimal, maximal ou borné |
+
+Le résultat contient la réponse sélectionnée pour chaque tâche, les probabilités des réponses, la confiance et `_meta.feasible`. Les contraintes peuvent sélectionner une réponse moins probable lorsque les meilleurs choix indépendants enfreindraient une règle. Elles garantissent la cohérence. Elles n'augmentent ni ne recalibrent les probabilités ou la confiance.
+
+Pour les tâches à réponse unique et ordinales, la confiance est la probabilité de la réponse sélectionnée. Pour les tâches à réponses multiples, il s'agit de la moyenne géométrique de la probabilité de chaque réponse sélectionnée et du complément de chaque réponse non sélectionnée (`1 - probability`). Un résultat vide à réponses multiples sans valeur par défaut n'a pas de valeur de confiance.
+
+Consultez l'[exemple d'API de classification contrainte](/fr/inference/chat-completions#schéma-de-classification-contrainte) pour la requête hébergée complète, les champs de schéma pris en charge, les contraintes et la réponse.
+
 <CardGroup cols={2}>
   <Card title="Découvrir GLiNER2.5" icon="sparkles" href="https://fastino.ai/models/gliner2-5">
     Consultez l'architecture, les benchmarks et les cas d'usage.

@@ -1,0 +1,107 @@
+---
+title: "Reclasser des passages récupérés avec GLiDE"
+sidebarTitle: "Reranking"
+description: "Évaluez la pertinence des passages par rapport à une requête avec GLiDE, filtrez les correspondances faibles et reclassez le contexte récupéré."
+---
+
+Dans un pipeline de génération augmentée par récupération (RAG), un LLM généraliste peut noter chaque passage récupéré avant la génération. Avec GLiDE, chaque passage reçoit une probabilité d'être pertinent pour la requête.
+
+Utilisez directement cette probabilité pour le classement et le filtrage.
+
+## Évaluer et reclasser des passages
+
+```python
+import os
+
+import requests
+
+query = "How do I reset my API key?"
+chunks = [
+    "To reset your API key, go to Dashboard > API Keys and click 'Regenerate'.",
+    "Our pricing plans start at $29/month for the Starter tier.",
+    "API keys are scoped to a single project. Each project can have up to 5 active keys.",
+]
+
+passages = {f"passage_{index}": chunk for index, chunk in enumerate(chunks)}
+questions = {
+    passage_id: {
+        "type": "noul",
+        "instructions": f"Is {passage_id} relevant to answering the query?",
+        "criteria": {
+            "true": "Relevant to answering the query",
+            "false": "Not relevant to answering the query",
+        },
+    }
+    for passage_id in passages
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": {"query": query, "passages": passages},
+        "questions": questions,
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+scored_chunks = [
+    {
+        "chunk": passage,
+        "score": answers[passage_id]["noul"],
+        "confidence": answers[passage_id]["confidence"],
+    }
+    for passage_id, passage in passages.items()
+]
+
+top_chunks = sorted(scored_chunks, key=lambda item: item["score"], reverse=True)
+relevant_chunks = [item for item in top_chunks if item["score"] > 0.5]
+```
+
+Chaque `score` est la probabilité Noul que le critère `true` soit vérifié. Triez par ordre décroissant pour placer les meilleures correspondances en premier, et appliquez un seuil lorsque la génération en aval ne doit recevoir qu'un contexte suffisamment pertinent.
+
+<Note>
+  Toutes les questions Noul de cet exemple partagent un même `state`, ce qui permet à GLiDE d'évaluer la liste restreinte en une seule requête. Le state complet est inclus dans chaque question rendue en interne ; respectez la [limite de 40 000 tokens par question](/fr/inference/systemone#limites-et-formes-non-prises-en-charge). Répartissez les listes plus longues en requêtes concurrentes de taille limitée et réessayez les erreurs `425`, `429` et `503` avec un backoff.
+</Note>
+
+## Évaluer un passage par requête
+
+Utilisez cette forme plus simple lorsque les passages arrivent indépendamment :
+
+```python
+def relevance_score(query: str, passage: str) -> float:
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": {"query": query, "passage": passage},
+            "questions": {
+                "relevant": {
+                    "type": "noul",
+                    "instructions": "Is this passage relevant to answering the query?",
+                    "criteria": {
+                        "true": "Relevant to answering the query",
+                        "false": "Not relevant to answering the query",
+                    },
+                }
+            },
+        },
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()["answers"]["relevant"]["noul"]
+```
+
+## Ce qui change par rapport au reranking par LLM
+
+- La pertinence binaire est une probabilité comprise entre `0` et `1`, et non un entier généré.
+- Vous pouvez classer et filtrer selon un seuil à partir de la même valeur, sans analyser le texte du modèle.
+- Les critères définissent précisément ce que « pertinent » signifie pour votre application.
+
+Évaluez la qualité du classement et choisissez les seuils sur un jeu de récupération étiqueté avant de déployer le reranker.
+
+Consultez [Inférence GLiDE](/fr/inference/systemone) pour l'authentification, les limites, les erreurs et le contrat de réponse complet.

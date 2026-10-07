@@ -1,0 +1,83 @@
+---
+title: "Fastino 常见问题：套餐、数据隐私、存储与团队"
+sidebarTitle: "常见问题"
+description: "解答有关 Fastino 套餐、存储费用、数据训练做法、团队协作以及非营利组织和学生专属定价的常见问题。"
+noindex: true
+hidden: true
+---
+
+在下方查找有关 Fastino 最常见问题的解答。如果没有找到你需要的内容，请通过 [support@fastino.ai](mailto:support@fastino.ai) 联系团队。如需查看实时服务状态和故障报告，请访问 [pioneerai.statuspage.io](https://pioneerai.statuspage.io)。
+
+<AccordionGroup>
+  <Accordion title="微调 SLM 最简单的方法是什么？">
+    Fastino 旨在让小语言模型（SLM）的微调尽可能简单。整个过程只需四步：
+
+    1. **创建数据集** - 上传你自己的数据，或使用 Fastino 内置的合成数据工具生成合成样本。请参阅[合成数据](/cn/guides/synthetic-data)。
+    2. **启动训练任务** - 选择一个基础模型，指定你的数据集并提交。所有超参数都有合理的默认值，因此无需调整任何参数即可开始。请参阅[训练](/cn/concepts/training)。
+    3. **等待完成** - 你的任务会依次经历 `pending → running → complete`。小型数据集通常几分钟即可完成。
+    4. **运行推理** - 将任务 ID 用作模型标识符。编码器模型接受文本和 schema；解码器模型兼容 OpenAI。请参阅[推理](/cn/inference/chat-completions)。
+
+    如需完整的操作演示，请查看 [NER 微调指南](https://docs.fastino.ai/guides/fine-tune-ner)或 [LLM 微调指南](https://docs.fastino.ai/guides/fine-tune-llm)。
+  </Accordion>
+
+  <Accordion title="存储是否收费？">
+    不收费。所有套餐中的所有数据集均可免费存储。你在 Fastino 中创建或上传的数据集不会产生任何费用。
+  </Accordion>
+
+  <Accordion title="如何为训练 LLM 创建合成数据？">
+    描述你的领域以及想要训练的标签，Fastino 就会大规模生成逼真的带标签样本。这让你无需任何人工标注即可快速构建训练数据集——在从零开始或需要扩大边缘情况覆盖范围时非常有用。
+  </Accordion>
+
+  <Accordion title="我可以调用哪些解码器模型？">
+    Fastino 通过一个统一的 API 支持 Nemotron 3.5 Lightning、DeepSeek V4 Flash、GLM 5.2、Claude Opus/Sonnet/Haiku 5，以及 GPT-5.5 和 GPT-5.6 系列。
+
+    ```bash
+    curl -X POST https://api.fastino.ai/v1/chat/completions \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\": \"nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16\", \"messages\": [{\"role\": \"user\", \"content\": \"Summarize this article...\"}]}"
+    ```
+
+    将模型名称替换为其他受支持的解码器，例如 `deepseek-ai/DeepSeek-V4-Flash`、`zai-org/GLM-5.2`、`claude-sonnet-5` 或 `gpt-5.6-terra`。如需查看完整的实时模型目录，请调用 `GET /v1/base-models`。详情请参阅[推理](/cn/inference/chat-completions)。
+  </Accordion>
+
+  <Accordion title="你们会使用我们的数据进行训练吗？">
+    会，默认情况下 Fastino 可能会使用你的数据来改进模型。不过，你可以在 Pro 和 Custom 套餐中选择退出。Custom 套餐还允许你在自己的 VPC 内私有运行微调，确保你的数据永远不会离开你的基础设施。
+
+    [联系团队](https://forms.gle/meJ1TuWPi4ryWpHF6)以了解更多 Custom 套餐选项。
+  </Accordion>
+
+  <Accordion title="我可以通过 Teams 与队友共享模型吗？">
+    Fastino 中的 Teams 用于共享账单——每位成员仍拥有自己的私有工作区。Teams 本身并不直接支持队友之间的模型共享。
+
+    如果你需要与团队共享模型，请[联系我们](mailto:support@fastino.ai)，团队会为你介绍最适合你用例的方法。
+  </Accordion>
+
+  <Accordion title="微调编码器模型与解码器模型有什么区别？">
+    编码器模型（如 GLiNER）经过训练，用于理解文本并从中抽取结构化信息，非常适合 NER、分类和 JSON 抽取任务。它们快速、高效，并可在 CPU 上运行，因此大规模部署成本很低。解码器模型（如 Nemotron 3.5 Lightning）是生成式的，会生成文本，因此适用于摘要、问答、聊天和指令遵循任务。
+
+    Fastino 两者都支持。如果你的任务有明确的输出结构（抽取这些实体类型、分类到这些类别中），请使用编码器。如果你的任务需要生成自由格式的文本，请使用解码器。如果拿不准，请从编码器开始，它们训练更快、成本更低，也更容易评估。
+  </Accordion>
+
+  <Accordion title="如何评估我的微调模型是否足够好？">
+    Fastino 会在训练后自动运行评估，并报告你预留验证集上的 F1、精确率和召回率。
+
+    | F1 分数 | 含义 |
+    | :-- | :-- |
+    | 高于 0.85 | 对于大多数 NER 和分类任务已可用于生产 |
+    | 0.70 – 0.85 | 需要更多训练数据或更好的标签质量 |
+    | 低于 0.70 | 模型尚未充分学会该任务 |
+
+    如果分数低于预期，请针对单独的数据集运行手动评估，以获得更清晰的信号。你还可以检查每个样本的预测结果，找出模型出错的地方，然后利用这些不足生成有针对性的合成数据。请参阅[评估](/cn/concepts/gliner-agent-skill)和[合成数据](/cn/guides/synthetic-data)。
+  </Accordion>
+
+  <Accordion title="什么是 GLiNER，什么时候应该使用它？">
+    GLiNER 是一种开源编码器模型架构，专为命名实体识别和结构化抽取而设计。与逐个 token 生成文本的解码器模型不同，GLiNER 直接对文本跨度进行分类，因此在抽取任务上速度明显更快、准确率更高。
+
+    当你需要抽取特定实体类型（人物、组织、产品、日期）、将文本分类到预定义类别中，或运行对延迟和成本敏感的大规模推理时，请使用 GLiNER。Fastino 的微调流水线围绕 GLiNER 构建。你可以在几分钟内从领域描述得到一个可用于生产的抽取模型，且你这一侧无需任何 GPU。
+  </Accordion>
+
+  <Accordion title="近期的美国出口管制法规会如何影响我在 Fastino 上访问模型？">
+    > 作为美国持续推行的 AI 出口管制政策（包括 2026 年 6 月发布的指令）的一部分，各模型提供商均已更新其可用性政策以确保合规。<br />位于受美国制裁和出口限制国家（包括中国、俄罗斯、伊朗、朝鲜、古巴、叙利亚和白俄罗斯）的用户无法访问 Fastino 上的模型。<br />如需完整且最新的支持国家列表，请直接参阅各提供商：[OpenAI](https://developers.openai.com/api/docs/supported-countries)、[Anthropic](https://www.anthropic.com/supported-countries)、[Google Gemini](https://ai.google.dev/gemini-api/docs/available-regions) 和 [Meta Llama 4](https://www.llama.com/llama4/use-policy/)。<br />这些政策仍在不断变化。如果你认为自己的访问权限被错误限制，请联系我们的支持团队。
+  </Accordion>
+</AccordionGroup>

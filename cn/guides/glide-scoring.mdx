@@ -1,0 +1,80 @@
+---
+title: "使用 GLiDE 按有序评分标准评分"
+sidebarTitle: "评分"
+description: "使用 GLiDE 构建基于评分标准的评分，并同时使用离散结果和连续结果。"
+---
+
+通用 LLM 的评分提示词会要求模型生成一个数字或返回结构化输出。使用 GLiDE 时，你只需提供一个有序的评分标准，即可获得这些等级上的概率分布。
+
+此模式适用于紧急程度、严重程度、质量、情感强度、风险以及其他有序判断。
+
+## 为支持请求的紧急程度评分
+
+```python
+import os
+
+import requests
+
+ticket_text = (
+    "Our production API is returning 500 errors on every request. "
+    "All customers are affected. Revenue impact is approximately $12,000 per hour. "
+    "Started 15 minutes ago."
+)
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": ticket_text,
+        "questions": {
+            "urgency": {
+                "type": "score",
+                "instructions": "How urgent is this support request?",
+                "criteria": [
+                    "Can wait: no immediate business impact",
+                    "Should handle today: minor inconvenience",
+                    "Time-sensitive: noticeable customer impact, needs attention within hours",
+                    "Critical: system failure affecting customers or revenue",
+                ],
+            }
+        },
+    },
+    timeout=300,
+)
+response.raise_for_status()
+
+answer = response.json()["answers"]["urgency"]
+level = answer["score"]  # Discrete winning level, such as 3.
+continuous_score = answer["expected_level"]  # Probability-weighted position, such as 2.999.
+confidence = answer["confidence"]
+distribution = answer["probabilities"]  # String keys: {"0": ..., "1": ..., "2": ..., "3": ...}
+```
+
+`score` 是可能性最高的等级的整数索引。当你需要介于等级之间的连续值时，请使用 `expected_level`。响应中还包含 `legend`，它将字符串索引键映射回你提供的描述。
+
+<Warning>
+  不要将 `score` 视为连续值。例如，`2.999` 属于 `expected_level`；而 `score` 是胜出的整数等级，例如 `3`。
+</Warning>
+
+## 将分数转化为行动
+
+```python
+if level == 3 and confidence >= 0.7:
+    action = "page_on_call"
+elif continuous_score >= 2.0:
+    action = "escalate"
+else:
+    action = "standard_queue"
+```
+
+请在你应用中的已标注示例上调整阈值。`confidence` 衡量的是可能性最高的两个等级之间的区分度；它与连续分数并不是同一个值。
+
+## 与 LLM 评分相比有何不同
+
+- 输出被限定在你的有序评分标准内；无需校验生成的数字。
+- 你同时获得胜出的等级以及按概率加权的连续位置。
+- 完整的分布可以显示输入是明确落在某一个等级上，还是介于等级之间。
+- 你的 criteria 会保留在响应的 `legend` 中，让分数的解读一目了然。
+
+关于身份验证、限制、错误以及完整的响应约定，请参阅 [GLiDE 推理](/cn/inference/systemone)。

@@ -1,0 +1,118 @@
+---
+title: "POST /v1/messages compatible Anthropic sur l'API Fastino"
+sidebarTitle: "Compatible Anthropic"
+description: "Exécutez l’extraction et la classification structurées avec GLiNER via l’API Messages du SDK Anthropic."
+---
+
+Fastino implémente un endpoint Messages compatible Anthropic permettant d’exécuter des modèles GLiNER via le SDK Anthropic. Définissez `base_url` sur `https://api.fastino.ai`, authentifiez-vous avec votre clé d’API Fastino et utilisez un ID GLiNER renvoyé par `GET /v1/models` ou l’ID de votre job d’entraînement GLiNER. Le SDK Anthropic ajoute lui-même `/v1/messages`.
+
+## Surface SDK prise en charge
+
+| Méthode du SDK Anthropic | Endpoint Fastino | Résultat GLiNER |
+|---|---|---|
+| `client.messages.create(...)` | `POST /v1/messages` | JSON structuré dans `message.content[0].text` |
+
+<Warning>
+  L’inférence GLiNER renvoie un résultat structuré unique et ne prend pas en charge `stream=True` ni `client.messages.stream(...)`. Fastino n’implémente pas toutes les API ni toutes les ressources du SDK Anthropic.
+</Warning>
+
+## Configurer le SDK Anthropic
+
+Transmettez votre clé d'API Fastino et l'URL de base lors de la création du client :
+
+<CodeGroup>
+
+```python Python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+```
+
+</CodeGroup>
+
+## Créer un message
+
+`POST /v1/messages` accepte les principaux champs d’Anthropic Messages. Définissez `model` sur un ID GLiNER pris en charge, incluez `messages` et transmettez le `schema` via `extra_body`.
+
+### Paramètres de la requête
+
+<ParamField body="model" type="string" required>
+  ID du job d'entraînement (par ex. `job_abc123`) ou ID d'un modèle de base. C'est le modèle qui traite votre requête.
+</ParamField>
+
+<ParamField body="max_tokens" type="number" required>
+  Champ requis par le SDK Anthropic pour la compatibilité de la requête. GLiNER renvoie une sortie structurée plutôt que des tokens générés.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Messages de la conversation. Chaque objet comporte un `role` (`"user"` ou `"assistant"`) et une chaîne `content`.
+</ParamField>
+
+<ParamField body="schema" type="object">
+  Schéma d'extraction propre à Fastino. Définissez `entities`, `classifications`, `structures` ou `relations` pour contrôler ce que le modèle extrait. Consultez [Inférence Fastino](/fr/api-reference/inference/pioneer) pour la documentation complète du schéma.
+</ParamField>
+
+### Exemples
+
+<CodeGroup>
+
+```python Python (Anthropic SDK)
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.fastino.ai"
+)
+
+message = client.messages.create(
+    model="YOUR_TRAINING_JOB_ID",
+    max_tokens=1024,
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract entities from: Apple launched the iPhone."
+        }
+    ],
+    extra_body={
+        "schema": {
+            "entities": ["organization", "product"]
+        }
+    }
+)
+
+print(message.content[0].text)
+```
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "YOUR_TRAINING_JOB_ID",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Extract entities from: Apple launched the iPhone."
+      }
+    ],
+    "schema": {
+      "entities": ["organization", "product"]
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Streaming
+
+L’inférence GLiNER ne prend pas en charge le streaming. Utilisez `client.messages.create(...)` sans `stream=True` ; l’API renvoie le résultat structuré complet après le traitement.
+
+## Voir aussi
+
+- [Inférence native Fastino](/fr/api-reference/inference/pioneer) - endpoint Fastino direct avec la documentation complète du schéma
+- [Inférence compatible OpenAI](/fr/api-reference/inference/openai-compatible) - utilisez plutôt le SDK OpenAI
+- [Historique d'inférence et feedback](/fr/api-reference/inference/history) - récupérez les résultats passés et soumettez des corrections

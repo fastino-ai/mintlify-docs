@@ -1,0 +1,113 @@
+---
+title: "Prepare and upload training datasets"
+sidebarTitle: "Datasets"
+description: "Format, upload, validate, and inspect NER, classification, or decoder datasets before starting a Fastino training job."
+---
+
+Training jobs reference ready datasets by name. Prepare a JSONL file, upload it through the
+two-step dataset API, and confirm the processed version exists before calling
+`POST /v1/training-jobs`.
+
+## Choose a dataset format
+
+Each line in the file must be one JSON object. Use one consistent shape throughout a
+dataset.
+
+### Named entity recognition
+
+Use `text` plus an `entities` list of `[span, label]` pairs. Every span must appear verbatim
+in the text. Include negative examples with an empty list.
+
+```jsonl
+{"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]]}
+{"text":"No tagged entities here.","entities":[]}
+```
+
+### Classification
+
+Use `label` for single-label data or `labels` for multi-label data.
+
+```jsonl
+{"text":"The setup was straightforward.","label":"positive"}
+{"text":"The request needs billing and technical help.","labels":["billing","technical"]}
+```
+
+### Decoder fine-tuning
+
+Use a `messages` array containing `system`, `user`, or `assistant` messages.
+
+```jsonl
+{"messages":[{"role":"user","content":"What is 2 + 2?"},{"role":"assistant","content":"4"}]}
+```
+
+## Upload a dataset
+
+### 1. Reserve an upload URL
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/upload/url \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_name": "docs-example-ner",
+    "filename": "training.jsonl",
+    "dataset_type": "ner"
+  }'
+```
+
+The response contains a short-lived `presigned_url`, a `dataset_id`, and a
+`version_number`. Upload the exact file bytes to `presigned_url` with an HTTP `PUT`. Keep both
+the dataset ID and version number.
+
+```bash
+curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+```
+
+### 2. Process the uploaded file
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/upload/process \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_id": "DATASET_ID_FROM_STEP_1"
+  }'
+```
+
+Processing returns `202`. Poll the dataset by name, find the entry whose `version_number`
+matches the upload response, and wait until that entry's `status` is `ready`:
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Start training
+
+Pass the exact dataset name to the [training-job create
+endpoint](/api-reference/training-jobs/create):
+
+```json
+{
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "datasets": [
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+  ],
+  "training_type": "lora"
+}
+```
+
+Use `GET /v1/base-models?supports_training=true` immediately before submission to select a
+currently trainable base model.
+
+## Common blockers
+
+| Status | Cause | Action |
+| --- | --- | --- |
+| `401` | Missing or invalid API key | Send `X-API-Key: $FASTINO_API_KEY` |
+| `404` | Dataset name does not exist | Confirm the exact name and wait for processing |
+| `422` | Invalid rows or dataset type | Correct the JSONL shape reported by validation |
+
+Do not upload the GLiNER trainer's internal `{"input": ..., "output": ...}` shape. Convert it
+to the public `text` plus `entities` format first.

@@ -18,7 +18,7 @@ Use GLiNER2.5 Multi when extraction or multilingual coverage is central to the t
 - **Multiple tasks at once** - combine entities, classification, structures, and relations in a single schema-constrained call instead of chaining several model requests.
 - **Consistent outputs** - use constrained classification or joint entity-relation decoding when labels and relation endpoints must agree.
 
-GLiNER2.5 Multi also supports classification. Choose [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) when the input is English and classification itself-intent, routing, sentiment, priority, moderation, or scoring-is the primary workload.
+GLiNER2.5 Multi also supports classification. Choose [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) when the input is English and classification itself—intent, routing, sentiment, priority, moderation, or scoring—is the primary workload.
 
 ## How to use GLiNER 2.5
 
@@ -45,6 +45,35 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
 ```
 
 Add `classifications`, `structures`, or `relations` keys to the same `schema` to run several tasks over the same text in one call. See the [Inference API](/inference/chat-completions) reference for the full request and response contract, including structured records and relation schemas.
+
+## Constrained classification with GLiNER2.5 Multi
+
+Use constrained classification when several answers must form one valid decision. Unlike classic `classifications`, which selects each task independently, the constrained decoder searches for a joint assignment that satisfies declared rules.
+
+GLiNER2.5 Multi supports three task shapes:
+
+| Task shape | Selection rule | Typical use |
+| --- | --- | --- |
+| Single answer | Select exactly one permitted answer | Intent, route, or policy verdict |
+| Multiple answers | Select zero or more answers, optionally with minimum and maximum counts | Topics, effects, or detected harms |
+| Ordinal | Select exactly one answer from a low-to-high ordered scale | Severity, urgency, or rating |
+
+Each task can include answer descriptions, an instruction, and labeled examples. These fields give the encoder context for scoring while keeping output restricted to the declared answers.
+
+Constraints connect those task results:
+
+| Constraint | Meaning |
+| --- | --- |
+| Implication | Selecting one answer requires another answer or condition |
+| Exclusion | Two answers cannot both be selected |
+| Cardinality | Require or limit how many answers a task selects |
+| Ordinal bound | Require an exact, minimum, maximum, or bounded level |
+
+The result contains each task's selected answer, answer probabilities, confidence, and `_meta.feasible`. Constraints can select a lower-probability answer when the independent top choices would violate a rule. They enforce consistency; they do not increase or recalibrate probabilities or confidence.
+
+For single-answer and ordinal tasks, confidence is the selected answer's probability. For multiple-answer tasks, it is the geometric mean of each selected answer's probability and each unselected answer's complement (`1 - probability`). An empty multiple-answer result without a default has no confidence value.
+
+See the [constrained-classification API example](/inference/chat-completions#constrained-classification-schema) for the complete hosted request, supported schema fields, constraints, and response.
 
 <CardGroup cols={2}>
   <Card title="Explore GLiNER2.5" icon="sparkles" href="https://fastino.ai/models/gliner2-5">

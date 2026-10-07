@@ -1,0 +1,107 @@
+---
+title: "Reordena pasajes recuperados con GLiDE"
+sidebarTitle: "Reordenación"
+description: "Puntúa la relevancia entre consulta y pasaje con GLiDE, filtra las coincidencias débiles y reordena el contexto recuperado."
+---
+
+En un pipeline de generación aumentada por recuperación (RAG), un LLM de propósito general puede calificar cada pasaje recuperado antes de la generación. Con GLiDE, cada pasaje recibe una probabilidad de ser relevante para la consulta.
+
+Usa la probabilidad directamente para ordenar y filtrar.
+
+## Puntúa y reordena pasajes
+
+```python
+import os
+
+import requests
+
+query = "How do I reset my API key?"
+chunks = [
+    "To reset your API key, go to Dashboard > API Keys and click 'Regenerate'.",
+    "Our pricing plans start at $29/month for the Starter tier.",
+    "API keys are scoped to a single project. Each project can have up to 5 active keys.",
+]
+
+passages = {f"passage_{index}": chunk for index, chunk in enumerate(chunks)}
+questions = {
+    passage_id: {
+        "type": "noul",
+        "instructions": f"Is {passage_id} relevant to answering the query?",
+        "criteria": {
+            "true": "Relevant to answering the query",
+            "false": "Not relevant to answering the query",
+        },
+    }
+    for passage_id in passages
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": {"query": query, "passages": passages},
+        "questions": questions,
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+scored_chunks = [
+    {
+        "chunk": passage,
+        "score": answers[passage_id]["noul"],
+        "confidence": answers[passage_id]["confidence"],
+    }
+    for passage_id, passage in passages.items()
+]
+
+top_chunks = sorted(scored_chunks, key=lambda item: item["score"], reverse=True)
+relevant_chunks = [item for item in top_chunks if item["score"] > 0.5]
+```
+
+Cada `score` es la probabilidad Noul de que se cumpla el criterio `true`. Ordena de forma descendente para colocar primero las coincidencias más fuertes y aplica un umbral cuando la generación posterior solo deba recibir contexto suficientemente relevante.
+
+<Note>
+  Todas las preguntas Noul de este ejemplo comparten un mismo `state`, así que GLiDE puntúa la lista preseleccionada en una sola solicitud. El state completo se incluye en cada pregunta renderizada internamente; mantenlo dentro del [límite de 40,000 tokens por pregunta](/es/inference/systemone#límites-y-formas-no-admitidas). Divide las listas preseleccionadas más grandes en solicitudes concurrentes acotadas y reintenta los errores `425`, `429` y `503` con backoff.
+</Note>
+
+## Puntúa un pasaje por solicitud
+
+Usa esta forma más sencilla cuando los pasajes lleguen de forma independiente:
+
+```python
+def relevance_score(query: str, passage: str) -> float:
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": {"query": query, "passage": passage},
+            "questions": {
+                "relevant": {
+                    "type": "noul",
+                    "instructions": "Is this passage relevant to answering the query?",
+                    "criteria": {
+                        "true": "Relevant to answering the query",
+                        "false": "Not relevant to answering the query",
+                    },
+                }
+            },
+        },
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()["answers"]["relevant"]["noul"]
+```
+
+## Qué cambia respecto a la reordenación con LLM
+
+- La relevancia binaria es una probabilidad de `0` a `1`, no un entero generado.
+- Puedes ordenar y aplicar un umbral sobre el mismo valor sin analizar el texto del modelo.
+- Los criterios indican exactamente qué significa “relevante” para tu aplicación.
+
+Evalúa la calidad de la ordenación y elige los umbrales con un conjunto de recuperación etiquetado antes de desplegar el reordenador.
+
+Consulta [Inferencia de GLiDE](/es/inference/systemone) para ver la autenticación, los límites, los errores y el contrato de respuesta completo.
