@@ -107,6 +107,34 @@ curl -X POST https://api.fastino.ai/v1/messages \
 
 </CodeGroup>
 
+## Réessayer les réponses 425
+
+Une première requête peut renvoyer `425` pendant que le modèle est temporairement en cours de préchauffage. Sur `/v1/messages`, la réponse porte `x-should-retry: false` : les SDK Anthropic officiels ne la réessaient donc pas automatiquement. Le corps utilise le format d'erreur Anthropic avec `error.type: "invalid_request_error"` ; voir [425 - Trop tôt](/fr/api-reference/errors#425-trop-tôt).
+
+Interceptez l'erreur, attendez `Retry-After` secondes (30 si l'en-tête est absent) et renvoyez la même requête :
+
+```python Python (Anthropic SDK)
+import time
+import anthropic
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    try:
+        message = client.messages.create(
+            model="YOUR_TRAINING_JOB_ID",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+            extra_body={"schema": {"entities": ["organization", "product"]}},
+        )
+        break
+    except anthropic.APIStatusError as error:
+        if error.status_code != 425 or attempt == MAX_RETRIES:
+            raise
+        retry_after = error.response.headers.get("retry-after", "")
+        time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+```
+
 ## Streaming
 
 L’inférence GLiNER ne prend pas en charge le streaming. Utilisez `client.messages.create(...)` sans `stream=True` ; l’API renvoie le résultat structuré complet après le traitement.

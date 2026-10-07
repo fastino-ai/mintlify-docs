@@ -142,6 +142,20 @@ curl https://api.fastino.ai/v1/models \
 
 </CodeGroup>
 
+## 重试 425 响应
+
+模型临时预热期间，首次请求可能返回带有错误码 `model_warming` 的 `425`。该响应带有 `x-should-retry: true`，因此官方 OpenAI SDK 会自动重试，并以 `Retry-After` 作为延迟。默认的 2 次重试可能在预热完成前用完，因此首次调用时请提高 `max_retries`：
+
+```python Python (OpenAI SDK)
+response = client.with_options(max_retries=5).chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+    extra_body={"schema": {"entities": ["organization", "product"]}},
+)
+```
+
+如需对所有请求应用该上限，请改为向 `OpenAI(...)` 传入 `max_retries=5`。原始 HTTP 重试示例请参阅 [425 - 过早 (Too Early)](/cn/api-reference/errors#425-过早-too-early)。
+
 ## 流式传输
 
 GLiNER 推理不支持流式传输。请勿设置 `stream=True`；API 会在处理输入后返回完整的结构化结果。

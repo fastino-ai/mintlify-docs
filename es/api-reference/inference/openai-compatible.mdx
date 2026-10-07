@@ -142,6 +142,20 @@ curl https://api.fastino.ai/v1/models \
 
 </CodeGroup>
 
+## Reintentar respuestas 425
+
+Una primera solicitud puede devolver `425` con el código `model_warming` mientras el modelo se calienta temporalmente. La respuesta lleva `x-should-retry: true`, así que los SDK oficiales de OpenAI la reintentan automáticamente, usando `Retry-After` como retardo. Los 2 reintentos predeterminados pueden agotarse antes de que termine el calentamiento, así que aumenta `max_retries` para una primera llamada:
+
+```python Python (OpenAI SDK)
+response = client.with_options(max_retries=5).chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+    extra_body={"schema": {"entities": ["organization", "product"]}},
+)
+```
+
+Para aplicar el límite a todas las solicitudes, pasa `max_retries=5` a `OpenAI(...)` en su lugar. Para ver ejemplos de reintento con HTTP, consulta [425 - Demasiado pronto](/es/api-reference/errors#425-demasiado-pronto).
+
 ## Streaming
 
 La inferencia GLiNER no admite streaming. No definas `stream=True`; la API devuelve el resultado estructurado completo después de procesar la entrada.

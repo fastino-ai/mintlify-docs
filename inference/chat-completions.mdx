@@ -460,111 +460,6 @@ Parse `choices[0].message.content` as JSON before reading task results. When `st
 `x_fastino.default_schema_applied` is `true` when an encoder request omitted both `schema`
 and `response_format` and Fastino used the selected model's catalog default.
 
-## First call after idle
-
-<Note>
-  When a model has scaled to zero after a period without traffic, your first request can
-  return HTTP `425` with error code `model_warming`. This is expected and does not mean your
-  request is wrong. The model is usually ready within 30 to 60 seconds. The response includes
-  a `Retry-After` header with the number of seconds to wait, and `x-should-retry: true`.
-</Note>
-
-Send the same request again after the `Retry-After` delay. Each example retries at most 5
-times, waits `Retry-After` seconds (30 if the header is missing), sets a 300-second client
-timeout, and stops on any other non-2xx response.
-
-<CodeGroup>
-
-```bash cURL
-for attempt in 0 1 2 3 4 5; do
-  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
-    https://api.fastino.ai/v1/chat/completions \
-    -H "Authorization: Bearer $FASTINO_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "model": "fastino/gliner2.5-multi-v1",
-      "messages": [{ "role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino." }],
-      "schema": { "entities": ["organization", "product"] }
-    }')
-  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
-  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
-  sleep "${delay:-30}"
-done
-
-if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-  cat response.json
-else
-  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
-fi
-```
-
-```python Python
-import os
-import time
-import requests
-
-MAX_RETRIES = 5
-
-for attempt in range(MAX_RETRIES + 1):
-    response = requests.post(
-        "https://api.fastino.ai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
-        json={
-            "model": "fastino/gliner2.5-multi-v1",
-            "messages": [
-                {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
-            ],
-            "schema": {"entities": ["organization", "product"]},
-        },
-        timeout=300,
-    )
-    if response.status_code != 425 or attempt == MAX_RETRIES:
-        break
-    retry_after = response.headers.get("Retry-After", "")
-    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
-
-if not 200 <= response.status_code < 300:
-    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
-print(response.json()["choices"][0]["message"]["content"])
-```
-
-```javascript JavaScript
-const MAX_RETRIES = 5;
-let response;
-
-for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-  response = await fetch("https://api.fastino.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "fastino/gliner2.5-multi-v1",
-      messages: [{ role: "user", content: "Apple announced the MacBook Pro at WWDC in Cupertino." }],
-      schema: { entities: ["organization", "product"] },
-    }),
-    signal: AbortSignal.timeout(300_000),
-  });
-  if (response.status !== 425 || attempt === MAX_RETRIES) break;
-  const retryAfter = Number(response.headers.get("Retry-After"));
-  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
-}
-
-if (!response.ok) {
-  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
-}
-const completion = await response.json();
-console.log(completion.choices[0].message.content);
-```
-
-</CodeGroup>
-
-The official OpenAI and Anthropic SDKs retry this response automatically because it carries
-`x-should-retry: true`. See [OpenAI-compatible inference](/api-reference/inference/openai-compatible#first-call-after-idle)
-and [Anthropic-compatible inference](/api-reference/inference/anthropic-compatible#first-call-after-idle)
-to raise the SDK retry limit for a first call.
-
 ## Async jobs for very large inputs
 
 Use the async GLiNER interface when a request exceeds one million tokens and may outlast the
@@ -604,7 +499,7 @@ multiple inputs.
 | `404` | Unknown or unsupported model | Use an inference-capable catalog ID or deployable job UUID |
 | `409` | Fine-tuned model exists but is not deployed | Wait for or repair the model deployment |
 | `422` | Request validation failed | Read and correct the field-level validation details |
-| `425` | `model_warming`: the model is warming up after idle | Wait `Retry-After` seconds and retry; see [First call after idle](#first-call-after-idle) |
+| `425` | `model_warming`: the model is temporarily warming up | Wait `Retry-After` seconds and retry; see [425 - Too Early](/api-reference/errors#425-too-early) |
 | `429` | Rate or capacity limit | Respect `Retry-After` and retry with backoff |
 | `503` | Cold start or temporary provider capacity issue | Retry before treating it as terminal |
 

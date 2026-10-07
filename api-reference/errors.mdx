@@ -21,7 +21,7 @@ Most error responses return a JSON body with a `detail` field:
 A few response families use a different shape:
 
 - **Billing denials** (`402`, some `403`s) return `{"code", "message", "resolution_url"}` instead of `detail` - see [402](#402-payment-required) and [403](#403-forbidden) below.
-- **Warm-up responses** (`425`) return `{"error": {"message", "type", "param", "code": "model_warming"}}` with `Retry-After` and `x-should-retry: true` headers - see [425](#425-too-early) below.
+- **Warm-up responses** (`425`) include a `Retry-After` header. OpenAI-shaped bodies also carry `code: "model_warming"` - see [425](#425-too-early) below.
 - **Rate-limit responses** (`429`) add `code` and `scope` fields alongside `detail`, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers - see [429](#429-too-many-requests) below.
 - **Unhandled server errors** (`500`) return `{"error", "message"}` rather than `detail`.
 - Requests against the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/responses`) receive an OpenAI-shaped `{"error": {"code", "type", "param", "message"}}` envelope, and requests carrying an `anthropic-version` header receive an Anthropic-shaped `{"type": "error", "error": {"type", "message"}}` envelope instead of the generic shapes above.
@@ -109,14 +109,14 @@ The request body failed validation. A required field is missing, a field has the
 
 ### 425 - Too Early
 
-The model has scaled to zero after a period without traffic, or the on-demand deployment was just provisioned, and it is still warming up. This is expected on the first request after idle and is not an error in your request. The model is usually ready within 30 to 60 seconds.
+The model is temporarily warming up and isn't ready to serve inference yet. This is expected on the first request after a period without traffic or against a freshly provisioned on-demand deployment, and it does not mean your request is wrong. Warm-up time depends on the model, so a request can return `425` more than once before it succeeds.
 
-The body uses `code: "model_warming"`:
+Most endpoints return an OpenAI-shaped body with `code: "model_warming"`:
 
 ```json
 {
   "error": {
-    "message": "Model '<id>' is warming up. Please retry in about 30 seconds.",
+    "message": "...",
     "type": "invalid_request_error",
     "param": null,
     "code": "model_warming"
@@ -124,12 +124,113 @@ The body uses `code: "model_warming"`:
 }
 ```
 
+Requests to `/v1/messages` that carry an `anthropic-version` header receive an Anthropic-shaped body instead, without a `code` field:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "..."
+  }
+}
+```
+
 | Header | Value |
 | --- | --- |
-| `Retry-After` | Number of seconds to wait before retrying |
-| `x-should-retry` | `true`. The official OpenAI and Anthropic SDKs read this header and retry automatically. |
+| `Retry-After` | Seconds to wait before the next attempt. It is a retry delay, not a promise that the model will be ready. |
+| `x-should-retry` | `true` on OpenAI-shaped responses, so the OpenAI SDKs retry automatically. `false` on Anthropic-shaped responses, so the Anthropic SDKs do not retry; handle these yourself. |
 
-**How to fix:** Wait `Retry-After` seconds (30 if the header is missing) and send the same request again, with a bounded number of retries. See [First call after idle](/inference/chat-completions#first-call-after-idle) for cURL, Python, and JavaScript examples, and [OpenAI-compatible inference](/api-reference/inference/openai-compatible#first-call-after-idle) to raise the SDK retry limit.
+**How to fix:** Wait `Retry-After` seconds (30 if the header is missing) and send the same request again, with a bounded number of retries. Each example retries at most 5 times, sets a 300-second client timeout, and stops on any other non-2xx response. The same loop works for `/v1/systemone`; change the URL and request body.
+
+<CodeGroup>
+
+```bash cURL
+for attempt in 0 1 2 3 4 5; do
+  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
+    https://api.fastino.ai/v1/chat/completions \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [{ "role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      "schema": { "entities": ["organization", "product"] }
+    }')
+  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
+  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
+  sleep "${delay:-30}"
+done
+
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+  cat response.json
+else
+  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
+fi
+```
+
+```python Python
+import os
+import time
+import requests
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+        json={
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+            ],
+            "schema": {"entities": ["organization", "product"]},
+        },
+        timeout=300,
+    )
+    if response.status_code != 425 or attempt == MAX_RETRIES:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+
+if not 200 <= response.status_code < 300:
+    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
+print(response.json()["choices"][0]["message"]["content"])
+```
+
+```javascript JavaScript
+const MAX_RETRIES = 5;
+let response;
+
+for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/gliner2.5-multi-v1",
+      messages: [{ role: "user", content: "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      schema: { entities: ["organization", "product"] },
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (response.status !== 425 || attempt === MAX_RETRIES) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
+}
+const completion = await response.json();
+console.log(completion.choices[0].message.content);
+```
+
+</CodeGroup>
+
+With an SDK, see [OpenAI-compatible inference](/api-reference/inference/openai-compatible#retrying-425-responses) to raise the retry limit, or [Anthropic-compatible inference](/api-reference/inference/anthropic-compatible#retrying-425-responses) for a manual retry.
 
 ---
 

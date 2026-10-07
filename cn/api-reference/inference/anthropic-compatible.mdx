@@ -107,6 +107,34 @@ curl -X POST https://api.fastino.ai/v1/messages \
 
 </CodeGroup>
 
+## 重试 425 响应
+
+模型临时预热期间，首次请求可能返回 `425`。在 `/v1/messages` 上，该响应带有 `x-should-retry: false`，因此官方 Anthropic SDK 不会自动重试。响应体使用 Anthropic 错误格式，`error.type` 为 `"invalid_request_error"`；参见 [425 - 过早 (Too Early)](/cn/api-reference/errors#425-过早-too-early)。
+
+捕获该错误，等待 `Retry-After` 秒（如果缺少该响应头则等待 30 秒），然后重新发送相同的请求：
+
+```python Python (Anthropic SDK)
+import time
+import anthropic
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    try:
+        message = client.messages.create(
+            model="YOUR_TRAINING_JOB_ID",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+            extra_body={"schema": {"entities": ["organization", "product"]}},
+        )
+        break
+    except anthropic.APIStatusError as error:
+        if error.status_code != 425 or attempt == MAX_RETRIES:
+            raise
+        retry_after = error.response.headers.get("retry-after", "")
+        time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+```
+
 ## 流式传输
 
 GLiNER 推理不支持流式传输。请使用不带 `stream=True` 的 `client.messages.create(...)`；API 会在处理输入后返回完整的结构化结果。

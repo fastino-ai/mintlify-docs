@@ -21,6 +21,7 @@ Die meisten Fehlerantworten geben einen JSON-Body mit einem `detail`-Feld zurüc
 Einige Antwortfamilien verwenden eine andere Struktur:
 
 - **Abrechnungsablehnungen** (`402`, einige `403`) geben `{"code", "message", "resolution_url"}` anstelle von `detail` zurück – siehe [402](#402-zahlung-erforderlich) und [403](#403-verboten) unten.
+- **Aufwärm-Antworten** (`425`) enthalten einen `Retry-After`-Header. OpenAI-förmige Bodies enthalten zusätzlich `code: "model_warming"` – siehe [425](#425-zu-früh) unten.
 - **Rate-Limit-Antworten** (`429`) fügen neben `detail` die Felder `code` und `scope` sowie die Header `X-RateLimit-Scope` und `X-RateLimit-Code` hinzu – siehe [429](#429-zu-viele-anfragen) unten.
 - **Unbehandelte Serverfehler** (`500`) geben `{"error", "message"}` anstelle von `detail` zurück.
 - Anfragen an die OpenAI-kompatiblen Endpunkte (`/v1/chat/completions`, `/v1/responses`) erhalten einen OpenAI-förmigen `{"error": {"code", "type", "param", "message"}}`-Umschlag, und Anfragen mit einem `anthropic-version`-Header erhalten stattdessen einen Anthropic-förmigen `{"type": "error", "error": {"type", "message"}}`-Umschlag anstelle der oben genannten generischen Strukturen.
@@ -108,9 +109,128 @@ Die Validierung des Anfrage-Bodys ist fehlgeschlagen. Ein erforderliches Feld fe
 
 ### 425 - Zu früh
 
-Das angeforderte On-Demand-Deployment wärmt sich noch auf (Kaltstart) und ist noch nicht bereit, Inferenz zu bedienen.
+Das Modell wärmt sich vorübergehend auf und ist noch nicht bereit, Inferenz zu bedienen. Das ist bei der ersten Anfrage nach einer Zeit ohne Traffic oder gegen ein frisch bereitgestelltes On-Demand-Deployment zu erwarten und bedeutet nicht, dass Ihre Anfrage fehlerhaft ist. Die Aufwärmzeit hängt vom Modell ab, daher kann eine Anfrage mehrmals `425` zurückgeben, bevor sie erfolgreich ist.
 
-**Behebung:** Beachten Sie den `Retry-After`-Header und versuchen Sie es nach der angegebenen Verzögerung erneut. Dies ist bei der ersten Anfrage gegen ein frisch bereitgestelltes On-Demand-Deployment zu erwarten.
+Die meisten Endpunkte geben einen OpenAI-förmigen Body mit `code: "model_warming"` zurück:
+
+```json
+{
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "model_warming"
+  }
+}
+```
+
+Anfragen an `/v1/messages` mit einem `anthropic-version`-Header erhalten stattdessen einen Anthropic-förmigen Body ohne `code`-Feld:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "..."
+  }
+}
+```
+
+| Header | Wert |
+| --- | --- |
+| `Retry-After` | Sekunden bis zum nächsten Versuch. Das ist eine Wiederholungsverzögerung, keine Zusage, dass das Modell dann bereit ist. |
+| `x-should-retry` | `true` bei OpenAI-förmigen Antworten, daher wiederholen die OpenAI-SDKs automatisch. `false` bei Anthropic-förmigen Antworten, daher wiederholen die Anthropic-SDKs nicht; behandeln Sie diese selbst. |
+
+**Behebung:** Warten Sie `Retry-After` Sekunden (30, falls der Header fehlt) und senden Sie dieselbe Anfrage erneut, mit einer begrenzten Anzahl von Wiederholungen. Jedes Beispiel wiederholt höchstens 5 Mal, setzt ein Client-Timeout von 300 Sekunden und bricht bei jeder anderen Nicht-2xx-Antwort ab. Dieselbe Schleife funktioniert für `/v1/systemone`; ändern Sie URL und Request-Body.
+
+<CodeGroup>
+
+```bash cURL
+for attempt in 0 1 2 3 4 5; do
+  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
+    https://api.fastino.ai/v1/chat/completions \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [{ "role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      "schema": { "entities": ["organization", "product"] }
+    }')
+  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
+  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
+  sleep "${delay:-30}"
+done
+
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+  cat response.json
+else
+  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
+fi
+```
+
+```python Python
+import os
+import time
+import requests
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+        json={
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+            ],
+            "schema": {"entities": ["organization", "product"]},
+        },
+        timeout=300,
+    )
+    if response.status_code != 425 or attempt == MAX_RETRIES:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+
+if not 200 <= response.status_code < 300:
+    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
+print(response.json()["choices"][0]["message"]["content"])
+```
+
+```javascript JavaScript
+const MAX_RETRIES = 5;
+let response;
+
+for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/gliner2.5-multi-v1",
+      messages: [{ role: "user", content: "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      schema: { entities: ["organization", "product"] },
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (response.status !== 425 || attempt === MAX_RETRIES) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
+}
+const completion = await response.json();
+console.log(completion.choices[0].message.content);
+```
+
+</CodeGroup>
+
+Mit einem SDK finden Sie unter [OpenAI-kompatible Inferenz](/de/api-reference/inference/openai-compatible#425-antworten-wiederholen), wie Sie das Wiederholungslimit erhöhen, und unter [Anthropic-kompatibles POST /v1/messages](/de/api-reference/inference/anthropic-compatible#425-antworten-wiederholen) eine manuelle Wiederholung.
 
 ---
 

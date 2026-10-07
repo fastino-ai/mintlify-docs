@@ -142,6 +142,20 @@ curl https://api.fastino.ai/v1/models \
 
 </CodeGroup>
 
+## 425-Antworten wiederholen
+
+Eine erste Anfrage kann `425` mit dem Code `model_warming` zurückgeben, während sich das Modell vorübergehend aufwärmt. Die Antwort enthält `x-should-retry: true`, daher wiederholen die offiziellen OpenAI-SDKs sie automatisch und verwenden `Retry-After` als Verzögerung. Die standardmäßigen 2 Wiederholungen können aufgebraucht sein, bevor das Aufwärmen abgeschlossen ist. Erhöhen Sie daher `max_retries` für einen ersten Aufruf:
+
+```python Python (OpenAI SDK)
+response = client.with_options(max_retries=5).chat.completions.create(
+    model="YOUR_TRAINING_JOB_ID",
+    messages=[{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
+    extra_body={"schema": {"entities": ["organization", "product"]}},
+)
+```
+
+Um das Limit auf jede Anfrage anzuwenden, übergeben Sie stattdessen `max_retries=5` an `OpenAI(...)`. HTTP-Wiederholungsbeispiele finden Sie unter [425 - Zu früh](/de/api-reference/errors#425-zu-früh).
+
 ## Streaming
 
 GLiNER-Inferenz unterstützt kein Streaming. Setzen Sie `stream=True` nicht; die API gibt das vollständige strukturierte Ergebnis zurück.
