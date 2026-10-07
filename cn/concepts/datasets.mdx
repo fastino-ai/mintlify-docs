@@ -1,145 +1,108 @@
 ---
-title: "Fastino 数据集：创建、版本管理、查看与删除"
+title: "准备并上传训练数据集"
 sidebarTitle: "数据集"
-description: "Fastino 会自动存储并对训练数据集进行版本管理。了解如何通过合成生成或自动打标签创建数据集，并列出、查看和删除它们。"
-noindex: true
+description: "在启动 Fastino 训练任务之前，格式化、上传、验证并检查 NER、分类或解码器数据集。"
 ---
 
-Fastino 中的数据集是用于训练和评估模型的带标签样例集合。每个数据集都有您自己定义的名称，Fastino 会在您添加或重新生成数据时自动为其做版本管理。启动训练任务或运行评估时，您通过名称引用数据集，因此您选择的名称将是整个工作流中稳定的标识符。
+训练任务通过名称引用已就绪的数据集。请准备一个 JSONL 文件，通过两步式数据集 API 上传，
+并在调用 `POST /v1/training-jobs` 之前确认已处理的版本存在。
 
-## 如何创建数据集
+## 选择数据集格式
 
-您可以通过两种方式创建数据集：
+文件中的每一行都必须是一个 JSON 对象。同一数据集中请始终使用一致的结构。
 
-**合成数据生成** - 使用 `POST /v1/generate`，让 Fastino 根据您对领域和关注标签的描述生成带标签的样例。这是在没有任何现成带标签数据的情况下最快速地启动数据集的方式。
+### 命名实体识别
+
+使用 `text` 加上由 `[span, label]` 对组成的 `entities` 列表。每个 span 都必须逐字出现在文本中。
+请使用空列表来包含负样本。
+
+```jsonl
+{"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]]}
+{"text":"No tagged entities here.","entities":[]}
+```
+
+### 分类
+
+单标签数据使用 `label`，多标签数据使用 `labels`。
+
+```jsonl
+{"text":"The setup was straightforward.","label":"positive"}
+{"text":"The request needs billing and technical help.","labels":["billing","technical"]}
+```
+
+### 解码器微调
+
+使用包含 `system`、`user` 或 `assistant` 消息的 `messages` 数组。
+
+```jsonl
+{"messages":[{"role":"user","content":"What is 2 + 2?"},{"role":"assistant","content":"4"}]}
+```
+
+## 上传数据集
+
+### 1. 预留上传 URL
 
 ```bash
-curl -X POST https://api.fastino.ai/v1/generate \
-  -H "X-API-Key: YOUR_API_KEY" \
+curl -s https://api.fastino.ai/v1/datasets/upload/url \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_type": "ner",
-    "dataset_name": "my-ner-dataset",
-    "labels": ["person", "company", "product"],
-    "num_examples": 100,
-    "domain_description": "Tech industry news articles"
+    "dataset_name": "docs-example-ner",
+    "filename": "training.jsonl",
+    "dataset_type": "ner"
   }'
 ```
 
-`POST /v1/generate` 还支持 NER 以外的任务类型。传入不同的 `task_type` 及其必填字段：
+响应包含一个短时有效的 `presigned_url`、一个 `dataset_id` 和一个 `version_number`。
+请使用 HTTP `PUT` 将文件的原始字节上传到 `presigned_url`。请同时保留数据集 ID 和版本号。
 
-| `task_type` | 必填字段 | 生成内容 |
+```bash
+curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+```
+
+### 2. 处理已上传的文件
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/upload/process \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_id": "DATASET_ID_FROM_STEP_1"
+  }'
+```
+
+处理请求返回 `202`。按名称轮询数据集，找到 `version_number` 与上传响应一致的条目，
+并等待该条目的 `status` 变为 `ready`：
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## 开始训练
+
+将确切的数据集名称传递给[训练任务创建端点](/cn/api-reference/training-jobs/create)：
+
+```json
+{
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "datasets": [
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+  ],
+  "training_type": "lora"
+}
+```
+
+请在提交前立即调用 `GET /v1/base-models?supports_training=true`，以选择当前可训练的基础模型。
+
+## 常见阻碍
+
+| 状态 | 原因 | 处理方式 |
 | --- | --- | --- |
-| `ner` | `labels` | 命名实体识别数据集 |
-| `classification` | `labels` | 文本分类数据集 |
-| `custom` | `prompt` | 自由形式的基于提示的数据集 |
-| `decoder` | `domain_description` | 指令微调（对话格式）数据集 |
-| `records` | `fields` | 结构化记录 |
-| `fields` | `input_fields` 和 `output_fields` | 具有独立输入/输出模式的结构化记录 |
+| `401` | API 密钥缺失或无效 | 发送 `X-API-Key: $FASTINO_API_KEY` |
+| `404` | 数据集名称不存在 | 确认确切名称并等待处理完成 |
+| `422` | 数据行或数据集类型无效 | 根据验证报告修正 JSONL 结构 |
 
-端点会立即返回 `202` 和一个 `job_id`，生成本身在后台异步执行。生成或打标签完成后，样例会自动存入您的数据集。在启动训练之前，请轮询 `GET /v1/generate/jobs/:job_id`，直到 `status` 为 `ready`（若为 `failed`，请查看 `error` 字段）。
-
-## 上传自己的数据集
-
-上传自有数据：如果您已有带标签的数据，请使用 `POST/v1/datasets/upload/url`。这是一个三步流程：
-
-#### 第 1 步：获取预签名上传 URL
-
-```bash
- curl -X POST https://api.fastino.ai/v1/datasets/upload/url \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \                                                                               
-    -d '{
-      "dataset_name": "my-ner-dataset",                                                                                 
-      "dataset_type": "ner",
-      "type": "training",
-      "filename": "data.jsonl"
-    }'      
-```
-
-只有 `dataset_name` 是必填的。`dataset_type` 若省略默认为 `"ner"`，可取值 `"ner"`、`"classification"`、`"custom"` 或 `"decoder"`（`type` 字段默认为 `"training"`；`"benchmark"` 在此处会被拒绝，因为基准数据集由系统托管）。响应中包含 'presigned\_url'、'dataset\_id' 和 'version\_number'。
-
-#### 第 2 步：将文件直接上传到 S3
-
-```bash
-curl -X PUT "<presigned_url from step 1 response>" \                                                                  
-   --upload-file ./data.jsonl
-```
-
-这是一个直接向 S3 发起的 HTTP PUT 请求。此处不要携带您的 API 密钥。
-
-#### 第 3 步：触发处理
-
-```bash
-curl -X POST https://api.fastino.ai/v1/datasets/upload/process \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{                                                                                                               
-      "dataset_id": "<dataset_id from step 1>"
-    }' 
-```
-
-该调用立即返回 `202`，状态为 `uploading`；数据集随后在后台依次经过其余状态：initialized → uploading → converting → validating → ready
-
-在启动训练任务之前，请轮询 `GET /v1/datasets/{name}/{version}`，直到 `status` 为 `ready`（若为 `failed`，请查看 `processing_error`）。您也可以传入 `latest` 代替版本号，以始终获取最新版本。
-
-## 列出您的数据集
-
-获取账户中的所有数据集：
-
-```bash
-curl https://api.fastino.ai/v1/datasets \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-响应会按名称列出每个数据集，并附带创建时间和版本数等元数据。默认不返回状态为 `failed` 的数据集，若要一并查看，请传入 `include_failed=true`。
-
-## 查看数据集
-
-要查看某个数据集的版本和详细信息，传入其名称：
-
-```bash
-curl https://api.fastino.ai/v1/datasets/my-ner-dataset \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-这会返回版本历史和样例数量，可用于在训练前确认数据集已就绪。
-
-## 删除数据集
-
-```bash
-curl -X DELETE https://api.fastino.ai/v1/datasets/my-ner-dataset \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-按名称删除数据集会将其及其所有版本软删除。S3 数据会保留，以便您在需要时恢复。如果有任何评估或训练任务正处于 `pending`/`running` 状态并使用该数据集，删除会被拒绝并返回 `409 Conflict`，直到该任务结束。删除成功后，已完成的训练任务和评估仍可查询，但您将无法再启动引用该数据集的新任务。
-
-<Note>
-  数据集存储是免费的。无论体积或版本数量多少，Fastino 都不会就存储数据集向您收费。
-</Note>
-
-## 数据集端点汇总
-
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/v1/datasets` | 列出所有数据集 |
-| `GET` | `/v1/datasets/:name` | 获取某数据集的所有版本 |
-| `GET` | `/v1/datasets/:name/:version` | 获取特定版本的状态和元数据（`:version` 也可传 `latest`） |
-| `GET` | `/v1/datasets/:name/:version/preview` | 预览若干行样本，无需下载完整文件 |
-| `GET` | `/v1/datasets/:name/:version/download` | 以 `jsonl`、`csv` 或 `parquet` 下载某个版本 |
-| `DELETE` | `/v1/datasets/:name` | 软删除数据集及其所有版本（当有任务/评估正在使用时，返回 `409` 拒绝） |
-| `DELETE` | `/v1/datasets/:name/:version` | 软删除特定版本 |
-| `POST` | `/v1/datasets/upload/url` | 获取用于直接上传的 S3 预签名 URL |
-| `POST` | `/v1/datasets/upload/process` | 在 S3 上传完成后触发处理 |
-| `POST` | `/v1/datasets/merge` | 将同类型的多个数据集合并为一个新数据集 |
-| `POST` | `/v1/datasets/:name/:version/push-to-hub` | 将某数据集版本推送到 HuggingFace Hub |
-| `POST` | `/v1/datasets/pull-from-hub` | 从 HuggingFace Hub 导入数据集 |
-| `POST` | `/v1/datasets/preview-from-hub` | 在导入前预览 HuggingFace Hub 上的数据集 |
-| `POST` | `/v1/generate` | 启动一个合成数据生成任务（`202` + `job_id`，异步） |
-| `GET` | `/v1/generate/jobs/:job_id` | 轮询生成任务状态 |
-| `POST` | `/v1/generate/ner/label-existing` | 对原始文本进行 NER 自动打标签（同步，直接返回结果，不返回 `job_id`） |
-| `POST` | `/v1/generate/classification/label-existing` | 对原始文本进行自动分类（同步，直接返回结果，不返回 `job_id`） |
-
-<Note>
-  **数据隐私：** 如果您希望不让您的数据用于 Fastino 的模型训练，请发送邮件至 [support@fastino.ai](mailto:support@fastino.ai)，我们将确保将您的数据排除在训练流水线之外。
-</Note>
+请勿上传 GLiNER 训练器内部使用的 `{"input": ..., "output": ...}` 结构。请先将其转换为公开的
+`text` 加 `entities` 格式。

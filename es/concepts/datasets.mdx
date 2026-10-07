@@ -1,145 +1,113 @@
 ---
-title: "Gestión de datasets en Fastino"
+title: "Preparar y subir datasets de entrenamiento"
 sidebarTitle: "Datasets"
-description: "Fastino almacena y versiona tus datasets de entrenamiento. Créalos con generación o auto-etiquetado, y luego lístalos, inspecciónalos o elimínalos."
-noindex: true
+description: "Formatea, sube, valida e inspecciona datasets de NER, clasificación o decoder antes de iniciar un trabajo de entrenamiento de Fastino."
 ---
 
-Los datasets en Fastino son colecciones de ejemplos etiquetados que se usan para entrenar y evaluar modelos. Cada dataset tiene un nombre que tú defines, y Fastino lo versiona automáticamente a medida que añades o regeneras datos. Al iniciar un trabajo de entrenamiento o ejecutar una evaluación haces referencia al dataset por su nombre, así que el nombre que elijas es el identificador estable que usarás en todo tu flujo de trabajo.
+Los trabajos de entrenamiento hacen referencia a datasets listos por su nombre. Prepara un archivo JSONL, súbelo mediante la
+API de datasets en dos pasos y confirma que la versión procesada existe antes de llamar a
+`POST /v1/training-jobs`.
 
-## Cómo se crean los datasets
+## Elegir un formato de dataset
 
-Puedes crear datasets de dos maneras:
+Cada línea del archivo debe ser un objeto JSON. Usa una misma estructura en todo el
+dataset.
 
-**Generación de datos sintéticos.** Usa `POST /v1/generate` para que Fastino produzca ejemplos etiquetados a partir de una descripción de tu dominio y las etiquetas que te interesan. Es la forma más rápida de arrancar un dataset cuando no tienes datos etiquetados previos.
+### Reconocimiento de entidades nombradas
+
+Usa `text` junto con una lista `entities` de pares `[span, label]`. Cada span debe aparecer literalmente
+en el texto. Incluye ejemplos negativos con una lista vacía.
+
+```jsonl
+{"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]]}
+{"text":"No tagged entities here.","entities":[]}
+```
+
+### Clasificación
+
+Usa `label` para datos de una sola etiqueta o `labels` para datos multietiqueta.
+
+```jsonl
+{"text":"The setup was straightforward.","label":"positive"}
+{"text":"The request needs billing and technical help.","labels":["billing","technical"]}
+```
+
+### Ajuste fino de decoder
+
+Usa un array `messages` que contenga mensajes `system`, `user` o `assistant`.
+
+```jsonl
+{"messages":[{"role":"user","content":"What is 2 + 2?"},{"role":"assistant","content":"4"}]}
+```
+
+## Subir un dataset
+
+### 1. Reservar una URL de subida
 
 ```bash
-curl -X POST https://api.fastino.ai/v1/generate \
-  -H "X-API-Key: YOUR_API_KEY" \
+curl -s https://api.fastino.ai/v1/datasets/upload/url \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_type": "ner",
-    "dataset_name": "my-ner-dataset",
-    "labels": ["person", "company", "product"],
-    "num_examples": 100,
-    "domain_description": "Tech industry news articles"
+    "dataset_name": "docs-example-ner",
+    "filename": "training.jsonl",
+    "dataset_type": "ner"
   }'
 ```
 
-`POST /v1/generate` también admite tipos de tarea más allá de NER. Pasa un `task_type` distinto y su campo obligatorio:
+La respuesta contiene una `presigned_url` de corta duración, un `dataset_id` y un
+`version_number`. Sube los bytes exactos del archivo a `presigned_url` con un HTTP `PUT`. Conserva tanto
+el ID del dataset como el número de versión.
 
-| `task_type` | Campo obligatorio | Produce |
+```bash
+curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+```
+
+### 2. Procesar el archivo subido
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/upload/process \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_id": "DATASET_ID_FROM_STEP_1"
+  }'
+```
+
+El procesamiento devuelve `202`. Consulta el dataset por su nombre, busca la entrada cuyo `version_number`
+coincida con la respuesta de la subida y espera hasta que el `status` de esa entrada sea `ready`:
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Iniciar el entrenamiento
+
+Pasa el nombre exacto del dataset al [endpoint de creación de trabajos
+de entrenamiento](/es/api-reference/training-jobs/create):
+
+```json
+{
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "datasets": [
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+  ],
+  "training_type": "lora"
+}
+```
+
+Usa `GET /v1/base-models?supports_training=true` justo antes del envío para seleccionar un
+modelo base que se pueda entrenar actualmente.
+
+## Bloqueos comunes
+
+| Estado | Causa | Acción |
 | --- | --- | --- |
-| `ner` | `labels` | Dataset de reconocimiento de entidades nombradas |
-| `classification` | `labels` | Dataset de clasificación de texto |
-| `custom` | `prompt` | Dataset libre basado en prompt |
-| `decoder` | `domain_description` | Dataset de instruction-tuning (formato chat) |
-| `records` | `fields` | Registros estructurados |
-| `fields` | `input_fields` y `output_fields` | Registros estructurados con esquemas separados de entrada/salida |
+| `401` | API key ausente o no válida | Envía `X-API-Key: $FASTINO_API_KEY` |
+| `404` | El nombre del dataset no existe | Confirma el nombre exacto y espera a que termine el procesamiento |
+| `422` | Filas o tipo de dataset no válidos | Corrige la estructura JSONL indicada por la validación |
 
-El endpoint devuelve `202` de inmediato con un `job_id`; la generación en sí se ejecuta de forma asíncrona. Una vez generados o etiquetados, los ejemplos se almacenan automáticamente en tu dataset. Sondea `GET /v1/generate/jobs/:job_id` hasta que `status` sea `ready` (o `failed`, en cuyo caso revisa el campo `error`) antes de iniciar el entrenamiento.
-
-## Subir tu propio dataset
-
-Si ya tienes datos etiquetados, usa `POST /v1/datasets/upload/url`. Es un proceso de tres pasos:
-
-#### Paso 1. Obtener una URL de subida prefirmada
-
-```bash
- curl -X POST https://api.fastino.ai/v1/datasets/upload/url \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \                                                                               
-    -d '{
-      "dataset_name": "my-ner-dataset",                                                                                 
-      "dataset_type": "ner",
-      "type": "training",
-      "filename": "data.jsonl"
-    }'      
-```
-
-Solo `dataset_name` es obligatorio. `dataset_type` toma por defecto `"ner"` si se omite y acepta `"ner"`, `"classification"`, `"custom"` o `"decoder"` (el campo `type` es `"training"` por defecto; `"benchmark"` se rechaza aquí porque los datasets de benchmark los gestiona el sistema). La respuesta incluye `presigned_url`, `dataset_id` y `version_number`.
-
-#### Paso 2. Subir el archivo directamente a S3
-
-```bash
-curl -X PUT "<presigned_url from step 1 response>" \                                                                  
-   --upload-file ./data.jsonl
-```
-
-Se trata de un HTTP PUT directo a S3. No incluyas aquí tu API key.
-
-#### Paso 3. Disparar el procesamiento
-
-```bash
-curl -X POST https://api.fastino.ai/v1/datasets/upload/process \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{                                                                                                               
-      "dataset_id": "<dataset_id from step 1>"
-    }' 
-```
-
-Esta llamada devuelve de inmediato (`202`) con estado `uploading`; el dataset pasa después por los estados restantes en segundo plano: initialized → uploading → converting → validating → ready
-
-Sondea `GET /v1/datasets/{name}/{version}` hasta que `status` sea `ready` (o `failed`, en cuyo caso revisa `processing_error`) antes de iniciar un trabajo de entrenamiento. También puedes pasar `latest` en lugar de un número de versión para obtener siempre la más reciente.
-
-## Listar tus datasets
-
-Recupera todos los datasets de tu cuenta:
-
-```bash
-curl https://api.fastino.ai/v1/datasets \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-La respuesta lista cada dataset por nombre junto con metadatos como la fecha de creación y el número de versiones. Los datasets con estado `failed` se excluyen por defecto. Pasa `include_failed=true` para verlos también.
-
-## Inspeccionar un dataset
-
-Para ver las versiones y los detalles de un dataset concreto, pasa su nombre:
-
-```bash
-curl https://api.fastino.ai/v1/datasets/my-ner-dataset \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Esto devuelve el historial de versiones y los recuentos de ejemplos, útil para confirmar que el dataset está listo antes de entrenar.
-
-## Eliminar un dataset
-
-```bash
-curl -X DELETE https://api.fastino.ai/v1/datasets/my-ner-dataset \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Eliminar un dataset por nombre realiza un borrado lógico de él y de todas sus versiones. Los datos en S3 se conservan por si necesitas restaurarlo. Si algún trabajo de evaluación o entrenamiento está actualmente en estado `pending`/`running` sobre el dataset, la eliminación se rechaza con `409 Conflict` hasta que ese trabajo termine. Una vez que la eliminación tiene éxito, los trabajos de entrenamiento y las evaluaciones ya completados siguen siendo consultables, pero ya no puedes iniciar nuevos trabajos que lo referencien.
-
-<Note>
-  El almacenamiento de datasets es gratuito. No se te cobra por almacenar datasets en Fastino, sin importar su tamaño o el número de versiones.
-</Note>
-
-## Resumen de endpoints de datasets
-
-| Método | Endpoint | Descripción |
-| --- | --- | --- |
-| `GET` | `/v1/datasets` | Lista todos los datasets |
-| `GET` | `/v1/datasets/:name` | Obtiene todas las versiones de un dataset |
-| `GET` | `/v1/datasets/:name/:version` | Obtiene el estado y los metadatos de una versión concreta (`:version` también acepta `latest`) |
-| `GET` | `/v1/datasets/:name/:version/preview` | Previsualiza una muestra de filas sin descargar el archivo completo |
-| `GET` | `/v1/datasets/:name/:version/download` | Descarga una versión como `jsonl`, `csv` o `parquet` |
-| `DELETE` | `/v1/datasets/:name` | Borrado lógico del dataset y de todas sus versiones (rechazado con `409` mientras un trabajo o evaluación lo esté usando activamente) |
-| `DELETE` | `/v1/datasets/:name/:version` | Borrado lógico de una versión concreta |
-| `POST` | `/v1/datasets/upload/url` | Obtiene una URL prefirmada de S3 para subida directa |
-| `POST` | `/v1/datasets/upload/process` | Dispara el procesamiento tras la subida a S3 |
-| `POST` | `/v1/datasets/merge` | Fusiona varios datasets del mismo tipo en un nuevo dataset |
-| `POST` | `/v1/datasets/:name/:version/push-to-hub` | Publica una versión del dataset en HuggingFace Hub |
-| `POST` | `/v1/datasets/pull-from-hub` | Importa un dataset desde HuggingFace Hub |
-| `POST` | `/v1/datasets/preview-from-hub` | Previsualiza un dataset de HuggingFace Hub antes de importarlo |
-| `POST` | `/v1/generate` | Inicia un trabajo de generación de datos sintéticos (`202` + `job_id`, asíncrono) |
-| `GET` | `/v1/generate/jobs/:job_id` | Sondea el estado del trabajo de generación |
-| `POST` | `/v1/generate/ner/label-existing` | Auto-etiqueta texto en bruto para NER (síncrono: devuelve resultados directamente, sin `job_id`) |
-| `POST` | `/v1/generate/classification/label-existing` | Auto-clasifica texto en bruto (síncrono: devuelve resultados directamente, sin `job_id`) |
-
-<Note>
-  **Privacidad de los datos:** si deseas excluir tus datos del entrenamiento de modelos de Fastino, escribe a [support@fastino.ai](mailto:support@fastino.ai) y nos aseguraremos de excluir tus datos de nuestros pipelines de entrenamiento.
-</Note>
+No subas la estructura interna `{"input": ..., "output": ...}` del entrenador de GLiNER. Conviértela
+primero al formato público de `text` más `entities`.

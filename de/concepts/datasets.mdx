@@ -1,145 +1,113 @@
 ---
-title: "Fastino-Datasets verwalten"
-sidebarTitle: "Datasets"
-description: "Fastino versioniert Trainings-Datasets automatisch. Erstellen Sie sie per Generierung oder Auto-Labeling und listen, inspizieren oder löschen Sie sie danach."
-noindex: true
+title: "Trainingsdatensätze vorbereiten und hochladen"
+sidebarTitle: "Datensätze"
+description: "Formatieren, hochladen, validieren und prüfen Sie NER-, Klassifizierungs- oder Decoder-Datensätze, bevor Sie einen Fastino-Trainingsjob starten."
 ---
 
-Datasets in Fastino sind Sammlungen gelabelter Beispiele, die zum Training und zur Evaluierung von Modellen verwendet werden. Jedes Dataset hat einen von Ihnen definierten Namen, und Fastino versioniert es automatisch, sobald Sie Daten hinzufügen oder neu generieren. Sie referenzieren ein Dataset über seinen Namen, wenn Sie einen Trainingsjob starten oder eine Evaluierung durchführen. Der von Ihnen gewählte Name ist also der stabile Bezeichner, den Sie in Ihrem gesamten Workflow verwenden.
+Trainingsjobs referenzieren fertige Datensätze über ihren Namen. Bereiten Sie eine JSONL-Datei vor, laden Sie sie über die
+zweistufige Datensatz-API hoch und vergewissern Sie sich, dass die verarbeitete Version existiert, bevor Sie
+`POST /v1/training-jobs` aufrufen.
 
-## Wie Datasets erstellt werden
+## Datensatzformat wählen
 
-Sie erstellen Datasets auf zwei Arten:
+Jede Zeile der Datei muss ein JSON-Objekt sein. Verwenden Sie innerhalb eines
+Datensatzes durchgehend dieselbe Struktur.
 
-**Synthetische Datengenerierung**: Verwenden Sie `POST /v1/generate`, damit Fastino aus einer Beschreibung Ihrer Domäne und den für Sie relevanten Labels gelabelte Beispiele erzeugt. Dies ist der schnellste Weg, ein Dataset ohne bestehende gelabelte Daten aufzubauen.
+### Named Entity Recognition
+
+Verwenden Sie `text` zusammen mit einer `entities`-Liste aus `[span, label]`-Paaren. Jeder Span muss wörtlich
+im Text vorkommen. Nehmen Sie Negativbeispiele mit einer leeren Liste auf.
+
+```jsonl
+{"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]]}
+{"text":"No tagged entities here.","entities":[]}
+```
+
+### Klassifizierung
+
+Verwenden Sie `label` für Daten mit einem Label oder `labels` für Multi-Label-Daten.
+
+```jsonl
+{"text":"The setup was straightforward.","label":"positive"}
+{"text":"The request needs billing and technical help.","labels":["billing","technical"]}
+```
+
+### Decoder-Fine-Tuning
+
+Verwenden Sie ein `messages`-Array mit `system`-, `user`- oder `assistant`-Nachrichten.
+
+```jsonl
+{"messages":[{"role":"user","content":"What is 2 + 2?"},{"role":"assistant","content":"4"}]}
+```
+
+## Datensatz hochladen
+
+### 1. Upload-URL reservieren
 
 ```bash
-curl -X POST https://api.fastino.ai/v1/generate \
-  -H "X-API-Key: YOUR_API_KEY" \
+curl -s https://api.fastino.ai/v1/datasets/upload/url \
+  -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_type": "ner",
-    "dataset_name": "my-ner-dataset",
-    "labels": ["person", "company", "product"],
-    "num_examples": 100,
-    "domain_description": "Tech industry news articles"
+    "dataset_name": "docs-example-ner",
+    "filename": "training.jsonl",
+    "dataset_type": "ner"
   }'
 ```
 
-`POST /v1/generate` unterstützt auch andere Task-Typen als NER. Übergeben Sie einen anderen `task_type` und dessen erforderliches Feld:
+Die Antwort enthält eine kurzlebige `presigned_url`, eine `dataset_id` und eine
+`version_number`. Laden Sie die exakten Dateibytes per HTTP `PUT` an `presigned_url` hoch. Bewahren Sie sowohl
+die Datensatz-ID als auch die Versionsnummer auf.
 
-| `task_type` | Erforderliches Feld | Erzeugt |
+```bash
+curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+```
+
+### 2. Hochgeladene Datei verarbeiten
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/upload/process \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_id": "DATASET_ID_FROM_STEP_1"
+  }'
+```
+
+Die Verarbeitung gibt `202` zurück. Fragen Sie den Datensatz über seinen Namen ab, suchen Sie den Eintrag, dessen `version_number`
+mit der Upload-Antwort übereinstimmt, und warten Sie, bis der `status` dieses Eintrags `ready` ist:
+
+```bash
+curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Training starten
+
+Übergeben Sie den exakten Datensatznamen an den [Endpunkt zum Erstellen
+von Trainingsjobs](/de/api-reference/training-jobs/create):
+
+```json
+{
+  "model_name": "my-ner-model",
+  "base_model": "fastino/gliner2-base-v1",
+  "datasets": [
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+  ],
+  "training_type": "lora"
+}
+```
+
+Rufen Sie `GET /v1/base-models?supports_training=true` unmittelbar vor dem Absenden auf, um ein
+aktuell trainierbares Basismodell auszuwählen.
+
+## Häufige Hindernisse
+
+| Status | Ursache | Maßnahme |
 | --- | --- | --- |
-| `ner` | `labels` | Named-Entity-Recognition-Dataset |
-| `classification` | `labels` | Textklassifikations-Dataset |
-| `custom` | `prompt` | Freies, prompt-basiertes Dataset |
-| `decoder` | `domain_description` | Instruction-Tuning-Dataset (Chat-Format) |
-| `records` | `fields` | Strukturierte Records |
-| `fields` | `input_fields` und `output_fields` | Strukturierte Records mit getrennten Input-/Output-Schemas |
+| `401` | Fehlender oder ungültiger API-Schlüssel | Senden Sie `X-API-Key: $FASTINO_API_KEY` |
+| `404` | Datensatzname existiert nicht | Prüfen Sie den exakten Namen und warten Sie auf die Verarbeitung |
+| `422` | Ungültige Zeilen oder ungültiger Datensatztyp | Korrigieren Sie die von der Validierung gemeldete JSONL-Struktur |
 
-Der Endpunkt gibt sofort `202` mit einer `job_id` zurück. Die Generierung selbst läuft asynchron. Nach der Generierung oder dem Labeling werden die Beispiele automatisch in Ihrem Dataset gespeichert. Fragen Sie `GET /v1/generate/jobs/:job_id` ab, bis `status` `ready` ist (oder `failed`, in diesem Fall prüfen Sie das `error`-Feld), bevor Sie mit dem Training beginnen.
-
-## Ein eigenes Dataset hochladen
-
-Wenn Sie bereits gelabelte Daten haben, verwenden Sie `POST /v1/datasets/upload/url`. Dies ist ein dreistufiger Prozess:
-
-#### Schritt 1. Presigned-Upload-URL abrufen
-
-```bash
- curl -X POST https://api.fastino.ai/v1/datasets/upload/url \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \                                                                               
-    -d '{
-      "dataset_name": "my-ner-dataset",                                                                                 
-      "dataset_type": "ner",
-      "type": "training",
-      "filename": "data.jsonl"
-    }'      
-```
-
-Nur `dataset_name` ist erforderlich. `dataset_type` ist standardmäßig `"ner"`, wenn weggelassen, und akzeptiert `"ner"`, `"classification"`, `"custom"` oder `"decoder"` (das Feld `type` ist standardmäßig `"training"`; `"benchmark"` wird hier abgelehnt, da Benchmark-Datasets systemseitig verwaltet werden). Die Antwort enthält `presigned_url`, `dataset_id` und `version_number`.
-
-#### Schritt 2. Datei direkt zu S3 hochladen
-
-```bash
-curl -X PUT "<presigned_url from step 1 response>" \                                                                  
-   --upload-file ./data.jsonl
-```
-
-Dies ist ein direkter HTTP-PUT an S3. Übermitteln Sie hier nicht Ihren API-Key.
-
-#### Schritt 3. Verarbeitung auslösen
-
-```bash
-curl -X POST https://api.fastino.ai/v1/datasets/upload/process \
-    -H "X-API-Key: YOUR_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{                                                                                                               
-      "dataset_id": "<dataset_id from step 1>"
-    }' 
-```
-
-Dieser Aufruf kehrt sofort mit `202` und Status `uploading` zurück. Das Dataset durchläuft anschließend im Hintergrund die verbleibenden Status: initialized → uploading → converting → validating → ready
-
-Fragen Sie `GET /v1/datasets/{name}/{version}` ab, bis `status` `ready` ist (oder `failed`, in diesem Fall prüfen Sie `processing_error`), bevor Sie einen Trainingsjob starten. Sie können statt einer Versionsnummer auch `latest` übergeben, um immer die neueste Version abzurufen.
-
-## Ihre Datasets auflisten
-
-Alle Datasets in Ihrem Konto abrufen:
-
-```bash
-curl https://api.fastino.ai/v1/datasets \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Die Antwort listet jedes Dataset nach Name auf, zusammen mit Metadaten wie Erstellungszeit und Versionsanzahl. Datasets mit Status `failed` werden standardmäßig ausgeschlossen. Übergeben Sie `include_failed=true`, um auch diese anzuzeigen.
-
-## Ein Dataset inspizieren
-
-Um die Versionen und Details eines bestimmten Datasets zu sehen, übergeben Sie dessen Namen:
-
-```bash
-curl https://api.fastino.ai/v1/datasets/my-ner-dataset \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Dies gibt die Versionshistorie und die Anzahl der Beispiele zurück, was nützlich ist, um vor dem Training zu bestätigen, dass das Dataset bereit ist.
-
-## Ein Dataset löschen
-
-```bash
-curl -X DELETE https://api.fastino.ai/v1/datasets/my-ner-dataset \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Das Löschen eines Datasets über den Namen führt zu einem Soft-Delete des Datasets und aller seiner Versionen. Die S3-Daten bleiben erhalten, falls Sie sie wiederherstellen müssen. Wenn ein Evaluierungs- oder Trainingsjob aktuell `pending` oder `running` gegen das Dataset läuft, wird das Löschen mit `409 Conflict` abgelehnt, bis dieser Job abgeschlossen ist. Sobald das Löschen erfolgreich ist, bleiben bereits abgeschlossene Trainingsjobs und Evaluierungen abfragbar, aber Sie können keine neuen Jobs mehr starten, die darauf referenzieren.
-
-<Note>
-  Die Speicherung von Datasets ist kostenlos. Ihnen wird das Speichern von Datasets in Fastino nicht berechnet, unabhängig von Größe oder Anzahl der Versionen.
-</Note>
-
-## Übersicht der Dataset-Endpunkte
-
-| Methode | Endpunkt | Beschreibung |
-| --- | --- | --- |
-| `GET` | `/v1/datasets` | Alle Datasets auflisten |
-| `GET` | `/v1/datasets/:name` | Alle Versionen eines Datasets abrufen |
-| `GET` | `/v1/datasets/:name/:version` | Status und Metadaten für eine bestimmte Version abrufen (`:version` akzeptiert auch `latest`) |
-| `GET` | `/v1/datasets/:name/:version/preview` | Eine Stichprobe von Zeilen anzeigen, ohne die gesamte Datei herunterzuladen |
-| `GET` | `/v1/datasets/:name/:version/download` | Eine Version als `jsonl`, `csv` oder `parquet` herunterladen |
-| `DELETE` | `/v1/datasets/:name` | Ein Dataset und alle seine Versionen soft-löschen (mit `409` abgelehnt, während ein Job/eine Evaluierung es aktiv nutzt) |
-| `DELETE` | `/v1/datasets/:name/:version` | Eine bestimmte Version soft-löschen |
-| `POST` | `/v1/datasets/upload/url` | Presigned S3-URL für einen direkten Upload abrufen |
-| `POST` | `/v1/datasets/upload/process` | Verarbeitung nach dem S3-Upload auslösen |
-| `POST` | `/v1/datasets/merge` | Mehrere Datasets desselben Typs zu einem neuen Dataset zusammenführen |
-| `POST` | `/v1/datasets/:name/:version/push-to-hub` | Eine Dataset-Version zum HuggingFace Hub pushen |
-| `POST` | `/v1/datasets/pull-from-hub` | Ein Dataset vom HuggingFace Hub importieren |
-| `POST` | `/v1/datasets/preview-from-hub` | Ein HuggingFace-Hub-Dataset vor dem Import in der Vorschau anzeigen |
-| `POST` | `/v1/generate` | Einen synthetischen Datengenerierungsjob starten (`202` + `job_id`, asynchron) |
-| `GET` | `/v1/generate/jobs/:job_id` | Status eines Generierungsjobs abfragen |
-| `POST` | `/v1/generate/ner/label-existing` | Rohtext für NER automatisch labeln (synchron: gibt Ergebnisse direkt zurück, keine `job_id`) |
-| `POST` | `/v1/generate/classification/label-existing` | Rohtext automatisch klassifizieren (synchron: gibt Ergebnisse direkt zurück, keine `job_id`) |
-
-<Note>
-  **Datenschutz:** Wenn Sie sich abmelden möchten, dass Ihre Daten für das Modelltraining von Fastino verwendet werden, senden Sie bitte eine E-Mail an [support@fastino.ai](mailto:support@fastino.ai). Wir stellen dann sicher, dass Ihre Daten aus unseren Trainings-Pipelines ausgeschlossen werden.
-</Note>
+Laden Sie nicht die interne `{"input": ..., "output": ...}`-Struktur des GLiNER-Trainers hoch. Konvertieren Sie sie
+zuerst in das öffentliche Format aus `text` und `entities`.
