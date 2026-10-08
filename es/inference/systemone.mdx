@@ -53,7 +53,8 @@ cuando necesites varios juicios sobre el mismo state.
 ## Solicitud
 
 <ParamField body="model" type="string" required>
-  Usa `fastino/GLiDE`. La respuesta devuelve el nombre del motor como `glide`.
+  Usa `fastino/GLiDE`. Si lo omites, se devuelve `422 'model' must be provided`. La respuesta
+  devuelve el nombre del motor como `glide`.
 </ParamField>
 
 <ParamField body="state" type="string | object | array" required>
@@ -65,7 +66,21 @@ cuando necesites varios juicios sobre el mismo state.
   Un objeto no vacío cuyas claves son nombres que tú eliges. Cada valor debe contener `type` e
   `instructions`; Choice y Score también requieren `criteria`. Las mismas claves aparecen bajo
   `answers` en la respuesta.
+  Consulta [Noul](/es/concepts/glide-noul), [Choice](/es/concepts/glide-choice) y
+  [Score](/es/concepts/glide-score) para ver la forma completa de solicitud y respuesta de cada tipo.
 </ParamField>
+
+### Formas de state
+
+`state` es el material frente al que se evalúa cada pregunta. Piensa en ello como lo que le entregarías a un panel de expertos antes de pedirles que emitan un juicio.
+
+| Forma | Útil para | Ejemplo |
+| --- | --- | --- |
+| String | Un solo mensaje, artículo o pasaje | `"My card was charged twice."` |
+| Object | Campos con nombre, registros relacionados o estado de la aplicación | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| Array | Una secuencia de mensajes o registros | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+Usa un objeto cuando la decisión dependa de comparar varias partes con nombre (por ejemplo, un ticket y la política con la que se evalúa): así cada parte queda etiquetada y sus relaciones quedan claras. Una cadena simple basta cuando el caso es un único pasaje autocontenido. Todas las preguntas de una solicitud ven el mismo `state` y se evalúan de forma independiente frente a él.
 
 
 ### Solicitud completa
@@ -113,6 +128,82 @@ curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
 Choice y Score devuelven campos distintos. Consulta sus páginas de primitiva para ver las formas exactas de respuesta
 y ejemplos de integración.
 
+## Combinar varias preguntas
+
+Haz varias preguntas de distintos tipos sobre el mismo `state` en una sola llamada. Todas las preguntas se evalúan juntas en un único viaje de ida y vuelta.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Respuesta:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "department": {
+      "type": "choice",
+      "choice": "returns",
+      "confidence": 0.9992611288391886,
+      "probabilities": {
+        "billing": 0.00031500429476013744,
+        "returns": 0.9995761331339488,
+        "shipping": 0.00010886257129113499
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 0,
+      "expected_level": 0.27621539375795195,
+      "confidence": 0.4999999998141525,
+      "probabilities": {
+        "0": 0.7412615353520668,
+        "1": 0.24126153553791435,
+        "2": 0.017476929110018805
+      },
+      "legend": {
+        "0": "low urgency, can wait",
+        "1": "medium urgency, handle soon",
+        "2": "high urgency, handle immediately"
+      }
+    }
+  },
+  "usage": { "input_tokens": 743, "output_tokens": 252 },
+  "token_usage": 995
+}
+```
+
 ## Límites y formas no admitidas
 
 - Cada prompt de pregunta renderizado (`state` más esa pregunta) debe caber en **40,000
@@ -124,8 +215,8 @@ y ejemplos de integración.
 - `/v1/systemone` no hace streaming y no acepta un lote de estados independientes.
 - GLiDE no admite actualmente ID de despliegues ajustados.
 
-Consulta la [referencia de GLiDE](/es/concepts/decision-models) para ver orientación sobre las formas de state, las fórmulas
-de confianza y una solicitud mixta de Choice/Score.
+Consulta [Confianza](/es/concepts/decision-models#confianza) para ver las fórmulas de confianza
+y el enrutamiento basado en confianza.
 
 ## Migrar desde TypeSafe
 
@@ -224,8 +315,8 @@ No reintentes `401`, `402`, `403`, `404` ni `422` sin corregir el problema subya
 ## Sigue aprendiendo
 
 <CardGroup cols={2}>
-  <Card title="Referencia de GLiDE" icon="book-open" href="/es/concepts/decision-models">
-    Entiende las formas de state, los límites, la confianza y cómo combinar varias preguntas.
+  <Card title="Modelos de decisión" icon="book-open" href="/es/concepts/decision-models">
+    Comprende los modelos de decisión, las tres primitivas y cómo actuar según la confianza.
   </Card>
 
   <Card title="Noul" icon="toggle-on" href="/es/concepts/glide-noul">
