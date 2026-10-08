@@ -1,7 +1,7 @@
 ---
-title: "Tune and Evaluate GLiNER 2.5 Decide"
-sidebarTitle: "Thresholds & Evaluation"
-description: "Select multi-label thresholds and evaluate GLiNER 2.5 Decide on representative classification data."
+title: "GLiNER 2.5 Decide Evaluation and Fine-tuning"
+sidebarTitle: "Evaluation & Fine-tuning"
+description: "Evaluate classification quality, select multi-label thresholds, and fine-tune GLiNER 2.5 Decide for your domain."
 ---
 
 Evaluate GLiNER 2.5 Decide on labeled examples from your application before using its classifications to trigger production actions.
@@ -59,12 +59,59 @@ For multi-label tasks, measure precision, recall, and F1 both overall and per la
 
 Do not assume `0.5` is universally appropriate. For high-impact actions, use conservative automation thresholds and preserve a review or fallback path.
 
-## Published benchmark
+## Fine-tune for your domain
 
-On Fastino's 17-dataset Fast Decisions benchmark, GLiNER 2.5 Decide achieved the highest average score at **60.1%** and led 9 datasets. It outperformed the 4B-class JevK5 reproduction (**57.5%**) and SemIf (**56.4%**), as well as the encoder models GLiFormer and Laya.
+Start with runtime-defined labels and evaluate the base model first. Fine-tune when representative evaluation shows that schema changes and threshold tuning do not meet the quality required for your domain.
 
-This is an internal benchmark, not JevBench, and JevK5 is not TypeSafe's Jev. Read [GLiNER2.5-Decide: An Open-Weight Model for Structured Decision Making](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model) for methodology and complete results.
+### 1. Confirm the training target
 
-<Card title="Fine-tune for your domain" icon="sliders" href="/concepts/gliner-2-5-decide-fine-tuning">
-  Prepare classification data and adapt the model when schema changes alone are not enough.
+Query the [base-model catalog](/api-reference/training/base-models) and confirm that the selected classification model supports the training type you intend to use.
+
+### 2. Prepare classification data
+
+Store one JSON object per line. Use `label` for single-label examples:
+
+```jsonl
+{"text":"The setup was straightforward.","label":"positive"}
+{"text":"The application crashes during sign in.","label":"negative"}
+```
+
+Use `labels` for multi-label examples:
+
+```jsonl
+{"text":"The app crashes on login and I need help urgently.","labels":["technical_issue","login_problem","urgent"]}
+```
+
+Use stable label names that match the taxonomy your inference schema will use. Include representative examples for every label and preserve a separate evaluation split.
+
+<Card title="Prepare and upload datasets" icon="database" href="/concepts/datasets">
+  Review supported classification formats, upload steps, validation, and dataset versions.
+</Card>
+
+### 3. Start and monitor training
+
+Create a training job with the prepared dataset and a trainable classification base model. Choose only training parameters supported by that model recipe.
+
+<Card title="Training jobs" icon="activity" href="/training">
+  Submit a job, monitor its status, inspect metrics and checkpoints, and retrieve the resulting artifact.
+</Card>
+
+### 4. Evaluate the trained result
+
+Compare the trained model with the base model on the same held-out set:
+
+- Overall and per-label accuracy for single-label tasks
+- Precision, recall, and F1 for multi-label tasks
+- Errors on rare and high-impact labels
+- Behavior near production thresholds
+- Latency and operational requirements
+
+Do not select a checkpoint from training loss alone. Evaluate the classification behavior your application will use.
+
+### 5. Use the trained model
+
+After the selected checkpoint is deployable, use its model identifier with the supported inference endpoint and keep the same classification schema expected by your application. Revalidate thresholds because confidence behavior can change after fine-tuning.
+
+<Card title="Training API reference" icon="book" href="/api-reference/training/overview">
+  Inspect exact dataset, training-job, checkpoint, deployment, and artifact contracts.
 </Card>
