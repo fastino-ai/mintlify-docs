@@ -7,4 +7,50 @@ api: "POST /v1/gliner-2/async"
 
 `POST /v1/gliner-2/async`
 
-Submit very large GLiNER-2 inputs for asynchronous processing.
+Submit very large GLiNER-2 inputs for asynchronous processing. Use this endpoint when the
+input exceeds one million tokens or may outlast the synchronous request timeout.
+
+The OpenAPI panel on this page is the source of truth for every request field and `202`
+response field. The request uses the same native GLiNER schema as
+[`POST /v1/gliner-2`](/api-reference/inference/gliner-2).
+
+## Request example
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2/async" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "A very large document to process asynchronously...",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
+```
+
+`text` may also be an array of strings. Omit the deprecated `task` field; the unified
+schema identifies extraction, classification, structures, or relations.
+
+## Accepted response
+
+The endpoint returns HTTP `202` immediately. This illustrative payload shortens
+`message`; the service supplies a concrete polling path containing the returned job ID.
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "accepted",
+  "estimated_tokens": 1284307,
+  "message": "Job queued. ..."
+}
+```
+
+Store `job_id`, then poll
+[`GET /v1/gliner-2/jobs/{job_id}`](/api-reference/inference/gliner-2-job-status)
+with the same API key. Jobs are scoped to the authenticated user.
