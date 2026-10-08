@@ -1,283 +1,32 @@
 ---
-title: "Referencia de la API"
-sidebarTitle: "Referencia de la API"
-description: "Configura tu cuenta y empieza a usar Fastino en minutos. Genera una clave de API, explora los modelos disponibles y ejecuta tu primera inferencia o tu primer trabajo de entrenamiento."
+title: "Referencia de la API de Fastino"
+sidebarTitle: "API Reference"
+description: "Mapa canónico de endpoints de Fastino para autenticación, decisiones, inferencia, datasets, entrenamiento y modelos."
 ---
 
-Esta guía te muestra el camino más rápido hacia una integración funcional con Fastino. Al terminar,
-habrás realizado una llamada de inferencia correcta y entenderás la estructura de la API. Solo necesitas
-una cuenta de Fastino y una terminal.
+Usa esta página para elegir una familia de endpoints. OpenAPI define métodos, rutas, autenticación, campos y respuestas; las guías explican cuándo y por qué usarlos.
 
-<Steps>
-  <Step title="Regístrate y obtén tu clave de API">
-    Crea una cuenta en [Fastino](https://agent.fastino.ai).
+## Autenticación y convenciones
 
-    Después de iniciar sesión, ve a **Settings → API Keys** y genera una clave nueva. Cópiala
-    en un lugar seguro, porque no podrás volver a verla después de cerrar el cuadro de diálogo.
+Los endpoints nativos usan `X-API-Key: $FASTINO_API_KEY`. Los endpoints compatibles usan la autenticación indicada en su referencia exacta. Consulta [Autenticación](/es/api-reference/authentication) y [Errores](/es/api-reference/errors).
 
-    <Warning>
-      Mantén tu clave de API fuera del control de versiones. Usa una variable de entorno o un gestor
-      de secretos en lugar de escribirla directamente en tus archivos de código fuente.
-    </Warning>
+## Elige un endpoint
 
-    Define tu clave como variable de entorno para que los ejemplos siguientes funcionen tal cual:
+| Tarea | Ruta canónica | Referencia |
+| --- | --- | --- |
+| Decisiones GLiDE | `POST /v1/systemone` | [Abrir referencia](/es/api-reference/decision/systemone) |
+| Inferencia GLiNER y de decodificadores | `POST /v1/chat/completions` | [Abrir referencia](/es/api-reference/inference/chat-completions) |
+| Compatibilidad con OpenAI Responses | `POST /v1/responses` | [Abrir referencia](/es/api-reference/inference/responses) |
+| Compatibilidad con Anthropic Messages | `POST /v1/messages` | [Abrir referencia](/es/api-reference/inference/messages) |
+| Entradas GLiNER-2 grandes | `POST /v1/gliner-2/async` + consulta del trabajo | [Abrir referencia](/es/api-reference/inference/gliner-2-async) |
+| Capacidad y entrenamiento actuales | `GET /v1/base-models` | [Abrir referencia](/es/api-reference/models/base-models) |
+| Lista de modelos para SDK compatibles | `GET /v1/models` | [Abrir referencia](/es/api-reference/models/compatibility-models) |
+| Carga y versiones de datasets | `/v1/datasets` | [Abrir referencia](/es/api-reference/datasets/list) |
+| Ciclo de entrenamiento | `/v1/training-jobs` | [Abrir referencia](/es/api-reference/training-jobs/create) |
+| Historial y feedback de inferencia | `/v1/inferences` | [Abrir referencia](/es/api-reference/inference/history/list) |
 
-    ```bash
-    export FASTINO_API_KEY="your_api_key_here"
-    ```
-  </Step>
+## Guías por tarea
 
-  <Step title="Lista los modelos base disponibles (opcional)">
-    Usa `GET /v1/base-models` para explorar los modelos que Fastino tiene disponibles.
+Para tu primera decisión GLiDE, usa [Inicio rápido](/es/quickstart). Para flujos completos, consulta [Modelos de decisión](/es/concepts/glide), [API de inferencia](/es/inference), [Preparación de datasets](/es/concepts/datasets) o [API de entrenamiento](/es/training).
 
-    <CodeGroup>
-
-    ```bash curl
-    curl https://api.fastino.ai/v1/base-models \
-      -H "X-API-Key: $FASTINO_API_KEY"
-    ```
-
-    ```python Python
-    import os
-    import requests
-
-    response = requests.get(
-        "https://api.fastino.ai/v1/base-models",
-        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
-    )
-    response.raise_for_status()
-    print(response.json())
-    ```
-
-    ```javascript JavaScript
-    const response = await fetch(
-      "https://api.fastino.ai/v1/base-models",
-      {
-        headers: {
-          "X-API-Key": process.env.FASTINO_API_KEY
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Model request failed: ${response.status}`);
-    }
-
-    console.log(await response.json());
-    ```
-
-    </CodeGroup>
-
-    La respuesta enumera los IDs de modelo que puedes pasar a `/v1/chat/completions`. Por ejemplo,
-    `fastino/gliner2-base-v1` es un modelo base de GLiNER para tareas de extracción.
-  </Step>
-
-  <Step title="Ejecuta tu primera llamada de inferencia">
-    Llama a `POST /v1/chat/completions` con un modelo, un mensaje y un esquema que defina lo que
-    quieres extraer. Este ejemplo usa GLiNER para extraer entidades nombradas de una oración.
-
-    <CodeGroup>
-
-    ```bash curl
-    curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-      -H "Authorization: Bearer $FASTINO_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model": "fastino/gliner2.5-multi-v1",
-        "messages": [
-          {
-            "role": "user",
-            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
-          }
-        ],
-        "schema": {
-          "entities": [
-            {
-              "name": "organization",
-              "description": "business or institution name"
-            },
-            {
-              "name": "product",
-              "description": "named commercial product"
-            },
-            {
-              "name": "event",
-              "description": "named conference or event"
-            },
-            {
-              "name": "location",
-              "description": "city, region, or place"
-            }
-          ]
-        },
-        "threshold": 0.5
-      }'
-    ```
-
-    ```python Python
-    import json
-    import os
-
-    import requests
-
-    response = requests.post(
-        "https://api.fastino.ai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "fastino/gliner2.5-multi-v1",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Apple announced the MacBook Pro at WWDC in Cupertino.",
-                }
-            ],
-            "schema": {
-                "entities": [
-                    {"name": "organization", "description": "business or institution name"},
-                    {"name": "product", "description": "named commercial product"},
-                    {"name": "event", "description": "named conference or event"},
-                    {"name": "location", "description": "city, region, or place"},
-                ]
-            },
-            "threshold": 0.5,
-        },
-    )
-    response.raise_for_status()
-
-    result = response.json()
-    entities = json.loads(result["choices"][0]["message"]["content"])
-    print(json.dumps(entities, indent=2))
-    ```
-
-    ```javascript JavaScript
-    const response = await fetch(
-      "https://api.fastino.ai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "fastino/gliner2.5-multi-v1",
-          messages: [
-            {
-              role: "user",
-              content: "Apple announced the MacBook Pro at WWDC in Cupertino.",
-            },
-          ],
-          schema: {
-            entities: [
-              { name: "organization", description: "business or institution name" },
-              { name: "product", description: "named commercial product" },
-              { name: "event", description: "named conference or event" },
-              { name: "location", description: "city, region, or place" },
-            ],
-          },
-          threshold: 0.5,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
-    }
-
-    const result = await response.json();
-    const entities = JSON.parse(result.choices[0].message.content);
-    console.log(JSON.stringify(entities, null, 2));
-    ```
-
-    </CodeGroup>
-
-    En los modelos codificadores como GLiNER, el objeto `schema` define la tarea y puede incluir:
-
-    - `entities` - definiciones de entidades para la extracción de entidades nombradas
-    - `classifications` - definiciones `{task, labels}` para la clasificación de texto
-    - `structures` - definiciones de registros estructurados para la extracción de JSON
-    - `relations` - definiciones de relaciones
-
-    En los modelos decodificadores, omite `schema` y envía un mensaje de chat normal.
-
-    <Note>
-      `model` debe ser el ID de un modelo base compatible con inferencia o el UUID de un trabajo de
-      entrenamiento completado y desplegable. Después del entrenamiento, despliega el artefacto
-      seleccionado antes de usar el UUID del trabajo para la inferencia.
-    </Note>
-  </Step>
-
-  <Step title="Inicia un trabajo de entrenamiento (opcional)">
-    Cuando quieras hacer ajuste fino con tus propios datos, inicia un trabajo de entrenamiento:
-
-    <CodeGroup>
-
-    ```bash curl
-    curl -X POST https://api.fastino.ai/v1/training-jobs \
-      -H "X-API-Key: $FASTINO_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model_name": "my-gliner-model",
-        "base_model": "fastino/gliner2-base-v1",
-        "datasets": [{"name": "my-dataset"}],
-        "training_type": "lora",
-        "nr_epochs": 5,
-        "learning_rate": 5e-5
-      }'
-    ```
-
-    ```python Python
-    import os
-    import requests
-
-    response = requests.post(
-        "https://api.fastino.ai/v1/training-jobs",
-        headers={
-            "X-API-Key": os.environ["FASTINO_API_KEY"],
-            "Content-Type": "application/json",
-        },
-        json={
-            "model_name": "my-gliner-model",
-            "base_model": "fastino/gliner2-base-v1",
-            "datasets": [{"name": "my-dataset"}],
-            "training_type": "lora",
-            "nr_epochs": 5,
-            "learning_rate": 5e-5,
-        },
-    )
-    response.raise_for_status()
-    print(response.json())
-    ```
-
-    </CodeGroup>
-
-    La respuesta incluye el `id` del trabajo. Consulta `GET /v1/training-jobs/{id}` periódicamente para comprobar su estado.
-    Cuando el trabajo llegue a `complete`, despliega el artefacto seleccionado antes de usar el ID del trabajo como
-    `model` en `/v1/chat/completions`.
-
-    Los estados del trabajo avanzan de `requested` → `running` → `complete`, o terminan como `failed` o
-    `stopped`.
-  </Step>
-</Steps>
-
-## Próximos pasos
-
-<CardGroup cols={2}>
-  <Card title="API de entrenamiento" icon="brain" href="/es/training">
-    Ajusta un modelo de principio a fin con la API de entrenamiento de Fastino.
-  </Card>
-
-  <Card title="API de inferencia" icon="bolt" href="/es/inference">
-    Ejecuta inferencia con modelos base o ajustados a través de la API de Fastino.
-  </Card>
-</CardGroup>
-
-## Migración desde el origen de la API de Pioneer
-
-Las rutas de entrenamiento ahora usan el prefijo `/v1`. Por ejemplo, `/felix/training-jobs` ahora es
-`/v1/training-jobs`, y sus operaciones específicas de cada trabajo permanecen dentro de esa nueva familia de rutas.
-
-Las integraciones directas con la API deben usar `FASTINO_API_KEY` con una clave `fast_sk_` recién generada;
-las claves heredadas `pio_sk_` están retiradas. Tanto la autenticación `X-API-Key` como la Bearer siguen siendo válidas.
+Para consultar todas las operaciones en formato legible por máquinas, usa el [inventario de API](/es/api-reference/inventory) o [`openapi.json`](https://docs.fastino.ai/openapi.json).
