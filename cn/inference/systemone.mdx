@@ -51,7 +51,7 @@ setx FASTINO_API_KEY "your_api_key_here"
 ## 请求
 
 <ParamField body="model" type="string" required>
-  使用 `fastino/GLiDE`。响应会以 `glide` 回显引擎名称。
+  使用 `fastino/GLiDE`。省略该参数将返回 `422 'model' must be provided`。响应会以 `glide` 回显引擎名称。
 </ParamField>
 
 <ParamField body="state" type="string | object | array" required>
@@ -62,7 +62,20 @@ setx FASTINO_API_KEY "your_api_key_here"
   一个非空对象，键为你自定义的名称。每个值必须包含 `type` 和
   `instructions`；Choice 和 Score 还需要 `criteria`。相同的键会出现在响应的
   `answers` 下。
+  各类型完整的请求和响应结构，请参阅 [Noul](/cn/concepts/glide-noul)、[Choice](/cn/concepts/glide-choice) 和 [Score](/cn/concepts/glide-score)。
 </ParamField>
+
+### State 形状
+
+`state` 是评估每个问题所依据的材料。可以把它理解为在请专家小组做出判断之前交给他们的资料。
+
+| 形状 | 适用场景 | 示例 |
+| --- | --- | --- |
+| 字符串 | 单条消息、文章或段落 | `"My card was charged twice."` |
+| 对象 | 命名字段、相关记录或应用状态 | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| 数组 | 一系列消息或记录 | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+当决策依赖于比较多个命名部分时（例如一张工单及用于评估它的策略），请使用对象，这样每个部分都有标签，彼此之间的关系也更清晰。当案例是单个独立的段落时，纯字符串就足够了。同一请求中的所有问题看到的是同一个 `state`，并分别独立地针对它进行评估。
 
 
 ### 完整请求
@@ -108,6 +121,82 @@ curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
 
 Choice 和 Score 返回的字段不同。确切的响应结构和集成示例，请参阅各自的基本类型页面。
 
+## 组合多个问题
+
+在单次调用中，针对同一个 `state` 提出多个不同类型的问题。所有问题会在一次往返中一并评估。
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+响应：
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "department": {
+      "type": "choice",
+      "choice": "returns",
+      "confidence": 0.9992611288391886,
+      "probabilities": {
+        "billing": 0.00031500429476013744,
+        "returns": 0.9995761331339488,
+        "shipping": 0.00010886257129113499
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 0,
+      "expected_level": 0.27621539375795195,
+      "confidence": 0.4999999998141525,
+      "probabilities": {
+        "0": 0.7412615353520668,
+        "1": 0.24126153553791435,
+        "2": 0.017476929110018805
+      },
+      "legend": {
+        "0": "low urgency, can wait",
+        "1": "medium urgency, handle soon",
+        "2": "high urgency, handle immediately"
+      }
+    }
+  },
+  "usage": { "input_tokens": 743, "output_tokens": 252 },
+  "token_usage": 995
+}
+```
+
 ## 限制与不支持的结构
 
 - 每个渲染后的问题提示词（`state` 加上该问题）必须控制在 **40,000
@@ -119,7 +208,7 @@ Choice 和 Score 返回的字段不同。确切的响应结构和集成示例，
 - `/v1/systemone` 不支持流式传输，也不接受一批相互独立的 state。
 - GLiDE 目前不支持微调部署 ID。
 
-关于 state 结构的指导、置信度公式以及 Choice/Score 混合请求，请参阅 [GLiDE 参考](/cn/concepts/decision-models)。
+关于置信度公式和基于置信度的路由，请参阅[置信度](/cn/concepts/decision-models#置信度)。
 
 ## 从 TypeSafe 迁移
 
@@ -210,8 +299,8 @@ TypeSafe 的 Jev 与 Fastino 的 GLiDE 使用相同的 System One 结构：`stat
 ## 继续学习
 
 <CardGroup cols={2}>
-  <Card title="GLiDE 参考" icon="book-open" href="/cn/concepts/decision-models">
-    了解 state 结构、限制、置信度以及如何组合多个问题。
+  <Card title="决策模型" icon="book-open" href="/cn/concepts/decision-models">
+    了解决策模型、三种基本类型，以及如何根据置信度采取行动。
   </Card>
 
   <Card title="Noul" icon="toggle-on" href="/cn/concepts/glide-noul">

@@ -1,7 +1,7 @@
 ---
 title: "Decision Models for Classification, Routing, and Scoring"
-sidebarTitle: "Decision Models"
-description: "How decision models differ from generative LLMs, plus GLiDE primitives, request parameters, limits, and confidence for classification and routing."
+sidebarTitle: "What Are Decision Models?"
+description: "How decision models differ from generative LLMs, when to use one, and how Noul, Choice, and Score primitives and confidence work for classification and routing."
 og:title: "Decision Models for Classification, Routing, and Scoring"
 ---
 
@@ -20,6 +20,14 @@ Fastino's [GLiDE decision model](/concepts/glide) accepts a shared `state` and o
 
 The two model types can work together: use a decision model to classify a request, select an agent or model, or gate an action, then call a generative LLM only when the workflow needs open-ended output.
 
+## Why use a decision model
+
+A decision model fits applications that need to take a defined action rather than display generated prose:
+
+- **Structured by construction** - every answer matches a Noul, Choice, or Score shape, so there is no generated text to parse or validate.
+- **Caller-defined outcomes** - your application controls the permitted actions and can map each result directly to code.
+- **Explicit uncertainty** - probabilities and confidence let you automate clear cases while routing ambiguous ones to approval, review, or a fallback.
+
 ## Decision model primitives
 
 Every question you ask [GLiDE](/concepts/glide) uses one of three types, sent to `POST /v1/systemone` against a shared `state`:
@@ -34,54 +42,7 @@ Pick the type that matches the shape of the answer your code needs.
   Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no - it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use a Score with defined levels. If you need a binary gate, use a Noul.
 </Tip>
 
-There is no multi-label primitive - each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments; see [Combining multiple questions](#combining-multiple-questions).
-
-## Limits
-
-- Each rendered question prompt (`state` plus that question) must fit within **40,000
-  tokens**.
-- Choice requires **2 to 255 options**; one option cannot represent a decision or meaningful
-  confidence margin. Score accepts up to **255 levels**.
-- One request evaluates one shared `state`. Put multiple named questions under `questions`;
-  `/v1/systemone` does not accept a batch of independent states.
-- `usage.input_tokens` sums internal passes across questions, so it can exceed 40,000 even
-  though every individual rendered prompt fits.
-
-## Endpoint
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/v1/systemone` | Run one or more typed decision questions against a state |
-
-See [GLiDE inference](/inference/systemone) for authentication, a complete cURL request,
-response handling, retries, and errors.
-
-## Request parameters
-
-<ParamField body="state" type="string | object | array" required>
-  The context to evaluate - a plain string, a JSON object, or a JSON array. See [State shapes](#state-shapes) below for guidance on which to use.
-</ParamField>
-
-<ParamField body="questions" type="object" required>
-  One or more named, typed questions to evaluate against `state`. Each key is your chosen question name; each value is a question object with `type`, `instructions`, and (for `choice`/`score`) `criteria`. See [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), and [Score](/concepts/glide-score) for the full per-type request and response shape.
-</ParamField>
-
-<ParamField body="model" type="string" required>
-  Which decision model to use, e.g. `fastino/GLiDE`. Omitting it returns `422 'model' must be provided`. The response echoes it back with the provider prefix stripped (`fastino/GLiDE` → `glide`).
-</ParamField>
-
-
-### State shapes
-
-`state` is the material every question is evaluated against - think of it as what you'd hand a panel of experts before asking them to make a judgment.
-
-| Shape | Useful for | Example |
-| --- | --- | --- |
-| String | A single message, article, or passage | `"My card was charged twice."` |
-| Object | Named fields, related records, or app state | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
-| Array | A sequence of messages or records | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
-
-Use an object when the decision depends on comparing several named parts (a ticket plus the policy it's evaluated against, for example) - it keeps each part labeled and its relationships clear. A plain string is enough when the case is a single self-contained passage. All questions in a request see the same `state` and are evaluated independently against it.
+There is no multi-label primitive - each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments; see [Combining multiple questions](/inference/systemone#combining-multiple-questions).
 
 ## Confidence
 
@@ -107,78 +68,13 @@ Tune the threshold on real data for your use case rather than assuming `0.5` is 
 
 Each primitive page has a worked example and more on using its result: [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), [Score](/concepts/glide-score).
 
-## Combining multiple questions
+## Next steps
 
-Ask multiple questions of different types against the same `state` in a single call. All questions are evaluated together in one round trip.
-
-<CodeGroup>
-
-```bash cURL
-curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "fastino/GLiDE",
-    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
-    "questions": {
-      "department": {
-        "type": "choice",
-        "instructions": "Which team should handle this request?",
-        "criteria": {
-          "billing": "Payment or charge disputes",
-          "returns": "Refund or return requests",
-          "shipping": "Delivery or shipping issues"
-        }
-      },
-      "urgency": {
-        "type": "score",
-        "instructions": "How urgent is this request?",
-        "criteria": [
-          "low urgency, can wait",
-          "medium urgency, handle soon",
-          "high urgency, handle immediately"
-        ]
-      }
-    }
-  }'
-```
-
-</CodeGroup>
-
-Response:
-
-```json
-{
-  "model": "glide",
-  "answers": {
-    "department": {
-      "type": "choice",
-      "choice": "returns",
-      "confidence": 0.9992611288391886,
-      "probabilities": {
-        "billing": 0.00031500429476013744,
-        "returns": 0.9995761331339488,
-        "shipping": 0.00010886257129113499
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "score": 0,
-      "expected_level": 0.27621539375795195,
-      "confidence": 0.4999999998141525,
-      "probabilities": {
-        "0": 0.7412615353520668,
-        "1": 0.24126153553791435,
-        "2": 0.017476929110018805
-      },
-      "legend": {
-        "0": "low urgency, can wait",
-        "1": "medium urgency, handle soon",
-        "2": "high urgency, handle immediately"
-      }
-    }
-  },
-  "usage": { "input_tokens": 743, "output_tokens": 252 },
-  "token_usage": 995
-}
-```
+<CardGroup cols={2}>
+  <Card title="GLiDE capabilities" icon="sparkles" href="/concepts/glide">
+    See how GLiDE reasons, benchmarks, and fits common decision use cases.
+  </Card>
+  <Card title="Call GLiDE" icon="terminal" href="/inference/systemone">
+    Send a complete `POST /v1/systemone` request and handle the response.
+  </Card>
+</CardGroup>

@@ -1,7 +1,7 @@
 ---
 title: "用于分类、路由和评分的决策模型"
-sidebarTitle: "决策模型"
-description: "决策模型与生成式 LLM 有何不同，以及用于分类和路由的 GLiDE 基本类型、请求参数、限制和置信度。"
+sidebarTitle: "什么是决策模型？"
+description: "决策模型与生成式 LLM 有何不同、何时使用决策模型，以及 Noul、Choice、Score 基本类型和置信度如何用于分类与路由。"
 og:title: "用于分类、路由和评分的决策模型"
 ---
 
@@ -20,6 +20,14 @@ Fastino 的 [GLiDE 决策模型](/cn/concepts/glide)通过 System One API 接收
 
 这两类模型可以协同工作：使用决策模型对请求进行分类、选择智能体或模型，或对某个操作进行把关，然后仅在工作流需要开放式输出时才调用生成式 LLM。
 
+## 为什么使用决策模型
+
+决策模型适合需要执行明确操作，而不是展示生成文本的应用：
+
+- **原生结构化** — 每个答案都符合 Noul、Choice 或 Score 格式，无需解析或验证生成文本。
+- **调用方定义结果** — 应用控制允许的操作，并可将每个结果直接映射到代码。
+- **显式不确定性** — 概率和置信度可自动处理明确情况，并将模糊情况送交审批、复核或后备流程。
+
 ## 决策模型基本类型
 
 你向 [GLiDE](/cn/concepts/glide) 提出的每个问题都使用以下三种类型之一，并针对共享的 `state` 发送到 `POST /v1/systemone`：
@@ -34,52 +42,7 @@ Fastino 的 [GLiDE 决策模型](/cn/concepts/glide)通过 System One API 接收
   Noul 与 Score 的区别：Noul 为 `0.5` 表示在是与否之间存在最大不确定性，它并不表达程度。如果需要衡量程度（紧急程度、严重程度、不满程度），请使用定义了等级的 Score。如果需要二元判断关卡，请使用 Noul。
 </Tip>
 
-不存在多标签基本类型，每个问题都是单标签的。如果需要同时做出多个判断，可以在一次调用中提出多个相互独立的问题；请参阅[组合多个问题](#组合多个问题)。
-
-## 限制
-
-- 每个渲染后的问题提示词（`state` 加上该问题）必须控制在 **40,000
-  个 token** 以内。
-- Choice 要求 **2 到 255 个选项**；单个选项无法表示决策或有意义的置信度差。Score 最多接受 **255 个等级**。
-- 一个请求评估一个共享的 `state`。请将多个命名问题放在 `questions` 下；
-  `/v1/systemone` 不接受一批相互独立的 state。
-- `usage.input_tokens` 会累加所有问题的内部推理轮次，因此即使每个单独渲染的提示词都在限制内，
-  该值也可能超过 40,000。
-
-## 端点
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/v1/systemone` | 针对某个 state 运行一个或多个类型化决策问题 |
-
-关于身份验证、完整的 cURL 请求、响应处理、重试和错误，请参阅 [GLiDE 推理](/cn/inference/systemone)。
-
-## 请求参数
-
-<ParamField body="state" type="string | object | array" required>
-  要评估的上下文，可以是纯字符串、JSON 对象或 JSON 数组。关于如何选择，请参阅下方的 [State 形状](#state-形状)。
-</ParamField>
-
-<ParamField body="questions" type="object" required>
-  针对 `state` 进行评估的一个或多个已命名的类型化问题。每个键是你自定义的问题名称；每个值是一个问题对象，包含 `type`、`instructions`，以及（对于 `choice`/`score`）`criteria`。各类型完整的请求和响应结构，请参阅 [Noul](/cn/concepts/glide-noul)、[Choice](/cn/concepts/glide-choice) 和 [Score](/cn/concepts/glide-score)。
-</ParamField>
-
-<ParamField body="model" type="string" required>
-  要使用的决策模型，例如 `fastino/GLiDE`。省略该参数将返回 `422 'model' must be provided`。响应会回显该值，并去除提供方前缀（`fastino/GLiDE` → `glide`）。
-</ParamField>
-
-
-### State 形状
-
-`state` 是评估每个问题所依据的材料。可以把它理解为在请专家小组做出判断之前交给他们的资料。
-
-| 形状 | 适用场景 | 示例 |
-| --- | --- | --- |
-| 字符串 | 单条消息、文章或段落 | `"My card was charged twice."` |
-| 对象 | 命名字段、相关记录或应用状态 | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
-| 数组 | 一系列消息或记录 | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
-
-当决策依赖于比较多个命名部分时（例如一张工单及用于评估它的策略），请使用对象，这样每个部分都有标签，彼此之间的关系也更清晰。当案例是单个独立的段落时，纯字符串就足够了。同一请求中的所有问题看到的是同一个 `state`，并分别独立地针对它进行评估。
+不存在多标签基本类型，每个问题都是单标签的。如果需要同时做出多个判断，可以在一次调用中提出多个相互独立的问题；请参阅[组合多个问题](/cn/inference/systemone#组合多个问题)。
 
 ## 置信度
 
@@ -105,78 +68,13 @@ else:
 
 每个基本类型的页面都提供了完整示例以及更多关于如何使用其结果的说明：[Noul](/cn/concepts/glide-noul)、[Choice](/cn/concepts/glide-choice)、[Score](/cn/concepts/glide-score)。
 
-## 组合多个问题
+## 后续步骤
 
-在单次调用中，针对同一个 `state` 提出多个不同类型的问题。所有问题会在一次往返中一并评估。
-
-<CodeGroup>
-
-```bash cURL
-curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "fastino/GLiDE",
-    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
-    "questions": {
-      "department": {
-        "type": "choice",
-        "instructions": "Which team should handle this request?",
-        "criteria": {
-          "billing": "Payment or charge disputes",
-          "returns": "Refund or return requests",
-          "shipping": "Delivery or shipping issues"
-        }
-      },
-      "urgency": {
-        "type": "score",
-        "instructions": "How urgent is this request?",
-        "criteria": [
-          "low urgency, can wait",
-          "medium urgency, handle soon",
-          "high urgency, handle immediately"
-        ]
-      }
-    }
-  }'
-```
-
-</CodeGroup>
-
-响应：
-
-```json
-{
-  "model": "glide",
-  "answers": {
-    "department": {
-      "type": "choice",
-      "choice": "returns",
-      "confidence": 0.9992611288391886,
-      "probabilities": {
-        "billing": 0.00031500429476013744,
-        "returns": 0.9995761331339488,
-        "shipping": 0.00010886257129113499
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "score": 0,
-      "expected_level": 0.27621539375795195,
-      "confidence": 0.4999999998141525,
-      "probabilities": {
-        "0": 0.7412615353520668,
-        "1": 0.24126153553791435,
-        "2": 0.017476929110018805
-      },
-      "legend": {
-        "0": "low urgency, can wait",
-        "1": "medium urgency, handle soon",
-        "2": "high urgency, handle immediately"
-      }
-    }
-  },
-  "usage": { "input_tokens": 743, "output_tokens": 252 },
-  "token_usage": 995
-}
-```
+<CardGroup cols={2}>
+  <Card title="GLiDE 功能" icon="sparkles" href="/cn/concepts/glide">
+    了解 GLiDE 如何推理、基准测试表现以及适用的常见决策场景。
+  </Card>
+  <Card title="调用 GLiDE" icon="terminal" href="/cn/inference/systemone">
+    发送完整的 `POST /v1/systemone` 请求并处理响应。
+  </Card>
+</CardGroup>

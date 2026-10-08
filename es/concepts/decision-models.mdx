@@ -1,7 +1,7 @@
 ---
 title: "Modelos de decisión para clasificar, enrutar y puntuar"
-sidebarTitle: "Modelos de decisión"
-description: "Diferencias entre modelos de decisión y LLM generativos, y las primitivas, parámetros, límites y confianza de GLiDE para clasificar, enrutar y puntuar."
+sidebarTitle: "¿Qué son los modelos de decisión?"
+description: "Diferencias entre modelos de decisión y LLM generativos, cuándo usar uno y cómo funcionan las primitivas Noul, Choice y Score y la confianza para clasificar y enrutar."
 og:title: "Modelos de decisión para clasificación, enrutamiento y puntuación"
 ---
 
@@ -20,6 +20,14 @@ El [modelo de decisión GLiDE](/es/concepts/glide) de Fastino acepta un `state` 
 
 Los dos tipos de modelo pueden trabajar juntos: usa un modelo de decisión para clasificar una solicitud, seleccionar un agente o modelo, o controlar una acción, y luego llama a un LLM generativo solo cuando el flujo de trabajo necesite una salida abierta.
 
+## Por qué usar un modelo de decisión
+
+Un modelo de decisión encaja en aplicaciones que deben ejecutar una acción definida, no mostrar texto generado:
+
+- **Estructurado por diseño** — cada respuesta sigue la forma Noul, Choice o Score, sin texto generado que analizar o validar.
+- **Resultados definidos por quien llama** — la aplicación controla las acciones permitidas y asigna cada resultado directamente a código.
+- **Incertidumbre explícita** — las probabilidades y la confianza permiten automatizar casos claros y enviar los ambiguos a aprobación, revisión o una alternativa.
+
 ## Primitivas de los modelos de decisión
 
 Cada pregunta que le haces a [GLiDE](/es/concepts/glide) usa uno de tres tipos y se envía a `POST /v1/systemone` sobre un `state` compartido:
@@ -34,53 +42,7 @@ Elige el tipo que coincida con la forma de la respuesta que necesita tu código.
   Noul frente a Score: un Noul en `0.5` significa la máxima incertidumbre entre sí y no; no expresa grado. Si necesitas medir un grado (urgencia, gravedad, frustración), usa un Score con niveles definidos. Si necesitas una compuerta binaria, usa un Noul.
 </Tip>
 
-No existe una primitiva multietiqueta: cada pregunta es de una sola etiqueta. Si necesitas varios juicios simultáneos, haz varias preguntas independientes en una misma llamada; consulta [Combinar varias preguntas](#combinar-varias-preguntas).
-
-## Límites
-
-- Cada prompt de pregunta renderizado (`state` más esa pregunta) debe caber en **40,000
-  tokens**.
-- Choice requiere **entre 2 y 255 opciones**; una sola opción no puede representar una decisión ni un margen de confianza significativo. Score acepta hasta **255 niveles**.
-- Una solicitud evalúa un único `state` compartido. Pon varias preguntas con nombre bajo `questions`;
-  `/v1/systemone` no acepta un lote de estados independientes.
-- `usage.input_tokens` suma las pasadas internas de todas las preguntas, por lo que puede superar 40,000
-  aunque cada prompt renderizado individual quepa.
-
-## Endpoint
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `POST` | `/v1/systemone` | Ejecuta una o más preguntas de decisión tipadas sobre un estado |
-
-Consulta [Inferencia de GLiDE](/es/inference/systemone) para la autenticación, una solicitud cURL completa,
-el manejo de respuestas, los reintentos y los errores.
-
-## Parámetros de la solicitud
-
-<ParamField body="state" type="string | object | array" required>
-  El contexto que se va a evaluar: una cadena de texto simple, un objeto JSON o un array JSON. Consulta [Formas de state](#formas-de-state) más abajo para saber cuál usar.
-</ParamField>
-
-<ParamField body="questions" type="object" required>
-  Una o más preguntas tipadas y con nombre que se evalúan frente a `state`. Cada clave es el nombre que elijas para la pregunta; cada valor es un objeto de pregunta con `type`, `instructions` y (para `choice`/`score`) `criteria`. Consulta [Noul](/es/concepts/glide-noul), [Choice](/es/concepts/glide-choice) y [Score](/es/concepts/glide-score) para ver la forma completa de la solicitud y la respuesta de cada tipo.
-</ParamField>
-
-<ParamField body="model" type="string" required>
-  El modelo de decisión que se va a usar, por ejemplo `fastino/GLiDE`. Si lo omites, se devuelve `422 'model' must be provided`. La respuesta lo devuelve sin el prefijo del proveedor (`fastino/GLiDE` → `glide`).
-</ParamField>
-
-
-### Formas de state
-
-`state` es el material frente al que se evalúa cada pregunta. Piensa en ello como lo que le entregarías a un panel de expertos antes de pedirles que emitan un juicio.
-
-| Forma | Útil para | Ejemplo |
-| --- | --- | --- |
-| String | Un solo mensaje, artículo o pasaje | `"My card was charged twice."` |
-| Object | Campos con nombre, registros relacionados o estado de la aplicación | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
-| Array | Una secuencia de mensajes o registros | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
-
-Usa un objeto cuando la decisión dependa de comparar varias partes con nombre (por ejemplo, un ticket y la política con la que se evalúa): así cada parte queda etiquetada y sus relaciones quedan claras. Una cadena simple basta cuando el caso es un único pasaje autocontenido. Todas las preguntas de una solicitud ven el mismo `state` y se evalúan de forma independiente frente a él.
+No existe una primitiva multietiqueta: cada pregunta es de una sola etiqueta. Si necesitas varios juicios simultáneos, haz varias preguntas independientes en una misma llamada; consulta [Combinar varias preguntas](/es/inference/systemone#combinar-varias-preguntas).
 
 ## Confianza
 
@@ -106,78 +68,13 @@ Ajusta el umbral con datos reales de tu caso de uso en lugar de dar por hecho qu
 
 Cada página de primitiva incluye un ejemplo práctico y más información sobre cómo usar su resultado: [Noul](/es/concepts/glide-noul), [Choice](/es/concepts/glide-choice), [Score](/es/concepts/glide-score).
 
-## Combinar varias preguntas
+## Próximos pasos
 
-Haz varias preguntas de distintos tipos sobre el mismo `state` en una sola llamada. Todas las preguntas se evalúan juntas en un único viaje de ida y vuelta.
-
-<CodeGroup>
-
-```bash cURL
-curl -s https://api.fastino.ai/v1/systemone \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "fastino/GLiDE",
-    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
-    "questions": {
-      "department": {
-        "type": "choice",
-        "instructions": "Which team should handle this request?",
-        "criteria": {
-          "billing": "Payment or charge disputes",
-          "returns": "Refund or return requests",
-          "shipping": "Delivery or shipping issues"
-        }
-      },
-      "urgency": {
-        "type": "score",
-        "instructions": "How urgent is this request?",
-        "criteria": [
-          "low urgency, can wait",
-          "medium urgency, handle soon",
-          "high urgency, handle immediately"
-        ]
-      }
-    }
-  }'
-```
-
-</CodeGroup>
-
-Respuesta:
-
-```json
-{
-  "model": "glide",
-  "answers": {
-    "department": {
-      "type": "choice",
-      "choice": "returns",
-      "confidence": 0.9992611288391886,
-      "probabilities": {
-        "billing": 0.00031500429476013744,
-        "returns": 0.9995761331339488,
-        "shipping": 0.00010886257129113499
-      }
-    },
-    "urgency": {
-      "type": "score",
-      "score": 0,
-      "expected_level": 0.27621539375795195,
-      "confidence": 0.4999999998141525,
-      "probabilities": {
-        "0": 0.7412615353520668,
-        "1": 0.24126153553791435,
-        "2": 0.017476929110018805
-      },
-      "legend": {
-        "0": "low urgency, can wait",
-        "1": "medium urgency, handle soon",
-        "2": "high urgency, handle immediately"
-      }
-    }
-  },
-  "usage": { "input_tokens": 743, "output_tokens": 252 },
-  "token_usage": 995
-}
-```
+<CardGroup cols={2}>
+  <Card title="Capacidades de GLiDE" icon="sparkles" href="/es/concepts/glide">
+    Descubre cómo razona GLiDE, sus resultados en benchmarks y los casos de decisión habituales.
+  </Card>
+  <Card title="Llamar a GLiDE" icon="terminal" href="/es/inference/systemone">
+    Envía una solicitud `POST /v1/systemone` completa y gestiona la respuesta.
+  </Card>
+</CardGroup>
