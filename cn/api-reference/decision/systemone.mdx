@@ -1,10 +1,224 @@
 ---
-title: "POST /v1/systemone — Fastino API"
+title: "使用 /v1/systemone 进行 GLiDE 推理"
 sidebarTitle: "POST /v1/systemone"
-description: "此页面记录 `POST /v1/systemone`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。"
+description: "完成身份验证，选择 Noul、Choice 或 Score 问题，调用 POST /v1/systemone，并根据 GLiDE 的概率和置信度采取行动。"
 api: "POST /v1/systemone"
 ---
 
-`POST /v1/systemone`
+```text
+POST https://api.fastino.ai/v1/systemone
+```
 
-此页面记录 `POST /v1/systemone`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+这是 **GLiDE** 的推理端点。发送一个非空的 `state` 以及一个或多个命名的类型化
+`questions`；从 `answers` 中读取结构化决策。GLiDE 不使用
+`/v1/chat/completions`、`messages` 或 GLiNER `schema`。
+
+## 设置你的 API 密钥
+
+1. **创建一个 [Fastino](https://agent.fastino.ai/) 账号**
+2. **获取你的 API 密钥**，前往 [Settings](https://agent.fastino.ai/api-keys)
+
+将密钥设置为环境变量，这样下面的示例可以直接运行：
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## 选择问题类型
+
+每个问题都是单标签的，并返回概率。请根据代码所需的答案形式选择基本类型：
+
+| 基本类型 | 适用场景 | `criteria` 结构 | 主要结果 |
+| --- | --- | --- | --- |
+| [Noul](/cn/concepts/glide-noul) | 答案为是或否 | 可选的 `{"true": "...", "false": "..."}`；默认为 Yes/No | `noul`，即为 true 的概率 |
+| [Choice](/cn/concepts/glide-choice) | 恰好有一个无序选项胜出 | 将选项键映射到描述的对象 | `choice` 以及 `probabilities` |
+| [Score](/cn/concepts/glide-score) | 答案位于有序量表上 | 由等级描述组成的有序数组 | `score`、`expected_level` 和 `probabilities` |
+
+不存在多标签基本类型。当你需要对同一个 state 做出多个判断时，请在一个请求中提出多个独立命名的问题。
+
+## 请求
+
+<ParamField body="model" type="string" required>
+  使用 `fastino/GLiDE`。响应会以 `glide` 回显引擎名称。
+</ParamField>
+
+<ParamField body="state" type="string | object | array" required>
+  要评估的非空情境。单个段落使用字符串，带标签的字段使用对象，有序的消息或记录序列使用数组。
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  一个非空对象，键为你自定义的名称。每个值必须包含 `type` 和
+  `instructions`；Choice 和 Score 还需要 `criteria`。相同的键会出现在响应的
+  `answers` 下。
+</ParamField>
+
+
+### 完整请求
+
+```bash
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## 响应
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 }
+}
+```
+
+`answers` 使用你请求中的问题键。对于这个 Noul：
+
+- `noul` 是 `true` 条件成立的概率。它不是布尔值。
+- `confidence` 是对任一结果的确定程度：`|2 × noul − 1|`。
+- 请在具有代表性的数据上调整行动阈值。不要假定 `0.5` 就是合适的业务阈值。
+
+Choice 和 Score 返回的字段不同。确切的响应结构和集成示例，请参阅各自的基本类型页面。
+
+## 限制与不支持的结构
+
+- 每个渲染后的问题提示词（`state` 加上该问题）必须控制在 **40,000
+  个 token** 以内。
+- Choice 要求 **2 到 255 个选项**；单个选项无法表示决策或有意义的置信度差。Score 最多接受 **255 个等级**。
+- `usage.input_tokens` 会累加所有问题的内部推理轮次，因此即使每个单独渲染的提示词都在限制内，
+  该值也可能超过 40,000。
+- 一个请求评估一个共享的 `state`；请将多个问题放在 `questions` 下。
+- `/v1/systemone` 不支持流式传输，也不接受一批相互独立的 state。
+- GLiDE 目前不支持微调部署 ID。
+
+关于 state 结构的指导、置信度公式以及 Choice/Score 混合请求，请参阅 [GLiDE 参考](/cn/concepts/decision-models)。
+
+## 从 TypeSafe 迁移
+
+TypeSafe 的 Jev 与 Fastino 的 GLiDE 使用相同的 System One 结构：`state`、命名的
+`questions` 以及对应的 `answers`。大多数请求都可以顺利迁移，但该集成并不能直接替换。
+请按照以下清单安全地完成迁移：
+
+| TypeSafe 或 Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| 请求模型 `jev-latest` | 请求模型 `fastino/GLiDE` |
+| 响应中的 Jev 模型 ID | 响应模型 `glide` |
+| TypeSafe SDK 客户端 | 调用 `/v1/systemone` 的你自己的 HTTP 客户端 |
+| 重试 `429` 和 `529` | 对 `425`、`429` 和 `503` 使用有上限的退避重试 |
+
+<Steps>
+  <Step title="保留 System One 请求结构">
+    保留非空的 `state`、问题键和基本类型。GLiDE 要求每个 `instructions` 值都是非空字符串，
+    因此请将省略、为 null、对象或数组形式的 instructions 转换为清晰的文本。Choice 的 criteria
+    保持为对象。Noul 的 criteria 是可选的，但其 `true` 和 `false` 值必须是字符串。Score 的
+    criteria 优先使用有序数组。
+    只发送你的集成所需的、文档中列出的请求字段。不支持的顶层字段会返回 `422`，因此不要将任意
+    TypeSafe 客户端选项复制到 JSON 请求体中。
+  </Step>
+  <Step title="更改端点、凭据和模型">
+    将请求指向 Fastino，读取 `FASTINO_API_KEY`，通过 `X-API-Key` 发送，并将 `model` 设置为
+    `fastino/GLiDE`。如果保留 Bearer 请求头能让直接 HTTP 迁移更简单，Fastino 也接受该请求头。
+    响应中应为 `model: "glide"`。
+  </Step>
+  <Step title="更新 Score 响应处理">
+    TypeSafe 的 `score` 是按概率加权的浮点数，其在 GLiDE 中的对应字段是 `expected_level`。
+    而 GLiDE 的 `score` 是概率最高的等级的整数索引。GLiDE 以字符串形式返回 Score 的 legend
+    描述，因此请更新那些期望结构化 legend 值的使用方代码。
+    对于 Score 请求，GLiDE 也接受以数字字符串为键的 criteria 对象，例如
+    `{"1": "low", "3": "medium", "5": "high"}`。这些键会被排序后丢弃，响应会从 `0` 到 `N-1`
+    重新编号。如果原始数值不能与返回的等级索引混淆，请使用有序数组。
+  </Step>
+  <Step title="检查等级键和重试行为">
+    GLiDE 返回的 Score `probabilities` 和 `legend` 使用字符串键，例如 `"0"` 和 `"1"`。
+    TypeSafe 的原始 HTTP 响应也是如此，但其 Python SDK 可能会暴露整数键。仅当应用需要以整数为键的
+    映射时才转换键。将 TypeSafe 的 `529` 重试处理替换为 Fastino 的 `425` 和 `503` 处理，并对
+    `429` 保留有上限的退避。存在 `Retry-After` 时请遵循它，并对传输故障应用相同的重试预算。
+  </Step>
+  <Step title="重新验证决策阈值">
+    移植期间保持现有业务操作不变，然后在部署前用具有代表性的案例测试 GLiDE。不要假定为 Jev
+    校准的阈值可以原封不动地用于另一个模型。
+  </Step>
+</Steps>
+
+<Warning>
+  不要将 TypeSafe 的浮点 `score` 映射到 GLiDE 的 `score`。当现有代码期望加权分数时，请读取
+  `answers.&lt;key&gt;.expected_level`。仅当代码需要单个胜出等级的索引时，才读取
+  `answers.&lt;key&gt;.score`。
+</Warning>
+
+### 替换 TypeSafe SDK 的用法
+
+如果项目使用了 TypeSafe SDK：
+
+1. 在清单文件、导入语句、应用代码和测试中查找 `typesafe-sdk`、`@typesafe-ai/sdk`、
+   `TypeSafeClient`、`AsyncTypeSafeClient` 以及 TypeSafe 问题构造器。
+2. 将 SDK 构造器和类型化响应访问替换为项目自身的 HTTP 客户端和解码后的 JSON。
+3. 仅在不再有任何引用之后，才移除 TypeSafe 包和导入。
+
+上述端点、校验、重试和 Score 规则仍然适用。
+
+## 错误
+
+首次请求冷启动的模型时，可能会在模型预热期间返回 `425 model_warming`；请在约 60 秒后重试。
+
+| 状态码 | 可能原因 | 处理措施 |
+| --- | --- | --- |
+| `400` | 提示词超出上下文窗口，或其他推理输入无效 | 缩短 state 或修正问题 |
+| `401` | 缺少、格式错误或无效的 API 密钥 | 导出有效的 `fast_sk_...` 密钥 |
+| `402` | 额度不足、需要充值，或所有者设置了每日/每月的支出上限 | 添加额度或调整支出上限 |
+| `403` | 支付方式、卡片验证、信用额度或账户策略拒绝 | 解决相应的计费或账户要求 |
+| `404` | 未知模型，或仅支持 chat completions 的模型 | 使用 `fastino/GLiDE` |
+| `422` | 缺少必填字段、值的结构错误，或发送了额外字段 | 阅读并修正字段级别的校验详情 |
+| `425` | 部署正在预热 | 按提示的延迟时间后重试 |
+| `429` | 触发速率或容量限制 | 遵循 `Retry-After` 并使用退避机制重试 |
+| `503` | 提供方或服务暂时性故障 | 视为终止之前先重试 |
+
+请将读取超时设置为至少 300 秒，并对 `425`、`429` 和 `503` 使用有上限的退避重试。
+对于 `401`、`402`、`403`、`404` 或 `422`，请在解决根本问题之前不要重试。
+
+## 继续学习
+
+<CardGroup cols={2}>
+  <Card title="GLiDE 参考" icon="book-open" href="/cn/concepts/decision-models">
+    了解 state 结构、限制、置信度以及如何组合多个问题。
+  </Card>
+
+  <Card title="Noul" icon="toggle-on" href="/cn/concepts/glide-noul">
+    集成是/否概率。
+  </Card>
+
+  <Card title="Choice" icon="list" href="/cn/concepts/glide-choice">
+    路由到某个命名选项。
+  </Card>
+
+  <Card title="Score" icon="gauge" href="/cn/concepts/glide-score">
+    按有序评分标准进行评估。
+  </Card>
+</CardGroup>

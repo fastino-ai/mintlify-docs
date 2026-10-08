@@ -1,10 +1,237 @@
 ---
-title: "GLiDE decision inference"
+title: "GLiDE inference with /v1/systemone"
 sidebarTitle: "POST /v1/systemone"
-description: "Call GLiDE with state and typed questions and receive calibrated decision answers."
+description: "Authenticate, choose a Noul, Choice, or Score question, call POST /v1/systemone, and act on GLiDE probabilities and confidence."
 api: "POST /v1/systemone"
 ---
 
-`POST /v1/systemone`
+```text
+POST https://api.fastino.ai/v1/systemone
+```
 
-Call GLiDE with state and typed questions and receive calibrated decision answers.
+This is the inference endpoint for **GLiDE**. Send a non-empty `state` and one or more named,
+typed `questions`; read structured decisions from `answers`. GLiDE does not use
+`/v1/chat/completions`, `messages`, or a GLiNER `schema`.
+
+## Set up your API key
+
+1. **Create a [Fastino](https://agent.fastino.ai/) account**
+2. **Get your API key** from [Settings](https://agent.fastino.ai/api-keys)
+
+Set your key as an environment variable so the examples below work as-is:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## Choose a question type
+
+Every question is single-label and returns probabilities. Choose the primitive from the
+answer shape your code needs:
+
+| Primitive | Use when | `criteria` shape | Primary result |
+| --- | --- | --- | --- |
+| [Noul](/concepts/glide-noul) | The answer is yes or no | Optional `{"true": "...", "false": "..."}`; defaults to Yes/No | `noul`, the probability of true |
+| [Choice](/concepts/glide-choice) | Exactly one unordered option should win | Object mapping option keys to descriptions | `choice` plus `probabilities` |
+| [Score](/concepts/glide-score) | The answer belongs on an ordered scale | Ordered array of level descriptions | `score`, `expected_level`, and `probabilities` |
+
+There is no multi-label primitive. Ask multiple independently named questions in one request
+when you need several judgments about the same state.
+
+## Request
+
+<ParamField body="model" type="string" required>
+  Use `fastino/GLiDE`. The response echoes the engine name as `glide`.
+</ParamField>
+
+<ParamField body="state" type="string | object | array" required>
+  The non-empty situation to evaluate. Use a string for one passage, an object for labeled
+  fields, or an array for an ordered sequence of messages or records.
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  A non-empty object keyed by names you choose. Each value must contain `type` and
+  `instructions`; Choice and Score also require `criteria`. The same keys appear under
+  `answers` in the response.
+</ParamField>
+
+### Complete request
+
+```bash
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## Response
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 }
+}
+```
+
+`answers` uses the question keys from your request. For this Noul:
+
+- `noul` is the probability that the `true` criterion holds. It is not a boolean.
+- `confidence` is certainty about either outcome: `|2 × noul − 1|`.
+- Tune action thresholds on representative data. Do not assume `0.5` is the right business
+  threshold.
+
+Choice and Score return different fields. See their primitive pages for exact response shapes
+and integration examples.
+
+## Limits and unsupported shapes
+
+- Each rendered question prompt (`state` plus that question) must fit within **40,000
+  tokens**.
+- Choice requires **2 to 255 options**; one option cannot represent a decision or meaningful
+  confidence margin. Score accepts at most **255 levels**.
+- `usage.input_tokens` sums the internal passes for all questions, so it can exceed 40,000
+  even though every individual rendered prompt fits.
+- One request evaluates one shared `state`; put multiple questions under `questions`.
+- `/v1/systemone` does not stream and does not accept a batch of independent states.
+- GLiDE does not currently support fine-tuned deployment IDs.
+
+See [GLiDE Reference](/concepts/decision-models) for state-shape guidance, confidence
+formulas, and a mixed Choice/Score request.
+
+## Migrating from TypeSafe
+
+TypeSafe's Jev and Fastino's GLiDE use the same System One structure of `state`, named
+`questions`, and matching `answers`. Most requests transfer cleanly, but the integration is
+not a drop-in replacement. Use this checklist to migrate safely:
+
+| TypeSafe or Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| Request model `jev-latest` | Request model `fastino/GLiDE` |
+| Jev model ID in the response | Response model `glide` |
+| TypeSafe SDK client | Your HTTP client calling `/v1/systemone` |
+| Retry `429` and `529` | Retry `425`, `429`, and `503` with bounded backoff |
+
+<Steps>
+  <Step title="Keep the System One request structure">
+    Preserve non-empty `state`, question keys, and primitive types. GLiDE requires every
+    `instructions` value to be a non-empty string, so convert omitted, null, object, or array
+    instructions into clear text. Keep Choice criteria as an object. Noul criteria are
+    optional, but their `true` and `false` values must be strings. Prefer an ordered array
+    for Score criteria. Send only the documented request fields your integration needs.
+    Unsupported top-level fields return `422`, so do not copy arbitrary TypeSafe client
+    options into the JSON body.
+  </Step>
+  <Step title="Change the endpoint, credential, and model">
+    Point the request at Fastino, read `FASTINO_API_KEY`, send it with `X-API-Key`, and set
+    `model` to `fastino/GLiDE`. Fastino also accepts the Bearer header if retaining that
+    style makes a direct HTTP migration simpler. Expect `model: "glide"` in the response.
+  </Step>
+  <Step title="Update Score response handling">
+    TypeSafe's `score` is a probability-weighted float. Its GLiDE equivalent is
+    `expected_level`. GLiDE's `score` is instead the integer index of the most probable level.
+    GLiDE returns Score legend descriptions as strings, so update consumers that expect
+    structured legend values. GLiDE also accepts criteria objects with numeric string keys,
+    such as `{"1": "low", "3": "medium", "5": "high"}`. The keys are sorted and discarded,
+    and the response is reindexed from `0` through `N-1`. Use an ordered array when the
+    original numeric values must not be mistaken for returned level indexes.
+  </Step>
+  <Step title="Check level keys and retry behavior">
+    GLiDE returns Score `probabilities` and `legend` with string keys such as `"0"` and `"1"`.
+    TypeSafe's raw HTTP response does the same, but its Python SDK may expose integer keys.
+    Convert keys only if the application requires integer-keyed maps. Replace TypeSafe's
+    `529` retry handling with Fastino's `425` and `503` handling, and keep bounded backoff for
+    `429`. Honor `Retry-After` when present and apply the same retry budget to transport
+    failures.
+  </Step>
+  <Step title="Revalidate decision thresholds">
+    Keep existing business actions intact during the port, then test GLiDE on representative
+    cases before deployment. Do not assume thresholds calibrated for Jev transfer unchanged
+    to a different model.
+  </Step>
+</Steps>
+
+<Warning>
+  Do not map TypeSafe's floating-point `score` to GLiDE's `score`. Read
+  `answers.&lt;key&gt;.expected_level` when existing code expects a weighted score. Read
+  `answers.&lt;key&gt;.score` only when the code needs the single winning level index.
+</Warning>
+
+### Replace TypeSafe SDK usage
+
+If the project uses a TypeSafe SDK:
+
+1. Find `typesafe-sdk`, `@typesafe-ai/sdk`, `TypeSafeClient`, `AsyncTypeSafeClient`, and
+   TypeSafe question constructors in manifests, imports, application code, and tests.
+2. Replace SDK constructors and typed response access with the project's HTTP client and
+   decoded JSON.
+3. Remove TypeSafe packages and imports only after no references remain.
+
+The endpoint, validation, retry, and Score rules above still apply.
+
+## Errors
+
+A first request to a cold model may return `425 model_warming` while it warms up; retry
+after about 60 seconds.
+
+| Status | Likely cause | Action |
+| --- | --- | --- |
+| `400` | Prompt exceeds the context window or another inference input is invalid | Shorten the state or correct the question |
+| `401` | Missing, malformed, or invalid API key | Export a valid `fast_sk_...` key |
+| `402` | Insufficient credits, funding required, or an owner-set daily/monthly spend limit | Add credits or adjust the spend limit |
+| `403` | Payment method, card verification, credit ceiling, or account policy denial | Resolve the billing or account requirement |
+| `404` | Unknown model or a model that only supports chat completions | Use `fastino/GLiDE` |
+| `422` | A required field is missing, a value has the wrong shape, or an extra field was sent | Read and correct the field-level validation details |
+| `425` | Deployment is warming | Retry after the indicated delay |
+| `429` | Rate or capacity limit | Respect `Retry-After` and retry with backoff |
+| `503` | Temporary provider or serving failure | Retry before treating it as terminal |
+
+Use a read timeout of at least 300 seconds and bounded backoff for `425`, `429`, and `503`.
+Do not retry `401`, `402`, `403`, `404`, or `422` without correcting the underlying problem.
+
+## Continue learning
+
+<CardGroup cols={2}>
+  <Card title="GLiDE Reference" icon="book-open" href="/concepts/decision-models">
+    Understand state shapes, limits, confidence, and combining multiple questions.
+  </Card>
+
+  <Card title="Noul" icon="toggle-on" href="/concepts/glide-noul">
+    Integrate a yes/no probability.
+  </Card>
+
+  <Card title="Choice" icon="list" href="/concepts/glide-choice">
+    Route to one named option.
+  </Card>
+
+  <Card title="Score" icon="gauge" href="/concepts/glide-score">
+    Evaluate an ordered rubric.
+  </Card>
+</CardGroup>
