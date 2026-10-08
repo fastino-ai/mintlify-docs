@@ -1,7 +1,7 @@
 ---
 title: "Fastino API authentication: generate and use API keys"
 sidebarTitle: "Authentication"
-description: "Authenticate Fastino API requests with the X-API-Key header. Generate keys in the dashboard, then list, rotate, or revoke them programmatically."
+description: "Authenticate Fastino API requests with the X-API-Key header. Generate, rotate, and revoke keys in the dashboard, then authenticate requests with X-API-Key or Bearer headers."
 ---
 
 Most Fastino API operations require your API key. Explicitly public catalog routes such as
@@ -33,220 +33,22 @@ OpenAI- and Anthropic-compatible SDKs conventionally send the same key as a Bear
 
 ## Managing keys
 
-Create new API keys from **Settings** -> **API Keys** in the Fastino dashboard. API-key-authenticated requests can list and revoke keys, but cannot create more keys.
+Create, rotate, and revoke keys from **Settings → API Keys** in the Fastino dashboard. The public API does not expose API-key management operations.
 
-### Create a key
+### Rotation checklist
 
-`POST /v1/create-api-key` is used by the web dashboard and requires a browser session. Calls authenticated with `X-API-Key` return `403 Forbidden` with the message `API key creation is only allowed from the web dashboard.`
-
-The creation response includes the new `secret_key` value. Copy it immediately - it is not shown again.
-
-### List keys
-
-```bash cURL
-curl https://api.fastino.ai/v1/list-api-keys \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-Returns all keys associated with your account, including their names and creation dates. Key values are not returned in list responses.
-
-### Revoke a key
-
-```bash cURL
-curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "key_id": "YOUR_KEY_ID"
-  }'
-```
-
-Revoked keys are rejected immediately on the next request. There is no undo.
-
-### Testing connectivity before you have a key
-
-To verify your network can reach the Fastino API during integration, send a request with a placeholder key. You'll get a `401` back - which confirms the endpoint is reachable and your request is wired correctly.
-
-```bash
-curl -X POST https://api.fastino.ai/v1/messages \
-  -H "X-API-Key: fast_sk_test" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
-
-# Expected: {"detail":"Invalid API key format. API keys must start with 'fast_sk_'. Please check your X-API-Key header."}
-# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
-```
+1. Create the replacement key and copy it immediately.
+2. Update each service through its secret manager or `FASTINO_API_KEY` environment variable.
+3. Verify requests succeed with the replacement.
+4. Revoke the old key in the dashboard. Revocation is immediate and irreversible.
 
 ## Error responses
 
 | Status | Meaning |
 | --- | --- |
-| `401 Unauthorized` | The key is missing, malformed, or has been revoked. Check that the `X-API-Key` header is present and contains a valid key. |
-| `402 Payment Required` | Your account has insufficient credits to complete the request. Visit **Settings** → **Billing** to top up your balance. |
+| `401 Unauthorized` | The key is missing, malformed, expired, or revoked. |
+| `402 Payment Required` | The account has insufficient credits. Visit **Settings → Billing**. |
 
 <Warning>
-  A `402` response means your account is out of credits. Requests will continue to fail until you add credits or upgrade your plan. See [Plans & Pricing](/pricing) for your options.
+  Treat API keys as secrets. Never place them in source code, client-side applications, URLs, logs, documentation examples, or support messages.
 </Warning>
-
-## API key management reference
-
-Every request to the Fastino API requires an API key passed in the `X-API-Key` header. Create keys in the Fastino dashboard, then use the key management endpoints to list and revoke existing keys programmatically.
-
-<Tip>
-  Store API keys in environment variables rather than hardcoding them in source code. For example, set `FASTINO_API_KEY` in your environment and read it at runtime. Never commit API keys to version control.
-</Tip>
-
----
-
-## Create an API key
-
-`POST /v1/create-api-key`
-
-Generates a new API key associated with your account. This endpoint is used by the Fastino dashboard and requires a browser session. Calls authenticated with an existing API key are rejected with `403 Forbidden` to prevent credential chaining.
-
-**Request body**
-
-<ParamField body="name" type="string" required>
-  A descriptive name to identify this key. Use names that reflect the key's purpose or the service it belongs to, for example `"ci-pipeline"` or `"production-inference"`.
-</ParamField>
-
-<Warning>
-  Do not use an existing API key to create another API key. `X-API-Key` authentication is not accepted for this endpoint; create keys from **Settings** -> **API Keys** in the dashboard.
-</Warning>
-
-**Response**
-
-<ResponseField name="secret_key" type="string">
-  The full API key value. This is the only time it is returned in plaintext - copy it immediately and store it somewhere secure such as a secrets manager or environment variable.
-</ResponseField>
-
-<ResponseField name="id" type="string">
-  Unique identifier for the key. Use this ID when revoking the key.
-</ResponseField>
-
-<ResponseField name="name" type="string">
-  The name you assigned to the key.
-</ResponseField>
-
-<ResponseField name="created_at" type="string">
-  ISO 8601 timestamp of when the key was created.
-</ResponseField>
-
-<ResponseField name="api_key_last_digits" type="string">
-  Last digits of the generated key for display and identification.
-</ResponseField>
-
-<ResponseField name="expires_at" type="string | null">
-  Optional ISO 8601 expiration timestamp, or `null` when the key does not expire.
-</ResponseField>
-
-<ResponseField name="team_id" type="string">
-  Team the key is bound to.
-</ResponseField>
-
-<ResponseField name="stripe_customer_created" type="boolean">
-  Whether Fastino created a Stripe customer record during key creation.
-</ResponseField>
-
-<Warning>
-  The full key value is only returned at creation time. If you lose it, you must revoke the key and create a new one.
-</Warning>
-
----
-
-## List API keys
-
-`GET /v1/list-api-keys`
-
-Returns all API keys associated with your account. Key values are masked in the response - only metadata such as name and creation date are returned.
-
-```bash
-curl https://api.fastino.ai/v1/list-api-keys \
-  -H "X-API-Key: YOUR_API_KEY"
-```
-
-**Response**
-
-<ResponseField name="keys" type="object[]">
-  Array of API key metadata objects.
-  <Expandable title="key properties">
-    <ResponseField name="id" type="string">
-      Unique identifier for the key. Use this ID when revoking the key.
-    </ResponseField>
-    <ResponseField name="name" type="string">
-      The name assigned to this key.
-    </ResponseField>
-    <ResponseField name="created_at" type="string">
-      ISO 8601 creation timestamp.
-    </ResponseField>
-    <ResponseField name="api_key_last_digits" type="string">
-      Last digits of the key for display and identification.
-    </ResponseField>
-    <ResponseField name="last_used_at" type="string | null">
-      ISO 8601 timestamp of the most recent request made with this key, if available.
-    </ResponseField>
-    <ResponseField name="expires_at" type="string | null">
-      Expiration timestamp, or `null` when the key does not expire.
-    </ResponseField>
-    <ResponseField name="team_id" type="string | null">
-      Team the key is bound to.
-    </ResponseField>
-    <ResponseField name="usage_tokens" type="number">
-      Total tokens used by this key.
-    </ResponseField>
-    <ResponseField name="usage_cost" type="number">
-      Total cost attributed to this key.
-    </ResponseField>
-    <ResponseField name="request_count" type="number">
-      Number of requests made with this key.
-    </ResponseField>
-  </Expandable>
-</ResponseField>
-
-<ResponseField name="count" type="number">
-  Number of keys returned.
-</ResponseField>
-
----
-
-## Revoke an API key
-
-`DELETE /v1/delete-api-key`
-
-Permanently revokes an API key. Any requests using the revoked key will immediately receive `401 Unauthorized` responses.
-
-**Request body**
-
-<ParamField body="key_id" type="string" required>
-  The unique ID of the key to revoke, as returned by `GET /v1/list-api-keys`.
-</ParamField>
-
-```bash
-curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"key_id": "YOUR_KEY_ID"}'
-```
-
-<Warning>
-  Revoking a key is immediate and irreversible. Ensure any services using the key are updated to use a replacement key before revoking the old one to avoid service interruptions.
-</Warning>
-
-**Response**
-
-Returns `200 OK` with a JSON success body.
-
-<ResponseField name="success" type="boolean">
-  Whether the key was revoked.
-</ResponseField>
-
-<ResponseField name="message" type="string | null">
-  Human-readable status message.
-</ResponseField>
-
-## Errors
-
-| Status | Description |
-| --- | --- |
-| `401 Unauthorized` | The key is missing, invalid, or revoked. |
-| `402 Payment Required` | The account has insufficient credits. |

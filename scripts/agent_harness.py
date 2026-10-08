@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NoReturn
 
-from check_api_docs import local_docs_findings
+from check_api_docs import EXPECTED_OPERATIONS, local_docs_findings
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
@@ -46,29 +46,30 @@ TERMINAL_TRAINING_STATUSES = frozenset(
 )
 
 REQUIRED_DISCOVERY_LINKS = {
+    "authentication": "/authentication.md",
+    "GLiDE concepts": "/concepts/glide.md",
     "decision models": "/concepts/decision-models.md",
     "GLiDE inference": "/inference/systemone.md",
     "GLiNER models": "/concepts/gliner.md",
     "GLiNER inference": "/inference/chat-completions.md",
     "datasets": "/concepts/datasets.md",
     "training": "/training.md",
+    "inference reference": "/api-reference/inference/overview.md",
+    "GLiDE contract": "/api-reference/inference/systemone.md",
+    "GLiNER contract": "/api-reference/inference/chat-completions.md",
+    "history and feedback": "/api-reference/inference/history.md",
+    "training reference": "/api-reference/training/overview.md",
+    "base models": "/api-reference/training/base-models.md",
+    "dataset upload": "/api-reference/datasets/upload-url.md",
     "training creation": "/api-reference/training-jobs/create.md",
+    "errors": "/troubleshooting/errors.md",
+    "retries": "/troubleshooting/retries.md",
 }
 REQUIRED_OPERATIONS = {
-    ("get", "/v1/base-models"),
-    ("post", "/v1/chat/completions"),
-    ("post", "/v1/systemone"),
-    ("get", "/v1/datasets/{name}"),
-    ("post", "/v1/datasets/upload/process"),
-    ("post", "/v1/datasets/upload/url"),
-    ("get", "/v1/training-jobs"),
-    ("post", "/v1/training-jobs"),
-    ("get", "/v1/training-jobs/{job_id}"),
-    ("get", "/v1/training-jobs/{job_id}/billing"),
-    ("get", "/v1/training-jobs/{job_id}/checkpoints"),
-    ("get", "/v1/training-jobs/{job_id}/logs"),
+    (method.lower(), path) for method, path in EXPECTED_OPERATIONS
 }
 JOURNEY_PAGES = (
+    "authentication.mdx",
     "concepts/decision-models.mdx",
     "concepts/models.mdx",
     "concepts/gliner.mdx",
@@ -76,7 +77,11 @@ JOURNEY_PAGES = (
     "inference/systemone.mdx",
     "inference/chat-completions.mdx",
     "training.mdx",
+    "troubleshooting/errors.mdx",
+    "troubleshooting/retries.mdx",
+    "api-reference/inference/overview.mdx",
     "api-reference/training-jobs/create.mdx",
+    "api-reference/training/overview.mdx",
 )
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\((?P<target>/[^)\s]+)\)")
@@ -86,6 +91,8 @@ API_URL = re.compile(r"https://api\.fastino\.ai(?P<path>/v1/[^\"'`\s<\\]+)")
 METHOD_PATH = re.compile(r"\b(?P<method>GET|POST|PATCH|PUT|DELETE)\s+(?P<path>/v1/[^`\s\"'|,)]+)")
 CURL_BODY_START = re.compile(r"-d\s+'")
 FRONTMATTER = re.compile(r"\A---\s*\n.*?^---\s*$", re.DOTALL | re.MULTILINE)
+HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*#*\s*$", re.MULTILINE)
+EXPLICIT_ID = re.compile(r'\bid=["\'](?P<id>[^"\']+)["\']')
 
 
 class HarnessFailure(RuntimeError):
@@ -355,31 +362,237 @@ def _english_docs() -> list[Path]:
     ]
 
 
+def _visible_navigation_pages(node: object) -> set[str]:
+    if isinstance(node, str):
+        return {node}
+    if isinstance(node, list):
+        pages: set[str] = set()
+        for child in node:
+            pages.update(_visible_navigation_pages(child))
+        return pages
+    if not isinstance(node, dict):
+        return set()
+    if node.get("hidden") is True and "language" not in node:
+        return set()
+    pages: set[str] = set()
+    for key in ("languages", "tabs", "groups", "pages"):
+        children = node.get(key)
+        if isinstance(children, list):
+            for child in children:
+                pages.update(_visible_navigation_pages(child))
+    return pages
+
+
+def _redirect_map(config: dict[str, object]) -> tuple[dict[str, str], list[str]]:
+    redirects = config.get("redirects")
+    result: dict[str, str] = {}
+    findings: list[str] = []
+    if not isinstance(redirects, list):
+        return result, ["REDIRECT: docs.json has no redirects list"]
+    for redirect in redirects:
+        if not isinstance(redirect, dict):
+            findings.append("REDIRECT: redirect entry must be an object")
+            continue
+        source = redirect.get("source")
+        destination = redirect.get("destination")
+        if not isinstance(source, str) or not isinstance(destination, str):
+            findings.append("REDIRECT: redirect source and destination must be strings")
+            continue
+        source_path = urllib.parse.urlsplit(source).path.strip("/")
+        if source_path in result:
+            findings.append(f"REDIRECT: duplicate source /{source_path}")
+        result[source_path] = destination
+    return result, findings
+
+
+def _resolve_redirect(target: str, redirects: dict[str, str]) -> tuple[str, bool]:
+    current = target
+    visited: set[str] = set()
+    while True:
+        parsed = urllib.parse.urlsplit(current)
+        path = parsed.path.strip("/")
+        destination = redirects.get(path)
+        if destination is None:
+            return current, False
+        if path in visited:
+            return current, True
+        visited.add(path)
+        current = destination
+
+
+def _heading_ids(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8")
+    anchors = {match.group("id") for match in EXPLICIT_ID.finditer(text)}
+    for match in HEADING.finditer(text):
+        heading = re.sub(r"<[^>]+>|[`*_~]", "", match.group("text")).casefold()
+        slug = re.sub(r"[^\w\s-]", "", heading)
+        slug = re.sub(r"[\s_-]+", "-", slug).strip("-")
+        if slug:
+            anchors.add(slug)
+    return anchors
+
+
+def _target_finding(
+    target: str,
+    *,
+    redirects: dict[str, str],
+    label: str,
+) -> str | None:
+    resolved, cycle = _resolve_redirect(target, redirects)
+    if cycle:
+        return f"{label} enters a redirect cycle: {target}"
+    parsed = urllib.parse.urlsplit(resolved)
+    relative = parsed.path.strip("/")
+    if not relative or relative.startswith(("v1/", "_mintlify/")):
+        return None
+    candidate = ROOT / f"{relative}.mdx"
+    if not candidate.is_file():
+        return f"{label} points to missing /{relative}"
+    if parsed.fragment and parsed.fragment not in _heading_ids(candidate):
+        return f"{label} points to missing anchor /{relative}#{parsed.fragment}"
+    return None
+
+
+def _redirect_findings(config: dict[str, object]) -> list[str]:
+    redirects, findings = _redirect_map(config)
+    visible = _visible_navigation_pages(config.get("navigation"))
+    for source in sorted(visible & redirects.keys()):
+        findings.append(f"REDIRECT: visible navigation page /{source} is a redirect source")
+    for source, destination in redirects.items():
+        destination_path = urllib.parse.urlsplit(destination).path.strip("/")
+        if destination_path in redirects:
+            findings.append(
+                f"REDIRECT: /{source} chains through /{destination_path}; point directly to the final page"
+            )
+        finding = _target_finding(
+            destination,
+            redirects=redirects,
+            label=f"REDIRECT: /{source}",
+        )
+        if finding is not None:
+            findings.append(finding)
+    return findings
+
+
 def _local_link_findings() -> list[str]:
     config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
-    redirects = config.get("redirects")
-    redirect_sources = {
-        redirect["source"].strip("/")
-        for redirect in redirects or []
-        if isinstance(redirect, dict) and isinstance(redirect.get("source"), str)
-    }
-    findings: list[str] = []
+    redirects, findings = _redirect_map(config)
     for page in _english_docs():
         text = page.read_text(encoding="utf-8")
         targets = [match.group("target") for match in MARKDOWN_LINK.finditer(text)]
         targets.extend(match.group("target") for match in HREF_LINK.finditer(text))
         for target in targets:
-            parsed = urllib.parse.urlsplit(target)
-            relative = parsed.path.strip("/")
-            if not relative or relative.startswith(("v1/", "_mintlify/")):
-                continue
-            if relative in redirect_sources:
-                continue
-            candidate = ROOT / f"{relative}.mdx"
-            if not candidate.is_file():
-                findings.append(
-                    f"LINK: {page.relative_to(ROOT)} points to missing /{relative}"
+            finding = _target_finding(
+                target,
+                redirects=redirects,
+                label=f"LINK: {page.relative_to(ROOT)}",
+            )
+            if finding is not None:
+                findings.append(finding)
+    return findings
+
+
+def _normalized_navigation_shape(node: object, locale: str) -> object:
+    if isinstance(node, str):
+        prefix = f"{locale}/" if locale != "en" else ""
+        return ("page", node.removeprefix(prefix))
+    if not isinstance(node, dict):
+        return ("invalid",)
+    kind = "tab" if "tab" in node else "group" if "group" in node else "container"
+    children: list[object] = []
+    for key in ("tabs", "groups", "pages"):
+        value = node.get(key)
+        if isinstance(value, list):
+            children.extend(_normalized_navigation_shape(child, locale) for child in value)
+    return (
+        kind,
+        node.get("hidden") is True,
+        node.get("expanded"),
+        tuple(children),
+    )
+
+
+def _locale_parity_findings(
+    config: dict[str, object],
+    operations: dict[tuple[str, str], dict[str, object]],
+) -> list[str]:
+    findings: list[str] = []
+    redirects, redirect_findings = _redirect_map(config)
+    findings.extend(redirect_findings)
+    navigation = config.get("navigation")
+    languages = navigation.get("languages") if isinstance(navigation, dict) else None
+    if not isinstance(languages, list):
+        return ["LOCALE: docs.json has no navigation languages"]
+    by_locale = {
+        language.get("language"): language
+        for language in languages
+        if isinstance(language, dict) and isinstance(language.get("language"), str)
+    }
+    english = by_locale.get("en")
+    if not isinstance(english, dict):
+        return ["LOCALE: English navigation is missing"]
+    english_shape = _normalized_navigation_shape(english, "en")
+    for locale in sorted(LOCALES):
+        language = by_locale.get(locale)
+        if not isinstance(language, dict):
+            findings.append(f"LOCALE: {locale} navigation is missing")
+            continue
+        raw_pages = _visible_navigation_pages(language)
+        unlocalized = sorted(page for page in raw_pages if not page.startswith(f"{locale}/"))
+        if unlocalized:
+            findings.append(f"LOCALE: {locale} navigation has unlocalized pages: {unlocalized}")
+        if _normalized_navigation_shape(language, locale) != english_shape:
+            findings.append(
+                f"LOCALE: {locale} tab/group/page topology differs from English, including hidden pages"
+            )
+
+        bindings: dict[tuple[str, str], list[str]] = {}
+        for path in (ROOT / locale).rglob("*.mdx"):
+            match = re.search(
+                r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
+                path.read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
+            if match is not None:
+                bindings.setdefault((match.group(1).lower(), match.group(2)), []).append(
+                    path.relative_to(ROOT).as_posix()
                 )
+        for operation in sorted(operations):
+            pages = bindings.get(operation, [])
+            if len(pages) != 1:
+                findings.append(
+                    f"LOCALE: {locale} {operation[0].upper()} {operation[1]} "
+                    f"must have exactly one API binding, found {pages}"
+                )
+
+        for path in (ROOT / locale).rglob("*.mdx"):
+            text = path.read_text(encoding="utf-8")
+            targets = [match.group("target") for match in MARKDOWN_LINK.finditer(text)]
+            targets.extend(match.group("target") for match in HREF_LINK.finditer(text))
+            for target in targets:
+                target_finding = _target_finding(
+                    target,
+                    redirects=redirects,
+                    label=f"LOCALE: {path.relative_to(ROOT)}",
+                )
+                if target_finding is not None:
+                    findings.append(target_finding)
+                parsed = urllib.parse.urlsplit(target)
+                target_path = parsed.path.strip("/")
+                if not target_path or target_path.startswith(
+                    (f"{locale}/", "v1/", "_mintlify/", ".well-known/", "images/")
+                ):
+                    continue
+                if any(target_path.startswith(f"{other}/") for other in LOCALES):
+                    findings.append(
+                        f"LOCALE: {path.relative_to(ROOT)} links to another locale: {target}"
+                    )
+                    continue
+                if (ROOT / locale / f"{target_path}.mdx").is_file():
+                    findings.append(
+                        f"LOCALE: {path.relative_to(ROOT)} should localize {target} "
+                        f"to /{locale}/{target_path}"
+                    )
     return findings
 
 
@@ -460,9 +673,12 @@ def _journey_findings(
 def run_static() -> None:
     document = _load_openapi()
     operations = _validate_openapi(document)
+    config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
     findings = local_docs_findings(ROOT, document)
     findings.extend(_journey_discovery_findings())
     findings.extend(_local_link_findings())
+    findings.extend(_redirect_findings(config))
+    findings.extend(_locale_parity_findings(config, operations))
     try:
         findings.extend(_journey_findings(document, operations))
     except HarnessFailure as error:
