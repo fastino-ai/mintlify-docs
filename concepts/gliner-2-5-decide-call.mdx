@@ -1,0 +1,108 @@
+---
+title: "Call GLiNER 2.5 Decide"
+sidebarTitle: "Call GLiNER 2.5 Decide"
+description: "Authenticate and make a first schema-defined classification request with GLiNER 2.5 Decide."
+---
+
+Call GLiNER 2.5 Decide through Fastino's OpenAI-compatible Chat Completions endpoint. Put the text to classify in a user message and define the permitted labels in a `classifications` schema.
+
+```text
+POST https://api.fastino.ai/v1/chat/completions
+```
+
+## Set up your API key
+
+Create a key in [Fastino Settings](https://agent.fastino.ai/api-keys), then expose it to your process:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## Make a classification request
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiNER-2.5-Decide",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My subscription renewed after I cancelled it. Please refund the charge."
+      }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem"],
+          "multi_label": false
+        }
+      ]
+    },
+    "store": false
+  }'
+```
+
+Every classification task requires at least two labels. With `multi_label: false`, Decide returns the highest-scoring label.
+
+## Read the response
+
+A successful response uses the Chat Completions envelope. The classification result is a JSON string inside `choices[0].message.content`:
+
+```json
+{
+  "model": "fastino/GLiNER-2.5-Decide",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"intent\": {\"label\": \"refund_request\", \"confidence\": 0.999862551689148}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 13,
+    "completion_tokens": 22,
+    "total_tokens": 35
+  },
+  "token_usage": 35
+}
+```
+
+Parse the message content before reading the task result:
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+intent = result["intent"]["label"]
+confidence = result["intent"]["confidence"]
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Classification schema" icon="brackets-curly" href="/concepts/gliner-2-5-decide-schema">
+    Add multi-label behavior, multiple tasks, and classification thresholds.
+  </Card>
+
+  <Card title="Output contract" icon="code" href="/concepts/gliner-2-5-decide-output">
+    Handle single-label and multi-label result shapes and response metadata.
+  </Card>
+
+  <Card title="API reference" icon="book" href="/api-reference/inference/chat-completions">
+    Inspect the exhaustive `POST /v1/chat/completions` contract.
+  </Card>
+</CardGroup>

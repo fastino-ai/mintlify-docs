@@ -4,119 +4,48 @@ sidebarTitle: "Overview"
 description: "Learn when to use GLiNER 2.5 Decide for fast, schema-defined English text classification."
 ---
 
-GLiNER-2.5-Decide is Fastino's 340M-parameter, English decision model for schema-defined classification. Supply your labels at request time and receive structured answers, probabilities, and confidence scores without prompting a generative model.
+GLiNER 2.5 Decide is Fastino's 340M-parameter, English decision model for schema-defined classification. Supply labels at request time and receive structured answers, probabilities, and confidence without prompting a generative model.
 
 <Note>
-  Decide is not generative. It selects from labels declared in the schema; it does not produce explanations, conversations, or open-ended answers.
+  Decide selects from labels declared in your schema. It does not produce explanations, conversations, or open-ended answers.
 </Note>
 
-## Why use a schema-defined decision model
+## Why use GLiNER 2.5 Decide
 
-A schema-defined model fits applications that need to turn text into a permitted action:
+- **Predictable outputs** — the model chooses from labels you define, so downstream code does not parse generated prose.
+- **Actionable uncertainty** — probabilities and confidence support thresholds, fallback handling, and human review.
+- **Related judgments in one pass** — classify intent, urgency, route, and handoff from the same input.
+- **Flexible schemas** — change labels at request time instead of retraining for every taxonomy change.
 
-- **Predictable outputs** - the model chooses from labels you define, so downstream code does not have to parse or validate generated prose.
-- **Actionable uncertainty** - probabilities and confidence support thresholds, human review, and fallback handling.
-- **Related judgments in one pass** - score intent, urgency, route, and handoff from the same input instead of making separate generation calls.
+## When to use it
 
-## Why GLiNER-2.5-Decide
+Use GLiNER 2.5 Decide when classification is the primary task:
 
-- **Compact and fast** - the released 340M-parameter checkpoint reached 38.3 ms p50 on an NVIDIA V100 and 167.3 ms on a 48-vCPU Intel Xeon for the published short-input benchmark.
-- **Open and deployable** - Apache 2.0 open weights support local CPU inference, air-gapped deployment, and LoRA fine-tuning on Fastino.
-- **More than classification** - the same GLiNER architecture can combine classification with entities, relations, and structured records.
-- **Flexible schemas** - change labels at request time instead of retraining for every taxonomy change.
+- **Intent and routing** — send messages or requests to the correct workflow.
+- **Single-label classification** — select exactly one category.
+- **Multi-label classification** — select every applicable tag.
+- **Operational gates** — decide whether an agent finished, a human should take over, or content violates a rule.
+- **Custom taxonomies** — define task-specific labels at request time.
+- **Several decisions per input** — classify multiple independent aspects of the same text in one request.
 
-## When to use GLiNER-2.5-Decide
+Classic classification labels are unordered. Listing severity or rating labels from low to high does not create ordinal constraints. Use [GLiNER 2.5 Multi](/concepts/gliner) when extraction, multilingual coverage, or hard relationships between classification tasks are primary.
 
-Use GLiNER-2.5-Decide when classification is the primary task:
-
-- **Intent and routing** - send support messages, emails, or agent requests to the right workflow.
-- **Several decisions per input** - classify intent, urgency, route, and handoff in one model call.
-- **Single- and multi-label classification** - select one category or every applicable tag.
-- **Operational gates** - decide whether an agent finished, a human should take over, or content violates a policy.
-- **Severity and rating categories** - choose one caller-defined category for urgency, severity, or ratings.
-- **Custom taxonomies** - define labels at request time instead of retraining for every category change.
-
-The hosted model retains entity, relation, and structured-extraction support, but classification is the reason to choose it. Decide's hosted `classifications` schema supports single- and multi-label tasks, including several tasks in one forward pass. Classic classification labels are unordered; listing severity or rating labels from low to high does not create ordinal constraints. Use [GLiNER2.5 Multi](/concepts/gliner) when extraction or multilingual coverage is primary, or when related classifications require hard implications, exclusions, cardinality rules, or ordinal bounds. Use a general-purpose language model when the result must be open-ended prose, a conversation, or newly generated content rather than a schema-defined decision.
-
-## How to use GLiNER-2.5-Decide
-
-Call it through Fastino's OpenAI-compatible inference endpoint with a `classifications` schema. Every classification task requires at least two candidate labels. Add multiple tasks to classify several aspects of the same text in one call:
-
-```bash
-curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "Authorization: Bearer $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "fastino/GLiNER-2.5-Decide",
-    "messages": [
-      { "role": "user", "content": "My subscription renewed on April 15 after the service was already down. Can I get that refunded?" }
-    ],
-    "schema": {
-      "classifications": [
-        {
-          "task": "intent",
-          "labels": ["refund_request", "cancel_subscription", "login_problem", "speak_to_human"],
-          "multi_label": false
-        },
-        {
-          "task": "urgency",
-          "labels": ["low", "normal", "high", "critical"],
-          "multi_label": false
-        }
-      ]
-    }
-  }'
-```
-
-`intent` and `urgency` are scored in one forward pass, so a router gets both judgments from one request. This classic classification schema does not enforce rules between the tasks. For a globally consistent assignment under cross-task constraints, use GLiNER2.5 Multi's [constrained-classification schema](/inference/chat-completions#constrained-classification-schema).
-
-Send an explicit schema when you need your own taxonomy. If you omit both `schema` and `response_format`, Decide uses its catalog-default `intent` task (`book`, `cancel`, `change`, and `status`) and returns `x_fastino.default_schema_applied: true`.
-
-See the [Chat Completions API](/inference/chat-completions) for the response contract, multi-label classification, and confidence thresholds.
+## Start building
 
 <CardGroup cols={2}>
-  <Card title="Run base inference" icon="sparkles" href="/inference/chat-completions">
-    Call GLiNER-2.5-Decide with your own classification schema.
+  <Card title="Call GLiNER 2.5 Decide" icon="terminal" href="/concepts/gliner-2-5-decide-call">
+    Authenticate and make a first schema-defined classification request.
   </Card>
 
-  <Card title="Fine-tune for classification" icon="sliders" href="/guides/fine-tune-classification">
-    Adapt a GLiNER classifier to your labels and domain data.
+  <Card title="Classification schema" icon="brackets-curly" href="/concepts/gliner-2-5-decide-schema">
+    Configure tasks, labels, single-label behavior, multi-label behavior, and thresholds.
   </Card>
 
-  <Card title="GLiNER2.5" icon="blocks" href="/concepts/gliner">
-    Use the multilingual multi-task model for extraction-first workflows.
+  <Card title="Output contract" icon="code" href="/concepts/gliner-2-5-decide-output">
+    Parse the chat-completion envelope and consume structured classification results.
   </Card>
 
-  <Card title="View the model catalog" icon="table-list" href="/concepts/models">
-    Browse Fastino models and their model IDs.
+  <Card title="Capabilities and limits" icon="gauge" href="/concepts/gliner-2-5-decide-capabilities">
+    Review language, schema behavior, limits, and unsupported patterns.
   </Card>
 </CardGroup>
-
-## Classification schema
-
-Each entry in `classifications` accepts exactly these keys: `task`, `labels`, `multi_label`, `cls_threshold`, and `top_k`. Any other key is rejected with a `400` that names it.
-
-- `task` names the classification task.
-- `labels` is a list of at least two strings, such as `"labels": ["book", "cancel", "reschedule"]`.
-- `multi_label` selects every applicable label when `true`. It defaults to `false`, which returns the single highest-scoring label.
-- `cls_threshold` is an inference-time cutoff from `0` to `1` that a label's score must reach to be selected in a multi-label task. It does not affect training. Single-label tasks always return the highest-scoring label.
-- `top_k` is accepted but currently has no effect on Decide: requests with different `top_k` values return the same labels. Use `multi_label` and `cls_threshold` to control which labels are returned.
-
-Decide does not support label descriptions, either as a `{label: description}` object in `labels` or as a separate `label_descriptions` key. Label descriptions are a GLiNER2.5 Multi feature; see the [constrained classification schema](/inference/chat-completions#constrained-classification-schema).
-
-<Warning>
-  **Common mistakes.** Decide rejects each of these shapes with a `400`:
-
-  | You sent | Send instead |
-  | --- | --- |
-  | `"labels": {"book": "user wants to book", "cancel": "user wants to cancel"}` | `"labels": ["book", "cancel"]` |
-  | A `label_descriptions` key | Remove it and keep `labels` as a list of strings |
-  | A `description` key on a classification entry | Remove it |
-  | `"threshold": 0.5` on a classification entry | `"cls_threshold": 0.5` with `"multi_label": true` |
-</Warning>
-
-## Evaluation
-
-On Fastino's 17-dataset Fast Decisions benchmark, GLiNER-2.5-Decide achieved the highest average score at **60.1%** and led 9 datasets. It outperformed the 4B-class JevK5 reproduction (**57.5%**) and SemIf (**56.4%**), as well as the encoder models GLiFormer and Laya. This is an internal benchmark, not JevBench, and JevK5 is not TypeSafe's Jev.
-
-Read [GLiNER2.5-Decide: An Open-Weight Model for Structured Decision Making](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model) for the benchmark design, complete results, and latency methodology.
