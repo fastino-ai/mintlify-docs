@@ -2,8 +2,6 @@
 title: "Fastino API 错误代码与响应格式"
 sidebarTitle: "错误"
 description: "Fastino API 返回的 4xx 与 5xx HTTP 状态代码、每种错误族的 JSON 响应结构,以及计费、速率限制与校验错误的解决步骤。"
-noindex: true
-hidden: true
 ---
 
 Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx` 范围的代码表示成功。`4xx` 范围的代码表示您的请求存在可修复的问题。`5xx` 范围的代码表示服务器端问题。
@@ -21,6 +19,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 少数几类响应使用不同的结构：
 
 - **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非 `detail`--参见下方的 [402](#402-需要付款-payment-required) 和 [403](#403-禁止访问-forbidden)。
+- **预热响应**（`425`）包含 `Retry-After` 响应头。OpenAI 格式的响应体还带有 `code: "model_warming"`--参见下方的 [425](#425-过早-too-early)。
 - **速率限制响应**（`429`）在 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头--参见下方的 [429](#429-请求过多-too-many-requests)。
 - **未处理的服务器错误**（`500`）返回 `{"error", "message"}` 而不是 `detail`。
 - 针对 OpenAI 兼容端点（`/v1/chat/completions`、`/v1/responses`）的请求会收到 OpenAI 格式的 `{"error": {"code", "type", "param", "message"}}` 封装，而携带 `anthropic-version` 请求头的请求则会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装，而非上述通用格式。
@@ -39,7 +38,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 您的请求未包含有效的 API 密钥、密钥已被撤销，或者您的账户因计费或欺诈审查而被封禁。
 
-**如何修复：** 确认 `X-API-Key` 请求头存在并且包含您当前的密钥。如果您最近撤销了密钥，请在 **Settings** → **API Keys** 中生成新的密钥。如果您的账户被封禁，请联系 [support@pioneer.ai](mailto:support@pioneer.ai)。设置说明请参见[身份验证](/cn/api-reference/authentication)。
+**如何修复：** 确认 `X-API-Key` 请求头存在并且包含您当前的密钥。如果您最近撤销了密钥，请在 **Settings** → **API Keys** 中生成新的密钥。如果您的账户被封禁，请联系 [support@pioneer.ai](mailto:support@pioneer.ai)。设置说明请参见[身份验证](/cn/authentication)。
 
 ---
 
@@ -108,9 +107,128 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 ### 425 - 过早 (Too Early)
 
-请求的按需部署仍在预热（冷启动），尚未准备好提供推理服务。
+模型正在临时预热，尚未准备好提供推理服务。在一段时间没有流量后的首次请求，或首次请求新配置的按需部署时，这属于正常现象，并不代表你的请求有误。预热时间因模型而异，因此一个请求在成功之前可能会多次返回 `425`。
 
-**如何修复：** 遵循 `Retry-After` 响应头，等待指定的延迟后重试。这在首次请求新配置的按需部署时属于正常现象。
+大多数端点返回带有 `code: "model_warming"` 的 OpenAI 格式响应体：
+
+```json
+{
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "model_warming"
+  }
+}
+```
+
+携带 `anthropic-version` 请求头的 `/v1/messages` 请求则会收到 Anthropic 格式的响应体，其中没有 `code` 字段：
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "..."
+  }
+}
+```
+
+| 响应头 | 值 |
+| --- | --- |
+| `Retry-After` | 下一次尝试前需要等待的秒数。这是重试延迟，并不保证模型届时已就绪。 |
+| `x-should-retry` | OpenAI 格式响应中为 `true`，因此 OpenAI SDK 会自动重试。Anthropic 格式响应中为 `false`，因此 Anthropic SDK 不会重试，需要你自行处理。 |
+
+**如何修复：** 等待 `Retry-After` 秒（如果缺少该响应头则等待 30 秒），然后重新发送相同的请求，并限制重试次数。以下每个示例最多重试 5 次，设置 300 秒的客户端超时，遇到其他非 2xx 响应时停止。同样的循环也适用于 `/v1/systemone`，只需更改 URL 和请求体。
+
+<CodeGroup>
+
+```bash cURL
+for attempt in 0 1 2 3 4 5; do
+  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
+    https://api.fastino.ai/v1/chat/completions \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [{ "role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      "schema": { "entities": ["organization", "product"] }
+    }')
+  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
+  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
+  sleep "${delay:-30}"
+done
+
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+  cat response.json
+else
+  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
+fi
+```
+
+```python Python
+import os
+import time
+import requests
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+        json={
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+            ],
+            "schema": {"entities": ["organization", "product"]},
+        },
+        timeout=300,
+    )
+    if response.status_code != 425 or attempt == MAX_RETRIES:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+
+if not 200 <= response.status_code < 300:
+    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
+print(response.json()["choices"][0]["message"]["content"])
+```
+
+```javascript JavaScript
+const MAX_RETRIES = 5;
+let response;
+
+for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/gliner2.5-multi-v1",
+      messages: [{ role: "user", content: "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      schema: { entities: ["organization", "product"] },
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (response.status !== 425 || attempt === MAX_RETRIES) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
+}
+const completion = await response.json();
+console.log(completion.choices[0].message.content);
+```
+
+</CodeGroup>
+
+使用 SDK 时，请参阅[兼容 OpenAI 的推理](/cn/api-reference/inference/openai-compatible#重试-425-响应)了解如何提高重试上限，或参阅[兼容 Anthropic 的 Messages 端点](/cn/api-reference/inference/anthropic-compatible#重试-425-响应)了解如何手动重试。
 
 ---
 

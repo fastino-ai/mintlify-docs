@@ -1,0 +1,29 @@
+---
+title: "Retries and model warm-up"
+sidebarTitle: "Retries"
+description: "Handle transient 425, 429, 503, and Anthropic-compatible 529 responses without retrying permanent request failures."
+---
+
+## Retry only transient failures
+
+Use bounded exponential backoff, respect `Retry-After`, and stop after a fixed attempt or time budget.
+
+## Retry conditions
+
+| Status | Meaning | Action |
+| --- | --- | --- |
+| `425` | The selected model is warming | Retry after the server-provided delay |
+| `429` | Rate limit reached | Respect `Retry-After`, then retry |
+| `503` | Service temporarily unavailable | Retry with bounded backoff |
+| `529` | Anthropic-compatible endpoint overloaded | Retry manually; the Anthropic SDK does not automatically retry this response |
+
+Do not retry authentication, billing, validation, missing-model, or malformed-request errors until the request is corrected.
+
+## Safe retry checklist
+
+- Use an idempotency key for training-job creation and other supported mutations.
+- Keep the same request body when replaying an idempotent request.
+- Apply jitter and a maximum delay.
+- Log the final status and request ID, but never the API key.
+
+See the complete error response shapes and resolution guidance in [Errors](/troubleshooting/errors).
