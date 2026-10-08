@@ -1,0 +1,70 @@
+---
+title: "Tune and Evaluate GLiNER 2.5 Decide"
+sidebarTitle: "Thresholds & Evaluation"
+description: "Select multi-label thresholds and evaluate GLiNER 2.5 Decide on representative classification data."
+---
+
+Evaluate GLiNER 2.5 Decide on labeled examples from your application before using its classifications to trigger production actions.
+
+## Understand threshold behavior
+
+`cls_threshold` applies only to tasks with `multi_label: true`:
+
+```json
+{
+  "task": "topics",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+- Raise the threshold to return fewer labels and generally favor precision.
+- Lower the threshold to return more labels and generally favor recall.
+- Single-label tasks always return the highest-scoring label; `cls_threshold` does not change their selection.
+- `cls_threshold` is an inference setting. It does not affect training.
+
+## Build an evaluation set
+
+Use examples that represent production traffic, including:
+
+- Common inputs for every label
+- Rare but important labels
+- Ambiguous inputs near category boundaries
+- Inputs that should receive several labels
+- Inputs that should receive no multi-label result at the selected threshold
+- Out-of-domain or malformed inputs your application may encounter
+
+Keep evaluation data separate from fine-tuning data.
+
+## Measure the behavior your application needs
+
+For single-label tasks, review overall accuracy and per-label errors. A confusion matrix helps expose labels the model frequently swaps.
+
+For multi-label tasks, measure precision, recall, and F1 both overall and per label. Also inspect:
+
+- False positives that trigger incorrect actions
+- False negatives that skip required actions
+- The number of labels selected per input
+- The frequency of empty selections
+- Results close to your threshold
+
+## Select a threshold
+
+1. Run the evaluation set and retain each selected label and confidence.
+2. Test several candidate thresholds.
+3. Compare precision, recall, and business impact.
+4. Choose a threshold per task when tasks have different error costs.
+5. Re-run evaluation after changing labels, data, or the model.
+
+Do not assume `0.5` is universally appropriate. For high-impact actions, use conservative automation thresholds and preserve a review or fallback path.
+
+## Published benchmark
+
+On Fastino's 17-dataset Fast Decisions benchmark, GLiNER 2.5 Decide achieved the highest average score at **60.1%** and led 9 datasets. It outperformed the 4B-class JevK5 reproduction (**57.5%**) and SemIf (**56.4%**), as well as the encoder models GLiFormer and Laya.
+
+This is an internal benchmark, not JevBench, and JevK5 is not TypeSafe's Jev. Read [GLiNER2.5-Decide: An Open-Weight Model for Structured Decision Making](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model) for methodology and complete results.
+
+<Card title="Fine-tune for your domain" icon="sliders" href="/concepts/gliner-2-5-decide-fine-tuning">
+  Prepare classification data and adapt the model when schema changes alone are not enough.
+</Card>
