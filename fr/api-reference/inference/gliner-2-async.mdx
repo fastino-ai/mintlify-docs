@@ -1,37 +1,46 @@
 ---
-title: "POST /v1/gliner-2/async — Fastino API"
+title: "Soumettre un job GLiNER-2 asynchrone"
 sidebarTitle: "POST /v1/gliner-2/async"
-description: "Cette page documente `POST /v1/gliner-2/async`. La spécification OpenAPI est la source canonique pour les paramètres, les réponses et l'authentification."
+description: "Soumettez des entrées GLiNER-2 très volumineuses pour un traitement asynchrone."
 api: "POST /v1/gliner-2/async"
 ---
 
 `POST /v1/gliner-2/async`
 
-Le panneau OpenAPI est la source de vérité pour tous les champs de requête et
-de réponse `202`. Utilisez cet endpoint au-delà d'un million de tokens ou si la
-requête risque de dépasser le délai synchrone.
+Soumettez des entrées GLiNER-2 très volumineuses pour un traitement asynchrone. Utilisez cet endpoint lorsque
+l'entrée dépasse un million de tokens ou risque de dépasser le délai d'expiration de la requête synchrone.
+
+Le panneau OpenAPI de cette page est la source de vérité pour chaque champ de requête et chaque champ de la
+réponse `202`. La requête utilise le même schéma GLiNER natif que
+[`POST /v1/gliner-2`](/fr/api-reference/inference/gliner-2).
 
 ## Exemple de requête
 
-```json
-{
-  "text": "A very large document to process asynchronously...",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2/async" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "A very large document to process asynchronously...",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
+
+`text` peut aussi être un tableau de chaînes. Omettez le champ obsolète `task` : le schéma
+unifié identifie l'extraction, la classification, les structures ou les relations.
 
 ## Réponse acceptée
 
-L'exemple suivant abrège `message` ; le service renvoie un chemin d'interrogation
-concret contenant l'identifiant de la tâche.
+L'endpoint renvoie immédiatement HTTP `202`. Cette charge utile illustrative raccourcit
+`message` ; le service fournit un chemin d'interrogation concret contenant l'ID de job renvoyé.
 
 ```json
 {
@@ -42,5 +51,6 @@ concret contenant l'identifiant de la tâche.
 }
 ```
 
-Conservez `job_id`, puis interrogez avec la même clé API
-[`GET /v1/gliner-2/jobs/{job_id}`](/fr/api-reference/inference/gliner-2-job-status).
+Conservez `job_id`, puis interrogez
+[`GET /v1/gliner-2/jobs/{job_id}`](/fr/api-reference/inference/gliner-2-job-status)
+avec la même clé d'API. Les jobs sont limités à l'utilisateur authentifié.

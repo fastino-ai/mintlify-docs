@@ -1,25 +1,27 @@
 ---
 title: "获取异步 GLiNER-2 作业状态"
 sidebarTitle: "GET /v1/gliner-2/jobs/{job_id}"
-description: "用同一 API 密钥轮询 GET /v1/gliner-2/jobs/{job_id} 直到作业完成；失败的作业返回 error，未知作业返回 404。"
+description: "通过 job_id 轮询 GLiNER-2 异步作业，直到其完成或失败，并附有处理中、已完成和错误响应示例。"
 api: "GET /v1/gliner-2/jobs/{job_id}"
 ---
 
 `GET /v1/gliner-2/jobs/{job_id}`
 
-此页面记录 `GET /v1/gliner-2/jobs/{job_id}`。OpenAPI 面板是路径参数和所有响应字段的事实来源。
-请使用提交作业时使用的同一 API 密钥。
+轮询 GLiNER-2 异步作业，直到其完成或失败。请使用提交该作业时所用的同一 API 密钥；作业的
+作用范围限定于已认证的用户。
 
-## 请求
+此页面上的 OpenAPI 面板是 `job_id` 路径参数和所有响应字段的事实来源。
+
+## 请求示例
 
 ```bash
 curl "https://api.fastino.ai/v1/gliner-2/jobs/3f08a17f-777a-4aa6-8ec5-879df37775a8" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
-## 等待中的响应
+## 处理中响应
 
-当 `status` 为 `pending` 或 `processing` 时继续轮询：
+当 `status` 为 `pending` 或 `processing` 时，请继续轮询：
 
 ```json
 {
@@ -35,13 +37,21 @@ curl "https://api.fastino.ai/v1/gliner-2/jobs/3f08a17f-777a-4aa6-8ec5-879df37775
 
 ## 完成响应
 
+当 `status` 为 `complete` 时停止轮询。`result` 遵循提交请求中的 schema：
+
 ```json
 {
   "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
   "status": "complete",
   "result": {
     "entities": [
-      {"text": "Apple", "label": "organization", "score": 0.99, "start": 0, "end": 5}
+      {
+        "text": "Apple",
+        "label": "organization",
+        "score": 0.99,
+        "start": 0,
+        "end": 5
+      }
     ]
   },
   "error": null,
@@ -51,4 +61,20 @@ curl "https://api.fastino.ai/v1/gliner-2/jobs/3f08a17f-777a-4aa6-8ec5-879df37775
 }
 ```
 
-失败的作业返回 `status: "error"`，并在 `error` 中提供消息。未知或属于其他用户的作业返回 `404`。
+## 错误响应
+
+已结束的作业可能会报告 `status: "error"`，并在 `error` 中附带一条消息：
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "error",
+  "result": null,
+  "error": "The input could not be processed",
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": "2026-10-07T22:10:08+00:00"
+}
+```
+
+未知作业或属于其他用户的作业会返回 `404`。

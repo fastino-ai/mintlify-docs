@@ -1,38 +1,82 @@
 ---
 title: "原生 GLiNER-2 推理"
 sidebarTitle: "POST /v1/gliner-2"
-description: "使用统一的 GLiNER schema 调用 POST /v1/gliner-2 提取实体，并省略已弃用的 task 字段。"
+description: "使用统一的 GLiNER schema 运行同步的原生 GLiNER-2 提取和分类，并附有实体提取和分类示例。"
 api: "POST /v1/gliner-2"
 ---
 
 `POST /v1/gliner-2`
 
-此页面记录 `POST /v1/gliner-2`。OpenAPI 面板是所有请求和响应字段的事实来源。
-使用统一的 GLiNER schema；省略已弃用的 `task` 字段。
+运行同步的原生 GLiNER-2 提取和分类。此页面上的 OpenAPI 面板是所有请求字段和响应字段的
+事实来源。
 
-## 实体提取请求
+当你需要指定托管模型、微调模型、推理持久化或与 OpenAI 兼容的信封时，请使用
+`POST /v1/chat/completions`。此原生端点会为你选择
+Fastino GLiNER-2 基础模型。
 
-```json
-{
-  "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"},
-      {"name": "product", "description": "named commercial product"},
-      {"name": "location", "description": "city, region, or place"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+## 请求 schema
+
+请求必须包含：
+
+- `text`：一个字符串或字符串数组。
+- `schema`：统一的 GLiNER schema 字典。旧版扁平标签数组已弃用。
+
+请求还接受 `threshold`、`include_confidence`、`include_spans` 和 `format_results`。
+请省略 `task`；它是已弃用的旧版提示，操作类型由 schema 确定。
+
+## 实体提取示例
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"},
+        {"name": "product", "description": "named commercial product"},
+        {"name": "location", "description": "city, region, or place"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
 
-`schema` 还支持 `classifications`、`structures` 和 `relations`。完整 schema
-和多个示例请参阅 [`POST /v1/chat/completions`](/cn/api-reference/inference/chat-completions)。
+## 分类示例
 
-## 成功响应
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The replacement arrived quickly and works perfectly.",
+    "schema": {
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"],
+          "multi_label": false,
+          "top_k": 1
+        }
+      ]
+    }
+  }'
+```
+
+每个经典分类至少需要两个标签。如需了解所有受支持的实体、分类、结构、关系、记录、属性以及
+约束分类的结构，请参阅完整的
+[`POST /v1/chat/completions` GLiNER schema 参考](/cn/api-reference/inference/chat-completions)。
+
+## 响应 schema
+
+成功的响应包含：
+
+- `result`：按 schema 结构返回的提取或分类结果。
+- `token_usage`：已处理的输入 token 数量。
 
 ```json
 {
@@ -50,3 +94,6 @@ api: "POST /v1/gliner-2"
   "token_usage": 10
 }
 ```
+
+当 `text` 为数组时，`result` 也是一个数组，顺序与输入一致。请勿通过
+`POST /v1/chat/completions` 发送这种批量结构；请分别提交这些对话。

@@ -1,23 +1,26 @@
 ---
-title: "GET /v1/gliner-2/jobs/{job_id} — Fastino API"
+title: "Obtenir un job GLiNER-2 asynchrone"
 sidebarTitle: "GET /v1/gliner-2/jobs/{job_id}"
-description: "Cette page documente `GET /v1/gliner-2/jobs/{job_id}`. La spécification OpenAPI est la source canonique pour les paramètres, les réponses et l'authentification."
+description: "Interrogez un job GLiNER-2 asynchrone jusqu'à ce qu'il se termine ou échoue."
 api: "GET /v1/gliner-2/jobs/{job_id}"
 ---
 
 `GET /v1/gliner-2/jobs/{job_id}`
 
-Le panneau OpenAPI est la source de vérité pour le paramètre de chemin et tous
-les champs de réponse. Utilisez la même clé API que lors de la soumission.
+Interrogez un job GLiNER-2 asynchrone jusqu'à ce qu'il se termine ou échoue. Utilisez la même clé d'API que
+celle qui a soumis le job ; les jobs sont limités à l'utilisateur authentifié.
 
-## Requête
+Le panneau OpenAPI de cette page est la source de vérité pour le paramètre de chemin `job_id` et
+chaque champ de réponse.
+
+## Exemple de requête
 
 ```bash
 curl "https://api.fastino.ai/v1/gliner-2/jobs/3f08a17f-777a-4aa6-8ec5-879df37775a8" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
-## Réponse en attente
+## Réponse en cours de traitement
 
 Continuez à interroger tant que `status` vaut `pending` ou `processing` :
 
@@ -35,13 +38,22 @@ Continuez à interroger tant que `status` vaut `pending` ou `processing` :
 
 ## Réponse terminée
 
+Arrêtez d'interroger lorsque `status` vaut `complete`. Le champ `result` suit le schéma de la
+requête de soumission :
+
 ```json
 {
   "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
   "status": "complete",
   "result": {
     "entities": [
-      {"text": "Apple", "label": "organization", "score": 0.99, "start": 0, "end": 5}
+      {
+        "text": "Apple",
+        "label": "organization",
+        "score": 0.99,
+        "start": 0,
+        "end": 5
+      }
     ]
   },
   "error": null,
@@ -51,5 +63,20 @@ Continuez à interroger tant que `status` vaut `pending` ou `processing` :
 }
 ```
 
-Une tâche échouée renvoie `status: "error"` et un message dans `error`.
-Une tâche inconnue ou appartenant à un autre utilisateur renvoie `404`.
+## Réponse d'erreur
+
+Un job terminé peut indiquer `status: "error"` avec un message dans `error` :
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "error",
+  "result": null,
+  "error": "The input could not be processed",
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": "2026-10-07T22:10:08+00:00"
+}
+```
+
+Un job inconnu, ou appartenant à un autre utilisateur, renvoie `404`.

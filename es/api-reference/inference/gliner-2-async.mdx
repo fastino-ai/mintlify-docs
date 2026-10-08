@@ -1,37 +1,46 @@
 ---
 title: "Enviar un trabajo asíncrono de GLiNER-2"
 sidebarTitle: "POST /v1/gliner-2/async"
-description: "Envía con POST /v1/gliner-2/async más de un millón de tokens o solicitudes que puedan superar el tiempo de espera síncrono y guarda job_id."
+description: "Envía entradas muy grandes de GLiNER-2 para su procesamiento asíncrono cuando la entrada supera un millón de tokens o puede superar el tiempo de espera de la solicitud síncrona."
 api: "POST /v1/gliner-2/async"
 ---
 
 `POST /v1/gliner-2/async`
 
-El panel OpenAPI es la fuente de verdad para todos los campos de solicitud y de
-la respuesta `202`. Usa este endpoint para más de un millón de tokens o cuando
-la solicitud pueda superar el tiempo de espera síncrono.
+Envía entradas muy grandes de GLiNER-2 para su procesamiento asíncrono. Usa este endpoint cuando la
+entrada supere un millón de tokens o pueda exceder el tiempo de espera de la solicitud síncrona.
+
+El panel OpenAPI de esta página es la fuente de verdad para cada campo de la solicitud y de la
+respuesta `202`. La solicitud usa el mismo esquema nativo de GLiNER que
+[`POST /v1/gliner-2`](/es/api-reference/inference/gliner-2).
 
 ## Ejemplo de solicitud
 
-```json
-{
-  "text": "A very large document to process asynchronously...",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2/async" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "A very large document to process asynchronously...",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
+
+`text` también puede ser un array de cadenas. Omite el campo obsoleto `task`; el esquema
+unificado identifica la extracción, la clasificación, las estructuras o las relaciones.
 
 ## Respuesta aceptada
 
-El ejemplo siguiente abrevia `message`; el servicio devuelve una ruta de
-consulta concreta con el ID del trabajo.
+El endpoint devuelve HTTP `202` de inmediato. Este payload ilustrativo acorta
+`message`; el servicio proporciona una ruta de consulta concreta que contiene el ID de trabajo devuelto.
 
 ```json
 {
@@ -42,5 +51,6 @@ consulta concreta con el ID del trabajo.
 }
 ```
 
-Guarda `job_id` y consulta con la misma clave de API
-[`GET /v1/gliner-2/jobs/{job_id}`](/es/api-reference/inference/gliner-2-job-status).
+Guarda `job_id` y luego consulta
+[`GET /v1/gliner-2/jobs/{job_id}`](/es/api-reference/inference/gliner-2-job-status)
+con la misma API key. Los trabajos están limitados al usuario autenticado.

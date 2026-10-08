@@ -1,37 +1,46 @@
 ---
 title: "Asynchronen GLiNER-2-Job übermitteln"
 sidebarTitle: "POST /v1/gliner-2/async"
-description: "Senden Sie mit POST /v1/gliner-2/async Eingaben über eine Million Token, speichern Sie job_id und fragen Sie mit demselben API-Schlüssel ab."
+description: "Übermitteln Sie sehr große GLiNER-2-Eingaben zur asynchronen Verarbeitung, wenn die Eingabe eine Million Token überschreitet oder das synchrone Anfrage-Timeout überschreiten könnte."
 api: "POST /v1/gliner-2/async"
 ---
 
 `POST /v1/gliner-2/async`
 
-Diese Seite dokumentiert `POST /v1/gliner-2/async`. Das OpenAPI-Panel ist die
-verbindliche Quelle für alle Anfragefelder und Felder der `202`-Antwort. Verwenden
-Sie diesen Endpunkt für mehr als eine Million Token oder mögliche Zeitüberschreitungen.
+Übermitteln Sie sehr große GLiNER-2-Eingaben zur asynchronen Verarbeitung. Verwenden Sie diesen Endpunkt, wenn die
+Eingabe eine Million Token überschreitet oder länger dauern kann als das Timeout synchroner Anfragen.
+
+Das OpenAPI-Panel auf dieser Seite ist die verbindliche Quelle für alle Anfragefelder und Felder der `202`-Antwort.
+Die Anfrage verwendet dasselbe native GLiNER-Schema wie
+[`POST /v1/gliner-2`](/de/api-reference/inference/gliner-2).
 
 ## Anfragebeispiel
 
-```json
-{
-  "text": "A very large document to process asynchronously...",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2/async" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "A very large document to process asynchronously...",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
+
+`text` kann auch ein Array von Strings sein. Lassen Sie das veraltete Feld `task` weg; das vereinheitlichte
+Schema bestimmt Extraktion, Klassifikation, Strukturen oder Relationen.
 
 ## Annahmeantwort
 
-Das folgende Beispiel kürzt `message`; der Dienst liefert einen konkreten
-Abfragepfad mit der zurückgegebenen Job-ID.
+Der Endpunkt gibt sofort HTTP `202` zurück. Diese beispielhafte Payload kürzt
+`message`; der Dienst liefert einen konkreten Abfragepfad mit der zurückgegebenen Job-ID.
 
 ```json
 {
@@ -42,5 +51,6 @@ Abfragepfad mit der zurückgegebenen Job-ID.
 }
 ```
 
-Speichern Sie `job_id` und fragen Sie anschließend mit demselben API-Schlüssel
-[`GET /v1/gliner-2/jobs/{job_id}`](/de/api-reference/inference/gliner-2-job-status) ab.
+Speichern Sie `job_id` und fragen Sie anschließend
+[`GET /v1/gliner-2/jobs/{job_id}`](/de/api-reference/inference/gliner-2-job-status)
+mit demselben API-Schlüssel ab. Jobs sind auf den authentifizierten Benutzer beschränkt.
