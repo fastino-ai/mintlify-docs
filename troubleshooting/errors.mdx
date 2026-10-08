@@ -1,0 +1,278 @@
+---
+title: "Fastino API error codes and response body shapes"
+sidebarTitle: "Errors"
+description: "Every 4xx and 5xx status code the Fastino API returns, the JSON body shape for each family, and steps to resolve billing, rate-limit, and validation errors."
+---
+
+The Fastino API uses standard HTTP status codes to communicate the outcome of every request. Codes in the `2xx` range indicate success. Codes in the `4xx` range indicate a problem with your request that you can fix. Codes in the `5xx` range indicate a server-side issue.
+
+## Error response format
+
+Most error responses return a JSON body with a `detail` field:
+
+```json
+{
+  "detail": "..."
+}
+```
+
+A few response families use a different shape:
+
+- **Billing denials** (`402`, some `403`s) return `{"code", "message", "resolution_url"}` instead of `detail` - see [402](#402-payment-required) and [403](#403-forbidden) below.
+- **Warm-up responses** (`425`) include a `Retry-After` header. OpenAI-shaped bodies also carry `code: "model_warming"` - see [425](#425-too-early) below.
+- **Rate-limit responses** (`429`) add `code` and `scope` fields alongside `detail`, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers - see [429](#429-too-many-requests) below.
+- **Unhandled server errors** (`500`) return `{"error", "message"}` rather than `detail`.
+- Requests against the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/responses`) receive an OpenAI-shaped `{"error": {"code", "type", "param", "message"}}` envelope, and requests carrying an `anthropic-version` header receive an Anthropic-shaped `{"type": "error", "error": {"type", "message"}}` envelope instead of the generic shapes above.
+
+## Status codes
+
+### 400 - Bad Request
+
+The request itself is malformed - invalid JSON, or a query/path parameter of the wrong type.
+
+**How to fix:** Confirm your request body is valid JSON and that query/path parameters match the types documented in the endpoint reference.
+
+---
+
+### 401 - Unauthorized
+
+Your request did not include a valid API key, the key has been revoked, or your account has been blocked for billing or fraud review.
+
+**How to fix:** Verify that the `X-API-Key` header is present and contains your current key. If you recently revoked the key, generate a new one at **Settings** → **API Keys**. If your account is blocked, contact [support@pioneer.ai](mailto:support@pioneer.ai). See [Authentication](/authentication) for setup instructions.
+
+---
+
+### 402 - Payment Required
+
+<Warning>
+  A `402` response means your account is out of spendable credits or a billing action is required before inference can run. All API calls will fail until you add credits or upgrade your plan. Visit **Settings** → **Billing** or see [Plans & Pricing](/pricing) to resolve this.
+</Warning>
+
+Your account does not have sufficient credits to complete the request. The response body's `code` field tells you which case applies - most commonly `out_of_credits` (your included credits are exhausted and there's no spendable paid balance) or `direct_model_requires_credits` (calling a supported model directly requires a paid credit balance).
+
+**How to fix:** Log in to [Fastino](https://agent.fastino.ai), go to **Settings** → **Billing**, and top up your balance or upgrade your plan. See [Credit limits and overage spending cap](/api-reference/rate-limits#credit-limits-and-overage-spending-cap) for how credit limits and overage billing work.
+
+---
+
+### 403 - Forbidden
+
+Your team has reached its plan's maximum monthly overage spend (`code: "credit_ceiling_reached"`), or your account needs a verified payment method before running inference (`code: "card_required"`).
+
+**How to fix:** For a spend-ceiling denial, upgrade your plan at **Settings** → **Billing** to raise the ceiling. For a card-verification denial, add a valid payment method. Both responses include a `resolution_url` pointing directly at the page to resolve them.
+
+---
+
+### 404 - Not Found
+
+The resource you requested does not exist. This can happen when a dataset name, training job ID, evaluation ID, project ID, or model ID is misspelled or has been deleted.
+
+**How to fix:** Double-check the ID or name in the request path or body. Use the corresponding `GET` list endpoint (for example `GET /v1/training-jobs`, `GET /v1/base-models`) to confirm the resource exists.
+
+---
+
+### 409 - Conflict
+
+The model exists in the catalog but isn't currently servable - for example, a training-only base model requested for direct inference, or an on-demand deployment that hasn't finished provisioning after a training job completed.
+
+**How to fix:** Check `supports_inference` and `supports_on_demand_inference` for the model via `GET /v1/base-models`, or retry after the deployment finishes provisioning.
+
+---
+
+### 413 - Payload Too Large
+
+The request body - typically a file upload for an evaluation or dataset - exceeds the endpoint's size limit.
+
+**How to fix:** Check the endpoint reference for its upload size limit and split or compress the payload before retrying.
+
+---
+
+### 422 - Unprocessable Entity
+
+The request body failed validation. A required field is missing, a field has the wrong type, or a value is outside the accepted range.
+
+**How to fix:** Review the error `message` for the specific field that failed. Common causes include:
+
+- Omitting `base_model` from `POST /v1/training-jobs`
+- Passing an unsupported `task_type` to `POST /v1/generate`
+- Sending fewer than 1 or more than 1,000 strings in the `inputs` array for label-existing endpoints
+
+```json
+{
+    "detail": "For 'POST /v1/training-jobs', ...",
+    "errors": [...]
+}
+```
+
+---
+
+### 425 - Too Early
+
+The model is temporarily warming up and isn't ready to serve inference yet. This is expected on the first request after a period without traffic or against a freshly provisioned on-demand deployment, and it does not mean your request is wrong. Warm-up time depends on the model, so a request can return `425` more than once before it succeeds.
+
+Most endpoints return an OpenAI-shaped body with `code: "model_warming"`:
+
+```json
+{
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "model_warming"
+  }
+}
+```
+
+Requests to `/v1/messages` that carry an `anthropic-version` header receive an Anthropic-shaped body instead, without a `code` field:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "..."
+  }
+}
+```
+
+| Header | Value |
+| --- | --- |
+| `Retry-After` | Seconds to wait before the next attempt. It is a retry delay, not a promise that the model will be ready. |
+| `x-should-retry` | `true` on OpenAI-shaped responses, so the OpenAI SDKs retry automatically. `false` on Anthropic-shaped responses, so the Anthropic SDKs do not retry; handle these yourself. |
+
+**How to fix:** Wait `Retry-After` seconds (30 if the header is missing) and send the same request again, with a bounded number of retries. Each example retries at most 5 times, sets a 300-second client timeout, and stops on any other non-2xx response. The same loop works for `/v1/systemone`; change the URL and request body.
+
+<CodeGroup>
+
+```bash cURL
+for attempt in 0 1 2 3 4 5; do
+  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
+    https://api.fastino.ai/v1/chat/completions \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [{ "role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      "schema": { "entities": ["organization", "product"] }
+    }')
+  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
+  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
+  sleep "${delay:-30}"
+done
+
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+  cat response.json
+else
+  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
+fi
+```
+
+```python Python
+import os
+import time
+import requests
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+        json={
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+            ],
+            "schema": {"entities": ["organization", "product"]},
+        },
+        timeout=300,
+    )
+    if response.status_code != 425 or attempt == MAX_RETRIES:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+
+if not 200 <= response.status_code < 300:
+    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
+print(response.json()["choices"][0]["message"]["content"])
+```
+
+```javascript JavaScript
+const MAX_RETRIES = 5;
+let response;
+
+for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/gliner2.5-multi-v1",
+      messages: [{ role: "user", content: "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      schema: { entities: ["organization", "product"] },
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (response.status !== 425 || attempt === MAX_RETRIES) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
+}
+const completion = await response.json();
+console.log(completion.choices[0].message.content);
+```
+
+</CodeGroup>
+
+With an SDK, see [Retries and model warm-up](/troubleshooting/retries) for which responses to retry and how to back off.
+
+---
+
+### 429 - Too Many Requests
+
+You have exceeded a request-rate limit for this endpoint. The response includes a `Retry-After` header, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers identifying which limit you hit - the JSON body carries matching `code` and `scope` fields alongside `detail`.
+
+**How to fix:** Respect the `Retry-After` value and back off before retrying. See [Rate Limits](/api-reference/rate-limits) for per-endpoint limits and a retry code pattern. Note that credit and overage denials return `402`/`403`, not `429` - see [Credit limits and overage spending cap](/api-reference/rate-limits#credit-limits-and-overage-spending-cap).
+
+---
+
+### 451 - Unavailable for Legal Reasons
+
+The requested model isn't available to your account due to export-control or sanctions restrictions in your region.
+
+**How to fix:** See the [FAQ](/faq) for the current list of restricted regions and provider-specific policies. If you believe your access was incorrectly restricted, contact support.
+
+---
+
+### 500 - Internal Server Error
+
+An unexpected error occurred on Fastino's servers. This is not caused by your request. The body uses `error` and `message` fields rather than `detail`:
+
+```json
+{
+  "error": "Internal server error",
+  "message": "..."
+}
+```
+
+**How to fix:** Wait a moment and retry. If the error persists, check [status.pioneer.ai](https://status.pioneer.ai) for live service status or contact support.
+
+---
+
+### 503 - Service Unavailable
+
+A dependency the request needed - billing verification, or a provider's status/metrics endpoint - is temporarily unavailable.
+
+**How to fix:** Wait a moment and retry. If the error persists, check [status.pioneer.ai](https://status.pioneer.ai) for live service status or contact support.
+
+---
+
+### 529 - Overloaded (Anthropic-compatible endpoint only)
+
+`POST /v1/messages` mirrors Anthropic's own `overloaded_error` response when upstream Claude capacity is temporarily saturated.
+
+**How to fix:** Retry with backoff, the same as you would for a `429` or `503`.

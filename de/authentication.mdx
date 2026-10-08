@@ -1,0 +1,252 @@
+---
+title: "Fastino-API-Authentifizierung mit API-Schlüsseln"
+sidebarTitle: "Authentifizierung"
+description: "So erstellen Sie einen Fastino-API-Schlüssel, übergeben ihn im X-API-Key-Header und listen oder widerrufen Schlüssel programmatisch."
+---
+
+Die meisten Operationen der Fastino API erfordern Ihren API-Schlüssel. Ausdrücklich öffentliche Katalog-Routen wie
+`GET /v1/models` können ohne Schlüssel aufgerufen werden. Authentifizierte Operationen verwenden ein einfaches header-basiertes
+Schema. Es ist kein OAuth-Flow und kein Token-Austausch erforderlich. Ihr Schlüssel identifiziert Sie und bestimmt,
+welche Ressourcen und Rate Limits für Ihre Anfragen gelten.
+
+## Einen API-Schlüssel erhalten
+
+1. Melden Sie sich bei [Fastino](https://agent.fastino.ai) an.
+2. Gehen Sie zu **Settings** → **API Keys**.
+3. Klicken Sie auf **Create key**, vergeben Sie einen Namen und kopieren Sie den angezeigten Wert.
+
+Speichern Sie Ihren Schlüssel in einer Umgebungsvariable (zum Beispiel `FASTINO_API_KEY`), statt ihn in Quelldateien fest zu hinterlegen.
+
+Neue Fastino-Schlüssel beginnen mit `fast_sk_`. Ältere `pio_sk_`-Schlüssel sind außer Betrieb genommen; erstellen Sie im Dashboard
+einen Ersatzschlüssel, bevor Sie die Fastino API aufrufen.
+
+## Übergabe Ihres API-Schlüssels
+
+Fügen Sie Ihren Schlüssel bei nativen Fastino-Anfragen in den `X-API-Key`-Header ein:
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+OpenAI- und Anthropic-kompatible SDKs senden denselben Schlüssel üblicherweise als Bearer-Token. Setzen Sie deren Option `api_key` auf `$FASTINO_API_KEY`; das SDK fügt `Authorization: Bearer ...` automatisch hinzu.
+
+## Schlüssel verwalten
+
+Erstellen Sie neue API-Schlüssel unter **Settings** -> **API Keys** im Fastino-Dashboard. Mit API-Schlüsseln authentifizierte Anfragen können Schlüssel auflisten und widerrufen, aber keine weiteren Schlüssel erstellen.
+
+### Einen Schlüssel erstellen
+
+`POST /v1/create-api-key` wird vom Web-Dashboard verwendet und erfordert eine Browser-Sitzung. Mit `X-API-Key` authentifizierte Aufrufe geben `403 Forbidden` mit der Meldung `API key creation is only allowed from the web dashboard.` zurück.
+
+Die Antwort auf die Erstellung enthält den neuen `secret_key`-Wert. Kopieren Sie ihn sofort. Er wird kein zweites Mal angezeigt.
+
+### Schlüssel auflisten
+
+```bash cURL
+curl https://api.fastino.ai/v1/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Gibt alle Ihrem Konto zugeordneten Schlüssel zurück, einschließlich Namen und Erstellungsdaten. Schlüsselwerte werden in Listenantworten nicht zurückgegeben.
+
+### Einen Schlüssel widerrufen
+
+```bash cURL
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"
+  }'
+```
+
+Widerrufene Schlüssel werden bei der nächsten Anfrage sofort abgelehnt. Ein Rückgängigmachen ist nicht möglich.
+
+### Konnektivität testen, bevor Sie einen Schlüssel haben
+
+Um während der Integration zu prüfen, ob Ihr Netzwerk die Fastino API erreichen kann, senden Sie eine Anfrage mit einem Platzhalterschlüssel. Sie erhalten ein `401` zurück. Das bestätigt, dass der Endpunkt erreichbar und Ihre Anfrage korrekt verdrahtet ist.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: fast_sk_test" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# Expected: {"detail":"Invalid API key format. API keys must start with 'fast_sk_'. Please check your X-API-Key header."}
+# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
+```
+
+## Fehlerantworten
+
+| Status | Bedeutung |
+| --- | --- |
+| `401 Unauthorized` | Der Schlüssel fehlt, ist fehlerhaft formatiert oder wurde widerrufen. Prüfen Sie, ob der `X-API-Key`-Header vorhanden ist und einen gültigen Schlüssel enthält. |
+| `402 Payment Required` | Ihr Konto verfügt über zu wenig Guthaben, um die Anfrage abzuschließen. Rufen Sie **Settings** → **Billing** auf, um Ihr Guthaben aufzuladen. |
+
+<Warning>
+  Eine `402`-Antwort bedeutet, dass das Guthaben Ihres Kontos aufgebraucht ist. Anfragen werden weiterhin fehlschlagen, bis Sie Guthaben hinzufügen oder Ihren Plan aktualisieren. Siehe [Pläne & Preise](/de/pricing) für Ihre Optionen.
+</Warning>
+
+## API-Schlüsselverwaltung
+
+Jede Anfrage an die Fastino API erfordert einen API-Schlüssel, der im `X-API-Key`-Header übergeben wird. Erstellen Sie Schlüssel im Fastino-Dashboard und verwenden Sie anschließend die Endpunkte zur Schlüsselverwaltung, um bestehende Schlüssel programmatisch aufzulisten und zu widerrufen.
+
+<Tip>
+  Speichern Sie API-Schlüssel in Umgebungsvariablen, statt sie fest im Quellcode zu hinterlegen. Legen Sie beispielsweise `FASTINO_API_KEY` in Ihrer Umgebung fest und lesen Sie den Wert zur Laufzeit ein. Committen Sie API-Schlüssel niemals in die Versionskontrolle.
+</Tip>
+
+---
+
+## Einen API-Schlüssel erstellen
+
+`POST /v1/create-api-key`
+
+Erstellt einen neuen API-Schlüssel, der Ihrem Konto zugeordnet ist. Dieser Endpunkt wird vom Fastino-Dashboard verwendet und erfordert eine Browser-Sitzung. Mit einem bestehenden API-Schlüssel authentifizierte Aufrufe werden mit `403 Forbidden` abgelehnt, um Credential Chaining zu verhindern.
+
+**Request Body**
+
+<ParamField body="name" type="string" required>
+  Ein aussagekräftiger Name zur Identifizierung dieses Schlüssels. Verwenden Sie Namen, die den Zweck des Schlüssels oder den zugehörigen Dienst widerspiegeln, zum Beispiel `"ci-pipeline"` oder `"production-inference"`.
+</ParamField>
+
+<Warning>
+  Verwenden Sie keinen bestehenden API-Schlüssel, um einen weiteren API-Schlüssel zu erstellen. Die Authentifizierung per `X-API-Key` wird für diesen Endpunkt nicht akzeptiert. Erstellen Sie Schlüssel unter **Settings** -> **API Keys** im Dashboard.
+</Warning>
+
+**Response**
+
+<ResponseField name="secret_key" type="string">
+  Der vollständige Wert des API-Schlüssels. Dies ist das einzige Mal, dass er im Klartext zurückgegeben wird. Kopieren Sie ihn sofort und speichern Sie ihn an einem sicheren Ort wie einem Secrets-Manager oder einer Umgebungsvariable.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Eindeutige Kennung des Schlüssels. Verwenden Sie diese ID, wenn Sie den Schlüssel widerrufen.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Der Name, den Sie dem Schlüssel zugewiesen haben.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO-8601-Zeitstempel des Erstellungszeitpunkts des Schlüssels.
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  Letzte Ziffern des erzeugten Schlüssels zur Anzeige und Identifikation.
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  Optionaler ISO-8601-Ablaufzeitpunkt oder `null`, wenn der Schlüssel nicht abläuft.
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  Team, an das der Schlüssel gebunden ist.
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Gibt an, ob Fastino während der Schlüsselerstellung einen Stripe-Kundendatensatz angelegt hat.
+</ResponseField>
+
+<Warning>
+  Der vollständige Schlüsselwert wird nur bei der Erstellung zurückgegeben. Wenn Sie ihn verlieren, müssen Sie den Schlüssel widerrufen und einen neuen erstellen.
+</Warning>
+
+---
+
+## API-Schlüssel auflisten
+
+`GET /v1/list-api-keys`
+
+Gibt alle Ihrem Konto zugeordneten API-Schlüssel zurück. Schlüsselwerte sind in der Antwort maskiert. Es werden nur Metadaten wie Name und Erstellungsdatum zurückgegeben.
+
+```bash
+curl https://api.fastino.ai/v1/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response**
+
+<ResponseField name="keys" type="object[]">
+  Array mit Metadatenobjekten der API-Schlüssel.
+  <Expandable title="Schlüsseleigenschaften">
+    <ResponseField name="id" type="string">
+      Eindeutige Kennung des Schlüssels. Verwenden Sie diese ID, wenn Sie den Schlüssel widerrufen.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Der diesem Schlüssel zugewiesene Name.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO-8601-Zeitstempel der Erstellung.
+    </ResponseField>
+    <ResponseField name="api_key_last_digits" type="string">
+      Letzte Ziffern des Schlüssels zur Anzeige und Identifikation.
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
+      ISO-8601-Zeitstempel der letzten mit diesem Schlüssel gestellten Anfrage, sofern verfügbar.
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      Ablaufzeitpunkt oder `null`, wenn der Schlüssel nicht abläuft.
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      Team, an das der Schlüssel gebunden ist.
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      Gesamtzahl der mit diesem Schlüssel verbrauchten Tokens.
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      Gesamte Kosten, die diesem Schlüssel zugerechnet werden.
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      Anzahl der mit diesem Schlüssel gestellten Anfragen.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Anzahl der zurückgegebenen Schlüssel.
+</ResponseField>
+
+---
+
+## Einen API-Schlüssel widerrufen
+
+`DELETE /v1/delete-api-key`
+
+Widerruft einen API-Schlüssel dauerhaft. Anfragen, die den widerrufenen Schlüssel verwenden, erhalten sofort `401 Unauthorized`-Antworten.
+
+**Request Body**
+
+<ParamField body="key_id" type="string" required>
+  Die eindeutige ID des zu widerrufenden Schlüssels, wie sie von `GET /v1/list-api-keys` zurückgegeben wird.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "YOUR_KEY_ID"}'
+```
+
+<Warning>
+  Das Widerrufen eines Schlüssels erfolgt sofort und ist unwiderruflich. Stellen Sie sicher, dass alle Dienste, die den Schlüssel verwenden, auf einen Ersatzschlüssel umgestellt sind, bevor Sie den alten widerrufen, um Dienstunterbrechungen zu vermeiden.
+</Warning>
+
+**Response**
+
+Gibt `200 OK` mit einem JSON-Erfolgsbody zurück.
+
+<ResponseField name="success" type="boolean">
+  Gibt an, ob der Schlüssel widerrufen wurde.
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  Menschenlesbare Statusmeldung.
+</ResponseField>
+
+## Fehler
+
+| Status | Beschreibung |
+| --- | --- |
+| `401 Unauthorized` | Der Schlüssel fehlt, ist ungültig oder wurde widerrufen. |
+| `402 Payment Required` | Das Konto verfügt über zu wenig Guthaben. |

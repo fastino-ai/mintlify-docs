@@ -162,6 +162,111 @@ def _frontmatter(root: Path, path: Path) -> tuple[str, str]:
     return fields["title"], fields["description"]
 
 
+def _navigation_sections(
+    language: dict[str, object],
+    *,
+    locale: str,
+) -> list[tuple[str, str, list[str]]]:
+    """Return heading level, heading, and visible pages in navigation order."""
+    tabs = language.get("tabs")
+    if not isinstance(tabs, list):
+        groups = language.get("groups")
+        if not isinstance(groups, list):
+            raise ValueError(f"{locale} navigation has no tabs or groups")
+        tabs = [{"tab": None, "pages": groups}]
+
+    sections: list[tuple[str, str, list[str]]] = []
+    for tab in tabs:
+        if not isinstance(tab, dict) or tab.get("hidden") is True:
+            continue
+        tab_heading = tab.get("tab")
+        if tab_heading is not None and not isinstance(tab_heading, str):
+            raise ValueError(f"{locale} navigation contains a tab without a name")
+        groups = tab.get("pages")
+        if not isinstance(groups, list):
+            raise ValueError(f"{locale} navigation tab has no pages")
+        if tab_heading:
+            sections.append(("##", tab_heading, []))
+        for group in groups:
+            if not isinstance(group, dict) or group.get("hidden") is True:
+                continue
+            heading = group.get("group")
+            if not isinstance(heading, str):
+                raise ValueError(f"{locale} navigation contains a group without a name")
+            pages = _visible_pages(group)
+            if pages:
+                sections.append(("###" if tab_heading else "##", heading, pages))
+    return sections
+
+
+def _append_sections(
+    lines: list[str],
+    *,
+    root: Path,
+    sections: list[tuple[str, str, list[str]]],
+) -> None:
+    """Append navigation sections and page metadata to an index."""
+    for level, heading, pages in sections:
+        lines.extend(["", f"{level} {heading}"])
+        if not pages:
+            continue
+        lines.append("")
+        for page in pages:
+            title, description = _frontmatter(root, root / f"{page}.mdx")
+            lines.append(f"- [{title}]({BASE_URL}/{page}.md): {description}")
+
+
+def _render_english_index(root: Path, language: dict[str, object]) -> str:
+    """Render the canonical English agent index."""
+    lines = [
+        "# Fastino Labs",
+        "",
+        (
+            "> Build structured decisions with GLiDE, run schema-based extraction with "
+            "GLiNER, and fine-tune specialized models with Fastino."
+        ),
+        "",
+        "> ## Agent instructions",
+        (
+            "> Use https://docs.fastino.ai/openapi.json as the source of truth for "
+            "customer-facing routes. For GLiDE decision inference, call "
+            "`POST https://api.fastino.ai/v1/systemone` with model `fastino/GLiDE`. "
+            "Do not infer undocumented routes. Read API keys from `FASTINO_API_KEY` "
+            "and never embed credentials in code, logs, or reports."
+        ),
+        "",
+        "## Agent resources",
+        "",
+        (
+            f"- [OpenAPI specification]({BASE_URL}/openapi.json): Read the canonical "
+            "customer-facing routes, authentication requirements, and request and "
+            "response schemas."
+        ),
+        (
+            f"- [Complete documentation corpus]({BASE_URL}/llms-full.txt): Search the "
+            "full page content when the concise index does not answer the question."
+        ),
+        (
+            f"- [Agent Skills catalog]({BASE_URL}/.well-known/agent-skills/index.json): "
+            "Discover installable skills for datasets, fine-tuning, GLiDE, GLiNER, "
+            "and inference."
+        ),
+        "",
+        "## Languages",
+        "",
+        f"- [中文]({BASE_URL}/cn/llms.txt): 浏览 Fastino 中文文档。",
+        f"- [Español]({BASE_URL}/es/llms.txt): Consulta la documentación de Fastino en español.",
+        f"- [Français]({BASE_URL}/fr/llms.txt): Consultez la documentation Fastino en français.",
+        f"- [Deutsch]({BASE_URL}/de/llms.txt): Lesen Sie die Fastino-Dokumentation auf Deutsch.",
+    ]
+    _append_sections(
+        lines,
+        root=root,
+        sections=_navigation_sections(language, locale="en"),
+    )
+    return "\n".join(lines) + "\n"
+
+
 def _render_index(root: Path, language: dict[str, object]) -> str:
     """Render one localized index."""
     locale = language["language"]
@@ -188,22 +293,11 @@ def _render_index(root: Path, language: dict[str, object]) -> str:
             f"{copy.skills_description}"
         ),
     ]
-    groups = language.get("groups")
-    if not isinstance(groups, list):
-        raise ValueError(f"{locale} navigation has no groups")
-    for group in groups:
-        if not isinstance(group, dict) or group.get("hidden") is True:
-            continue
-        heading = group.get("group")
-        if not isinstance(heading, str):
-            raise ValueError(f"{locale} navigation contains a group without a name")
-        pages = _visible_pages(group)
-        if not pages:
-            continue
-        lines.extend(["", f"## {heading}", ""])
-        for page in pages:
-            title, description = _frontmatter(root, root / f"{page}.mdx")
-            lines.append(f"- [{title}]({BASE_URL}/{page}.md): {description}")
+    _append_sections(
+        lines,
+        root=root,
+        sections=_navigation_sections(language, locale=locale),
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -231,6 +325,20 @@ def localized_index_findings(root: Path = ROOT) -> list[str]:
     """Return drift findings for localized indexes and root discovery links."""
     findings: list[str] = []
     root_index = (root / "llms.txt").read_text(encoding="utf-8")
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    languages = config.get("navigation", {}).get("languages", [])
+    english = next(
+        (
+            language
+            for language in languages
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    if not isinstance(english, dict):
+        findings.append("docs.json has no English navigation")
+    elif root_index != _render_english_index(root, english):
+        findings.append("llms.txt is stale")
     for language in _localized_languages(root):
         locale = language["language"]
         if not isinstance(locale, str):
@@ -252,6 +360,22 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     if not args.check:
+        config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
+        languages = config.get("navigation", {}).get("languages", [])
+        english = next(
+            (
+                language
+                for language in languages
+                if isinstance(language, dict) and language.get("language") == "en"
+            ),
+            None,
+        )
+        if not isinstance(english, dict):
+            raise ValueError("docs.json has no English navigation")
+        (ROOT / "llms.txt").write_text(
+            _render_english_index(ROOT, english),
+            encoding="utf-8",
+        )
         for language in _localized_languages(ROOT):
             locale = language["language"]
             if not isinstance(locale, str):

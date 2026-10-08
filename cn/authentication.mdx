@@ -1,0 +1,248 @@
+---
+title: "Fastino API 身份验证:生成和使用 API 密钥"
+sidebarTitle: "身份验证"
+description: "使用 X-API-Key 头对 Fastino API 请求进行身份验证。在控制面板中生成密钥，然后以编程方式列出、轮换或撤销密钥。"
+---
+
+大多数 Fastino API 操作都需要您的 API 密钥。明确公开的目录路由(例如 `GET /v1/models`)无需密钥即可调用。需要身份验证的操作采用简单的基于请求头的方案,无需 OAuth 流程或令牌交换。您的密钥用于标识您的身份,并决定哪些资源和速率限制适用于您的请求。
+
+## 获取 API 密钥
+
+1. 在 [Fastino](https://agent.fastino.ai) 登录。
+2. 前往 **Settings** → **API Keys**。
+3. 点击 **Create key**,为其命名,并复制显示的值。
+
+请将您的密钥存储在环境变量中(例如 `FASTINO_API_KEY`),而不是硬编码在源文件中。
+
+新的 Fastino 密钥以 `fast_sk_` 开头。旧版 `pio_sk_` 密钥已停用;在调用 Fastino API 之前,请先在控制面板中创建替换密钥。
+
+## 传递 API 密钥
+
+在原生 Fastino 请求的 `X-API-Key` 头中包含您的密钥:
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+OpenAI 和 Anthropic 兼容的 SDK 通常会将同一密钥作为 Bearer 令牌发送。将其 `api_key` 选项设置为 `$FASTINO_API_KEY`;SDK 会自动为您添加 `Authorization: Bearer ...`。
+
+## 管理密钥
+
+请从 Fastino 控制面板的 **Settings** -> **API Keys** 创建新的 API 密钥。使用 API 密钥进行身份验证的请求可以列出和撤销密钥,但无法创建更多密钥。
+
+### 创建密钥
+
+`POST /v1/create-api-key` 供 Web 控制面板使用,需要浏览器会话。使用 `X-API-Key` 进行身份验证的调用会返回 `403 Forbidden`,并附带消息 `API key creation is only allowed from the web dashboard.`
+
+创建响应包含新的 `secret_key` 值。请立即复制它,该值不会再次显示。
+
+### 列出密钥
+
+```bash cURL
+curl https://api.fastino.ai/v1/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+返回与您账户关联的所有密钥,包括名称和创建日期。列表响应中不返回密钥值。
+
+### 撤销密钥
+
+```bash cURL
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"
+  }'
+```
+
+被撤销的密钥在下一个请求时会立即被拒绝。无法撤销此操作。
+
+### 在获得密钥前测试连通性
+
+要在集成期间验证您的网络能否访问 Fastino API,请使用占位符密钥发送请求。您会收到 `401` 响应,这表明该端点可达,并且您的请求已正确连接。
+
+```bash
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: fast_sk_test" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# Expected: {"detail":"Invalid API key format. API keys must start with 'fast_sk_'. Please check your X-API-Key header."}
+# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
+```
+
+## 错误响应
+
+| 状态码 | 含义 |
+| --- | --- |
+| `401 Unauthorized` | 密钥缺失、格式错误或已被撤销。请检查是否存在 `X-API-Key` 头,并确保其中包含有效的密钥。 |
+| `402 Payment Required` | 您的账户积分不足以完成请求。请前往 **Settings** → **Billing** 为余额充值。 |
+
+<Warning>
+  `402` 响应表示您的账户积分已用尽。请求将持续失败,直至您添加积分或升级套餐。请参阅 [Plans & Pricing](/cn/pricing) 了解可选方案。
+</Warning>
+
+## API 密钥管理参考
+
+Fastino API 的每个请求都需要在 `X-API-Key` 头中传入 API 密钥。请在 Fastino 控制面板中创建密钥,然后使用密钥管理端点以编程方式列出和撤销现有密钥。
+
+<Tip>
+  请将 API 密钥存储在环境变量中,而不是硬编码在源代码里。例如,在环境中设置 `FASTINO_API_KEY`,并在运行时读取它。切勿将 API 密钥提交到版本控制系统。
+</Tip>
+
+---
+
+## 创建 API 密钥
+
+`POST /v1/create-api-key`
+
+生成与您账户关联的新 API 密钥。此端点由 Fastino 控制面板使用,需要浏览器会话。使用现有 API 密钥进行身份验证的调用会被拒绝并返回 `403 Forbidden`,以防止凭证链式生成。
+
+**请求体**
+
+<ParamField body="name" type="string" required>
+  用于标识此密钥的描述性名称。请使用反映密钥用途或所属服务的名称,例如 `"ci-pipeline"` 或 `"production-inference"`。
+</ParamField>
+
+<Warning>
+  不要使用现有的 API 密钥创建另一个 API 密钥。此端点不接受 `X-API-Key` 身份验证;请从控制面板的 **Settings** -> **API Keys** 中创建密钥。
+</Warning>
+
+**响应**
+
+<ResponseField name="secret_key" type="string">
+  完整的 API 密钥值。这是唯一一次以明文返回该值,请立即复制并将其存储在安全的地方,例如密钥管理服务或环境变量中。
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  密钥的唯一标识符。撤销密钥时请使用此 ID。
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  您为密钥指定的名称。
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  密钥创建时间的 ISO 8601 时间戳。
+</ResponseField>
+
+<ResponseField name="api_key_last_digits" type="string">
+  生成密钥的末尾数字,用于显示和识别。
+</ResponseField>
+
+<ResponseField name="expires_at" type="string | null">
+  可选的 ISO 8601 过期时间戳,当密钥不会过期时为 `null`。
+</ResponseField>
+
+<ResponseField name="team_id" type="string">
+  密钥绑定的团队。
+</ResponseField>
+
+<ResponseField name="stripe_customer_created" type="boolean">
+  Fastino 是否在创建密钥时创建了 Stripe 客户记录。
+</ResponseField>
+
+<Warning>
+  完整的密钥值仅在创建时返回。如果丢失,您必须撤销该密钥并创建新的密钥。
+</Warning>
+
+---
+
+## 列出 API 密钥
+
+`GET /v1/list-api-keys`
+
+返回与您账户关联的所有 API 密钥。响应中的密钥值会被遮盖,仅返回名称和创建日期等元数据。
+
+```bash
+curl https://api.fastino.ai/v1/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**响应**
+
+<ResponseField name="keys" type="object[]">
+  API 密钥元数据对象数组。
+  <Expandable title="密钥属性">
+    <ResponseField name="id" type="string">
+      密钥的唯一标识符。撤销密钥时请使用此 ID。
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      分配给此密钥的名称。
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 创建时间戳。
+    </ResponseField>
+    <ResponseField name="api_key_last_digits" type="string">
+      密钥的末尾数字,用于显示和识别。
+    </ResponseField>
+    <ResponseField name="last_used_at" type="string | null">
+      使用此密钥最近一次请求的 ISO 8601 时间戳(如可用)。
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      过期时间戳,当密钥不会过期时为 `null`。
+    </ResponseField>
+    <ResponseField name="team_id" type="string | null">
+      密钥绑定的团队。
+    </ResponseField>
+    <ResponseField name="usage_tokens" type="number">
+      此密钥使用的总 token 数。
+    </ResponseField>
+    <ResponseField name="usage_cost" type="number">
+      归属于此密钥的总费用。
+    </ResponseField>
+    <ResponseField name="request_count" type="number">
+      使用此密钥发出的请求数量。
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  返回的密钥数量。
+</ResponseField>
+
+---
+
+## 撤销 API 密钥
+
+`DELETE /v1/delete-api-key`
+
+永久撤销 API 密钥。使用被撤销密钥的任何请求都将立即收到 `401 Unauthorized` 响应。
+
+**请求体**
+
+<ParamField body="key_id" type="string" required>
+  要撤销的密钥的唯一 ID,由 `GET /v1/list-api-keys` 返回。
+</ParamField>
+
+```bash
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "YOUR_KEY_ID"}'
+```
+
+<Warning>
+  撤销密钥是即时且不可逆的。为避免服务中断,请确保在撤销旧密钥之前,将所有使用该密钥的服务更新为使用替换密钥。
+</Warning>
+
+**响应**
+
+返回 `200 OK` 以及一个表示成功的 JSON 响应体。
+
+<ResponseField name="success" type="boolean">
+  密钥是否被撤销。
+</ResponseField>
+
+<ResponseField name="message" type="string | null">
+  人类可读的状态消息。
+</ResponseField>
+
+## 错误
+
+| 状态码 | 描述 |
+| --- | --- |
+| `401 Unauthorized` | 密钥缺失、无效或已被撤销。 |
+| `402 Payment Required` | 账户额度不足。 |
