@@ -4,114 +4,112 @@ sidebarTitle: "评估与训练"
 description: "使用代表性数据评估 GLiNER 2.5 Decide、选择多标签阈值，并针对特定领域微调模型。"
 ---
 
-在使用 GLiNER 2.5 Decide 的分类触发生产操作之前，请先使用应用中的已标注示例对其进行评估。
+评估应用将发送给 `fastino/GLiNER-2.5-Decide` 的确切 `classifications` schema。仅在两次评估运行之间更改标签或任务设置，以确保结果可比。
 
-## 了解阈值行为
+## 评估 Decide schema
 
-`cls_threshold` 仅适用于 `multi_label: true` 的任务：
+从一个固定任务开始：
 
 ```json
 {
-  "task": "topics",
+  "task": "support_tags",
   "labels": ["billing", "technical", "account", "security"],
   "multi_label": true,
   "cls_threshold": 0.5
 }
 ```
 
+使用相同的标签名称构建留出集，其中包括：
+
+- 每个标签的正例和反例
+- 应返回多个标签的输入
+- 没有任何标签应达到阈值的输入
+- 模糊文本和域外文本
+
+使用相同的 Decide 模型 ID 和 schema，通过 `POST /v1/chat/completions` 发送每个示例。在对任务结果评分之前，先解析 `choices[0].message.content` 中的 JSON 字符串。
+
+对于单标签 Decide 任务，衡量 top-1 准确率以及每个标签的混淆情况。对于多标签任务，衡量每个标签及整个任务的精确率、召回率和 F1。如果一个请求包含多个任务，请分别评估每个任务，因为 Decide 不会强制规定它们之间的关系。
+
+## 选择 `cls_threshold`
+
+`cls_threshold` 仅影响 `multi_label: true` 的任务。Decide 会返回达到阈值的标签，并省略其余标签：
+
 - 提高阈值会返回更少的标签，通常更偏向精确率。
 - 降低阈值会返回更多的标签，通常更偏向召回率。
-- 单标签任务始终返回得分最高的标签；`cls_threshold` 不会改变其选择。
-- `cls_threshold` 是推理设置，不影响训练。
+- 单标签任务始终返回得分最高的标签。
+- 阈值只影响推理，不会改变训练。
 
-## 构建评估集
+针对每个候选阈值重新运行留出集，因为响应仅包含在该阈值下被选中的标签。当假阳性和假阴性的成本不同时，请为每个任务选择一个阈值。
 
-使用能够代表生产流量的示例，包括：
+不要将 `0.5` 视为通用默认值。对于会触发重大操作的标签，应要求更严格的阈值，或将低置信度结果交由人工复核。
 
-- 每个标签的常见输入
-- 罕见但重要的标签
-- 接近类别边界的模糊输入
-- 应该获得多个标签的输入
-- 在所选阈值下不应获得任何多标签结果的输入
-- 应用可能遇到的域外或格式错误输入
+## 训练 GLiNER 2.5 Decide
 
-将评估数据与微调数据分开。
+只有在明确标签分类体系并调整多标签阈值之后，基础模型仍然无法正确处理你的领域时，才进行训练。
 
-## 衡量应用所需的行为
+当前的在线基础模型目录提供以下信息：
 
-对于单标签任务，请检查整体准确率和每个标签的错误。混淆矩阵有助于发现模型经常混淆的标签。
-
-对于多标签任务，请衡量整体和每个标签的精确率、召回率和 F1。还应检查：
-
-- 会触发错误操作的假阳性
-- 会跳过必要操作的假阴性
-- 每个输入选择的标签数量
-- 空选择的频率
-- 接近阈值的结果
-
-## 选择阈值
-
-1. 运行评估集，并保留每个选中的标签和置信度。
-2. 测试多个候选阈值。
-3. 比较精确率、召回率和业务影响。
-4. 当不同任务的错误成本不同时，为每个任务选择阈值。
-5. 更改标签、数据或模型后重新评估。
-
-不要假定 `0.5` 普遍适用。对于高影响操作，请使用保守的自动化阈值，并保留复核或后备路径。
-
-## 何时进行微调
-
-先从运行时定义的标签开始，并评估基础模型。当代表性评估表明更改 schema 和调整阈值仍无法达到你的领域所需质量时，再进行微调。
-
-## 1. 确认训练目标
-
-查询[基础模型目录](/cn/api-reference/training/base-models)，并确认所选分类模型支持你计划使用的训练类型。
-
-## 2. 准备分类数据
-
-每行存储一个 JSON 对象。单标签示例使用 `label`：
-
-```jsonl
-{"text":"The setup was straightforward.","label":"positive"}
-{"text":"The application crashes during sign in.","label":"negative"}
+```json
+{
+  "id": "fastino/GLiNER-2.5-Decide",
+  "supports_training": true,
+  "training_types": ["lora"]
+}
 ```
 
-多标签示例使用 `labels`：
+创建作业前，请检查 `GET /v1/base-models?supports_training=true`，因为目录中的可用模型可能会发生变化。使用 `fastino/GLiNER-2.5-Decide` 作为 `base_model`，使用 `lora` 作为 `training_type`。
+
+### 准备 Decide 分类数据
+
+使用公开的分类 JSONL 格式。每一行都包含 `text`，以及一个 `label` 或多个 `labels`：
 
 ```jsonl
-{"text":"The app crashes on login and I need help urgently.","labels":["technical_issue","login_problem","urgent"]}
+{"text":"I was charged twice for the same invoice.","label":"billing"}
+{"text":"I cannot sign in and suspect my account was compromised.","labels":["account","security"]}
 ```
 
-使用与你的推理 schema 分类体系一致的稳定标签名称。为每个标签加入代表性示例，并保留独立的评估集。
+数据集标签必须使用与 Decide 推理 schema 中相同的稳定字符串。不要在一个数据集中混用单标签和多标签行格式，并确保上传的训练数据不包含留出评估集。
 
-<Card title="准备并上传数据集" icon="database" href="/cn/concepts/datasets">
-  查看支持的分类格式、上传步骤、验证和数据集版本。
+<Card title="上传分类数据集" icon="database" href="/cn/concepts/datasets">
+  创建、上传、处理用于 Decide 训练作业的 JSONL 数据集，并对其进行版本管理。
 </Card>
 
-## 3. 启动并监控训练
+### 创建 Decide 训练作业
 
-使用准备好的数据集和可训练的分类基础模型创建训练作业。只选择该模型训练方案支持的训练参数。
+将准备好的数据集提交给 Decide 基础模型：
 
-<Card title="训练作业" icon="activity" href="/cn/training">
-  提交作业、监控其状态、检查指标和检查点，并获取生成的产物。
-</Card>
+```bash
+curl -X POST https://api.fastino.ai/v1/training-jobs \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "support-decide",
+    "base_model": "fastino/GLiNER-2.5-Decide",
+    "datasets": [{"name": "support-decide-training"}],
+    "training_type": "lora",
+    "validation_data_percentage": 0.2
+  }'
+```
 
-## 4. 评估训练结果
+除非有证据表明需要覆盖 Decide 训练方案，否则请省略学习率、批次大小和 LoRA 参数。保存返回的训练作业 ID，并轮询作业状态，直到产物可以部署。
 
-在同一个留出集上比较训练后的模型与基础模型：
+### 比较并部署
 
-- 单标签任务的整体准确率和每个标签的准确率
-- 多标签任务的精确率、召回率和 F1
-- 罕见和高影响标签上的错误
-- 生产阈值附近的行为
-- 延迟和运维要求
+使用相同的 `classifications` schema，在同一个留出集上运行基础模型和训练后的检查点。比较：
 
-不要只根据训练损失选择检查点。请评估应用实际要使用的分类行为。
+- 单标签任务中每个标签的错误
+- 多标签任务中每个标签的精确率、召回率和 F1
+- 空结果和标签选择过多的多标签结果
+- 每个任务所需的阈值
 
-## 5. 使用训练后的模型
+只有当检查点能够改善你所关注的应用级错误时，才进行部署。部署后，请重新进行阈值选择；即使预测标签保持不变，微调也可能改变 Decide 的置信度值。
 
-所选检查点可部署后，通过受支持的推理端点使用其模型标识符，并保持应用所需的相同分类 schema。由于微调后置信度行为可能发生变化，请重新验证阈值。
+<CardGroup cols={2}>
+  <Card title="训练作业" icon="activity" href="/cn/training">
+    监控 Decide 作业、检查点和可部署状态。
+  </Card>
 
-<Card title="训练 API 参考" icon="book" href="/cn/api-reference/training/overview">
-  查看准确的数据集、训练作业、检查点、部署和产物契约。
-</Card>
+  <Card title="训练 API 参考" icon="book" href="/cn/api-reference/training/overview">
+    查看准确的数据集和训练作业契约。
+  </Card>
+</CardGroup>
