@@ -1,39 +1,83 @@
 ---
-title: "POST /v1/gliner-2 — Fastino API"
+title: "Inferencia nativa de GLiNER-2"
 sidebarTitle: "POST /v1/gliner-2"
-description: "Esta página documenta `POST /v1/gliner-2`. La especificación OpenAPI es la fuente canónica para parámetros, respuestas y autenticación."
+description: "Ejecuta extracción y clasificación nativas y síncronas con GLiNER-2."
 api: "POST /v1/gliner-2"
 ---
 
 `POST /v1/gliner-2`
 
-El panel OpenAPI es la fuente de verdad para todos los campos de solicitud y
-respuesta. Usa el schema unificado de GLiNER y omite el campo obsoleto `task`.
+Ejecuta extracción y clasificación nativas y síncronas con GLiNER-2. El panel OpenAPI de esta
+página es la fuente de verdad para cada campo de solicitud y de respuesta.
 
-## Solicitud de extracción de entidades
+Usa `POST /v1/chat/completions` cuando necesites un modelo alojado con nombre, un modelo ajustado,
+persistencia de inferencias o el formato compatible con OpenAI. Este endpoint nativo selecciona
+por ti el modelo base GLiNER-2 de Fastino.
 
-```json
-{
-  "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"},
-      {"name": "product", "description": "named commercial product"},
-      {"name": "location", "description": "city, region, or place"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+## Esquema de la solicitud
+
+La solicitud requiere:
+
+- `text`: una cadena o un array de cadenas.
+- `schema`: el diccionario del esquema unificado de GLiNER. El array plano de etiquetas heredado está obsoleto.
+
+También acepta `threshold`, `include_confidence`, `include_spans` y `format_results`.
+Omite `task`: es una indicación heredada y obsoleta, y el esquema identifica la operación.
+
+## Ejemplo de extracción de entidades
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"},
+        {"name": "product", "description": "named commercial product"},
+        {"name": "location", "description": "city, region, or place"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
 
-`schema` también admite `classifications`, `structures` y `relations`. Consulta
-el schema completo y más ejemplos en
-[`POST /v1/chat/completions`](/es/api-reference/inference/chat-completions).
+## Ejemplo de clasificación
 
-## Respuesta correcta
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The replacement arrived quickly and works perfectly.",
+    "schema": {
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"],
+          "multi_label": false,
+          "top_k": 1
+        }
+      ]
+    }
+  }'
+```
+
+Cada clasificación clásica requiere al menos dos etiquetas. Para cada forma admitida de entidad,
+clasificación, estructura, relación, registro, atributo y clasificación con restricciones,
+usa la
+[referencia completa del esquema de GLiNER de `POST /v1/chat/completions`](/es/api-reference/inference/chat-completions).
+
+## Esquema de la respuesta
+
+Una respuesta correcta contiene:
+
+- `result`: el resultado de extracción o clasificación con la forma del esquema.
+- `token_usage`: el número de tokens de entrada procesados.
 
 ```json
 {
@@ -51,3 +95,6 @@ el schema completo y más ejemplos en
   "token_usage": 10
 }
 ```
+
+Cuando `text` es un array, `result` es un array en el mismo orden que la entrada. No envíes esa
+forma de lote a través de `POST /v1/chat/completions`; envía esas conversaciones por separado.

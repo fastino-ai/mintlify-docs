@@ -1,40 +1,83 @@
 ---
-title: "POST /v1/gliner-2 — Fastino API"
+title: "Native GLiNER-2-Inferenz"
 sidebarTitle: "POST /v1/gliner-2"
-description: "Diese Seite dokumentiert `POST /v1/gliner-2`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung."
+description: "Führen Sie synchrone native GLiNER-2-Extraktion und -Klassifikation aus."
 api: "POST /v1/gliner-2"
 ---
 
 `POST /v1/gliner-2`
 
-Diese Seite dokumentiert `POST /v1/gliner-2`. Das OpenAPI-Panel ist die
-verbindliche Quelle für alle Anfrage- und Antwortfelder. Verwenden Sie das
-vereinheitlichte GLiNER-Schema und lassen Sie das veraltete Feld `task` weg.
+Führen Sie synchrone native GLiNER-2-Extraktion und -Klassifikation aus. Das OpenAPI-Panel auf dieser
+Seite ist die verbindliche Quelle für alle Anfrage- und Antwortfelder.
 
-## Anfrage zur Entitätsextraktion
+Verwenden Sie `POST /v1/chat/completions`, wenn Sie ein benanntes gehostetes Modell, ein feinabgestimmtes Modell,
+die Persistierung von Inferenzen oder den OpenAI-kompatiblen Umschlag benötigen. Dieser native Endpunkt wählt
+das Fastino-GLiNER-2-Basismodell automatisch für Sie aus.
 
-```json
-{
-  "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"},
-      {"name": "product", "description": "named commercial product"},
-      {"name": "location", "description": "city, region, or place"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+## Anfrageschema
+
+Die Anfrage erfordert:
+
+- `text`: einen String oder ein Array von Strings.
+- `schema`: das vereinheitlichte GLiNER-Schema-Dictionary. Das bisherige flache Label-Array ist veraltet.
+
+Sie akzeptiert außerdem `threshold`, `include_confidence`, `include_spans` und `format_results`.
+Lassen Sie `task` weg; es ist ein veralteter Legacy-Hinweis, und das Schema bestimmt die Operation.
+
+## Beispiel für Entitätsextraktion
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"},
+        {"name": "product", "description": "named commercial product"},
+        {"name": "location", "description": "city, region, or place"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
 
-`schema` unterstützt auch `classifications`, `structures` und `relations`.
-Das vollständige Schema und weitere Beispiele finden Sie unter
-[`POST /v1/chat/completions`](/de/api-reference/inference/chat-completions).
+## Beispiel für Klassifikation
 
-## Erfolgreiche Antwort
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The replacement arrived quickly and works perfectly.",
+    "schema": {
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"],
+          "multi_label": false,
+          "top_k": 1
+        }
+      ]
+    }
+  }'
+```
+
+Jede klassische Klassifikation erfordert mindestens zwei Labels. Für alle unterstützten Formen von Entitäten,
+Klassifikationen, Strukturen, Relationen, Datensätzen, Attributen und eingeschränkten Klassifikationen
+verwenden Sie die vollständige
+[GLiNER-Schema-Referenz für `POST /v1/chat/completions`](/de/api-reference/inference/chat-completions).
+
+## Antwortschema
+
+Eine erfolgreiche Antwort enthält:
+
+- `result`: das am Schema ausgerichtete Extraktions- oder Klassifikationsergebnis.
+- `token_usage`: die Anzahl der verarbeiteten Eingabe-Token.
 
 ```json
 {
@@ -52,3 +95,6 @@ Das vollständige Schema und weitere Beispiele finden Sie unter
   "token_usage": 10
 }
 ```
+
+Wenn `text` ein Array ist, ist `result` ein Array in derselben Reihenfolge wie die Eingabe. Senden Sie diese
+Batch-Form nicht über `POST /v1/chat/completions`; übermitteln Sie diese Konversationen stattdessen einzeln.

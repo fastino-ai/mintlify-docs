@@ -1,35 +1,45 @@
 ---
-title: "POST /v1/gliner-2/async — Fastino API"
+title: "提交异步 GLiNER-2 作业"
 sidebarTitle: "POST /v1/gliner-2/async"
-description: "此页面记录 `POST /v1/gliner-2/async`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。"
+description: "提交超大型 GLiNER-2 输入以进行异步处理。"
 api: "POST /v1/gliner-2/async"
 ---
 
 `POST /v1/gliner-2/async`
 
-此页面记录 `POST /v1/gliner-2/async`。OpenAPI 面板是所有请求和 `202` 响应字段的事实来源。
-当输入超过一百万 token 或可能超过同步超时时间时使用此端点。
+提交超大型 GLiNER-2 输入以进行异步处理。当输入超过一百万 token，或处理时间可能超过同步
+请求超时时间时，请使用此端点。
+
+此页面上的 OpenAPI 面板是所有请求字段和 `202` 响应字段的事实来源。请求使用与
+[`POST /v1/gliner-2`](/cn/api-reference/inference/gliner-2) 相同的原生 GLiNER schema。
 
 ## 请求示例
 
-```json
-{
-  "text": "A very large document to process asynchronously...",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2/async" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "A very large document to process asynchronously...",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
 
-## 接受响应
+`text` 也可以是字符串数组。请省略已弃用的 `task` 字段；统一 schema 会确定提取、分类、
+结构或关系操作。
 
-以下示例缩短了 `message`；服务会返回包含具体作业 ID 的轮询路径。
+## 已接受响应
+
+该端点会立即返回 HTTP `202`。以下示例负载缩短了 `message`；服务会返回包含所返回作业 ID
+的具体轮询路径。
 
 ```json
 {
@@ -42,3 +52,4 @@ api: "POST /v1/gliner-2/async"
 
 保存 `job_id`，然后使用同一 API 密钥轮询
 [`GET /v1/gliner-2/jobs/{job_id}`](/cn/api-reference/inference/gliner-2-job-status)。
+作业的作用范围限定于已认证的用户。

@@ -1,39 +1,83 @@
 ---
-title: "POST /v1/gliner-2 — Fastino API"
+title: "Inférence GLiNER-2 native"
 sidebarTitle: "POST /v1/gliner-2"
-description: "Cette page documente `POST /v1/gliner-2`. La spécification OpenAPI est la source canonique pour les paramètres, les réponses et l'authentification."
+description: "Exécutez une extraction et une classification GLiNER-2 natives et synchrones."
 api: "POST /v1/gliner-2"
 ---
 
 `POST /v1/gliner-2`
 
-Le panneau OpenAPI est la source de vérité pour tous les champs de requête et
-de réponse. Utilisez le schéma GLiNER unifié et omettez le champ obsolète `task`.
+Exécutez une extraction et une classification GLiNER-2 natives et synchrones. Le panneau OpenAPI de cette
+page est la source de vérité pour chaque champ de requête et de réponse.
 
-## Requête d'extraction d'entités
+Utilisez `POST /v1/chat/completions` lorsque vous avez besoin d'un modèle hébergé nommé, d'un modèle fine-tuné,
+de la persistance des inférences ou de l'enveloppe compatible OpenAI. Cet endpoint natif sélectionne pour vous
+le modèle de base Fastino GLiNER-2.
 
-```json
-{
-  "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
-  "schema": {
-    "entities": [
-      {"name": "person", "description": "named individual"},
-      {"name": "organization", "description": "business or institution"},
-      {"name": "product", "description": "named commercial product"},
-      {"name": "location", "description": "city, region, or place"}
-    ]
-  },
-  "threshold": 0.5,
-  "include_confidence": true,
-  "include_spans": true
-}
+## Schéma de requête
+
+La requête exige :
+
+- `text` : une chaîne ou un tableau de chaînes.
+- `schema` : le dictionnaire de schéma GLiNER unifié. L'ancien tableau plat d'étiquettes est obsolète.
+
+Elle accepte également `threshold`, `include_confidence`, `include_spans` et `format_results`.
+Omettez `task` : il s'agit d'un ancien indice obsolète, et le schéma identifie l'opération.
+
+## Exemple d'extraction d'entités
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"},
+        {"name": "product", "description": "named commercial product"},
+        {"name": "location", "description": "city, region, or place"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
 ```
 
-`schema` prend aussi en charge `classifications`, `structures` et `relations`.
-Consultez le schéma complet et d'autres exemples sous
-[`POST /v1/chat/completions`](/fr/api-reference/inference/chat-completions).
+## Exemple de classification
 
-## Réponse réussie
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The replacement arrived quickly and works perfectly.",
+    "schema": {
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"],
+          "multi_label": false,
+          "top_k": 1
+        }
+      ]
+    }
+  }'
+```
+
+Chaque classification classique exige au moins deux étiquettes. Pour chaque forme prise en charge d'entité,
+de classification, de structure, de relation, d'enregistrement, d'attribut et de classification contrainte,
+consultez la
+[référence complète du schéma GLiNER de `POST /v1/chat/completions`](/fr/api-reference/inference/chat-completions).
+
+## Schéma de réponse
+
+Une réponse réussie contient :
+
+- `result` : le résultat d'extraction ou de classification, structuré selon le schéma.
+- `token_usage` : le nombre de tokens d'entrée traités.
 
 ```json
 {
@@ -51,3 +95,6 @@ Consultez le schéma complet et d'autres exemples sous
   "token_usage": 10
 }
 ```
+
+Lorsque `text` est un tableau, `result` est un tableau dans le même ordre que l'entrée. N'envoyez pas cette
+forme de lot via `POST /v1/chat/completions` ; soumettez plutôt ces conversations séparément.
