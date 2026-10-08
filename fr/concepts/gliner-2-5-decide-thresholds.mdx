@@ -1,0 +1,70 @@
+---
+title: "Ajuster et évaluer GLiNER 2.5 Decide"
+sidebarTitle: "Seuils et évaluation"
+description: "Sélectionnez les seuils multi-étiquettes et évaluez GLiNER 2.5 Decide sur des données de classification représentatives."
+---
+
+Évaluez GLiNER 2.5 Decide sur des exemples étiquetés issus de votre application avant d'utiliser ses classifications pour déclencher des actions en production.
+
+## Comprendre le comportement des seuils
+
+`cls_threshold` s'applique uniquement aux tâches avec `multi_label: true` :
+
+```json
+{
+  "task": "topics",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+- Augmentez le seuil pour renvoyer moins d'étiquettes et favoriser généralement la précision.
+- Diminuez le seuil pour renvoyer davantage d'étiquettes et favoriser généralement le rappel.
+- Les tâches mono-étiquette renvoient toujours l'étiquette ayant le score le plus élevé ; `cls_threshold` ne modifie pas leur sélection.
+- `cls_threshold` est un paramètre d'inférence. Il n'affecte pas l'entraînement.
+
+## Constituer un jeu d'évaluation
+
+Utilisez des exemples représentatifs du trafic de production, notamment :
+
+- Des entrées courantes pour chaque étiquette
+- Des étiquettes rares mais importantes
+- Des entrées ambiguës proches des frontières entre catégories
+- Des entrées qui doivent recevoir plusieurs étiquettes
+- Des entrées qui ne doivent produire aucun résultat multi-étiquette au seuil sélectionné
+- Des entrées hors domaine ou mal formées que votre application peut rencontrer
+
+Conservez les données d'évaluation séparément des données de fine-tuning.
+
+## Mesurer le comportement requis par votre application
+
+Pour les tâches mono-étiquette, examinez l'exactitude globale et les erreurs par étiquette. Une matrice de confusion aide à détecter les étiquettes que le modèle confond fréquemment.
+
+Pour les tâches multi-étiquettes, mesurez la précision, le rappel et le score F1 à la fois globalement et par étiquette. Examinez également :
+
+- Les faux positifs qui déclenchent des actions incorrectes
+- Les faux négatifs qui omettent des actions requises
+- Le nombre d'étiquettes sélectionnées par entrée
+- La fréquence des sélections vides
+- Les résultats proches de votre seuil
+
+## Sélectionner un seuil
+
+1. Exécutez le jeu d'évaluation et conservez chaque étiquette sélectionnée ainsi que son niveau de confiance.
+2. Testez plusieurs seuils candidats.
+3. Comparez la précision, le rappel et l'impact métier.
+4. Choisissez un seuil par tâche lorsque les coûts d'erreur diffèrent selon les tâches.
+5. Réexécutez l'évaluation après avoir modifié les étiquettes, les données ou le modèle.
+
+Ne supposez pas que `0.5` convient universellement. Pour les actions à fort impact, utilisez des seuils d'automatisation prudents et conservez une voie de revue ou de repli.
+
+## Benchmark publié
+
+Sur Fast Decisions, le benchmark Fastino de 17 jeux de données, GLiNER 2.5 Decide a obtenu le meilleur score moyen avec **60,1 %** et a dominé 9 jeux de données. Il a dépassé la reproduction JevK5 de classe 4B (**57,5 %**), SemIf (**56,4 %**) ainsi que les modèles encodeurs GLiFormer et Laya.
+
+Il s'agit d'un benchmark interne, et non de JevBench, et JevK5 n'est pas le modèle Jev de TypeSafe. Consultez [GLiNER2.5-Decide: An Open-Weight Model for Structured Decision Making](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model) pour la méthodologie et les résultats complets.
+
+<Card title="Affiner pour votre domaine" icon="sliders" href="/fr/concepts/gliner-2-5-decide-fine-tuning">
+  Préparez des données de classification et adaptez le modèle lorsque les modifications de schéma ne suffisent pas.
+</Card>

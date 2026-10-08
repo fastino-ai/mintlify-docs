@@ -1,0 +1,96 @@
+---
+title: "GLiNER 2.5 Decide 输出契约"
+sidebarTitle: "输出契约"
+description: "解析 GLiNER 2.5 Decide 响应，并使用单标签和多标签分类结果。"
+---
+
+GLiNER 2.5 Decide 返回标准的 Chat Completions 信封。分类结果本身以 JSON 形式序列化在 `choices[0].message.content` 中。
+
+## 解析结果
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+不要直接从 `choices[0]` 读取分类任务；请先解析 `message.content`。
+
+## 单标签任务
+
+对于 `multi_label: false`，每个任务返回一个对象：
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+- `label` 是该任务 `labels` 数组中提供的字符串之一。
+- `confidence` 是模型对所选标签的置信度，取值范围为 `0` 到 `1`。
+
+## 多标签任务
+
+对于 `multi_label: true`，每个任务返回由所选标签组成的数组：
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+只选择达到该任务 `cls_threshold` 的标签。更严格的阈值可能产生更短的数组，或不选择任何标签。
+
+## 多个任务
+
+解析后的对象使用请求中的 `task` 名称作为键：
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
+每个经典分类任务都会独立评估。
+
+## 响应信封
+
+| 字段 | 含义 |
+| --- | --- |
+| `model` | 用于推理的模型标识符 |
+| `choices[0].message.content` | 经过 JSON 编码的分类结果 |
+| `choices[0].finish_reason` | 完成状态，通常为 `stop` |
+| `usage.prompt_tokens` | 输入 token 数 |
+| `usage.completion_tokens` | 输出 token 数 |
+| `usage.total_tokens` | 总用量 |
+| `token_usage` | Fastino 报告的总 token 用量 |
+| `x_fastino.inference_id` | 启用存储时持久化的推理标识符 |
+| `x_fastino.default_schema_applied` | 是否使用模型目录中的默认 schema |
+
+没有返回额外的 Fastino 元数据时，`x_fastino` 可以为 `null`。
+
+<CardGroup cols={2}>
+  <Card title="调整阈值" icon="sliders" href="/cn/concepts/gliner-2-5-decide-thresholds">
+    选择阈值，并使用代表性数据评估质量。
+  </Card>
+
+  <Card title="API 参考" icon="book" href="/cn/api-reference/inference/chat-completions">
+    查看完整的 Chat Completions 响应 schema。
+  </Card>
+</CardGroup>

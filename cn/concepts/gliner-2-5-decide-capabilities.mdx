@@ -1,0 +1,52 @@
+---
+title: "GLiNER 2.5 Decide 功能与限制"
+sidebarTitle: "功能与限制"
+description: "了解 GLiNER 2.5 Decide 的语言、分类行为、schema 限制和不支持的模式。"
+---
+
+GLiNER 2.5 Decide 是一款针对 schema 定义分类进行了优化的紧凑型 3.4 亿参数英文模型。
+
+## 分类功能
+
+- 在请求时定义标签，无需为每次分类体系变化重新训练。
+- 当必须且只能有一个标签胜出时，运行单标签分类。
+- 当多个标签可能适用时，运行多标签分类。
+- 在一次前向传播中评估多个独立命名的分类任务。
+- 返回所选标签以及置信度。
+- 使用 `cls_threshold` 控制多标签任务中的选择。
+- 同时省略 `schema` 和 `response_format` 时，使用目录中默认的分类任务。
+
+常见工作负载包括意图、路由、情感、优先级、内容审核、标签、运营关卡和自定义文本分类体系。
+
+## 性能特征
+
+在已发布的短输入基准中，该检查点在 NVIDIA V100 上达到 **38.3 ms p50**，在 48-vCPU Intel Xeon 上达到 **167.3 ms**。基准设置和方法请参阅[模型文章](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model)。
+
+## Schema 限制
+
+- 每个任务至少需要两个标签。
+- `labels` 必须是字符串数组。
+- 不支持标签描述对象。
+- 分类任务只接受 `task`、`labels`、`multi_label`、`cls_threshold` 和 `top_k`。
+- `top_k` 可以传入，但目前不起作用。
+- `cls_threshold` 仅影响多标签选择。
+- 单标签任务始终返回得分最高的标签。
+
+## 决策限制
+
+- 经典分类标签是无序的。标签顺序不会创建有序量表。
+- 同一个请求中的任务彼此独立。
+- 经典分类不会在任务之间强制执行蕴含、排斥、基数关系或有序界限。
+- Decide 不生成解释、对话或开放式文本。
+
+当抽取、多语言覆盖、标签描述或任务间的受约束关系是主要需求时，请使用 [GLiNER 2.5 Multi](/cn/concepts/gliner)。当应用需要明确定义的有序评分标准时，请使用 [GLiDE Score](/cn/concepts/glide-score)。
+
+<CardGroup cols={2}>
+  <Card title="分类 schema" icon="brackets-curly" href="/cn/concepts/gliner-2-5-decide-schema">
+    查看支持的键以及可用的单标签、多标签和多任务结构。
+  </Card>
+
+  <Card title="阈值与评估" icon="chart-line" href="/cn/concepts/gliner-2-5-decide-thresholds">
+    调整选择行为，并使用代表性数据衡量质量。
+  </Card>
+</CardGroup>

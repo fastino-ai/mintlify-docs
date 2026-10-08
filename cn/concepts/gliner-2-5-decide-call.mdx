@@ -1,0 +1,108 @@
+---
+title: "调用 GLiNER 2.5 Decide"
+sidebarTitle: "调用 GLiNER 2.5 Decide"
+description: "完成身份验证，并使用 GLiNER 2.5 Decide 发送第一个由 schema 定义的分类请求。"
+---
+
+通过 Fastino 兼容 OpenAI 的 Chat Completions 端点调用 GLiNER 2.5 Decide。将待分类文本放入用户消息，并在 `classifications` schema 中定义允许的标签。
+
+```text
+POST https://api.fastino.ai/v1/chat/completions
+```
+
+## 设置你的 API 密钥
+
+在 [Fastino Settings](https://agent.fastino.ai/api-keys) 中创建密钥，然后将其提供给你的进程：
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## 发送分类请求
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiNER-2.5-Decide",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My subscription renewed after I cancelled it. Please refund the charge."
+      }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem"],
+          "multi_label": false
+        }
+      ]
+    },
+    "store": false
+  }'
+```
+
+每个分类任务至少需要两个标签。当 `multi_label: false` 时，Decide 返回得分最高的标签。
+
+## 读取响应
+
+成功的响应使用 Chat Completions 信封。分类结果是 `choices[0].message.content` 中的 JSON 字符串：
+
+```json
+{
+  "model": "fastino/GLiNER-2.5-Decide",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"intent\": {\"label\": \"refund_request\", \"confidence\": 0.999862551689148}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 13,
+    "completion_tokens": 22,
+    "total_tokens": 35
+  },
+  "token_usage": 35
+}
+```
+
+在读取任务结果之前，先解析消息内容：
+
+```python
+import json
+
+# `body` is the decoded JSON response body.
+result = json.loads(body["choices"][0]["message"]["content"])
+intent = result["intent"]["label"]
+confidence = result["intent"]["confidence"]
+```
+
+## 后续步骤
+
+<CardGroup cols={2}>
+  <Card title="分类 schema" icon="brackets-curly" href="/cn/concepts/gliner-2-5-decide-schema">
+    添加多标签行为、多个任务和分类阈值。
+  </Card>
+
+  <Card title="输出契约" icon="code" href="/cn/concepts/gliner-2-5-decide-output">
+    处理单标签和多标签结果结构以及响应元数据。
+  </Card>
+
+  <Card title="API 参考" icon="book" href="/cn/api-reference/inference/chat-completions">
+    查看完整的 `POST /v1/chat/completions` 契约。
+  </Card>
+</CardGroup>

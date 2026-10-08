@@ -1,0 +1,99 @@
+---
+title: "Klassifikationsschema von GLiNER 2.5 Decide"
+sidebarTitle: "Klassifikationsschema"
+description: "Passen Sie Klassifizierungsaufgaben, Labels, Multi-Label-Verhalten und Schwellenwerte von Decide an."
+---
+
+Fügen Sie ein `schema.classifications`-Array auf oberster Ebene hinzu, um eine oder mehrere Klassifizierungsaufgaben zu definieren. Jede Aufgabe akzeptiert genau diese Schlüssel:
+
+<ParamField body="task" type="string" required>
+  Ein stabiler Name für die Klassifizierungsaufgabe. Derselbe Name erscheint im geparsten Ergebnis.
+</ParamField>
+
+<ParamField body="labels" type="string[]" required>
+  Mindestens zwei zulässige Labels. Decide akzeptiert keine Objekte mit Label-Beschreibungen.
+</ParamField>
+
+<ParamField body="multi_label" type="boolean" default="false">
+  Bei `false` wird das einzelne Label mit dem höchsten Wert zurückgegeben. Bei `true` wird jedes Label zurückgegeben, das `cls_threshold` erreicht.
+</ParamField>
+
+<ParamField body="cls_threshold" type="number">
+  Ein Inferenzgrenzwert von `0` bis `1` für Multi-Label-Aufgaben. Er beeinflusst weder das Training noch die Single-Label-Auswahl.
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  Wird aus Kompatibilitätsgründen akzeptiert, hat aber derzeit keine Wirkung auf GLiNER 2.5 Decide.
+</ParamField>
+
+## Single-Label-Klassifizierung
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Single-Label-Aufgaben geben immer das Label mit dem höchsten Wert zurück. Labels sind ungeordnet; wenn Sie `low`, `medium` und `high` in dieser Reihenfolge aufführen, entsteht dadurch keine ordinale Skala.
+
+## Multi-Label-Klassifizierung
+
+```json
+{
+  "classifications": [
+    {
+      "task": "tags",
+      "labels": ["technical_issue", "login_problem", "urgent", "human_handoff"],
+      "multi_label": true,
+      "cls_threshold": 0.2
+    }
+  ]
+}
+```
+
+Multi-Label-Aufgaben geben ein Array mit jedem ausgewählten Label und seiner Konfidenz zurück. Erhöhen Sie `cls_threshold`, um Precision zu begünstigen; senken Sie den Wert, um Recall zu begünstigen.
+
+## Mehrere Aufgaben in einer Anfrage ausführen
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    },
+    {
+      "task": "urgency",
+      "labels": ["low", "normal", "high", "critical"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Aufgaben werden in einem Forward-Pass bewertet, bleiben jedoch unabhängig. Klassische Klassifizierung erzwingt keine Implikationen, Ausschlüsse, Kardinalitätsregeln oder ordinalen Beziehungen zwischen Aufgaben.
+
+## Standardschema
+
+Wenn Sie sowohl `schema` als auch `response_format` weglassen, verwendet Decide seine Katalog-Standardaufgabe `intent` mit `book`, `cancel`, `change` und `status`. Die Antwort meldet `x_fastino.default_schema_applied: true`, wenn dieser Standard verwendet wird.
+
+## Häufige Validierungsfehler
+
+| Ungültige Eingabe | Stattdessen verwenden |
+| --- | --- |
+| `"labels": {"book": "user wants to book"}` | `"labels": ["book", "cancel"]` |
+| Ein Schlüssel `label_descriptions` | Entfernen und Labels als Strings beibehalten |
+| Ein Schlüssel `description` für eine Aufgabe | Entfernen |
+| `"threshold": 0.5` in einer Aufgabe | `"cls_threshold": 0.5` mit `"multi_label": true` |
+| Weniger als zwei Labels | Mindestens zwei Labels angeben |
+
+<Card title="Ausgabe verstehen" icon="code" href="/de/concepts/gliner-2-5-decide-output">
+  Sehen Sie sich den Antwortumschlag und die unterschiedlichen Single-Label- und Multi-Label-Ergebnisformen an.
+</Card>

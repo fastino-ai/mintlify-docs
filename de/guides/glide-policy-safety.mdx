@@ -1,0 +1,81 @@
+---
+title: "Richtlinien- und Sicherheits-Gates mit GLiDE erstellen"
+sidebarTitle: "Richtlinien- und Sicherheits-Gates"
+description: "Bewerten Sie vorgeschlagene Aktionen anhand bereitgestellter Richtlinien und leiten Sie unsichere oder riskante Fälle zur Prüfung weiter."
+---
+
+Verwenden Sie GLiDE als begrenzte Entscheidungsschicht, bevor Software eine Aktion ausführt. Stellen Sie die vorgeschlagene Aktion, den relevanten Kontext und die Richtlinie gemeinsam als State bereit. Definieren Sie nur Ergebnisse, die Ihre Anwendung sicher verarbeiten kann.
+
+## Eine vorgeschlagene Aktion bewerten
+
+```python
+import os
+import requests
+
+state = {
+    "proposed_action": {
+        "tool": "send_email",
+        "recipient": "customer@example.com",
+        "content": "Your refund has been approved."
+    },
+    "context": {
+        "refund_status": "pending_manager_approval",
+        "customer_verified": True
+    },
+    "policy": {
+        "rule": "Do not communicate approval until manager approval is recorded."
+    }
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": state,
+        "questions": {
+            "action": {
+                "type": "choice",
+                "instructions": "What should happen to the proposed action under the supplied policy?",
+                "criteria": {
+                    "execute": "The action is clearly allowed and can proceed",
+                    "request_approval": "The action requires human approval before execution",
+                    "revise": "The action can proceed only after its content or parameters change",
+                    "block": "The action conflicts with policy and must not proceed"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["action"]
+```
+
+## Bei Unsicherheit sicher handeln
+
+```python
+if answer["choice"] == "execute" and answer["confidence"] >= 0.7:
+    execute_action()
+else:
+    require_review(answer)
+```
+
+Betrachten Sie den Beispielschwellenwert nur als Ausgangspunkt. Validieren Sie Schwellenwerte anhand repräsentativer Fälle und leiten Sie unsichere Ergebnisse standardmäßig an den sichereren Prüfpfad weiter.
+
+## Das Gate gestalten
+
+- Fügen Sie den genauen Richtlinientext und alle zur Anwendung benötigten Fakten ein.
+- Verwenden Sie ein Objekt als State, damit Aktionen, Kontext, Berechtigungen und Richtlinie eindeutig beschriftet bleiben.
+- Definieren Sie Ergebnisse, die direkt dem Anwendungsverhalten entsprechen.
+- Nehmen Sie Freigabe oder Prüfung als explizites Ergebnis auf.
+- Halten Sie die unumkehrbare Ausführung außerhalb des Modellaufrufs; der Anwendungscode setzt das Ergebnis durch.
+- Protokollieren Sie den bereitgestellten State, das ausgewählte Ergebnis, die Wahrscheinlichkeiten und die endgültige Anwendungsaktion gemäß Ihrer Richtlinie zur Datenverarbeitung.
+
+<Warning>
+  Verwenden Sie GLiDE als Entscheidungshilfe, nicht als alleinige Instanz für unumkehrbare oder weitreichende Entscheidungen zu Sicherheit, Rechtsansprüchen, Beschäftigung, Krediten, Gesundheitsversorgung oder Zugriffskontrolle. Validieren Sie anhand repräsentativer Daten und erhalten Sie einen qualifizierten menschlichen Prüfpfad.
+</Warning>
+
+<Card title="GLiDE aufrufen" icon="terminal" href="/de/inference/systemone">
+  Informieren Sie sich über den vollständigen Anfragevertrag, Grenzen, Konfidenzverhalten und Fehler.
+</Card>

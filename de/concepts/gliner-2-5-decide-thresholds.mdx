@@ -1,0 +1,70 @@
+---
+title: "GLiNER 2.5 Decide abstimmen und evaluieren"
+sidebarTitle: "Schwellenwerte und Evaluierung"
+description: "Wählen Sie Multi-Label-Schwellenwerte aus und evaluieren Sie GLiNER 2.5 Decide anhand repräsentativer Klassifizierungsdaten."
+---
+
+Evaluieren Sie GLiNER 2.5 Decide anhand beschrifteter Beispiele aus Ihrer Anwendung, bevor Sie mit seinen Klassifizierungen Produktionsaktionen auslösen.
+
+## Verhalten von Schwellenwerten verstehen
+
+`cls_threshold` gilt nur für Aufgaben mit `multi_label: true`:
+
+```json
+{
+  "task": "topics",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+- Erhöhen Sie den Schwellenwert, um weniger Labels zurückzugeben und im Allgemeinen Precision zu begünstigen.
+- Senken Sie den Schwellenwert, um mehr Labels zurückzugeben und im Allgemeinen Recall zu begünstigen.
+- Single-Label-Aufgaben geben immer das Label mit dem höchsten Wert zurück; `cls_threshold` ändert ihre Auswahl nicht.
+- `cls_threshold` ist eine Inferenzeinstellung. Sie wirkt sich nicht auf das Training aus.
+
+## Einen Evaluierungsdatensatz erstellen
+
+Verwenden Sie Beispiele, die den Produktionsverkehr repräsentieren, darunter:
+
+- Häufige Eingaben für jedes Label
+- Seltene, aber wichtige Labels
+- Mehrdeutige Eingaben nahe den Kategoriegrenzen
+- Eingaben, die mehrere Labels erhalten sollten
+- Eingaben, die beim ausgewählten Schwellenwert kein Multi-Label-Ergebnis erhalten sollten
+- Domänenfremde oder fehlerhafte Eingaben, auf die Ihre Anwendung stoßen kann
+
+Halten Sie Evaluierungsdaten von Fine-Tuning-Daten getrennt.
+
+## Das für Ihre Anwendung erforderliche Verhalten messen
+
+Prüfen Sie bei Single-Label-Aufgaben die Gesamtgenauigkeit und Fehler pro Label. Eine Konfusionsmatrix hilft, Labels aufzudecken, die das Modell häufig verwechselt.
+
+Messen Sie bei Multi-Label-Aufgaben Precision, Recall und F1 sowohl insgesamt als auch pro Label. Prüfen Sie außerdem:
+
+- Falsch-positive Ergebnisse, die fehlerhafte Aktionen auslösen
+- Falsch-negative Ergebnisse, durch die erforderliche Aktionen ausbleiben
+- Die Anzahl ausgewählter Labels pro Eingabe
+- Die Häufigkeit leerer Auswahlen
+- Ergebnisse nahe Ihrem Schwellenwert
+
+## Einen Schwellenwert auswählen
+
+1. Führen Sie den Evaluierungsdatensatz aus und bewahren Sie jedes ausgewählte Label und seine Konfidenz auf.
+2. Testen Sie mehrere mögliche Schwellenwerte.
+3. Vergleichen Sie Precision, Recall und geschäftliche Auswirkungen.
+4. Wählen Sie einen Schwellenwert pro Aufgabe, wenn Aufgaben unterschiedliche Fehlerkosten haben.
+5. Wiederholen Sie die Evaluierung, nachdem Sie Labels, Daten oder das Modell geändert haben.
+
+Gehen Sie nicht davon aus, dass `0.5` universell geeignet ist. Verwenden Sie für weitreichende Aktionen konservative Automatisierungsschwellenwerte und erhalten Sie einen Prüf- oder Fallback-Pfad.
+
+## Veröffentlichter Benchmark
+
+Im 17 Datensätze umfassenden Fast-Decisions-Benchmark von Fastino erzielte GLiNER 2.5 Decide mit **60,1 %** den höchsten Durchschnittswert und führte bei 9 Datensätzen. Es übertraf die JevK5-Reproduktion der 4B-Klasse (**57,5 %**) und SemIf (**56,4 %**) sowie die Encoder-Modelle GLiFormer und Laya.
+
+Dies ist ein interner Benchmark, nicht JevBench, und JevK5 ist nicht TypeSafes Jev. Lesen Sie [GLiNER2.5-Decide: An Open-Weight Model for Structured Decision Making](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model) für Methodik und vollständige Ergebnisse.
+
+<Card title="Für Ihre Domäne feinabstimmen" icon="sliders" href="/de/concepts/gliner-2-5-decide-fine-tuning">
+  Bereiten Sie Klassifizierungsdaten vor und passen Sie das Modell an, wenn Schemaänderungen allein nicht ausreichen.
+</Card>

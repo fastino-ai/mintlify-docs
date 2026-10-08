@@ -1,0 +1,96 @@
+---
+title: "Contrat de sortie de GLiNER 2.5 Decide"
+sidebarTitle: "Contrat de sortie"
+description: "Analysez les réponses de GLiNER 2.5 Decide et exploitez les résultats de classification mono-étiquette et multi-étiquettes."
+---
+
+GLiNER 2.5 Decide renvoie une enveloppe Chat Completions standard. Le résultat de la classification est lui-même sérialisé au format JSON dans `choices[0].message.content`.
+
+## Analyser le résultat
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+Ne lisez pas les tâches de classification directement dans `choices[0]` ; analysez d'abord `message.content`.
+
+## Tâche mono-étiquette
+
+Pour `multi_label: false`, chaque tâche renvoie un objet :
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+- `label` est l'une des chaînes fournies dans le tableau `labels` de cette tâche.
+- `confidence` est le niveau de confiance du modèle pour l'étiquette sélectionnée, compris entre `0` et `1`.
+
+## Tâche multi-étiquettes
+
+Pour `multi_label: true`, chaque tâche renvoie un tableau d'étiquettes sélectionnées :
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+Seules les étiquettes qui atteignent le `cls_threshold` de la tâche sont sélectionnées. Un seuil plus strict peut produire un tableau plus court ou ne sélectionner aucune étiquette.
+
+## Tâches multiples
+
+Les clés de l'objet analysé sont les noms `task` de la requête :
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
+Chaque tâche de classification classique est évaluée indépendamment.
+
+## Enveloppe de réponse
+
+| Champ | Signification |
+| --- | --- |
+| `model` | Identifiant du modèle utilisé pour l'inférence |
+| `choices[0].message.content` | Résultat de classification encodé en JSON |
+| `choices[0].finish_reason` | État d'achèvement, généralement `stop` |
+| `usage.prompt_tokens` | Nombre de tokens d'entrée |
+| `usage.completion_tokens` | Nombre de tokens de sortie |
+| `usage.total_tokens` | Utilisation totale |
+| `token_usage` | Utilisation totale des tokens signalée par Fastino |
+| `x_fastino.inference_id` | Identifiant d'inférence persisté lorsque le stockage est activé |
+| `x_fastino.default_schema_applied` | Indique si le schéma par défaut du catalogue du modèle a été utilisé |
+
+`x_fastino` peut valoir `null` lorsqu'aucune métadonnée Fastino supplémentaire n'est renvoyée.
+
+<CardGroup cols={2}>
+  <Card title="Ajuster les seuils" icon="sliders" href="/fr/concepts/gliner-2-5-decide-thresholds">
+    Sélectionnez les seuils et évaluez la qualité sur des données représentatives.
+  </Card>
+
+  <Card title="Référence de l'API" icon="book" href="/fr/api-reference/inference/chat-completions">
+    Consultez le schéma de réponse complet de Chat Completions.
+  </Card>
+</CardGroup>

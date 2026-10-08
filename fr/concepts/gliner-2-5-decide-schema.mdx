@@ -1,0 +1,99 @@
+---
+title: "Schéma de classification de GLiNER 2.5 Decide"
+sidebarTitle: "Schéma de classification"
+description: "Personnalisez les tâches de classification, les étiquettes, le comportement multi-étiquette et les seuils de Decide."
+---
+
+Ajoutez un tableau `schema.classifications` au premier niveau pour définir une ou plusieurs tâches de classification. Chaque tâche accepte exactement les clés suivantes :
+
+<ParamField body="task" type="string" required>
+  Un nom stable pour la tâche de classification. Le même nom apparaît dans le résultat analysé.
+</ParamField>
+
+<ParamField body="labels" type="string[]" required>
+  Au moins deux étiquettes autorisées. Decide n'accepte pas les objets associant étiquettes et descriptions.
+</ParamField>
+
+<ParamField body="multi_label" type="boolean" default="false">
+  Lorsque la valeur est `false`, renvoie l'unique étiquette ayant le score le plus élevé. Lorsqu'elle est `true`, renvoie chaque étiquette qui atteint `cls_threshold`.
+</ParamField>
+
+<ParamField body="cls_threshold" type="number">
+  Un seuil d'inférence compris entre `0` et `1` pour les tâches multi-étiquettes. Il n'affecte pas l'entraînement et ne modifie pas la sélection mono-étiquette.
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  Accepté à des fins de compatibilité, mais n'a actuellement aucun effet sur GLiNER 2.5 Decide.
+</ParamField>
+
+## Classification mono-étiquette
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Les tâches mono-étiquette renvoient toujours l'étiquette ayant le score le plus élevé. Les étiquettes ne sont pas ordonnées : répertorier `low`, `medium` et `high` dans cet ordre ne crée pas d'échelle ordinale.
+
+## Classification multi-étiquettes
+
+```json
+{
+  "classifications": [
+    {
+      "task": "tags",
+      "labels": ["technical_issue", "login_problem", "urgent", "human_handoff"],
+      "multi_label": true,
+      "cls_threshold": 0.2
+    }
+  ]
+}
+```
+
+Les tâches multi-étiquettes renvoient un tableau contenant chaque étiquette sélectionnée et son niveau de confiance. Augmentez `cls_threshold` pour favoriser la précision ; diminuez-le pour favoriser le rappel.
+
+## Exécuter plusieurs tâches dans une requête
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    },
+    {
+      "task": "urgency",
+      "labels": ["low", "normal", "high", "critical"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Les tâches sont évaluées en une seule passe avant, mais restent indépendantes. La classification classique n'impose pas d'implications, d'exclusions, de règles de cardinalité ni de relations ordinales entre les tâches.
+
+## Schéma par défaut
+
+Si vous omettez à la fois `schema` et `response_format`, Decide utilise sa tâche `intent` par défaut du catalogue avec `book`, `cancel`, `change` et `status`. La réponse indique `x_fastino.default_schema_applied: true` lorsque ce schéma par défaut est utilisé.
+
+## Erreurs de validation fréquentes
+
+| Entrée non valide | Utilisez plutôt |
+| --- | --- |
+| `"labels": {"book": "user wants to book"}` | `"labels": ["book", "cancel"]` |
+| Une clé `label_descriptions` | Supprimez-la et conservez les étiquettes sous forme de chaînes |
+| Une clé `description` sur une tâche | Supprimez-la |
+| `"threshold": 0.5` dans une tâche | `"cls_threshold": 0.5` avec `"multi_label": true` |
+| Moins de deux étiquettes | Fournissez au moins deux étiquettes |
+
+<Card title="Comprendre la sortie" icon="code" href="/fr/concepts/gliner-2-5-decide-output">
+  Consultez l'enveloppe de réponse et les différentes formes de résultats mono-étiquette et multi-étiquettes.
+</Card>

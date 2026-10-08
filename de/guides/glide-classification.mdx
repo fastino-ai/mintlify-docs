@@ -1,0 +1,78 @@
+---
+title: "Anfragen mit GLiDE klassifizieren"
+sidebarTitle: "Klassifizierung"
+description: "Klassifizieren Sie Anfragen mit GLiDE anhand binärer Noul-Fragen oder Choice-Fragen mit mehreren Kategorien."
+---
+
+Verwenden Sie GLiDE, wenn eine Anwendung den bereitgestellten State begrenzten Ergebnissen zuordnen und auf die zurückgegebenen Wahrscheinlichkeiten reagieren muss. Wählen Sie das Primitiv anhand der Klassifizierungsform:
+
+- Verwenden Sie [Noul](/de/concepts/glide-noul) für eine binäre Bedingung.
+- Verwenden Sie [Choice](/de/concepts/glide-choice), wenn genau eine Kategorie gewinnen soll.
+- Stellen Sie mehrere unabhängige Fragen, wenn Sie mehrere Urteile über denselben State benötigen.
+
+## In eine Kategorie klassifizieren
+
+Dieses Beispiel ordnet eine Support-Anfrage einer Problemkategorie zu:
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": "I was charged twice for the same monthly subscription.",
+        "questions": {
+            "issue_type": {
+                "type": "choice",
+                "instructions": "What is the primary issue in this request?",
+                "criteria": {
+                    "billing": "Charges, invoices, payments, or refunds",
+                    "technical": "Product errors, failures, or integration problems",
+                    "account": "Login, permissions, or account settings",
+                    "other": "Does not fit another category"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["issue_type"]
+```
+
+`answer["choice"]` ist einer der Kriterien-Schlüssel. `answer["probabilities"]` enthält die vollständige Verteilung, und `answer["confidence"]` ist der Abstand zwischen den beiden wahrscheinlichsten Kategorien.
+
+## Auf Konfidenz reagieren
+
+```python
+if answer["confidence"] >= 0.6:
+    category = answer["choice"]
+else:
+    category = "manual_review"
+```
+
+Passen Sie den Schwellenwert anhand beschrifteter Beispiele aus Ihrer Anwendung an. Fügen Sie eine explizite Option `other` oder eine Prüfoption hinzu, wenn die aufgeführten Kategorien nicht vollständig sind.
+
+## Binäre Klassifizierung
+
+Verwenden Sie für eine Ja/Nein-Bedingung Noul und legen Sie einen Schwellenwert für die zurückgegebene Wahrscheinlichkeit fest:
+
+```json
+{
+  "type": "noul",
+  "instructions": "Does this request qualify for a refund?",
+  "criteria": {
+    "true": "Qualifies under the supplied policy",
+    "false": "Does not qualify under the supplied policy"
+  }
+}
+```
+
+Eine Noul-Antwort gibt die Wahrscheinlichkeit für `true` zurück, kein boolesches Label. Verwenden Sie getrennte obere und untere Schwellenwerte, wenn mehrdeutige Fälle geprüft werden sollen.
+
+<Card title="GLiDE aufrufen" icon="terminal" href="/de/inference/systemone">
+  Informieren Sie sich über Authentifizierung, vollständige Antwortformen, mehrere Fragen, Grenzen und Fehler.
+</Card>

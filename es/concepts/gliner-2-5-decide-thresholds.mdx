@@ -1,0 +1,70 @@
+---
+title: "Ajusta y evalúa GLiNER 2.5 Decide"
+sidebarTitle: "Umbrales y evaluación"
+description: "Selecciona umbrales multietiqueta y evalúa GLiNER 2.5 Decide con datos de clasificación representativos."
+---
+
+Evalúa GLiNER 2.5 Decide con ejemplos etiquetados de tu aplicación antes de usar sus clasificaciones para activar acciones en producción.
+
+## Comprende el comportamiento del umbral
+
+`cls_threshold` solo se aplica a tareas con `multi_label: true`:
+
+```json
+{
+  "task": "topics",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+- Aumenta el umbral para devolver menos etiquetas y favorecer en general la precisión.
+- Reduce el umbral para devolver más etiquetas y favorecer en general la exhaustividad.
+- Las tareas de una sola etiqueta siempre devuelven la etiqueta con mayor puntuación; `cls_threshold` no cambia su selección.
+- `cls_threshold` es una opción de inferencia. No afecta al entrenamiento.
+
+## Crea un conjunto de evaluación
+
+Usa ejemplos que representen el tráfico de producción, incluidos:
+
+- Entradas frecuentes para cada etiqueta
+- Etiquetas poco frecuentes pero importantes
+- Entradas ambiguas cerca de los límites entre categorías
+- Entradas que deban recibir varias etiquetas
+- Entradas que no deban producir ningún resultado multietiqueta con el umbral seleccionado
+- Entradas fuera del dominio o mal formadas que pueda encontrar tu aplicación
+
+Mantén los datos de evaluación separados de los datos de ajuste fino.
+
+## Mide el comportamiento que necesita tu aplicación
+
+Para tareas de una sola etiqueta, revisa la exactitud general y los errores por etiqueta. Una matriz de confusión ayuda a detectar las etiquetas que el modelo intercambia con frecuencia.
+
+Para tareas multietiqueta, mide precisión, exhaustividad y F1 tanto en general como por etiqueta. Revisa también:
+
+- Falsos positivos que activan acciones incorrectas
+- Falsos negativos que omiten acciones necesarias
+- Número de etiquetas seleccionadas por entrada
+- Frecuencia de selecciones vacías
+- Resultados próximos al umbral
+
+## Selecciona un umbral
+
+1. Ejecuta el conjunto de evaluación y conserva cada etiqueta seleccionada y su confianza.
+2. Prueba varios umbrales candidatos.
+3. Compara precisión, exhaustividad e impacto empresarial.
+4. Elige un umbral por tarea cuando las tareas tengan costes de error diferentes.
+5. Repite la evaluación después de cambiar las etiquetas, los datos o el modelo.
+
+No asumas que `0.5` es adecuado en todos los casos. Para acciones de alto impacto, usa umbrales de automatización conservadores y conserva una ruta de revisión o alternativa.
+
+## Benchmark publicado
+
+En Fast Decisions, el benchmark de Fastino con 17 datasets, GLiNER 2.5 Decide obtuvo la mayor puntuación media con **60,1 %** y lideró 9 datasets. Superó a la reproducción JevK5 de clase 4B (**57,5 %**), SemIf (**56,4 %**) y los modelos codificadores GLiFormer y Laya.
+
+Este es un benchmark interno, no JevBench, y JevK5 no es el Jev de TypeSafe. Consulta [GLiNER2.5-Decide: An Open-Weight Model for Structured Decision Making](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model) para ver la metodología y los resultados completos.
+
+<Card title="Ajustar para tu dominio" icon="sliders" href="/es/concepts/gliner-2-5-decide-fine-tuning">
+  Prepara datos de clasificación y adapta el modelo cuando los cambios de esquema no sean suficientes.
+</Card>

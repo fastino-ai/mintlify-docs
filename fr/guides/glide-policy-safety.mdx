@@ -1,0 +1,81 @@
+---
+title: "Créer des garde-fous de politique et de sécurité avec GLiDE"
+sidebarTitle: "Politique et sécurité"
+description: "Évaluez des actions proposées au regard d'une politique fournie et envoyez les cas incertains ou à haut risque en revue."
+---
+
+Utilisez GLiDE comme couche de décision bornée avant qu'un logiciel exécute une action. Fournissez ensemble l'action proposée, le contexte pertinent et la politique dans le state ; ne définissez que des résultats que votre application peut traiter en toute sécurité.
+
+## Évaluer une action proposée
+
+```python
+import os
+import requests
+
+state = {
+    "proposed_action": {
+        "tool": "send_email",
+        "recipient": "customer@example.com",
+        "content": "Your refund has been approved."
+    },
+    "context": {
+        "refund_status": "pending_manager_approval",
+        "customer_verified": True
+    },
+    "policy": {
+        "rule": "Do not communicate approval until manager approval is recorded."
+    }
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": state,
+        "questions": {
+            "action": {
+                "type": "choice",
+                "instructions": "What should happen to the proposed action under the supplied policy?",
+                "criteria": {
+                    "execute": "The action is clearly allowed and can proceed",
+                    "request_approval": "The action requires human approval before execution",
+                    "revise": "The action can proceed only after its content or parameters change",
+                    "block": "The action conflicts with policy and must not proceed"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["action"]
+```
+
+## Échouer de façon sûre en cas d'incertitude
+
+```python
+if answer["choice"] == "execute" and answer["confidence"] >= 0.7:
+    execute_action()
+else:
+    require_review(answer)
+```
+
+Considérez le seuil de l'exemple uniquement comme un point de départ. Validez les seuils sur des cas représentatifs et envoyez par défaut les résultats incertains vers la voie de revue la plus sûre.
+
+## Concevoir le garde-fou
+
+- Incluez le texte exact de la politique et tous les faits nécessaires à son application.
+- Utilisez un objet pour le state afin que les actions, le contexte, les autorisations et la politique restent clairement identifiés.
+- Définissez des résultats qui correspondent directement au comportement de l'application.
+- Ajoutez l'approbation ou la revue comme résultat explicite.
+- Conservez l'exécution irréversible hors de l'appel au modèle ; le code de l'application applique le résultat.
+- Consignez le state fourni, le résultat sélectionné, les probabilités et l'action finale de l'application conformément à votre politique de traitement des données.
+
+<Warning>
+  Utilisez GLiDE comme aide à la décision, et non comme seule autorité pour les décisions irréversibles ou à fort impact concernant la sécurité, les droits juridiques, l'emploi, le crédit, la santé ou le contrôle d'accès. Validez sur des données représentatives et conservez une voie de revue par une personne qualifiée.
+</Warning>
+
+<Card title="Appeler GLiDE" icon="terminal" href="/fr/inference/systemone">
+  Consultez le contrat de requête complet, les limites, le comportement de la confiance et les erreurs.
+</Card>
