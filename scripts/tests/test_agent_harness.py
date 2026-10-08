@@ -65,6 +65,12 @@ class AgentHarnessTests(unittest.TestCase):
             ["Inference", "Training"],
         )
 
+    def test_openapi_config_uses_current_mintlify_api_shape(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text())
+
+        self.assertNotIn("openapi", config)
+        self.assertEqual(config["api"]["openapi"], "openapi.json")
+
     def test_visible_authentication_page_is_not_shadowed_by_redirect(self) -> None:
         config = {
             "navigation": {
