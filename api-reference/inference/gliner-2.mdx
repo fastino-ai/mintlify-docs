@@ -1,0 +1,100 @@
+---
+title: "Native GLiNER-2 inference"
+sidebarTitle: "POST /v1/gliner-2"
+description: "Run synchronous native GLiNER-2 extraction and classification."
+api: "POST /v1/gliner-2"
+---
+
+`POST /v1/gliner-2`
+
+Run synchronous native GLiNER-2 extraction and classification. The OpenAPI panel on this
+page is the source of truth for every request field and response field.
+
+Use `POST /v1/chat/completions` when you need a named hosted model, a fine-tuned model,
+inference persistence, or the OpenAI-compatible envelope. This native endpoint selects the
+Fastino GLiNER-2 base model for you.
+
+## Request schema
+
+The request requires:
+
+- `text`: one string or an array of strings.
+- `schema`: the unified GLiNER schema dictionary. The legacy flat label array is deprecated.
+
+It also accepts `threshold`, `include_confidence`, `include_spans`, and `format_results`.
+Omit `task`; it is a deprecated legacy hint and the schema identifies the operation.
+
+## Entity extraction example
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"},
+        {"name": "product", "description": "named commercial product"},
+        {"name": "location", "description": "city, region, or place"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
+```
+
+## Classification example
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The replacement arrived quickly and works perfectly.",
+    "schema": {
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"],
+          "multi_label": false,
+          "top_k": 1
+        }
+      ]
+    }
+  }'
+```
+
+Each classic classification requires at least two labels. For every supported entity,
+classification, structure, relation, record, attribute, and constrained-classification
+shape, use the complete
+[`POST /v1/chat/completions` GLiNER schema reference](/api-reference/inference/chat-completions).
+
+## Response schema
+
+A successful response contains:
+
+- `result`: the schema-shaped extraction or classification result.
+- `token_usage`: the number of input tokens processed.
+
+```json
+{
+  "result": {
+    "entities": [
+      {
+        "text": "Apple",
+        "label": "organization",
+        "score": 0.99,
+        "start": 0,
+        "end": 5
+      }
+    ]
+  },
+  "token_usage": 10
+}
+```
+
+When `text` is an array, `result` is an array in the same input order. Do not send that
+batch shape through `POST /v1/chat/completions`; submit those conversations separately.
