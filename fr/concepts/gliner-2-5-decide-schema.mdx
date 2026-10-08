@@ -1,7 +1,7 @@
 ---
-title: "Schéma de classification de GLiNER 2.5 Decide"
-sidebarTitle: "Schéma de classification"
-description: "Personnalisez les tâches de classification, les étiquettes, le comportement multi-étiquette et les seuils de Decide."
+title: "Classification GLiNER 2.5 Decide"
+sidebarTitle: "Classification"
+description: "Configurez les tâches de classification de Decide et analysez leurs résultats mono-étiquette, multi-étiquettes ou à tâches multiples."
 ---
 
 Ajoutez un tableau `schema.classifications` au premier niveau pour définir une ou plusieurs tâches de classification. Chaque tâche accepte exactement les clés suivantes :
@@ -26,6 +26,19 @@ Ajoutez un tableau `schema.classifications` au premier niveau pour définir une 
   Accepté à des fins de compatibilité, mais n'a actuellement aucun effet sur GLiNER 2.5 Decide.
 </ParamField>
 
+## Analyser le résultat
+
+Le résultat de classification est sérialisé au format JSON dans `choices[0].message.content`. Analysez cette chaîne avant de lire les tâches :
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+Ne lisez pas les tâches de classification directement dans `choices[0]`.
+
 ## Classification mono-étiquette
 
 ```json
@@ -41,6 +54,19 @@ Ajoutez un tableau `schema.classifications` au premier niveau pour définir une 
 ```
 
 Les tâches mono-étiquette renvoient toujours l'étiquette ayant le score le plus élevé. Les étiquettes ne sont pas ordonnées : répertorier `low`, `medium` et `high` dans cet ordre ne crée pas d'échelle ordinale.
+
+Le nom `task` devient la clé du résultat analysé :
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` est l'une des chaînes du tableau `labels`, et `confidence` est compris entre `0` et `1`.
 
 ## Classification multi-étiquettes
 
@@ -58,6 +84,19 @@ Les tâches mono-étiquette renvoient toujours l'étiquette ayant le score le pl
 ```
 
 Les tâches multi-étiquettes renvoient un tableau contenant chaque étiquette sélectionnée et son niveau de confiance. Augmentez `cls_threshold` pour favoriser la précision ; diminuez-le pour favoriser le rappel.
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+Seules les étiquettes qui atteignent `cls_threshold` sont sélectionnées. Un seuil plus strict peut produire un tableau plus court ou vide.
 
 ## Exécuter plusieurs tâches dans une requête
 
@@ -80,6 +119,21 @@ Les tâches multi-étiquettes renvoient un tableau contenant chaque étiquette s
 
 Les tâches sont évaluées en une seule passe avant, mais restent indépendantes. La classification classique n'impose pas d'implications, d'exclusions, de règles de cardinalité ni de relations ordinales entre les tâches.
 
+Le résultat analysé contient une clé par nom de tâche :
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
 ## Schéma par défaut
 
 Si vous omettez à la fois `schema` et `response_format`, Decide utilise sa tâche `intent` par défaut du catalogue avec `book`, `cancel`, `change` et `status`. La réponse indique `x_fastino.default_schema_applied: true` lorsque ce schéma par défaut est utilisé.
@@ -94,6 +148,12 @@ Si vous omettez à la fois `schema` et `response_format`, Decide utilise sa tâc
 | `"threshold": 0.5` dans une tâche | `"cls_threshold": 0.5` avec `"multi_label": true` |
 | Moins de deux étiquettes | Fournissez au moins deux étiquettes |
 
-<Card title="Comprendre la sortie" icon="code" href="/fr/concepts/gliner-2-5-decide-output">
-  Consultez l'enveloppe de réponse et les différentes formes de résultats mono-étiquette et multi-étiquettes.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Seuils" icon="sliders" href="/fr/concepts/gliner-2-5-decide-thresholds">
+    Ajustez les seuils et évaluez la qualité sur des données représentatives.
+  </Card>
+
+  <Card title="Référence de l'API" icon="book" href="/fr/api-reference/inference/chat-completions">
+    Consultez l'enveloppe et le schéma de réponse complets de Chat Completions.
+  </Card>
+</CardGroup>

@@ -1,10 +1,25 @@
 ---
-title: "Klassifikationsschema von GLiNER 2.5 Decide"
-sidebarTitle: "Klassifikationsschema"
-description: "Passen Sie Klassifizierungsaufgaben, Labels, Multi-Label-Verhalten und Schwellenwerte von Decide an."
+title: "GLiNER 2.5 Decide Klassifikation"
+sidebarTitle: "Klassifikation"
+description: "Definieren und parsen Sie Single-Label-, Multi-Label- und mehrere Klassifizierungsaufgaben mit GLiNER 2.5 Decide."
 ---
 
-Fügen Sie ein `schema.classifications`-Array auf oberster Ebene hinzu, um eine oder mehrere Klassifizierungsaufgaben zu definieren. Jede Aufgabe akzeptiert genau diese Schlüssel:
+Fügen Sie ein `schema.classifications`-Array auf oberster Ebene hinzu, um eine oder mehrere Klassifizierungsaufgaben zu definieren. Das Klassifizierungsergebnis wird als JSON in `choices[0].message.content` serialisiert.
+
+## Das Ergebnis parsen
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+Lesen Sie Klassifizierungsaufgaben nicht direkt aus `choices[0]`; parsen Sie zuerst `message.content`.
+
+## Klassifikationsfelder
+
+Jede Aufgabe akzeptiert genau diese Schlüssel:
 
 <ParamField body="task" type="string" required>
   Ein stabiler Name für die Klassifizierungsaufgabe. Derselbe Name erscheint im geparsten Ergebnis.
@@ -42,6 +57,19 @@ Fügen Sie ein `schema.classifications`-Array auf oberster Ebene hinzu, um eine 
 
 Single-Label-Aufgaben geben immer das Label mit dem höchsten Wert zurück. Labels sind ungeordnet; wenn Sie `low`, `medium` und `high` in dieser Reihenfolge aufführen, entsteht dadurch keine ordinale Skala.
 
+Das geparste Ergebnis enthält für die Aufgabe ein Objekt:
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` ist einer der Strings aus dem `labels`-Array der Aufgabe. `confidence` ist die Konfidenz des Modells für das ausgewählte Label und liegt zwischen `0` und `1`.
+
 ## Multi-Label-Klassifizierung
 
 ```json
@@ -57,7 +85,20 @@ Single-Label-Aufgaben geben immer das Label mit dem höchsten Wert zurück. Labe
 }
 ```
 
-Multi-Label-Aufgaben geben ein Array mit jedem ausgewählten Label und seiner Konfidenz zurück. Erhöhen Sie `cls_threshold`, um Precision zu begünstigen; senken Sie den Wert, um Recall zu begünstigen.
+Multi-Label-Aufgaben geben im geparsten Ergebnis ein Array mit jedem ausgewählten Label und seiner Konfidenz zurück:
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+Nur Labels, die `cls_threshold` der Aufgabe erreichen, werden ausgewählt. Erhöhen Sie den Schwellenwert, um Precision zu begünstigen; senken Sie ihn, um Recall zu begünstigen. Ein strengerer Schwellenwert kann zu einem kürzeren oder leeren Array führen.
 
 ## Mehrere Aufgaben in einer Anfrage ausführen
 
@@ -80,6 +121,21 @@ Multi-Label-Aufgaben geben ein Array mit jedem ausgewählten Label und seiner Ko
 
 Aufgaben werden in einem Forward-Pass bewertet, bleiben jedoch unabhängig. Klassische Klassifizierung erzwingt keine Implikationen, Ausschlüsse, Kardinalitätsregeln oder ordinalen Beziehungen zwischen Aufgaben.
 
+Das geparste Objekt verwendet die `task`-Namen als Schlüssel und behält für jede Aufgabe deren Single-Label- oder Multi-Label-Form bei:
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
 ## Standardschema
 
 Wenn Sie sowohl `schema` als auch `response_format` weglassen, verwendet Decide seine Katalog-Standardaufgabe `intent` mit `book`, `cancel`, `change` und `status`. Die Antwort meldet `x_fastino.default_schema_applied: true`, wenn dieser Standard verwendet wird.
@@ -94,6 +150,12 @@ Wenn Sie sowohl `schema` als auch `response_format` weglassen, verwendet Decide 
 | `"threshold": 0.5` in einer Aufgabe | `"cls_threshold": 0.5` mit `"multi_label": true` |
 | Weniger als zwei Labels | Mindestens zwei Labels angeben |
 
-<Card title="Ausgabe verstehen" icon="code" href="/de/concepts/gliner-2-5-decide-output">
-  Sehen Sie sich den Antwortumschlag und die unterschiedlichen Single-Label- und Multi-Label-Ergebnisformen an.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Schwellenwerte" icon="sliders" href="/de/concepts/gliner-2-5-decide-thresholds">
+    Wählen Sie Schwellenwerte aus und bewerten Sie die Qualität anhand repräsentativer Daten.
+  </Card>
+
+  <Card title="API-Referenz" icon="book" href="/de/api-reference/inference/chat-completions">
+    Sehen Sie sich das vollständige Chat-Completions-Anfrage- und Antwortschema an.
+  </Card>
+</CardGroup>

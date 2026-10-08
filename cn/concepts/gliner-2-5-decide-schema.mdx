@@ -1,7 +1,7 @@
 ---
-title: "GLiNER 2.5 Decide 分类 Schema"
-sidebarTitle: "分类 Schema"
-description: "自定义 Decide 分类任务、标签、多标签行为和阈值。"
+title: "GLiNER 2.5 Decide 分类"
+sidebarTitle: "分类"
+description: "定义 Decide 分类任务，并解析单标签、多标签和多任务结果。"
 ---
 
 添加顶层 `schema.classifications` 数组，以定义一个或多个分类任务。每个任务仅接受以下键：
@@ -26,6 +26,19 @@ description: "自定义 Decide 分类任务、标签、多标签行为和阈值�
   为兼容性而接受，但目前对 GLiNER 2.5 Decide 不起作用。
 </ParamField>
 
+## 解析结果
+
+GLiNER 2.5 Decide 返回标准的 Chat Completions 信封。分类结果本身以 JSON 形式序列化在 `choices[0].message.content` 中：
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+不要直接从 `choices[0]` 读取分类任务；请先解析 `message.content`。
+
 ## 单标签分类
 
 ```json
@@ -41,6 +54,19 @@ description: "自定义 Decide 分类任务、标签、多标签行为和阈值�
 ```
 
 单标签任务始终返回得分最高的标签。标签是无序的；按此顺序列出 `low`、`medium` 和 `high` 并不会创建有序量表。
+
+解析后的每个单标签任务都是一个对象：
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` 是该任务 `labels` 数组中的一个字符串，`confidence` 是模型对所选标签的置信度，取值范围为 `0` 到 `1`。
 
 ## 多标签分类
 
@@ -58,6 +84,19 @@ description: "自定义 Decide 分类任务、标签、多标签行为和阈值�
 ```
 
 多标签任务返回一个数组，其中包含每个选中的标签及其置信度。提高 `cls_threshold` 更偏向精确率；降低它更偏向召回率。
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+只选择达到该任务 `cls_threshold` 的标签。更严格的阈值可能产生更短的数组，或不选择任何标签。
 
 ## 在一个请求中运行多个任务
 
@@ -80,6 +119,21 @@ description: "自定义 Decide 分类任务、标签、多标签行为和阈值�
 
 任务会在一次前向传播中完成评分，但仍然彼此独立。经典分类不会在任务之间强制执行蕴含、排斥、基数规则或有序关系。
 
+解析后的对象使用请求中的 `task` 名称作为键，每个任务保持自己的单标签或多标签结果结构：
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
 ## 默认 schema
 
 如果同时省略 `schema` 和 `response_format`，Decide 会使用目录中默认的 `intent` 任务及 `book`、`cancel`、`change` 和 `status`。使用该默认值时，响应会报告 `x_fastino.default_schema_applied: true`。
@@ -94,6 +148,12 @@ description: "自定义 Decide 分类任务、标签、多标签行为和阈值�
 | 任务内的 `"threshold": 0.5` | `"cls_threshold": 0.5`，并设置 `"multi_label": true` |
 | 少于两个标签 | 至少提供两个标签 |
 
-<Card title="了解输出" icon="code" href="/cn/concepts/gliner-2-5-decide-output">
-  查看响应信封以及不同的单标签和多标签结果结构。
-</Card>
+<CardGroup cols={2}>
+  <Card title="阈值" icon="sliders" href="/cn/concepts/gliner-2-5-decide-thresholds">
+    选择阈值，并使用代表性数据评估质量。
+  </Card>
+
+  <Card title="API 参考" icon="book" href="/cn/api-reference/inference/chat-completions">
+    查看完整的 Chat Completions 请求和响应 schema。
+  </Card>
+</CardGroup>

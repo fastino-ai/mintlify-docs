@@ -1,7 +1,7 @@
 ---
-title: "GLiNER 2.5 Decide Classification Schema"
-sidebarTitle: "Classification Schema"
-description: "Customize Decide classification tasks, labels, multi-label behavior, and thresholds."
+title: "GLiNER 2.5 Decide Classification"
+sidebarTitle: "Classification"
+description: "Define Decide classification tasks and consume their single-label, multi-label, and multi-task results."
 ---
 
 Add a top-level `schema.classifications` array to define one or more classification tasks. Each task accepts exactly these keys:
@@ -26,6 +26,19 @@ Add a top-level `schema.classifications` array to define one or more classificat
   Accepted for compatibility, but currently has no effect on GLiNER 2.5 Decide.
 </ParamField>
 
+## Parse classification results
+
+GLiNER 2.5 Decide returns a standard Chat Completions envelope. The classification result is serialized as JSON inside `choices[0].message.content`:
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+Do not read classification tasks directly from `choices[0]`; parse `message.content` first.
+
 ## Single-label classification
 
 ```json
@@ -40,7 +53,20 @@ Add a top-level `schema.classifications` array to define one or more classificat
 }
 ```
 
-Single-label tasks always return the highest-scoring label. Labels are unordered; listing `low`, `medium`, and `high` in that order does not create an ordinal scale.
+Single-label tasks always return the highest-scoring label:
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` is one of the strings supplied in the task's `labels` array. `confidence` is the model's confidence for the selected label, from `0` to `1`.
+
+Labels are unordered; listing `low`, `medium`, and `high` in that order does not create an ordinal scale.
 
 ## Multi-label classification
 
@@ -57,7 +83,20 @@ Single-label tasks always return the highest-scoring label. Labels are unordered
 }
 ```
 
-Multi-label tasks return an array containing each selected label and its confidence. Increase `cls_threshold` to favor precision; decrease it to favor recall.
+Multi-label tasks return an array containing each selected label and its confidence:
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+Only labels meeting the task's `cls_threshold` are selected. Increase `cls_threshold` to favor precision; decrease it to favor recall. A stricter threshold can produce a shorter array or no selected labels.
 
 ## Run multiple tasks in one request
 
@@ -80,6 +119,21 @@ Multi-label tasks return an array containing each selected label and its confide
 
 Tasks are scored in one forward pass but remain independent. Classic classification does not enforce implications, exclusions, cardinality rules, or ordinal relationships between tasks.
 
+The parsed result is keyed by the `task` names:
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
 ## Default schema
 
 If you omit both `schema` and `response_format`, Decide uses its catalog-default `intent` task with `book`, `cancel`, `change`, and `status`. The response reports `x_fastino.default_schema_applied: true` when that default is used.
@@ -94,6 +148,12 @@ If you omit both `schema` and `response_format`, Decide uses its catalog-default
 | `"threshold": 0.5` inside a task | `"cls_threshold": 0.5` with `"multi_label": true` |
 | Fewer than two labels | Supply at least two labels |
 
-<Card title="Understand the output" icon="code" href="/concepts/gliner-2-5-decide-output">
-  See the response envelope and the different single-label and multi-label result shapes.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Tune thresholds" icon="sliders" href="/concepts/gliner-2-5-decide-thresholds">
+    Select thresholds and evaluate quality on representative data.
+  </Card>
+
+  <Card title="API reference" icon="book" href="/api-reference/inference/chat-completions">
+    Inspect the complete Chat Completions response schema.
+  </Card>
+</CardGroup>
