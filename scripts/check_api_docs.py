@@ -10,7 +10,7 @@ from pathlib import Path
 from generate_localized_llms import localized_index_findings
 
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
-INFERENCE_OPERATIONS = (
+INFERENCE_OPERATIONS = {
     ("POST", "/v1/chat/completions"),
     ("POST", "/v1/systemone"),
     ("POST", "/v1/gliner-2"),
@@ -23,7 +23,32 @@ INFERENCE_OPERATIONS = (
     ("GET", "/v1/inferences/{inference_id}"),
     ("GET", "/v1/inferences/{inference_id}/feedback"),
     ("POST", "/v1/inferences/{inference_id}/feedback"),
-)
+}
+TRAINING_OPERATIONS = {
+    ("GET", "/v1/base-models"),
+    ("GET", "/v1/datasets"),
+    ("POST", "/v1/datasets/upload/process"),
+    ("POST", "/v1/datasets/upload/url"),
+    ("DELETE", "/v1/datasets/{name}"),
+    ("GET", "/v1/datasets/{name}"),
+    ("GET", "/v1/training-jobs"),
+    ("POST", "/v1/training-jobs"),
+    ("DELETE", "/v1/training-jobs/{job_id}"),
+    ("GET", "/v1/training-jobs/{job_id}"),
+    ("PATCH", "/v1/training-jobs/{job_id}"),
+    ("GET", "/v1/training-jobs/{job_id}/billing"),
+    ("GET", "/v1/training-jobs/{job_id}/checkpoints"),
+    ("POST", "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy"),
+    ("GET", "/v1/training-jobs/{job_id}/deployments"),
+    ("GET", "/v1/training-jobs/{job_id}/download"),
+    ("GET", "/v1/training-jobs/{job_id}/logs"),
+    ("PATCH", "/v1/training-jobs/{job_id}/model-name"),
+    ("POST", "/v1/training-jobs/{job_id}/push-to-hub"),
+    ("POST", "/v1/training-jobs/{job_id}/stop"),
+    ("POST", "/v1/training-jobs/{job_id}/sync"),
+    ("POST", "/v1/training-jobs/{job_id}/terminate"),
+}
+EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",
@@ -39,6 +64,10 @@ ACTIVE_LEGACY_INFERENCE = (
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
 LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
+API_BINDING = re.compile(
+    r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
+    re.MULTILINE,
+)
 REQUIRED_AGENT_RESOURCES = {
     "https://docs.fastino.ai/.well-known/agent-skills/index.json",
     "https://docs.fastino.ai/llms-full.txt",
@@ -77,10 +106,12 @@ def _llms_findings(root: Path) -> list[str]:
         return ["docs.json has no English navigation"]
 
     visible_pages: set[str] = set()
-    groups = english.get("groups")
-    if isinstance(groups, list):
-        for group in groups:
-            visible_pages.update(_visible_navigation_pages(group))
+    divisions = english.get("tabs")
+    if not isinstance(divisions, list):
+        divisions = english.get("groups")
+    if isinstance(divisions, list):
+        for division in divisions:
+            visible_pages.update(_visible_navigation_pages(division))
 
     llms_text = (root / "llms.txt").read_text(encoding="utf-8")
     indexed_pages = set(LLMS_PAGE_URL.findall(llms_text))
@@ -94,6 +125,108 @@ def _llms_findings(root: Path) -> list[str]:
         if f"]({url})" not in llms_text
     )
     findings.extend(localized_index_findings(root))
+    return findings
+
+
+def _api_reference_findings(
+    root: Path,
+    destination: dict[str, object],
+) -> list[str]:
+    """Return OpenAPI binding and API-reference navigation findings."""
+    findings: list[str] = []
+    actual_operations = _operations(destination)
+    if actual_operations != EXPECTED_OPERATIONS:
+        missing = sorted(EXPECTED_OPERATIONS - actual_operations)
+        unexpected = sorted(actual_operations - EXPECTED_OPERATIONS)
+        findings.append(
+            "openapi.json operation inventory drifted: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+    bindings: dict[tuple[str, str], list[str]] = {}
+    for path in _documentation_files(root, include_locales=False):
+        match = API_BINDING.search(path.read_text(encoding="utf-8"))
+        if match is not None:
+            bindings.setdefault((match.group(1), match.group(2)), []).append(
+                path.relative_to(root).with_suffix("").as_posix()
+            )
+    for operation in sorted(actual_operations):
+        pages = bindings.get(operation, [])
+        if len(pages) != 1:
+            findings.append(
+                f"{operation[0]} {operation[1]} must have exactly one API binding, "
+                f"found {pages}"
+            )
+
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    languages = config.get("navigation", {}).get("languages", [])
+    english = next(
+        (
+            language
+            for language in languages
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    tabs = english.get("tabs") if isinstance(english, dict) else None
+    if not isinstance(tabs, list):
+        return [*findings, "English navigation has no tabs"]
+    reference = next(
+        (
+            tab
+            for tab in tabs
+            if isinstance(tab, dict) and tab.get("tab") == "API Reference"
+        ),
+        None,
+    )
+    groups = reference.get("pages") if isinstance(reference, dict) else None
+    if not isinstance(groups, list):
+        return [*findings, "English navigation has no API Reference tab"]
+    names = [
+        group.get("group")
+        for group in groups
+        if isinstance(group, dict) and group.get("hidden") is not True
+    ]
+    if names != ["Inference", "Training"]:
+        findings.append(
+            "API Reference must contain exactly Inference and Training groups, "
+            f"found {names}"
+        )
+    visible_reference_pages = _visible_navigation_pages(reference)
+    for operation, pages in sorted(bindings.items()):
+        if operation not in actual_operations:
+            continue
+        if pages[0] not in visible_reference_pages:
+            findings.append(
+                f"API binding is outside the API Reference tab: {pages[0]}"
+            )
+    return findings
+
+
+def _journey_order_findings(root: Path) -> list[str]:
+    """Require task guides to precede their operation contracts for agents."""
+    text = (root / "llms.txt").read_text(encoding="utf-8")
+    pairs = (
+        ("inference/systemone.md", "api-reference/inference/systemone.md"),
+        (
+            "inference/chat-completions.md",
+            "api-reference/inference/chat-completions.md",
+        ),
+        ("training.md", "api-reference/training-jobs/create.md"),
+        ("concepts/datasets.md", "api-reference/datasets/upload-url.md"),
+    )
+    findings: list[str] = []
+    for guide, contract in pairs:
+        guide_index = text.find(guide)
+        contract_index = text.find(contract)
+        if guide_index < 0 or contract_index < 0:
+            findings.append(
+                f"llms.txt must index both guide and contract: {guide}, {contract}"
+            )
+        elif guide_index > contract_index:
+            findings.append(
+                f"llms.txt must place the guide before its contract: {guide}"
+            )
     return findings
 
 
@@ -295,6 +428,8 @@ def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]
     """Return checks that need only this documentation repository."""
     findings = _llms_findings(root)
     findings.extend(_skill_findings(root))
+    findings.extend(_api_reference_findings(root, destination))
+    findings.extend(_journey_order_findings(root))
 
     serialized_destination = json.dumps(destination)
     for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):

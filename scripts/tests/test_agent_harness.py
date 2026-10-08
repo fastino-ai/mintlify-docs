@@ -13,6 +13,8 @@ from unittest import mock
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "agent_harness.py"
 sys.path.insert(0, str(MODULE_PATH.parent))
+import check_api_docs as CHECKS
+
 SPEC = importlib.util.spec_from_file_location("agent_harness", MODULE_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"cannot load {MODULE_PATH}")
@@ -37,7 +39,109 @@ class AgentHarnessTests(unittest.TestCase):
         document = HARNESS._load_openapi()
         operations = HARNESS._validate_openapi(document)
 
-        self.assertTrue(HARNESS.REQUIRED_OPERATIONS <= set(operations))
+        self.assertEqual(HARNESS.REQUIRED_OPERATIONS, set(operations))
+
+    def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:
+        document = HARNESS._load_openapi()
+
+        self.assertEqual(
+            CHECKS._api_reference_findings(HARNESS.ROOT, document),
+            [],
+        )
+
+    def test_api_reference_has_only_inference_and_training_groups(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text())
+        english = next(
+            language
+            for language in config["navigation"]["languages"]
+            if language["language"] == "en"
+        )
+        reference = next(
+            tab for tab in english["tabs"] if tab["tab"] == "API Reference"
+        )
+
+        self.assertEqual(
+            [group["group"] for group in reference["pages"]],
+            ["Inference", "Training"],
+        )
+
+    def test_openapi_config_uses_current_mintlify_api_shape(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text())
+
+        self.assertNotIn("openapi", config)
+        self.assertEqual(config["api"]["openapi"], "openapi.json")
+
+    def test_visible_authentication_page_is_not_shadowed_by_redirect(self) -> None:
+        config = {
+            "navigation": {
+                "languages": [
+                    {
+                        "language": "en",
+                        "hidden": True,
+                        "tabs": [{"tab": "Documentation", "pages": ["authentication"]}],
+                    }
+                ]
+            },
+            "redirects": [
+                {
+                    "source": "/authentication",
+                    "destination": "/quickstart",
+                }
+            ],
+        }
+
+        self.assertIn(
+            "REDIRECT: visible navigation page /authentication is a redirect source",
+            HARNESS._redirect_findings(config),
+        )
+
+    def test_localized_navigation_rejects_unprefixed_page(self) -> None:
+        config = {
+            "navigation": {
+                "languages": [
+                    {
+                        "language": "en",
+                        "hidden": True,
+                        "tabs": [{"tab": "Documentation", "pages": ["quickstart"]}],
+                    },
+                    {
+                        "language": "cn",
+                        "hidden": True,
+                        "tabs": [{"tab": "文档", "pages": ["quickstart"]}],
+                    },
+                ]
+            },
+            "redirects": [],
+        }
+
+        self.assertTrue(
+            any(
+                "cn navigation has unlocalized pages" in finding
+                for finding in HARNESS._locale_parity_findings(config, {})
+            )
+        )
+
+    def test_redirect_chains_are_rejected(self) -> None:
+        config = {
+            "navigation": {"languages": []},
+            "redirects": [
+                {"source": "/old", "destination": "/older"},
+                {"source": "/older", "destination": "/quickstart"},
+            ],
+        }
+
+        self.assertTrue(
+            any("chains through /older" in finding for finding in HARNESS._redirect_findings(config))
+        )
+
+    def test_locales_match_english_topology_bindings_and_links(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text())
+        operations = HARNESS._validate_openapi(HARNESS._load_openapi())
+
+        self.assertEqual(HARNESS._locale_parity_findings(config, operations), [])
+
+    def test_agent_index_orders_guides_before_contracts(self) -> None:
+        self.assertEqual(CHECKS._journey_order_findings(HARNESS.ROOT), [])
 
     def test_operation_matching_handles_path_parameters_and_queries(self) -> None:
         operations = {
