@@ -1,0 +1,99 @@
+---
+title: "GLiNER 2.5 Decide Classification Schema"
+sidebarTitle: "Classification Schema"
+description: "Customize Decide classification tasks, labels, multi-label behavior, and thresholds."
+---
+
+Add a top-level `schema.classifications` array to define one or more classification tasks. Each task accepts exactly these keys:
+
+<ParamField body="task" type="string" required>
+  A stable name for the classification task. The same name appears in the parsed result.
+</ParamField>
+
+<ParamField body="labels" type="string[]" required>
+  At least two permitted labels. Decide does not accept label-description objects.
+</ParamField>
+
+<ParamField body="multi_label" type="boolean" default="false">
+  When `false`, return the single highest-scoring label. When `true`, return every label that reaches `cls_threshold`.
+</ParamField>
+
+<ParamField body="cls_threshold" type="number">
+  An inference-time cutoff from `0` to `1` for multi-label tasks. It does not affect training and does not change single-label selection.
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  Accepted for compatibility, but currently has no effect on GLiNER 2.5 Decide.
+</ParamField>
+
+## Single-label classification
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Single-label tasks always return the highest-scoring label. Labels are unordered; listing `low`, `medium`, and `high` in that order does not create an ordinal scale.
+
+## Multi-label classification
+
+```json
+{
+  "classifications": [
+    {
+      "task": "tags",
+      "labels": ["technical_issue", "login_problem", "urgent", "human_handoff"],
+      "multi_label": true,
+      "cls_threshold": 0.2
+    }
+  ]
+}
+```
+
+Multi-label tasks return an array containing each selected label and its confidence. Increase `cls_threshold` to favor precision; decrease it to favor recall.
+
+## Run multiple tasks in one request
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    },
+    {
+      "task": "urgency",
+      "labels": ["low", "normal", "high", "critical"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Tasks are scored in one forward pass but remain independent. Classic classification does not enforce implications, exclusions, cardinality rules, or ordinal relationships between tasks.
+
+## Default schema
+
+If you omit both `schema` and `response_format`, Decide uses its catalog-default `intent` task with `book`, `cancel`, `change`, and `status`. The response reports `x_fastino.default_schema_applied: true` when that default is used.
+
+## Common validation mistakes
+
+| Invalid input | Use instead |
+| --- | --- |
+| `"labels": {"book": "user wants to book"}` | `"labels": ["book", "cancel"]` |
+| A `label_descriptions` key | Remove it and keep labels as strings |
+| A `description` key on a task | Remove it |
+| `"threshold": 0.5` inside a task | `"cls_threshold": 0.5` with `"multi_label": true` |
+| Fewer than two labels | Supply at least two labels |
+
+<Card title="Understand the output" icon="code" href="/concepts/gliner-2-5-decide-output">
+  See the response envelope and the different single-label and multi-label result shapes.
+</Card>
