@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 
+from generate_api_inventory import inventory_findings
 from generate_localized_llms import localized_index_findings
 
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
@@ -37,7 +38,13 @@ ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
 )
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
-METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
+METHOD_PATH = re.compile(
+    r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)，。、；：]+)"
+)
+API_BINDING = re.compile(
+    r"""^api:\s*["']?(GET|POST|PATCH|PUT|DELETE)\s+([^"'`\s]+)["']?\s*$""",
+    re.MULTILINE,
+)
 LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
 REQUIRED_AGENT_RESOURCES = {
     "https://docs.fastino.ai/.well-known/agent-skills/index.json",
@@ -45,6 +52,50 @@ REQUIRED_AGENT_RESOURCES = {
     "https://docs.fastino.ai/openapi.json",
 }
 RoutePatterns = dict[str, list[re.Pattern[str]]]
+
+
+def _api_bindings(root: Path, locale: str | None = None) -> dict[tuple[str, str], list[Path]]:
+    """Return OpenAPI operation bindings from page frontmatter for one locale."""
+    bindings: dict[tuple[str, str], list[Path]] = {}
+    for path in root.rglob("*.mdx"):
+        relative = path.relative_to(root)
+        first_part = relative.parts[0]
+        if locale is None and first_part in LOCALES:
+            continue
+        if locale is not None and first_part != locale:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            continue
+        parts = text.split("---", maxsplit=2)
+        if len(parts) != 3:
+            continue
+        match = API_BINDING.search(parts[1])
+        if match is None:
+            continue
+        operation = (match.group(1), match.group(2))
+        bindings.setdefault(operation, []).append(relative)
+    return bindings
+
+
+def _visible_pages_by_language(root: Path) -> dict[str, set[str]]:
+    """Return visible navigation page paths for every configured language."""
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    languages = config.get("navigation", {}).get("languages", [])
+    if not isinstance(languages, list):
+        return {}
+    result: dict[str, set[str]] = {}
+    for language in languages:
+        if not isinstance(language, dict) or not isinstance(language.get("language"), str):
+            continue
+        pages: set[str] = set()
+        for key in ("tabs", "groups"):
+            children = language.get(key)
+            if isinstance(children, list):
+                for child in children:
+                    pages.update(_visible_navigation_pages(child))
+        result[language["language"]] = pages
+    return result
 
 
 def _visible_navigation_pages(node: object) -> set[str]:
@@ -77,10 +128,11 @@ def _llms_findings(root: Path) -> list[str]:
         return ["docs.json has no English navigation"]
 
     visible_pages: set[str] = set()
-    groups = english.get("groups")
-    if isinstance(groups, list):
-        for group in groups:
-            visible_pages.update(_visible_navigation_pages(group))
+    for key in ("tabs", "groups"):
+        children = english.get(key)
+        if isinstance(children, list):
+            for child in children:
+                visible_pages.update(_visible_navigation_pages(child))
 
     llms_text = (root / "llms.txt").read_text(encoding="utf-8")
     indexed_pages = set(LLMS_PAGE_URL.findall(llms_text))
@@ -88,6 +140,15 @@ def _llms_findings(root: Path) -> list[str]:
         f"llms.txt is missing visible English page: {page}"
         for page in sorted(visible_pages - indexed_pages)
     ]
+    for page in sorted(visible_pages):
+        page_path = root / f"{page}.mdx"
+        if not page_path.is_file():
+            findings.append(f"docs.json references missing visible page: {page}")
+            continue
+        frontmatter = page_path.read_text(encoding="utf-8").split("---", maxsplit=2)
+        metadata = frontmatter[1] if len(frontmatter) == 3 else ""
+        if re.search(r"^(?:hidden|noindex):\s*true\s*$", metadata, re.MULTILINE):
+            findings.append(f"visible page blocks crawlers in frontmatter: {page}")
     findings.extend(
         f"llms.txt is missing agent resource: {url}"
         for url in sorted(REQUIRED_AGENT_RESOURCES)
@@ -226,8 +287,15 @@ def _is_migration_line(line: str) -> bool:
             "supprim",
             "elimin",
             "entfernt",
+            "heredad",
+            "ancien",
+            "retir",
+            "veraltet",
+            "ältere",
+            "eingestellt",
             "旧版",
             "移除",
+            "停用",
         )
     )
 
@@ -293,9 +361,11 @@ def _line_findings(
 
 def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]:
     """Return checks that need only this documentation repository."""
-    findings = _llms_findings(root)
+    findings = inventory_findings(root)
+    findings.extend(_llms_findings(root))
     findings.extend(_skill_findings(root))
 
+    actual_operations = _operations(destination)
     serialized_destination = json.dumps(destination)
     for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
         if retired_contract in serialized_destination:
@@ -303,8 +373,35 @@ def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]
                 f"openapi.json contains retired public contract text: {retired_contract}"
             )
 
+    visible_by_language = _visible_pages_by_language(root)
+    for locale in (None, *sorted(LOCALES)):
+        label = "en" if locale is None else locale
+        bindings = _api_bindings(root, locale)
+        actual_bindings = set(bindings)
+        for method, path in sorted(actual_operations - actual_bindings):
+            findings.append(f"{label} API reference is missing binding: {method} {path}")
+        for method, path in sorted(actual_bindings - actual_operations):
+            findings.append(f"{label} API reference binds unknown operation: {method} {path}")
+        for operation, pages in sorted(bindings.items()):
+            if len(pages) > 1:
+                findings.append(
+                    f"{label} API reference binds {operation[0]} {operation[1]} more than once: "
+                    + ", ".join(str(page) for page in pages)
+                )
+            for page in pages:
+                page_key = page.with_suffix("").as_posix()
+                if page_key not in visible_by_language.get(label, set()):
+                    findings.append(
+                        f"{label} API-bound page is absent from visible navigation: {page_key}"
+                    )
+
     docs = _documentation_files(root, include_locales=False)
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
+    for method, path in sorted(actual_operations):
+        if f"{method} {path}" not in corpus:
+            findings.append(
+                f"English docs do not inventory OpenAPI operation {method} {path}"
+            )
     for method, path in INFERENCE_OPERATIONS:
         visible_path = path.replace("{inference_id}", ":id")
         if path not in corpus and visible_path not in corpus:

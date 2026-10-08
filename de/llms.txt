@@ -3,7 +3,7 @@
 > Erstellen Sie strukturierte Entscheidungen mit GLiDE, führen Sie schema-basierte Extraktion mit GLiNER aus und optimieren Sie spezialisierte Modelle mit Fastino.
 
 > ## Anweisungen für Agenten
-> Verwenden Sie https://docs.fastino.ai/openapi.json als verbindliche Quelle für öffentliche Routen. Leiten Sie keine undokumentierten Routen ab. Lesen Sie API-Schlüssel aus `FASTINO_API_KEY` und betten Sie Anmeldedaten niemals in Code, Protokolle oder Berichte ein.
+> Verwenden Sie https://docs.fastino.ai/openapi.json als verbindliche Quelle für öffentliche Routen. GLiDE verwendet `POST /v1/systemone`; GLiNER und Decoder verwenden `POST /v1/chat/completions`; kompatible Schnittstellen verwenden `POST /v1/responses` oder `POST /v1/messages`. Senden Sie große GLiNER-2-Eingaben an `POST /v1/gliner-2/async` und fragen Sie anschließend `GET /v1/gliner-2/jobs/{job_id}` ab. Verwenden Sie `GET /v1/base-models?supports_inference=true` oder `GET /v1/base-models?supports_training=true` für aktuelle Fähigkeiten. Leiten Sie keine undokumentierten Routen ab. Lesen Sie API-Schlüssel aus `FASTINO_API_KEY` und betten Sie Anmeldedaten niemals in Code, Protokolle oder Berichte ein.
 
 ## Ressourcen für Agenten
 
@@ -34,25 +34,13 @@
 
 - [Inferenz-API: Fastino-Modelle ausführen](https://docs.fastino.ai/de/inference.md): Erfahren Sie, wie Sie Inferenz mit Fastino-Modellen über die GLiDE- und OpenAI-kompatiblen APIs ausführen.
 - [GLiNER-Inferenz mit /v1/chat/completions](https://docs.fastino.ai/de/inference/chat-completions.md): Verwenden Sie POST /v1/chat/completions für GLiNER-Extraktion, -Klassifikation, -Datensätze und -Relationen – nicht für GLiDE-Entscheidungen.
+- [Workflow für Inferenzverlauf und Feedback](https://docs.fastino.ai/de/guides/inference-history-feedback.md): Bewahren Sie Inferenz-IDs auf, prüfen Sie historische Ergebnisse und senden Sie Korrekturen, ohne den OpenAPI-Vertrag zu duplizieren.
 
 ## Trainings-API
 
 - [Trainingsjobs-API](https://docs.fastino.ai/de/training.md): Erstellen und verwalten Sie Fastino-Trainingsjobs von der Einreichung bis zur Auslieferung des Artefakts.
 - [Trainingsdatensätze vorbereiten und hochladen](https://docs.fastino.ai/de/concepts/datasets.md): Formatieren, hochladen, validieren und prüfen Sie NER-, Klassifizierungs- oder Decoder-Datensätze, bevor Sie einen Fastino-Trainingsjob starten.
 - [Training-Agent-Skill](https://docs.fastino.ai/de/concepts/gliner-agent-skill.md): Installiere Fastinos gehostetes GLiNER-Skill für Cursor, Claude Code und Codex.
-- [Trainingsjob erstellen](https://docs.fastino.ai/de/api-reference/training-jobs/create.md): Starten Sie mit POST /v1/training-jobs einen asynchronen Fastino-Fine-Tuning-Job aus Basismodell und Datensätzen, mit lora- oder full-Training.
-- [Trainingsjobs auflisten](https://docs.fastino.ai/de/api-reference/training-jobs/list.md): Listen Sie mit GET /v1/training-jobs Ihre Trainingsjobs auf, filtern Sie nach Job-Status oder Projekt-ID und paginieren Sie mit limit und offset.
-- [Trainingsjob abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/get.md): Rufen Sie Status, Konfiguration, Metriken und Artefaktbereitschaft eines Trainingsjobs ab.
-- [Projekt eines Trainingsjobs aktualisieren](https://docs.fastino.ai/de/api-reference/training-jobs/update-project.md): Weisen Sie mit PATCH /v1/training-jobs/{job_id} einen Trainingsjob einem Projekt zu oder senden Sie null zum Aufheben. Deployments und Inferenzen bleiben.
-- [Trainiertes Modell umbenennen](https://docs.fastino.ai/de/api-reference/training-jobs/update-model-name.md): Benennen Sie mit PATCH /v1/training-jobs/{job_id}/model-name ein trainiertes Modell um. Erlaubt sind 1–64 Buchstaben, Ziffern, Bindestriche und Unterstriche.
-- [Trainingslogs abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/logs.md): Rufen Sie einen Moment-Snapshot der Ausgabelogs eines Fastino-Trainingsjobs ab.
-- [Abrechnung eines Trainingsjobs abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/billing.md): Rufen Sie mit GET /v1/training-jobs/{job_id}/billing ab, ob ein Fastino-Trainingsjob abgerechnet wurde, samt Betrag in USD, GPU-Minuten und Zeitstempeln.
-- [Trainingsjob stoppen](https://docs.fastino.ai/de/api-reference/training-jobs/stop.md): Stoppen Sie einen laufenden Fastino-Trainingsjob und erhalten Sie vorhandene Checkpoints.
-- [Trainingsjob terminieren](https://docs.fastino.ai/de/api-reference/training-jobs/terminate.md): Beenden Sie mit POST /v1/training-jobs/{job_id}/terminate einen Trainingsjob und löschen Sie alle Checkpoints. Nutzen Sie stop, um Checkpoints zu behalten.
-- [Trainings-Checkpoints auflisten](https://docs.fastino.ai/de/api-reference/training-jobs/checkpoints.md): Listen Sie mit GET /v1/training-jobs/{job_id}/checkpoints die Checkpoints eines Trainingsjobs mit Epoch, Step, Loss, Genauigkeit und Deploybarkeit auf.
-- [Trainings-Checkpoint bereitstellen](https://docs.fastino.ai/de/api-reference/training-jobs/deploy-checkpoint.md): Stellen Sie einen deploybaren Checkpoint eines Fastino-Trainingsjobs auf dem gehosteten Multi-Model-Inferenzendpunkt bereit, per Checkpoint-ID.
-- [Trainierte Gewichte herunterladen](https://docs.fastino.ai/de/api-reference/training-jobs/download.md): Rufen Sie mit GET /v1/training-jobs/{job_id}/download eine temporäre vorsignierte URL für ein trainiertes Artefakt ab, mit Ablaufzeit und Dateinamen.
-- [Trainingsjob löschen](https://docs.fastino.ai/de/api-reference/training-jobs/delete.md): Löschen Sie mit DELETE /v1/training-jobs/{job_id} einen Trainingsjob samt Checkpoints und Artefakten dauerhaft. Aktive Jobs werden zuvor gestoppt.
 
 ## Modelle
 
@@ -60,12 +48,74 @@
 - [GLiNER2.5](https://docs.fastino.ai/de/concepts/gliner.md): Erfahren Sie, wann und wie Sie GLiNER2.5 Multi für mehrsprachige, schemagesteuerte Informationsextraktion einsetzen.
 - [Fastino-Modell-IDs, Spezifikationen und Preise](https://docs.fastino.ai/de/concepts/models.md): Fastino-Modell-IDs, Parameter, Kontextfenster und Inferenzpreise für die Modellfamilien GLiDE, GLiNER, GLiGuard und PII.
 
-## SDK-Integrationen
-
-- [OpenAI-kompatible Inferenz in der Fastino API](https://docs.fastino.ai/de/api-reference/inference/openai-compatible.md): Führen Sie strukturierte GLiNER-Extraktion und -Klassifikation über unterstützte OpenAI-SDK-Methoden aus.
-- [Anthropic-kompatibles POST /v1/messages in der Fastino API](https://docs.fastino.ai/de/api-reference/inference/anthropic-compatible.md): Führen Sie strukturierte GLiNER-Extraktion und -Klassifikation über die Messages API des Anthropic SDK aus.
-
 ## Konto
 
 - [Preise](https://docs.fastino.ai/de/pricing.md): Preise für GLiDE und GLiNER: Inferenztarife pro 1 Mio. Tokens, Trainingstarife pro Minute für GLiNER-Fine-Tuning und Guthaben-Aufladungen.
 - [Vertrauen & Sicherheit](https://docs.fastino.ai/de/trust-safety.md): Wie Fastino Ihre Daten schützt, seine Infrastruktur absichert und KI entwickelt, die Sie verantwortungsvoll einsetzen können.
+
+## API-Referenz
+
+- [API-Referenz](https://docs.fastino.ai/de/api-reference/overview.md): Richten Sie Ihr Konto ein und legen Sie in wenigen Minuten mit Fastino los. Erstellen Sie einen API-Schlüssel, durchsuchen Sie die verfügbaren Modelle und führen Sie Ihre erste Inferenz oder Ihren ersten Trainingsjob aus.
+- [Fastino API-Inventar](https://docs.fastino.ai/de/api-reference/inventory.md): Vollständiges Methoden- und Pfadinventar aus der Fastino-OpenAPI-Spezifikation.
+
+## Plattform
+
+- [Fastino-API-Authentifizierung mit API-Schlüsseln](https://docs.fastino.ai/de/api-reference/authentication.md): So erstellen Sie einen Fastino-API-Schlüssel, übergeben ihn im X-API-Key-Header und listen oder widerrufen Schlüssel programmatisch.
+- [Fastino-API-Schlüssel verwalten](https://docs.fastino.ai/de/api-reference/api-keys.md): Fastino-API-Schlüssel im Dashboard erstellen sowie aktive Schlüssel programmatisch auflisten und widerrufen. Der Secret Key erscheint nur bei der Erstellung.
+- [Fastino-API-Fehlercodes und Antwortformate](https://docs.fastino.ai/de/api-reference/errors.md): Alle 4xx- und 5xx-Statuscodes der Fastino API, das JSON-Antwortformat je Fehlerfamilie und Wege zur Behebung von Billing-, Rate-Limit- und Validierungsfehlern.
+- [Rate Limits und Ausgabenobergrenzen der Fastino API](https://docs.fastino.ai/de/api-reference/rate-limits.md): Anfrage-Rate-Limits pro Endpunkt, Edge-WAF-Kontingente, credit-basierte Nutzungslimits, Overage-Grenzen, 429-Handling und wie Sie höhere Limits anfordern.
+- [Prompt Caching bei der Inferenz](https://docs.fastino.ai/de/api-reference/prompt-caching.md): So funktioniert Prompt Caching in der Inferenz-API von Fastino - was für das Caching infrage kommt, wie gecachte Eingabe-Tokens abgerechnet werden und wo Sie Cache-Trefferquoten einsehen.
+
+## Entscheidungs-API
+
+- [POST /v1/systemone — Fastino API](https://docs.fastino.ai/de/api-reference/decision/systemone.md): Diese Seite dokumentiert `POST /v1/systemone`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+
+## Modelle-API
+
+- [GET /v1/base-models — Fastino API](https://docs.fastino.ai/de/api-reference/models/base-models.md): Diese Seite dokumentiert `GET /v1/base-models`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [GET /v1/models — Fastino API](https://docs.fastino.ai/de/api-reference/models/compatibility-models.md): Diese Seite dokumentiert `GET /v1/models`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+
+## Inferenz-API
+
+- [POST /v1/chat/completions — Fastino API](https://docs.fastino.ai/de/api-reference/inference/chat-completions.md): Diese Seite dokumentiert `POST /v1/chat/completions`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/responses — Fastino API](https://docs.fastino.ai/de/api-reference/inference/responses.md): Diese Seite dokumentiert `POST /v1/responses`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/messages — Fastino API](https://docs.fastino.ai/de/api-reference/inference/messages.md): Diese Seite dokumentiert `POST /v1/messages`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [GET /v1/inferences — Fastino API](https://docs.fastino.ai/de/api-reference/inference/history/list.md): Diese Seite dokumentiert `GET /v1/inferences`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [GET /v1/inferences/{inference_id} — Fastino API](https://docs.fastino.ai/de/api-reference/inference/history/get.md): Diese Seite dokumentiert `GET /v1/inferences/{inference_id}`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/inferences/{inference_id}/feedback — Fastino API](https://docs.fastino.ai/de/api-reference/inference/history/submit-feedback.md): Diese Seite dokumentiert `POST /v1/inferences/{inference_id}/feedback`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [GET /v1/inferences/{inference_id}/feedback — Fastino API](https://docs.fastino.ai/de/api-reference/inference/history/get-feedback.md): Diese Seite dokumentiert `GET /v1/inferences/{inference_id}/feedback`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/gliner-2 — Fastino API](https://docs.fastino.ai/de/api-reference/inference/gliner-2.md): Diese Seite dokumentiert `POST /v1/gliner-2`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/gliner-2/async — Fastino API](https://docs.fastino.ai/de/api-reference/inference/gliner-2-async.md): Diese Seite dokumentiert `POST /v1/gliner-2/async`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [GET /v1/gliner-2/jobs/{job_id} — Fastino API](https://docs.fastino.ai/de/api-reference/inference/gliner-2-job-status.md): Diese Seite dokumentiert `GET /v1/gliner-2/jobs/{job_id}`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+
+## Datasets API
+
+- [GET /v1/datasets — Fastino API](https://docs.fastino.ai/de/api-reference/datasets/list.md): Diese Seite dokumentiert `GET /v1/datasets`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/datasets/upload/url — Fastino API](https://docs.fastino.ai/de/api-reference/datasets/upload-url.md): Diese Seite dokumentiert `POST /v1/datasets/upload/url`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/datasets/upload/process — Fastino API](https://docs.fastino.ai/de/api-reference/datasets/process-upload.md): Diese Seite dokumentiert `POST /v1/datasets/upload/process`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [GET /v1/datasets/{name} — Fastino API](https://docs.fastino.ai/de/api-reference/datasets/versions.md): Diese Seite dokumentiert `GET /v1/datasets/{name}`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [DELETE /v1/datasets/{name} — Fastino API](https://docs.fastino.ai/de/api-reference/datasets/delete.md): Diese Seite dokumentiert `DELETE /v1/datasets/{name}`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+
+## Trainingsjobs-API
+
+- [Trainingsjob erstellen](https://docs.fastino.ai/de/api-reference/training-jobs/create.md): Starten Sie mit POST /v1/training-jobs einen asynchronen Fastino-Fine-Tuning-Job aus Basismodell und Datensätzen, mit lora- oder full-Training.
+- [Trainingsjobs auflisten](https://docs.fastino.ai/de/api-reference/training-jobs/list.md): Listen Sie mit GET /v1/training-jobs Ihre Trainingsjobs auf, filtern Sie nach Job-Status oder Projekt-ID und paginieren Sie mit limit und offset.
+- [Trainingsjob abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/get.md): Rufen Sie Status, Konfiguration, Metriken und Artefaktbereitschaft eines Trainingsjobs ab.
+- [Projekt eines Trainingsjobs aktualisieren](https://docs.fastino.ai/de/api-reference/training-jobs/update-project.md): Weisen Sie mit PATCH /v1/training-jobs/{job_id} einen Trainingsjob einem Projekt zu oder senden Sie null zum Aufheben. Deployments und Inferenzen bleiben.
+- [Trainiertes Modell umbenennen](https://docs.fastino.ai/de/api-reference/training-jobs/update-model-name.md): Benennen Sie mit PATCH /v1/training-jobs/{job_id}/model-name ein trainiertes Modell um. Erlaubt sind 1–64 Buchstaben, Ziffern, Bindestriche und Unterstriche.
+- [Trainingslogs abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/logs.md): Rufen Sie einen Moment-Snapshot der Ausgabelogs eines Fastino-Trainingsjobs ab.
+- [Abrechnung eines Trainingsjobs abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/billing.md): Rufen Sie mit GET /v1/training-jobs/{job_id}/billing ab, ob ein Fastino-Trainingsjob abgerechnet wurde, samt Betrag in USD, GPU-Minuten und Zeitstempeln.
+- [GET /v1/training-jobs/{job_id}/deployments — Fastino API](https://docs.fastino.ai/de/api-reference/training-jobs/deployments.md): Diese Seite dokumentiert `GET /v1/training-jobs/{job_id}/deployments`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [Trainingsjob stoppen](https://docs.fastino.ai/de/api-reference/training-jobs/stop.md): Stoppen Sie einen laufenden Fastino-Trainingsjob und erhalten Sie vorhandene Checkpoints.
+- [Trainingsjob terminieren](https://docs.fastino.ai/de/api-reference/training-jobs/terminate.md): Beenden Sie mit POST /v1/training-jobs/{job_id}/terminate einen Trainingsjob und löschen Sie alle Checkpoints. Nutzen Sie stop, um Checkpoints zu behalten.
+- [POST /v1/training-jobs/{job_id}/sync — Fastino API](https://docs.fastino.ai/de/api-reference/training-jobs/sync.md): Diese Seite dokumentiert `POST /v1/training-jobs/{job_id}/sync`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [POST /v1/training-jobs/{job_id}/push-to-hub — Fastino API](https://docs.fastino.ai/de/api-reference/training-jobs/push-to-hub.md): Diese Seite dokumentiert `POST /v1/training-jobs/{job_id}/push-to-hub`. Die OpenAPI-Spezifikation ist die verbindliche Quelle für Parameter, Antworten und Authentifizierung.
+- [Trainings-Checkpoints auflisten](https://docs.fastino.ai/de/api-reference/training-jobs/checkpoints.md): Listen Sie mit GET /v1/training-jobs/{job_id}/checkpoints die Checkpoints eines Trainingsjobs mit Epoch, Step, Loss, Genauigkeit und Deploybarkeit auf.
+- [Trainings-Checkpoint bereitstellen](https://docs.fastino.ai/de/api-reference/training-jobs/deploy-checkpoint.md): Stellen Sie einen deploybaren Checkpoint eines Fastino-Trainingsjobs auf dem gehosteten Multi-Model-Inferenzendpunkt bereit, per Checkpoint-ID.
+- [Trainierte Gewichte herunterladen](https://docs.fastino.ai/de/api-reference/training-jobs/download.md): Rufen Sie mit GET /v1/training-jobs/{job_id}/download eine temporäre vorsignierte URL für ein trainiertes Artefakt ab, mit Ablaufzeit und Dateinamen.
+- [Trainingsjob löschen](https://docs.fastino.ai/de/api-reference/training-jobs/delete.md): Löschen Sie mit DELETE /v1/training-jobs/{job_id} einen Trainingsjob samt Checkpoints und Artefakten dauerhaft. Aktive Jobs werden zuvor gestoppt.
+
+## SDK-Integrationen
+
+- [OpenAI-kompatible Inferenz in der Fastino API](https://docs.fastino.ai/de/api-reference/inference/openai-compatible.md): Führen Sie strukturierte GLiNER-Extraktion und -Klassifikation über unterstützte OpenAI-SDK-Methoden aus.
+- [Anthropic-kompatibles POST /v1/messages in der Fastino API](https://docs.fastino.ai/de/api-reference/inference/anthropic-compatible.md): Führen Sie strukturierte GLiNER-Extraktion und -Klassifikation über die Messages API des Anthropic SDK aus.

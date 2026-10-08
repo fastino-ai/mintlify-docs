@@ -37,6 +37,12 @@ LOCALE_COPY = {
         instructions_heading="代理说明",
         instructions=(
             f"使用 {BASE_URL}/openapi.json 作为面向客户的 API 路由的事实来源。"
+            "GLiDE 使用 `POST /v1/systemone`；GLiNER 和解码器推理使用 "
+            "`POST /v1/chat/completions`；兼容接口使用 `POST /v1/responses` 或 "
+            "`POST /v1/messages`。大型 GLiNER-2 输入使用 `POST /v1/gliner-2/async`，"
+            "然后轮询 `GET /v1/gliner-2/jobs/{job_id}`。使用 "
+            "`GET /v1/base-models?supports_inference=true` 或 "
+            "`GET /v1/base-models?supports_training=true` 查询实时能力。"
             "不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，"
             "切勿在代码、日志或报告中嵌入凭据。"
         ),
@@ -57,6 +63,13 @@ LOCALE_COPY = {
         instructions_heading="Instrucciones para agentes",
         instructions=(
             f"Usa {BASE_URL}/openapi.json como fuente de verdad para las rutas públicas. "
+            "GLiDE usa `POST /v1/systemone`; GLiNER y los decodificadores usan "
+            "`POST /v1/chat/completions`; las interfaces compatibles usan "
+            "`POST /v1/responses` o `POST /v1/messages`. Para entradas GLiNER-2 grandes, "
+            "envía `POST /v1/gliner-2/async` y consulta "
+            "`GET /v1/gliner-2/jobs/{job_id}`. Usa "
+            "`GET /v1/base-models?supports_inference=true` o "
+            "`GET /v1/base-models?supports_training=true` para capacidades actuales. "
             "No deduzcas rutas no documentadas. Lee las claves de API desde `FASTINO_API_KEY` "
             "y nunca incluyas credenciales en código, registros o informes."
         ),
@@ -81,6 +94,13 @@ LOCALE_COPY = {
         instructions_heading="Instructions pour les agents",
         instructions=(
             f"Utilisez {BASE_URL}/openapi.json comme source de vérité pour les routes publiques. "
+            "GLiDE utilise `POST /v1/systemone` ; GLiNER et les décodeurs utilisent "
+            "`POST /v1/chat/completions` ; les interfaces compatibles utilisent "
+            "`POST /v1/responses` ou `POST /v1/messages`. Pour les grandes entrées GLiNER-2, "
+            "envoyez `POST /v1/gliner-2/async`, puis interrogez "
+            "`GET /v1/gliner-2/jobs/{job_id}`. Utilisez "
+            "`GET /v1/base-models?supports_inference=true` ou "
+            "`GET /v1/base-models?supports_training=true` pour les capacités actuelles. "
             "N'inférez pas de routes non documentées. Lisez les clés API depuis `FASTINO_API_KEY` "
             "et n'intégrez jamais d'identifiants dans le code, les journaux ou les rapports."
         ),
@@ -106,6 +126,13 @@ LOCALE_COPY = {
         instructions_heading="Anweisungen für Agenten",
         instructions=(
             f"Verwenden Sie {BASE_URL}/openapi.json als verbindliche Quelle für öffentliche Routen. "
+            "GLiDE verwendet `POST /v1/systemone`; GLiNER und Decoder verwenden "
+            "`POST /v1/chat/completions`; kompatible Schnittstellen verwenden "
+            "`POST /v1/responses` oder `POST /v1/messages`. Senden Sie große GLiNER-2-Eingaben "
+            "an `POST /v1/gliner-2/async` und fragen Sie anschließend "
+            "`GET /v1/gliner-2/jobs/{job_id}` ab. Verwenden Sie "
+            "`GET /v1/base-models?supports_inference=true` oder "
+            "`GET /v1/base-models?supports_training=true` für aktuelle Fähigkeiten. "
             "Leiten Sie keine undokumentierten Routen ab. Lesen Sie API-Schlüssel aus "
             "`FASTINO_API_KEY` und betten Sie Anmeldedaten niemals in Code, Protokolle oder Berichte ein."
         ),
@@ -137,6 +164,46 @@ def _visible_pages(node: object) -> list[str]:
             for child in children:
                 pages.extend(_visible_pages(child))
     return pages
+
+
+def _navigation_groups(language: dict[str, object]) -> list[dict[str, object]]:
+    """Return visible groups from either language-level groups or tabs."""
+    containers = language.get("tabs", language.get("groups"))
+    if not isinstance(containers, list):
+        raise ValueError(f"{language.get('language')} navigation has no groups or tabs")
+
+    groups: list[dict[str, object]] = []
+    deferred_sdk_groups: list[dict[str, object]] = []
+    for container in containers:
+        if not isinstance(container, dict) or container.get("hidden") is True:
+            continue
+        if "tab" in container:
+            children = container.get("pages")
+            if not isinstance(children, list):
+                raise ValueError(
+                    f"{language.get('language')} navigation tab has no pages"
+                )
+            direct_pages = [child for child in children if isinstance(child, str)]
+            if direct_pages:
+                groups.append({"group": container["tab"], "pages": direct_pages})
+            for child in children:
+                if (
+                    not isinstance(child, dict)
+                    or not isinstance(child.get("group"), str)
+                    or child.get("hidden") is True
+                ):
+                    continue
+                child_pages = _visible_pages(child)
+                if any(
+                    page.endswith("api-reference/inference/openai-compatible")
+                    for page in child_pages
+                ):
+                    deferred_sdk_groups.append(child)
+                else:
+                    groups.append(child)
+        elif isinstance(container.get("group"), str):
+            groups.append(container)
+    return groups + deferred_sdk_groups
 
 
 def _frontmatter(root: Path, path: Path) -> tuple[str, str]:
@@ -188,12 +255,7 @@ def _render_index(root: Path, language: dict[str, object]) -> str:
             f"{copy.skills_description}"
         ),
     ]
-    groups = language.get("groups")
-    if not isinstance(groups, list):
-        raise ValueError(f"{locale} navigation has no groups")
-    for group in groups:
-        if not isinstance(group, dict) or group.get("hidden") is True:
-            continue
+    for group in _navigation_groups(language):
         heading = group.get("group")
         if not isinstance(heading, str):
             raise ValueError(f"{locale} navigation contains a group without a name")

@@ -3,7 +3,7 @@
 > 使用 GLiDE 构建结构化决策，使用 GLiNER 进行基于模式的抽取，并通过 Fastino 微调专用模型。
 
 > ## 代理说明
-> 使用 https://docs.fastino.ai/openapi.json 作为面向客户的 API 路由的事实来源。不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，切勿在代码、日志或报告中嵌入凭据。
+> 使用 https://docs.fastino.ai/openapi.json 作为面向客户的 API 路由的事实来源。GLiDE 使用 `POST /v1/systemone`；GLiNER 和解码器推理使用 `POST /v1/chat/completions`；兼容接口使用 `POST /v1/responses` 或 `POST /v1/messages`。大型 GLiNER-2 输入使用 `POST /v1/gliner-2/async`，然后轮询 `GET /v1/gliner-2/jobs/{job_id}`。使用 `GET /v1/base-models?supports_inference=true` 或 `GET /v1/base-models?supports_training=true` 查询实时能力。不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，切勿在代码、日志或报告中嵌入凭据。
 
 ## 代理资源
 
@@ -34,25 +34,13 @@
 
 - [推理 API：运行 Fastino 模型](https://docs.fastino.ai/cn/inference.md): 了解如何通过 GLiDE 和兼容 OpenAI 的 API 使用 Fastino 模型运行推理。
 - [GLiNER 推理：/v1/chat/completions](https://docs.fastino.ai/cn/inference/chat-completions.md): 使用 POST /v1/chat/completions 进行 GLiNER 提取、分类、记录构建和关系抽取，而不是用于 GLiDE 决策。
+- [推理历史与反馈工作流](https://docs.fastino.ai/cn/guides/inference-history-feedback.md): 保存推理 ID、检查历史结果并提交更正，同时避免重复 OpenAPI 线协议。
 
 ## 训练 API
 
 - [训练任务 API](https://docs.fastino.ai/cn/training.md): 训练任务 API 管理微调任务的完整生命周期，涵盖 /v1/training-jobs 端点、X-API-Key 身份验证和任务状态。
 - [准备并上传训练数据集](https://docs.fastino.ai/cn/concepts/datasets.md): 在启动 Fastino 训练任务之前，格式化、上传、验证并检查 NER、分类或解码器数据集。
 - [训练智能体技能](https://docs.fastino.ai/cn/concepts/gliner-agent-skill.md): 为 Cursor、Claude Code 和 Codex 安装 Fastino 托管的 GLiNER 技能。
-- [创建训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/create.md): 通过 POST /v1/training-jobs 基于基础模型和数据集创建异步训练任务，可选择 LoRA 或完整训练，并设置 epoch 上限。
-- [列出训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/list.md): 调用 GET /v1/training-jobs 列出账户可见的训练任务，可按状态或项目 ID 筛选，并用 limit 和 offset 分页。
-- [获取训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/get.md): 获取 Fastino 训练任务的状态、完成百分比、当前 epoch、失败详情、训练指标和工件就绪情况，用于轮询任务进度。
-- [更新训练任务的项目](https://docs.fastino.ai/cn/api-reference/training-jobs/update-project.md): 调用 PATCH /v1/training-jobs/{job_id}，将训练任务分配到项目，或发送 null 取消分配。相关的部署和推理记录保持不变。
-- [重命名训练后的模型](https://docs.fastino.ai/cn/api-reference/training-jobs/update-model-name.md): 通过 PATCH /v1/training-jobs/{job_id}/model-name 重命名训练模型，名称限 1–64 个字母、数字、连字符或下划线。
-- [获取训练日志](https://docs.fastino.ai/cn/api-reference/training-jobs/logs.md): 获取 Fastino 训练任务结构化的 stdout 和 stderr 日志条目快照。该端点不流式传输，需轮询以跟随运行中的任务。
-- [获取训练任务的计费信息](https://docs.fastino.ai/cn/api-reference/training-jobs/billing.md): 通过 GET /v1/training-jobs/{job_id}/billing 查询 Fastino 训练任务是否已计费，以及费用金额和 GPU 分钟数。
-- [停止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/stop.md): 停止运行中的 Fastino 训练任务并保留停止前创建的检查点。JSON 请求体为可选，可附带停止原因、数值指标和检查点路径。
-- [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 通过 POST /v1/training-jobs/{job_id}/terminate 停止训练任务并删除全部检查点。如需保留检查点，请使用停止端点。
-- [列出训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/checkpoints.md): 通过 GET /v1/training-jobs/{job_id}/checkpoints 列出训练任务的检查点及其 epoch、step、损失值和可部署标志。
-- [部署训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/deploy-checkpoint.md): 使用列表端点返回的检查点 ID，将 Fastino 训练任务中一个可部署的检查点部署到托管的多模型推理端点。
-- [下载训练后的权重](https://docs.fastino.ai/cn/api-reference/training-jobs/download.md): 调用 GET /v1/training-jobs/{job_id}/download，获取训练工件的临时预签名下载 URL、有效期和建议的文件名。
-- [删除训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/delete.md): 调用 DELETE /v1/training-jobs/{job_id}，永久删除训练任务及其检查点和存储的工件；如果任务处于活动状态，会先将其停止。
 
 ## 模型
 
@@ -60,12 +48,74 @@
 - [GLiNER2.5](https://docs.fastino.ai/cn/concepts/gliner.md): 了解何时以及如何使用 GLiNER2.5 Multi 进行多语言、由 schema 驱动的信息抽取。
 - [Fastino 模型 ID、规格与定价](https://docs.fastino.ai/cn/concepts/models.md): Fastino 的 GLiDE、GLiNER、GLiGuard 和 PII 模型系列的模型 ID、规格和推理价格。
 
-## SDK 集成
-
-- [Fastino API 上兼容 OpenAI 的推理](https://docs.fastino.ai/cn/api-reference/inference/openai-compatible.md): 通过受支持的 OpenAI SDK 方法运行结构化的 GLiNER 抽取和分类。
-- [兼容 Anthropic 的 Messages 端点](https://docs.fastino.ai/cn/api-reference/inference/anthropic-compatible.md): 通过 Anthropic SDK Messages API 运行结构化的 GLiNER 抽取和分类。
-
 ## 账户
 
 - [定价](https://docs.fastino.ai/cn/pricing.md): Fastino GLiDE 和 GLiNER 模型的定价，涵盖按 token 计费的推理费率、按分钟计费的训练费率，以及可让你的工作流持续运行的额度充值。
 - [信任与安全](https://docs.fastino.ai/cn/trust-safety.md): Fastino 如何保护你的数据、保障基础设施安全，并构建可供你负责任部署的 AI。
+
+## API 参考
+
+- [API 参考](https://docs.fastino.ai/cn/api-reference/overview.md): 几分钟内完成账户设置并开始使用 Fastino。生成 API 密钥，浏览可用模型，并运行你的第一个推理或训练任务。
+- [Fastino API 清单](https://docs.fastino.ai/cn/api-reference/inventory.md): 根据 Fastino OpenAPI 规范生成的完整方法和路径清单。
+
+## 平台
+
+- [Fastino API 身份验证:生成和使用 API 密钥](https://docs.fastino.ai/cn/api-reference/authentication.md): 使用 X-API-Key 头对 Fastino API 请求进行身份验证。在控制面板中生成密钥，然后以编程方式列出、轮换或撤销密钥。
+- [Fastino API 密钥管理:创建、列出与撤销](https://docs.fastino.ai/cn/api-reference/api-keys.md): 管理 Fastino API 密钥:在控制面板中创建密钥,列出有效密钥,并以编程方式撤销密钥。secret_key 仅在创建时返回。
+- [Fastino API 错误代码与响应格式](https://docs.fastino.ai/cn/api-reference/errors.md): Fastino API 返回的 4xx 与 5xx HTTP 状态代码、每种错误族的 JSON 响应结构,以及计费、速率限制与校验错误的解决步骤。
+- [Fastino API 的速率限制和额度 / 消费上限](https://docs.fastino.ai/cn/api-reference/rate-limits.md): Fastino API 的每个端点请求速率限制、边缘 WAF 配额、基于额度的使用限制和超额消费上限、429 错误处理，以及如何申请更高的限制。
+- [推理中的提示缓存](https://docs.fastino.ai/cn/api-reference/prompt-caching.md): Fastino 推理 API 中提示缓存的工作原理——哪些内容可被缓存、缓存的输入 token 如何计费，以及在哪里查看缓存命中率。
+
+## 决策 API
+
+- [POST /v1/systemone — Fastino API](https://docs.fastino.ai/cn/api-reference/decision/systemone.md): 此页面记录 `POST /v1/systemone`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+
+## 模型 API
+
+- [GET /v1/base-models — Fastino API](https://docs.fastino.ai/cn/api-reference/models/base-models.md): 此页面记录 `GET /v1/base-models`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [GET /v1/models — Fastino API](https://docs.fastino.ai/cn/api-reference/models/compatibility-models.md): 此页面记录 `GET /v1/models`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+
+## 推理 API
+
+- [POST /v1/chat/completions — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/chat-completions.md): 此页面记录 `POST /v1/chat/completions`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/responses — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/responses.md): 此页面记录 `POST /v1/responses`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/messages — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/messages.md): 此页面记录 `POST /v1/messages`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [GET /v1/inferences — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/history/list.md): 此页面记录 `GET /v1/inferences`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [GET /v1/inferences/{inference_id} — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/history/get.md): 此页面记录 `GET /v1/inferences/{inference_id}`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/inferences/{inference_id}/feedback — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/history/submit-feedback.md): 此页面记录 `POST /v1/inferences/{inference_id}/feedback`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [GET /v1/inferences/{inference_id}/feedback — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/history/get-feedback.md): 此页面记录 `GET /v1/inferences/{inference_id}/feedback`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/gliner-2 — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/gliner-2.md): 此页面记录 `POST /v1/gliner-2`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/gliner-2/async — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/gliner-2-async.md): 此页面记录 `POST /v1/gliner-2/async`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [GET /v1/gliner-2/jobs/{job_id} — Fastino API](https://docs.fastino.ai/cn/api-reference/inference/gliner-2-job-status.md): 此页面记录 `GET /v1/gliner-2/jobs/{job_id}`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+
+## Datasets API
+
+- [GET /v1/datasets — Fastino API](https://docs.fastino.ai/cn/api-reference/datasets/list.md): 此页面记录 `GET /v1/datasets`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/datasets/upload/url — Fastino API](https://docs.fastino.ai/cn/api-reference/datasets/upload-url.md): 此页面记录 `POST /v1/datasets/upload/url`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/datasets/upload/process — Fastino API](https://docs.fastino.ai/cn/api-reference/datasets/process-upload.md): 此页面记录 `POST /v1/datasets/upload/process`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [GET /v1/datasets/{name} — Fastino API](https://docs.fastino.ai/cn/api-reference/datasets/versions.md): 此页面记录 `GET /v1/datasets/{name}`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [DELETE /v1/datasets/{name} — Fastino API](https://docs.fastino.ai/cn/api-reference/datasets/delete.md): 此页面记录 `DELETE /v1/datasets/{name}`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+
+## 训练任务 API
+
+- [创建训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/create.md): 通过 POST /v1/training-jobs 基于基础模型和数据集创建异步训练任务，可选择 LoRA 或完整训练，并设置 epoch 上限。
+- [列出训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/list.md): 调用 GET /v1/training-jobs 列出账户可见的训练任务，可按状态或项目 ID 筛选，并用 limit 和 offset 分页。
+- [获取训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/get.md): 获取 Fastino 训练任务的状态、完成百分比、当前 epoch、失败详情、训练指标和工件就绪情况，用于轮询任务进度。
+- [更新训练任务的项目](https://docs.fastino.ai/cn/api-reference/training-jobs/update-project.md): 调用 PATCH /v1/training-jobs/{job_id}，将训练任务分配到项目，或发送 null 取消分配。相关的部署和推理记录保持不变。
+- [重命名训练后的模型](https://docs.fastino.ai/cn/api-reference/training-jobs/update-model-name.md): 通过 PATCH /v1/training-jobs/{job_id}/model-name 重命名训练模型，名称限 1–64 个字母、数字、连字符或下划线。
+- [获取训练日志](https://docs.fastino.ai/cn/api-reference/training-jobs/logs.md): 获取 Fastino 训练任务结构化的 stdout 和 stderr 日志条目快照。该端点不流式传输，需轮询以跟随运行中的任务。
+- [获取训练任务的计费信息](https://docs.fastino.ai/cn/api-reference/training-jobs/billing.md): 通过 GET /v1/training-jobs/{job_id}/billing 查询 Fastino 训练任务是否已计费，以及费用金额和 GPU 分钟数。
+- [GET /v1/training-jobs/{job_id}/deployments — Fastino API](https://docs.fastino.ai/cn/api-reference/training-jobs/deployments.md): 此页面记录 `GET /v1/training-jobs/{job_id}/deployments`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [停止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/stop.md): 停止运行中的 Fastino 训练任务并保留停止前创建的检查点。JSON 请求体为可选，可附带停止原因、数值指标和检查点路径。
+- [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 通过 POST /v1/training-jobs/{job_id}/terminate 停止训练任务并删除全部检查点。如需保留检查点，请使用停止端点。
+- [POST /v1/training-jobs/{job_id}/sync — Fastino API](https://docs.fastino.ai/cn/api-reference/training-jobs/sync.md): 此页面记录 `POST /v1/training-jobs/{job_id}/sync`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [POST /v1/training-jobs/{job_id}/push-to-hub — Fastino API](https://docs.fastino.ai/cn/api-reference/training-jobs/push-to-hub.md): 此页面记录 `POST /v1/training-jobs/{job_id}/push-to-hub`。请求参数、响应架构和认证要求以 OpenAPI 规范为准。
+- [列出训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/checkpoints.md): 通过 GET /v1/training-jobs/{job_id}/checkpoints 列出训练任务的检查点及其 epoch、step、损失值和可部署标志。
+- [部署训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/deploy-checkpoint.md): 使用列表端点返回的检查点 ID，将 Fastino 训练任务中一个可部署的检查点部署到托管的多模型推理端点。
+- [下载训练后的权重](https://docs.fastino.ai/cn/api-reference/training-jobs/download.md): 调用 GET /v1/training-jobs/{job_id}/download，获取训练工件的临时预签名下载 URL、有效期和建议的文件名。
+- [删除训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/delete.md): 调用 DELETE /v1/training-jobs/{job_id}，永久删除训练任务及其检查点和存储的工件；如果任务处于活动状态，会先将其停止。
+
+## SDK 集成
+
+- [Fastino API 上兼容 OpenAI 的推理](https://docs.fastino.ai/cn/api-reference/inference/openai-compatible.md): 通过受支持的 OpenAI SDK 方法运行结构化的 GLiNER 抽取和分类。
+- [兼容 Anthropic 的 Messages 端点](https://docs.fastino.ai/cn/api-reference/inference/anthropic-compatible.md): 通过 Anthropic SDK Messages API 运行结构化的 GLiNER 抽取和分类。
