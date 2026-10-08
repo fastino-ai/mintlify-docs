@@ -2,8 +2,6 @@
 title: "Errores y formatos de respuesta de la API de Fastino"
 sidebarTitle: "Errores"
 description: "Todos los códigos 4xx y 5xx que devuelve la API de Fastino, el formato JSON por familia y los pasos para resolver errores de facturación, límites y validación."
-noindex: true
-hidden: true
 ---
 
 La API de Fastino utiliza códigos de estado HTTP estándar para comunicar el resultado de cada solicitud. Los códigos en el rango `2xx` indican éxito. Los códigos en el rango `4xx` indican un problema con tu solicitud que puedes corregir. Los códigos en el rango `5xx` indican un problema del lado del servidor.
@@ -21,6 +19,7 @@ La mayoría de las respuestas de error devuelven un cuerpo JSON con un campo `de
 Algunas familias de respuestas usan una forma diferente:
 
 - **Denegaciones de facturación** (`402`, algunos `403`) devuelven `{"code", "message", "resolution_url"}` en lugar de `detail` - consulta [402](#402-pago-requerido) y [403](#403-prohibido) más abajo.
+- **Respuestas de calentamiento** (`425`) incluyen un encabezado `Retry-After`. Los cuerpos con forma de OpenAI también llevan `code: "model_warming"` - consulta [425](#425-demasiado-pronto) más abajo.
 - **Respuestas de límite de velocidad** (`429`) añaden los campos `code` y `scope` junto a `detail`, además de los encabezados `X-RateLimit-Scope` y `X-RateLimit-Code` - consulta [429](#429-demasiadas-solicitudes) más abajo.
 - **Errores del servidor no controlados** (`500`) devuelven `{"error", "message"}` en lugar de `detail`.
 - Las solicitudes a los endpoints compatibles con OpenAI (`/v1/chat/completions`, `/v1/responses`) reciben una envoltura con forma de OpenAI `{"error": {"code", "type", "param", "message"}}`, y las solicitudes que llevan un encabezado `anthropic-version` reciben una envoltura con forma de Anthropic `{"type": "error", "error": {"type", "message"}}` en lugar de las formas genéricas anteriores.
@@ -39,7 +38,7 @@ La solicitud en sí está mal formada - JSON no válido, o un parámetro de cons
 
 Tu solicitud no incluyó una clave de API válida, la clave ha sido revocada, o tu cuenta ha sido bloqueada por revisión de facturación o fraude.
 
-**Cómo solucionarlo:** Verifica que el encabezado `X-API-Key` esté presente y contenga tu clave actual. Si revocaste la clave recientemente, genera una nueva en **Settings** → **API Keys**. Si tu cuenta está bloqueada, contacta a [support@pioneer.ai](mailto:support@pioneer.ai). Consulta [Autenticación](/es/api-reference/authentication) para instrucciones de configuración.
+**Cómo solucionarlo:** Verifica que el encabezado `X-API-Key` esté presente y contenga tu clave actual. Si revocaste la clave recientemente, genera una nueva en **Settings** → **API Keys**. Si tu cuenta está bloqueada, contacta a [support@pioneer.ai](mailto:support@pioneer.ai). Consulta [Autenticación](/es/authentication) para instrucciones de configuración.
 
 ---
 
@@ -108,9 +107,128 @@ El cuerpo de la solicitud no superó la validación. Falta un campo obligatorio,
 
 ### 425 - Demasiado pronto
 
-El despliegue on-demand solicitado todavía se está calentando (arranque en frío) y aún no está listo para servir inferencia.
+El modelo se está calentando temporalmente y aún no está listo para servir inferencia. Esto es esperable en la primera solicitud tras un periodo sin tráfico o contra un despliegue on-demand recién aprovisionado, y no significa que tu solicitud sea incorrecta. El tiempo de calentamiento depende del modelo, así que una solicitud puede devolver `425` más de una vez antes de tener éxito.
 
-**Cómo solucionarlo:** Respeta el encabezado `Retry-After` y reintenta después del retardo indicado. Esto es esperable en la primera solicitud contra un despliegue on-demand recién aprovisionado.
+La mayoría de los endpoints devuelven un cuerpo con forma de OpenAI con `code: "model_warming"`:
+
+```json
+{
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "model_warming"
+  }
+}
+```
+
+Las solicitudes a `/v1/messages` que llevan un encabezado `anthropic-version` reciben en su lugar un cuerpo con forma de Anthropic, sin campo `code`:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "..."
+  }
+}
+```
+
+| Encabezado | Valor |
+| --- | --- |
+| `Retry-After` | Segundos que hay que esperar antes del siguiente intento. Es un retardo de reintento, no una promesa de que el modelo estará listo. |
+| `x-should-retry` | `true` en las respuestas con forma de OpenAI, por lo que los SDK de OpenAI reintentan automáticamente. `false` en las respuestas con forma de Anthropic, por lo que los SDK de Anthropic no reintentan; gestiónalas tú mismo. |
+
+**Cómo solucionarlo:** Espera `Retry-After` segundos (30 si falta el encabezado) y vuelve a enviar la misma solicitud, con un número limitado de reintentos. Cada ejemplo reintenta como máximo 5 veces, establece un tiempo de espera del cliente de 300 segundos y se detiene ante cualquier otra respuesta que no sea 2xx. El mismo bucle sirve para `/v1/systemone`; cambia la URL y el cuerpo de la solicitud.
+
+<CodeGroup>
+
+```bash cURL
+for attempt in 0 1 2 3 4 5; do
+  http_code=$(curl -sS --max-time 300 -o response.json -D headers.txt -w "%{http_code}" \
+    https://api.fastino.ai/v1/chat/completions \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [{ "role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      "schema": { "entities": ["organization", "product"] }
+    }')
+  [ "$http_code" = "425" ] && [ "$attempt" -lt 5 ] || break
+  delay=$(awk 'tolower($1) == "retry-after:" && $2 + 0 > 0 { print $2 + 0 }' headers.txt)
+  sleep "${delay:-30}"
+done
+
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+  cat response.json
+else
+  echo "Request failed with HTTP $http_code: $(cat response.json)" >&2
+fi
+```
+
+```python Python
+import os
+import time
+import requests
+
+MAX_RETRIES = 5
+
+for attempt in range(MAX_RETRIES + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+        json={
+            "model": "fastino/gliner2.5-multi-v1",
+            "messages": [
+                {"role": "user", "content": "Apple announced the MacBook Pro at WWDC in Cupertino."}
+            ],
+            "schema": {"entities": ["organization", "product"]},
+        },
+        timeout=300,
+    )
+    if response.status_code != 425 or attempt == MAX_RETRIES:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 30)
+
+if not 200 <= response.status_code < 300:
+    raise RuntimeError(f"Request failed: {response.status_code} {response.text}")
+print(response.json()["choices"][0]["message"]["content"])
+```
+
+```javascript JavaScript
+const MAX_RETRIES = 5;
+let response;
+
+for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/gliner2.5-multi-v1",
+      messages: [{ role: "user", content: "Apple announced the MacBook Pro at WWDC in Cupertino." }],
+      schema: { entities: ["organization", "product"] },
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (response.status !== 425 || attempt === MAX_RETRIES) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  await new Promise((resolve) => setTimeout(resolve, (retryAfter || 30) * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`Request failed: ${response.status} ${await response.text()}`);
+}
+const completion = await response.json();
+console.log(completion.choices[0].message.content);
+```
+
+</CodeGroup>
+
+Con un SDK, consulta [Inferencia compatible con OpenAI](/es/api-reference/inference/openai-compatible#reintentar-respuestas-425) para aumentar el límite de reintentos, o [POST /v1/messages compatible con Anthropic](/es/api-reference/inference/anthropic-compatible#reintentar-respuestas-425) para un reintento manual.
 
 ---
 

@@ -1,10 +1,94 @@
 ---
-title: "Fastino API key management: create, list, and revoke"
-sidebarTitle: "API Keys"
-description: "Manage Fastino API keys: create keys in the dashboard, list active keys, and revoke keys programmatically. The secret_key is returned only at creation."
-noindex: true
-hidden: true
+title: "Fastino API authentication: generate and use API keys"
+sidebarTitle: "Authentication"
+description: "Authenticate Fastino API requests with the X-API-Key header. Generate keys in the dashboard, then list, rotate, or revoke them programmatically."
 ---
+
+Most Fastino API operations require your API key. Explicitly public catalog routes such as
+`GET /v1/models` can be called without one. Authenticated operations use a simple header-based
+scheme-no OAuth flow or token exchange is required. Your key identifies you and determines
+which resources and rate limits apply to your requests.
+
+## Getting an API key
+
+1. Log in at [Fastino](https://agent.fastino.ai).
+2. Go to **Settings** → **API Keys**.
+3. Click **Create key**, give it a name, and copy the value shown.
+
+Store your key in an environment variable (for example `FASTINO_API_KEY`) rather than hard-coding it in source files.
+
+New Fastino keys start with `fast_sk_`. Legacy `pio_sk_` keys are retired; create a
+replacement in the dashboard before calling the Fastino API.
+
+## Passing your API key
+
+Include your key in the `X-API-Key` header on native Fastino requests:
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+OpenAI- and Anthropic-compatible SDKs conventionally send the same key as a Bearer token. Set their `api_key` option to `$FASTINO_API_KEY`; the SDK adds `Authorization: Bearer ...` for you.
+
+## Managing keys
+
+Create new API keys from **Settings** -> **API Keys** in the Fastino dashboard. API-key-authenticated requests can list and revoke keys, but cannot create more keys.
+
+### Create a key
+
+`POST /v1/create-api-key` is used by the web dashboard and requires a browser session. Calls authenticated with `X-API-Key` return `403 Forbidden` with the message `API key creation is only allowed from the web dashboard.`
+
+The creation response includes the new `secret_key` value. Copy it immediately - it is not shown again.
+
+### List keys
+
+```bash cURL
+curl https://api.fastino.ai/v1/list-api-keys \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Returns all keys associated with your account, including their names and creation dates. Key values are not returned in list responses.
+
+### Revoke a key
+
+```bash cURL
+curl -X DELETE https://api.fastino.ai/v1/delete-api-key \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_id": "YOUR_KEY_ID"
+  }'
+```
+
+Revoked keys are rejected immediately on the next request. There is no undo.
+
+### Testing connectivity before you have a key
+
+To verify your network can reach the Fastino API during integration, send a request with a placeholder key. You'll get a `401` back - which confirms the endpoint is reachable and your request is wired correctly.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/messages \
+  -H "X-API-Key: fast_sk_test" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# Expected: {"detail":"Invalid API key format. API keys must start with 'fast_sk_'. Please check your X-API-Key header."}
+# A 401 with this body = integration is wired correctly. Swap in a real key to get completions.
+```
+
+## Error responses
+
+| Status | Meaning |
+| --- | --- |
+| `401 Unauthorized` | The key is missing, malformed, or has been revoked. Check that the `X-API-Key` header is present and contains a valid key. |
+| `402 Payment Required` | Your account has insufficient credits to complete the request. Visit **Settings** → **Billing** to top up your balance. |
+
+<Warning>
+  A `402` response means your account is out of credits. Requests will continue to fail until you add credits or upgrade your plan. See [Plans & Pricing](/pricing) for your options.
+</Warning>
+
+## API key management reference
 
 Every request to the Fastino API requires an API key passed in the `X-API-Key` header. Create keys in the Fastino dashboard, then use the key management endpoints to list and revoke existing keys programmatically.
 
