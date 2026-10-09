@@ -1,0 +1,134 @@
+---
+title: "Receta: Controla el siguiente paso de un agente"
+sidebarTitle: "Controla el siguiente paso de un agente"
+description: "Comprueba la acción propuesta por un agente frente a tu política y decide si actúa, consulta antes al usuario o sigue buscando."
+---
+
+Un agente que está a punto de gastar dinero o modificar datos debería comprobar primero el paso frente a tus reglas. Incluye el objetivo, la acción propuesta y la política en `state`, y pregunta a GLiDE qué debe hacer el agente a continuación. Es tu código, no el modelo, quien ejecuta la decisión.
+
+## Solicitud
+
+```bash
+curl -X POST https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/GLiDE",
+  "state": {
+    "goal": "Book the cheapest flight to Lisbon next Friday",
+    "proposed_action": "Book TAP 1:05 PM for $212. The fare is non-refundable.",
+    "policy": "Confirm with the user before any non-refundable purchase over $100.",
+    "last_user_message": "just get it done, thanks!"
+  },
+  "questions": {
+    "next_step": {
+      "type": "choice",
+      "instructions": "What should the agent do next?",
+      "criteria": {
+        "confirm": "Check with the user before acting",
+        "book": "Book it now",
+        "search": "Keep searching for other options"
+      }
+    },
+    "reversible": {
+      "type": "noul",
+      "instructions": "Can the proposed action be undone after it runs?",
+      "criteria": {
+        "true": "It can be undone",
+        "false": "It cannot be undone"
+      }
+    }
+  }
+}'
+```
+
+## Esquema de la solicitud
+
+| Campo | Tipo | En esta receta |
+| --- | --- | --- |
+| `model` | string | `fastino/GLiDE`. |
+| `state.goal` | string | Lo que el usuario pidió al agente. |
+| `state.proposed_action` | string | La acción exacta que el agente está a punto de realizar, con los hechos relevantes (precio, posibilidad de reembolso). |
+| `state.policy` | string | La regla aplicable. GLiDE la sopesa frente al mensaje del usuario. |
+| `state.last_user_message` | string | Lo último que dijo el usuario. |
+| `questions.next_step` | [Choice](/es/concepts/glide-choice) | Un resultado por cada rama que puede seguir tu agente. |
+| `questions.reversible` | [Noul](/es/concepts/glide-noul) | Una segunda comprobación independiente que puedes registrar o combinar con `next_step`. |
+
+## Respuesta
+
+Medida contra `https://api.fastino.ai`. Los valores de confianza varían ligeramente entre llamadas.
+
+```json
+{
+  "model": "glide_v2",
+  "answers": {
+    "next_step": {
+      "type": "choice",
+      "choice": "confirm",
+      "confidence": 0.934,
+      "probabilities": {
+        "confirm": 0.964,
+        "book": 0.03,
+        "search": 0.005
+      }
+    },
+    "reversible": {
+      "type": "noul",
+      "noul": 0.028,
+      "confidence": 0.945
+    }
+  },
+  "usage": {
+    "input_tokens": 280,
+    "output_tokens": 0
+  }
+}
+```
+
+El usuario dijo "just get it done", pero la política exige confirmación para una compra no reembolsable de más de \$100, así que GLiDE elige `confirm`. Si eliminas la línea `policy`, la misma solicitud devuelve `book`. Incluye la regla en `state` siempre que deba prevalecer.
+
+## Esquema de la respuesta
+
+| Campo | Tipo | Significado |
+| --- | --- | --- |
+| `answers.next_step.choice` | string | `confirm`, `book` o `search`. |
+| `answers.next_step.confidence` | number | El grado de certeza de GLiDE, de 0 a 1. |
+| `answers.next_step.probabilities` | object | La probabilidad de cada resultado. |
+| `answers.reversible.noul` | number | La probabilidad de que la acción se pueda deshacer. Aquí es cercana a 0. |
+
+## Actúa según la respuesta
+
+```python
+answers = response.json()["answers"]
+step = answers["next_step"]
+reversible = answers["reversible"]["noul"] >= 0.5
+
+if step["choice"] == "book" and step["confidence"] >= 0.8 and reversible:
+    agent.run(proposed_action)
+elif step["choice"] == "search":
+    agent.keep_searching()
+else:
+    agent.ask_user(f"Before I go ahead: {proposed_action} OK?")
+```
+
+Solo la ruta más segura, preguntar al usuario, sirve como alternativa por defecto. Una respuesta incierta o irreversible nunca se ejecuta por sí sola.
+
+## Adáptala
+
+- Haz que cada clave de `criteria` sea una rama que tu agente ya admita, como `run`, `ask_user`, `escalate` o `abort`.
+- Cita el texto de la política tal cual. GLiDE aplica la regla que proporcionas; de lo contrario, no conoce tus políticas.
+- Incluye en `proposed_action` los hechos de los que depende la política (importe, destinatario, posibilidad de reembolso).
+- Mantén la comprobación final en el código. Por ejemplo, no permitas nunca un gasto por encima de un límite estricto, sea cual sea la respuesta.
+
+<Warning>
+  Usa GLiDE como apoyo a la decisión, no como única salvaguarda para acciones irreversibles o de alto impacto. Valida con casos representativos y conserva una ruta de revisión humana.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Guía de políticas y seguridad" icon="shield-check" href="/es/guides/glide-policy-safety">
+    Diseña compuertas que fallen de forma segura ante la incertidumbre.
+  </Card>
+  <Card title="Referencia de la API de GLiDE" icon="code" href="/es/api-reference/inference/systemone">
+    Todos los campos, límites y errores de `POST /v1/systemone`.
+  </Card>
+</CardGroup>

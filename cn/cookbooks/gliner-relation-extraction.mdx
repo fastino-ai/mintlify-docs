@@ -1,0 +1,204 @@
+---
+title: "实战示例：抽取实体之间的关系"
+sidebarTitle: "抽取关系"
+description: "使用 GLiNER 2.5 Multi，以头实体和尾实体对的形式找出谁在哪里工作、什么位于哪里，以及谁收购了谁。"
+---
+
+关系抽取可以将句子转换为可存入图或表中的事实。你定义实体标签和关系类型，GLiNER 会将每个关系返回为一个头实体、一个尾实体和关系类型。
+
+## 请求
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Lena Vogel works for Siemens in Munich. Siemens acquired Altair Engineering in 2025."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company or institution"
+      },
+      {
+        "name": "location",
+        "description": "city or country"
+      }
+    ],
+    "relations": {
+      "works_for": {
+        "description": "a person is employed by an organization"
+      },
+      "located_in": {
+        "description": "an organization or person is based in a place"
+      },
+      "acquired": {
+        "description": "one organization bought another"
+      }
+    }
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## 请求 schema
+
+| 字段 | 类型 | 在本示例中 |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`。 |
+| `messages` | array | 一条包含待读取文本的 `user` 消息。 |
+| `schema.entities` | array | 关系所连接的实体标签。 |
+| `schema.relations` | object | 每种关系类型一个键。`description` 说明该关系的含义，包括其方向。 |
+| `threshold` | number | 最低置信度，范围为 0 到 1。默认值为 `0.5`。 |
+| `store` | boolean | 默认为 `true`，即保存本次推理。设为 `false` 可选择不保存。 |
+
+## 响应
+
+GLiNER 以 JSON 字符串的形式在 `choices[0].message.content` 中返回结果。解析后如下所示。基于 `https://api.fastino.ai` 实测；置信度值在不同调用之间会略有差异。
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "Lena Vogel",
+        "confidence": 1.0,
+        "start": 0,
+        "end": 10
+      }
+    ],
+    "organization": [
+      {
+        "text": "Siemens",
+        "confidence": 0.996,
+        "start": 21,
+        "end": 28
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 40,
+        "end": 47
+      },
+      {
+        "text": "Altair Engineering",
+        "confidence": 0.973,
+        "start": 57,
+        "end": 75
+      }
+    ],
+    "location": [
+      {
+        "text": "Munich",
+        "confidence": 1.0,
+        "start": 32,
+        "end": 38
+      }
+    ]
+  },
+  "relation_extraction": {
+    "works_for": [
+      {
+        "head": {
+          "text": "Lena Vogel",
+          "start": 0,
+          "end": 10,
+          "confidence": 0.988
+        },
+        "tail": {
+          "text": "Siemens",
+          "start": 21,
+          "end": 28,
+          "confidence": 0.988
+        }
+      }
+    ],
+    "located_in": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.977
+        },
+        "tail": {
+          "text": "Munich",
+          "start": 32,
+          "end": 38,
+          "confidence": 0.977
+        }
+      }
+    ],
+    "acquired": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.938
+        },
+        "tail": {
+          "text": "Altair Engineering",
+          "start": 57,
+          "end": 75,
+          "confidence": 0.938
+        }
+      }
+    ]
+  }
+}
+```
+
+## 响应 schema
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `relation_extraction` | object | 你定义的每种关系类型对应一个键。 |
+| `relation_extraction.<type>[].head` | object | 关系的起点实体，包含 `text`、`confidence`、`start` 和 `end`。 |
+| `relation_extraction.<type>[].tail` | object | 关系指向的实体，包含相同的字段。 |
+
+关系返回在 `relation_extraction` 下，而不是 `relations` 下。
+
+## 根据答案执行操作
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+facts = [
+    (pair["head"]["text"], relation, pair["tail"]["text"])
+    for relation, pairs in result["relation_extraction"].items()
+    for pair in pairs
+    if min(pair["head"]["confidence"], pair["tail"]["confidence"]) >= 0.5
+]
+for head, relation, tail in facts:
+    graph.add_edge(head, tail, type=relation)
+```
+
+## 调整示例
+
+- 在每条描述中说明方向，例如 "a person is employed by an organization"，使头实体和尾实体的方向正确。
+- 为关系所连接的每类事物定义实体标签，使结果中的实体带有类型。
+- 调优时降低 `threshold` 以查看近似匹配，然后在代码中按头实体和尾实体的置信度进行过滤。
+- 为每条事实保存 `start` 和 `end`，以便追溯到其来源句子。
+
+<CardGroup cols={2}>
+  <Card title="调用 GLiNER" icon="braces" href="/cn/inference/chat-completions">
+    所有 GLiNER schema 类型及其结果的读取方式。
+  </Card>
+  <Card title="Chat Completions API 参考" icon="code" href="/cn/api-reference/inference/chat-completions">
+    `POST /v1/chat/completions` 的所有字段、限制和错误。
+  </Card>
+</CardGroup>

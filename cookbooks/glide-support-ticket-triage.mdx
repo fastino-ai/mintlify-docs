@@ -1,0 +1,173 @@
+---
+title: "Cookbook: Triage a support ticket"
+sidebarTitle: "Triage a support ticket"
+description: "Route a support ticket to a queue, rate its urgency, and decide whether a person should reply, in one GLiDE call."
+---
+
+A new ticket needs three decisions before anyone reads it: which queue owns it, how fast it needs an answer, and whether an automated reply is good enough. GLiDE answers all three from one request, using criteria you write in plain language.
+
+## Request
+
+Send the ticket as `state` and ask one question per decision. The question names (`queue`, `urgency`, `needs_human`) are yours; they come back as keys under `answers`.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/GLiDE",
+  "state": {
+    "subject": "Charged twice this month??",
+    "plan": "Pro, 14 seats",
+    "message": "Our card was billed $1,190 twice on Oct 1. Finance wants it fixed today before they freeze the card. The invoice download button just spins, too."
+  },
+  "questions": {
+    "queue": {
+      "type": "choice",
+      "instructions": "Which support queue should this ticket go to?",
+      "criteria": {
+        "billing": "Charges, refunds, and invoices",
+        "technical": "Something in the product is broken",
+        "account": "Logins, seats, and permissions"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgent is this ticket?",
+      "criteria": [
+        "Low: no deadline or business impact",
+        "Normal: needs an answer within a few days",
+        "High: blocks money or work today",
+        "Urgent: an outage or a security incident"
+      ]
+    },
+    "needs_human": {
+      "type": "noul",
+      "instructions": "Should a person reply instead of an automated assistant?",
+      "criteria": {
+        "true": "A person should reply",
+        "false": "An automated reply is enough"
+      }
+    }
+  }
+}'
+```
+
+## Request schema
+
+| Field | Type | In this recipe |
+| --- | --- | --- |
+| `model` | string | `fastino/GLiDE`. |
+| `state` | string, object, or array | The ticket. An object keeps the subject, plan, and message clearly labeled. |
+| `questions.queue` | [Choice](/concepts/glide-choice) | `criteria` is an object. Each key is an outcome and each value says when it applies. |
+| `questions.urgency` | [Score](/concepts/glide-score) | `criteria` is an ordered array, lowest level first. |
+| `questions.needs_human` | [Noul](/concepts/glide-noul) | A yes or no question. `criteria` describes the `true` and `false` sides. |
+| `questions.*.instructions` | string | The question GLiDE answers about `state`. |
+
+## Response
+
+Measured against `https://api.fastino.ai`. Confidence values vary slightly between calls.
+
+```json
+{
+  "model": "glide_v2",
+  "answers": {
+    "queue": {
+      "type": "choice",
+      "choice": "billing",
+      "confidence": 0.993,
+      "probabilities": {
+        "billing": 0.996,
+        "technical": 0.004,
+        "account": 0.0
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 2,
+      "expected_level": 2.001,
+      "confidence": 0.991,
+      "probabilities": {
+        "0": 0.0,
+        "1": 0.002,
+        "2": 0.994,
+        "3": 0.004
+      },
+      "legend": {
+        "0": "Low: no deadline or business impact",
+        "1": "Normal: needs an answer within a few days",
+        "2": "High: blocks money or work today",
+        "3": "Urgent: an outage or a security incident"
+      }
+    },
+    "needs_human": {
+      "type": "noul",
+      "noul": 0.987,
+      "confidence": 0.974
+    }
+  },
+  "usage": {
+    "input_tokens": 422,
+    "output_tokens": 0
+  }
+}
+```
+
+## Response schema
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `answers.queue.choice` | string | The winning `criteria` key. Here, `billing`. |
+| `answers.queue.probabilities` | object | Probability for every outcome. They sum to 1. |
+| `answers.urgency.score` | integer | Index of the winning level, counted from `0`. Here, `2` is "High". |
+| `answers.urgency.expected_level` | number | Probability-weighted level, for finer thresholds than `score`. |
+| `answers.urgency.legend` | object | Your level descriptions, keyed by index. |
+| `answers.needs_human.noul` | number | Probability that the `true` side holds, from 0 to 1. |
+| `answers.*.confidence` | number | How certain GLiDE is about that answer, from 0 to 1. |
+| `usage.input_tokens` | integer | Tokens billed for the request. |
+
+## Act on the answer
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+queue = answers["queue"]
+urgency = answers["urgency"]["score"]
+needs_human = answers["needs_human"]["noul"] >= 0.5
+
+if queue["confidence"] < 0.7:
+    queue_name = "general"  # let a person pick the queue
+else:
+    queue_name = queue["choice"]
+
+priority = {0: "low", 1: "normal", 2: "high", 3: "urgent"}[urgency]
+assign(ticket, queue=queue_name, priority=priority, auto_reply=not needs_human)
+```
+
+Treat the `0.7` and `0.5` thresholds as starting points. Check them against a sample of your own tickets.
+
+## Adapt it
+
+- Use your real queue names as `criteria` keys and describe what each queue handles. The descriptions do the work.
+- Add or remove urgency levels freely. The response always indexes them from `0` in the order you sent them.
+- Put customer facts GLiDE should weigh, such as plan, contract tier, or open incidents, into `state`.
+- Ask more questions in the same request, such as `language` or `sentiment`. Each one adds an entry to `answers`.
+
+<CardGroup cols={2}>
+  <Card title="Classification guide" icon="tags" href="/guides/glide-classification">
+    Design choice questions and handle uncertain labels.
+  </Card>
+  <Card title="GLiDE API reference" icon="code" href="/api-reference/inference/systemone">
+    Every field, limit, and error for `POST /v1/systemone`.
+  </Card>
+</CardGroup>

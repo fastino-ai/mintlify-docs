@@ -1,0 +1,119 @@
+---
+title: "Cookbook: Classify text into your own labels"
+sidebarTitle: "Classify text"
+description: "Label text with several independent classification tasks in one GLiNER 2.5 Multi call."
+---
+
+Classification assigns each text one label per task, from label sets you define. One request can run several tasks at once, such as topic and priority, and the text can be in any supported language.
+
+## Request
+
+The message below is Spanish. The labels stay in English.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "La aplicación se cierra cada vez que intento pagar con tarjeta. Necesito una solución hoy."
+    }
+  ],
+  "schema": {
+    "classifications": [
+      {
+        "task": "topic",
+        "labels": [
+          "billing",
+          "bug",
+          "account",
+          "feature_request"
+        ],
+        "multi_label": false
+      },
+      {
+        "task": "priority",
+        "labels": [
+          "urgent",
+          "routine"
+        ],
+        "multi_label": false
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Request schema
+
+| Field | Type | In this recipe |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | One `user` message holding the text to classify. |
+| `schema.classifications[].task` | string | Your name for the task. It becomes a key in the result. |
+| `schema.classifications[].labels` | array | The labels to choose from. |
+| `schema.classifications[].multi_label` | boolean | `false` returns exactly one label per task. `true` can return several. |
+| `threshold` | number | Minimum confidence, from 0 to 1. Default `0.5`. |
+| `store` | boolean | Defaults to `true`, which saves the inference. `false` opts out. |
+
+## Response
+
+GLiNER returns the result as a JSON string in `choices[0].message.content`. Parsed, it looks like this. Measured against `https://api.fastino.ai`; confidence values vary slightly between calls.
+
+```json
+{
+  "topic": {
+    "label": "bug",
+    "confidence": 0.844
+  },
+  "priority": {
+    "label": "urgent",
+    "confidence": 0.938
+  }
+}
+```
+
+## Response schema
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `<task>` | object | One key per task you defined. Here, `topic` and `priority`. |
+| `<task>.label` | string | The winning label for a single-label task. |
+| `<task>.confidence` | number | Confidence for that label, from 0 to 1. |
+
+Tasks are scored together, so adding or removing a task can shift the other tasks' confidence values slightly.
+
+## Act on the answer
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+topic, priority = result["topic"], result["priority"]
+
+if topic["confidence"] < 0.6:
+    route_to("triage")  # let a person choose
+else:
+    route_to(topic["label"], urgent=priority["label"] == "urgent")
+```
+
+## Adapt it
+
+- Keep labels mutually exclusive for single-label tasks. Overlapping labels split confidence.
+- Use `multi_label: true` for tags that can co-occur, such as product areas mentioned in one message.
+- Use clear, short label names. Downstream code reads them as values.
+- For decisions that need rules, scales, or yes or no answers about a situation, use [GLiDE](/concepts/glide) instead.
+
+<CardGroup cols={2}>
+  <Card title="Call GLiNER" icon="braces" href="/inference/chat-completions">
+    Every GLiNER schema type and how to read its result.
+  </Card>
+  <Card title="Chat Completions API reference" icon="code" href="/api-reference/inference/chat-completions">
+    Every field, limit, and error for `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>
