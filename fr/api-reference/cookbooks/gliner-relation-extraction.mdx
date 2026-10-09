@@ -1,0 +1,204 @@
+---
+title: "Recette : Extraire les relations entre entités"
+sidebarTitle: "Extraire des relations"
+description: "Identifiez qui travaille où, ce qui se trouve où et qui a racheté qui, sous forme de paires tête-queue, avec GLiNER 2.5 Multilingual."
+---
+
+L'extraction de relations transforme des phrases en faits que vous pouvez stocker dans un graphe ou une table. Vous définissez les libellés d'entités et les types de relations, et GLiNER renvoie chaque relation sous la forme d'une entité de tête, d'une entité de queue et du type de relation.
+
+## Requête
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Lena Vogel works for Siemens in Munich. Siemens acquired Altair Engineering in 2025."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company or institution"
+      },
+      {
+        "name": "location",
+        "description": "city or country"
+      }
+    ],
+    "relations": {
+      "works_for": {
+        "description": "a person is employed by an organization"
+      },
+      "located_in": {
+        "description": "an organization or person is based in a place"
+      },
+      "acquired": {
+        "description": "one organization bought another"
+      }
+    }
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Schéma de la requête
+
+| Champ | Type | Dans cette recette |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Un message `user` contenant le texte à analyser. |
+| `schema.entities` | array | Les libellés d'entités que relient les relations. |
+| `schema.relations` | object | Une clé par type de relation. `description` indique ce que signifie la relation, y compris son sens. |
+| `threshold` | number | Confiance minimale, de 0 à 1. Valeur par défaut : `0.5`. |
+| `store` | boolean | Vaut `true` par défaut, ce qui enregistre l'inférence. `false` permet de s'y soustraire. |
+
+## Réponse
+
+GLiNER renvoie le résultat sous forme de chaîne JSON dans `choices[0].message.content`. Une fois analysé, il se présente ainsi. Mesuré sur `https://api.fastino.ai` ; les valeurs de confiance varient légèrement d'un appel à l'autre.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "Lena Vogel",
+        "confidence": 1.0,
+        "start": 0,
+        "end": 10
+      }
+    ],
+    "organization": [
+      {
+        "text": "Siemens",
+        "confidence": 0.996,
+        "start": 21,
+        "end": 28
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 40,
+        "end": 47
+      },
+      {
+        "text": "Altair Engineering",
+        "confidence": 0.973,
+        "start": 57,
+        "end": 75
+      }
+    ],
+    "location": [
+      {
+        "text": "Munich",
+        "confidence": 1.0,
+        "start": 32,
+        "end": 38
+      }
+    ]
+  },
+  "relation_extraction": {
+    "works_for": [
+      {
+        "head": {
+          "text": "Lena Vogel",
+          "start": 0,
+          "end": 10,
+          "confidence": 0.988
+        },
+        "tail": {
+          "text": "Siemens",
+          "start": 21,
+          "end": 28,
+          "confidence": 0.988
+        }
+      }
+    ],
+    "located_in": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.977
+        },
+        "tail": {
+          "text": "Munich",
+          "start": 32,
+          "end": 38,
+          "confidence": 0.977
+        }
+      }
+    ],
+    "acquired": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.938
+        },
+        "tail": {
+          "text": "Altair Engineering",
+          "start": 57,
+          "end": 75,
+          "confidence": 0.938
+        }
+      }
+    ]
+  }
+}
+```
+
+## Schéma de la réponse
+
+| Champ | Type | Signification |
+| --- | --- | --- |
+| `relation_extraction` | object | Une clé par type de relation défini. |
+| `relation_extraction.<type>[].head` | object | L'entité d'où part la relation, avec `text`, `confidence`, `start` et `end`. |
+| `relation_extraction.<type>[].tail` | object | L'entité vers laquelle pointe la relation, avec les mêmes champs. |
+
+Les relations sont renvoyées sous `relation_extraction`, et non sous `relations`.
+
+## Exploiter la réponse
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+facts = [
+    (pair["head"]["text"], relation, pair["tail"]["text"])
+    for relation, pairs in result["relation_extraction"].items()
+    for pair in pairs
+    if min(pair["head"]["confidence"], pair["tail"]["confidence"]) >= 0.5
+]
+for head, relation, tail in facts:
+    graph.add_edge(head, tail, type=relation)
+```
+
+## L'adapter
+
+- Indiquez le sens dans chaque description, par exemple « a person is employed by an organization », afin que les têtes et les queues soient dans le bon ordre.
+- Définissez des libellés d'entités pour chaque type d'élément que relient vos relations, afin que les entités soient typées dans vos résultats.
+- Abaissez `threshold` pendant le réglage pour voir les quasi-correspondances, puis filtrez dans le code sur la confiance de la tête et de la queue.
+- Stockez `start` et `end` avec chaque fait, afin de pouvoir remonter à sa phrase source.
+
+<CardGroup cols={2}>
+  <Card title="Appeler GLiNER" icon="brackets-curly" href="/fr/inference/chat-completions">
+    Chaque type de schéma GLiNER et la façon de lire son résultat.
+  </Card>
+  <Card title="Référence de l'API Chat Completions" icon="code" href="/fr/api-reference/inference/chat-completions">
+    Chaque champ, limite et erreur de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

@@ -1,0 +1,119 @@
+---
+title: "Recette : Classer un texte selon vos propres libellés"
+sidebarTitle: "Classer du texte"
+description: "Étiquetez un texte avec plusieurs tâches de classification indépendantes en un seul appel GLiNER 2.5 Multilingual."
+---
+
+La classification attribue à chaque texte un libellé par tâche, parmi des ensembles de libellés que vous définissez. Une même requête peut exécuter plusieurs tâches à la fois, comme le sujet et la priorité, et le texte peut être rédigé dans n'importe quelle langue prise en charge.
+
+## Requête
+
+Le message ci-dessous est en espagnol. Les libellés restent en anglais.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "La aplicación se cierra cada vez que intento pagar con tarjeta. Necesito una solución hoy."
+    }
+  ],
+  "schema": {
+    "classifications": [
+      {
+        "task": "topic",
+        "labels": [
+          "billing",
+          "bug",
+          "account",
+          "feature_request"
+        ],
+        "multi_label": false
+      },
+      {
+        "task": "priority",
+        "labels": [
+          "urgent",
+          "routine"
+        ],
+        "multi_label": false
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Schéma de la requête
+
+| Champ | Type | Dans cette recette |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Un message `user` contenant le texte à classer. |
+| `schema.classifications[].task` | string | Le nom que vous donnez à la tâche. Il devient une clé du résultat. |
+| `schema.classifications[].labels` | array | Les libellés parmi lesquels choisir. |
+| `schema.classifications[].multi_label` | boolean | `false` renvoie exactement un libellé par tâche. `true` peut en renvoyer plusieurs. |
+| `threshold` | number | Confiance minimale, de 0 à 1. Valeur par défaut : `0.5`. |
+| `store` | boolean | Vaut `true` par défaut, ce qui enregistre l'inférence. `false` permet de s'y soustraire. |
+
+## Réponse
+
+GLiNER renvoie le résultat sous forme de chaîne JSON dans `choices[0].message.content`. Une fois analysé, il se présente ainsi. Mesuré sur `https://api.fastino.ai` ; les valeurs de confiance varient légèrement d'un appel à l'autre.
+
+```json
+{
+  "topic": {
+    "label": "bug",
+    "confidence": 0.844
+  },
+  "priority": {
+    "label": "urgent",
+    "confidence": 0.938
+  }
+}
+```
+
+## Schéma de la réponse
+
+| Champ | Type | Signification |
+| --- | --- | --- |
+| `<task>` | object | Une clé par tâche définie. Ici, `topic` et `priority`. |
+| `<task>.label` | string | Le libellé retenu pour une tâche à libellé unique. |
+| `<task>.confidence` | number | Confiance pour ce libellé, de 0 à 1. |
+
+Les tâches sont évaluées ensemble : ajouter ou retirer une tâche peut donc modifier légèrement les valeurs de confiance des autres.
+
+## Exploiter la réponse
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+topic, priority = result["topic"], result["priority"]
+
+if topic["confidence"] < 0.6:
+    route_to("triage")  # let a person choose
+else:
+    route_to(topic["label"], urgent=priority["label"] == "urgent")
+```
+
+## L'adapter
+
+- Gardez des libellés mutuellement exclusifs pour les tâches à libellé unique. Des libellés qui se recoupent se partagent la confiance.
+- Utilisez `multi_label: true` pour des étiquettes qui peuvent coexister, comme les domaines produit mentionnés dans un même message.
+- Utilisez des noms de libellés clairs et courts. Le code en aval les lit comme des valeurs.
+- Pour les décisions qui nécessitent des règles, des échelles ou des réponses par oui ou non sur une situation, utilisez plutôt [GLiDE](/fr/concepts/glide).
+
+<CardGroup cols={2}>
+  <Card title="Appeler GLiNER" icon="brackets-curly" href="/fr/inference/chat-completions">
+    Chaque type de schéma GLiNER et la façon de lire son résultat.
+  </Card>
+  <Card title="Référence de l'API Chat Completions" icon="code" href="/fr/api-reference/inference/chat-completions">
+    Chaque champ, limite et erreur de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

@@ -1,0 +1,134 @@
+---
+title: "实战示例：把关智能体的下一步操作"
+sidebarTitle: "把关智能体的下一步操作"
+description: "根据你的政策检查智能体的拟议操作，决定它是直接执行、先询问用户，还是继续查找。"
+---
+
+智能体在花钱或修改数据之前，应先根据你的规则检查这一步操作。将目标、拟议操作和政策放入 `state`，然后询问 GLiDE 智能体下一步该做什么。执行决策的是你的代码，而不是模型。
+
+## 请求
+
+```bash
+curl -X POST https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/GLiDE",
+  "state": {
+    "goal": "Book the cheapest flight to Lisbon next Friday",
+    "proposed_action": "Book TAP 1:05 PM for $212. The fare is non-refundable.",
+    "policy": "Confirm with the user before any non-refundable purchase over $100.",
+    "last_user_message": "just get it done, thanks!"
+  },
+  "questions": {
+    "next_step": {
+      "type": "choice",
+      "instructions": "What should the agent do next?",
+      "criteria": {
+        "confirm": "Check with the user before acting",
+        "book": "Book it now",
+        "search": "Keep searching for other options"
+      }
+    },
+    "reversible": {
+      "type": "noul",
+      "instructions": "Can the proposed action be undone after it runs?",
+      "criteria": {
+        "true": "It can be undone",
+        "false": "It cannot be undone"
+      }
+    }
+  }
+}'
+```
+
+## 请求 schema
+
+| 字段 | 类型 | 在本示例中 |
+| --- | --- | --- |
+| `model` | string | `fastino/GLiDE`。 |
+| `state.goal` | string | 用户要求智能体完成的事情。 |
+| `state.proposed_action` | string | 智能体即将执行的确切操作，以及相关的关键事实（价格、是否可退款）。 |
+| `state.policy` | string | 适用的规则。GLiDE 会将其与用户的消息进行权衡。 |
+| `state.last_user_message` | string | 用户最近说的话。 |
+| `questions.next_step` | [Choice](/cn/concepts/glide-choice) | 智能体可走的每个分支对应一个结果。 |
+| `questions.reversible` | [Noul](/cn/concepts/glide-noul) | 第二项独立检查，可以记录下来或与 `next_step` 结合使用。 |
+
+## 响应
+
+基于 `https://api.fastino.ai` 实测。置信度值在不同调用之间会略有差异。
+
+```json
+{
+  "model": "glide_v2",
+  "answers": {
+    "next_step": {
+      "type": "choice",
+      "choice": "confirm",
+      "confidence": 0.934,
+      "probabilities": {
+        "confirm": 0.964,
+        "book": 0.03,
+        "search": 0.005
+      }
+    },
+    "reversible": {
+      "type": "noul",
+      "noul": 0.028,
+      "confidence": 0.945
+    }
+  },
+  "usage": {
+    "input_tokens": 280,
+    "output_tokens": 0
+  }
+}
+```
+
+用户说了 "just get it done"，但政策要求对超过 \$100 的不可退款购买进行确认，因此 GLiDE 选择了 `confirm`。删除 `policy` 这一行后，同样的请求会返回 `book`。只要某条规则应当优先，就把它放进 `state`。
+
+## 响应 schema
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `answers.next_step.choice` | string | `confirm`、`book` 或 `search`。 |
+| `answers.next_step.confidence` | number | GLiDE 的确定程度，范围为 0 到 1。 |
+| `answers.next_step.probabilities` | object | 每个结果的概率。 |
+| `answers.reversible.noul` | number | 该操作可以撤销的概率。此处接近 0。 |
+
+## 根据答案执行操作
+
+```python
+answers = response.json()["answers"]
+step = answers["next_step"]
+reversible = answers["reversible"]["noul"] >= 0.5
+
+if step["choice"] == "book" and step["confidence"] >= 0.8 and reversible:
+    agent.run(proposed_action)
+elif step["choice"] == "search":
+    agent.keep_searching()
+else:
+    agent.ask_user(f"Before I go ahead: {proposed_action} OK?")
+```
+
+只有最安全的路径（询问用户）才是兜底选项。不确定或不可逆的答案永远不会自行执行。
+
+## 调整示例
+
+- 让每个 `criteria` 键对应智能体已经支持的一个分支，例如 `run`、`ask_user`、`escalate` 或 `abort`。
+- 准确引用政策文本。GLiDE 应用的是你提供的规则；除此之外它并不了解你的政策。
+- 在 `proposed_action` 中包含政策所依赖的事实（金额、收款方、是否可退款）。
+- 将最终检查保留在代码中。例如，无论答案如何，都绝不允许执行超出硬性上限的支出。
+
+<Warning>
+  将 GLiDE 用作决策支持，而不要将其作为不可逆或高影响操作的唯一保障。请使用代表性案例进行验证，并保留人工复核路径。
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="政策与安全指南" icon="shield-check" href="/cn/guides/glide-policy-safety">
+    设计在不确定时安全失败的关卡。
+  </Card>
+  <Card title="GLiDE API 参考" icon="code" href="/cn/api-reference/inference/systemone">
+    `POST /v1/systemone` 的所有字段、限制和错误。
+  </Card>
+</CardGroup>

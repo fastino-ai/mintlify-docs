@@ -1,0 +1,204 @@
+---
+title: "Receta: Extrae relaciones entre entidades"
+sidebarTitle: "Extrae relaciones"
+description: "Averigua quién trabaja dónde, qué se encuentra dónde y quién adquirió a quién, como pares de cabeza y cola, con GLiNER 2.5 Multilingual."
+---
+
+La extracción de relaciones convierte frases en hechos que puedes almacenar en un grafo o una tabla. Defines las etiquetas de entidad y los tipos de relación, y GLiNER devuelve cada relación como una entidad cabeza, una entidad cola y el tipo de relación.
+
+## Solicitud
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Lena Vogel works for Siemens in Munich. Siemens acquired Altair Engineering in 2025."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company or institution"
+      },
+      {
+        "name": "location",
+        "description": "city or country"
+      }
+    ],
+    "relations": {
+      "works_for": {
+        "description": "a person is employed by an organization"
+      },
+      "located_in": {
+        "description": "an organization or person is based in a place"
+      },
+      "acquired": {
+        "description": "one organization bought another"
+      }
+    }
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Esquema de la solicitud
+
+| Campo | Tipo | En esta receta |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Un mensaje `user` con el texto que se va a leer. |
+| `schema.entities` | array | Las etiquetas de entidad que conectan las relaciones. |
+| `schema.relations` | object | Una clave por tipo de relación. `description` indica qué significa la relación, incluida su dirección. |
+| `threshold` | number | Confianza mínima, de 0 a 1. Valor predeterminado: `0.5`. |
+| `store` | boolean | El valor predeterminado es `true`, que guarda la inferencia. `false` lo desactiva. |
+
+## Respuesta
+
+GLiNER devuelve el resultado como una cadena JSON en `choices[0].message.content`. Una vez analizado, tiene este aspecto. Medido contra `https://api.fastino.ai`; los valores de confianza varían ligeramente entre llamadas.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "Lena Vogel",
+        "confidence": 1.0,
+        "start": 0,
+        "end": 10
+      }
+    ],
+    "organization": [
+      {
+        "text": "Siemens",
+        "confidence": 0.996,
+        "start": 21,
+        "end": 28
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 40,
+        "end": 47
+      },
+      {
+        "text": "Altair Engineering",
+        "confidence": 0.973,
+        "start": 57,
+        "end": 75
+      }
+    ],
+    "location": [
+      {
+        "text": "Munich",
+        "confidence": 1.0,
+        "start": 32,
+        "end": 38
+      }
+    ]
+  },
+  "relation_extraction": {
+    "works_for": [
+      {
+        "head": {
+          "text": "Lena Vogel",
+          "start": 0,
+          "end": 10,
+          "confidence": 0.988
+        },
+        "tail": {
+          "text": "Siemens",
+          "start": 21,
+          "end": 28,
+          "confidence": 0.988
+        }
+      }
+    ],
+    "located_in": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.977
+        },
+        "tail": {
+          "text": "Munich",
+          "start": 32,
+          "end": 38,
+          "confidence": 0.977
+        }
+      }
+    ],
+    "acquired": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.938
+        },
+        "tail": {
+          "text": "Altair Engineering",
+          "start": 57,
+          "end": 75,
+          "confidence": 0.938
+        }
+      }
+    ]
+  }
+}
+```
+
+## Esquema de la respuesta
+
+| Campo | Tipo | Significado |
+| --- | --- | --- |
+| `relation_extraction` | object | Una clave por cada tipo de relación que definiste. |
+| `relation_extraction.<type>[].head` | object | La entidad de la que parte la relación, con `text`, `confidence`, `start` y `end`. |
+| `relation_extraction.<type>[].tail` | object | La entidad a la que apunta la relación, con los mismos campos. |
+
+Las relaciones se devuelven dentro de `relation_extraction`, no de `relations`.
+
+## Actúa según la respuesta
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+facts = [
+    (pair["head"]["text"], relation, pair["tail"]["text"])
+    for relation, pairs in result["relation_extraction"].items()
+    for pair in pairs
+    if min(pair["head"]["confidence"], pair["tail"]["confidence"]) >= 0.5
+]
+for head, relation, tail in facts:
+    graph.add_edge(head, tail, type=relation)
+```
+
+## Adáptala
+
+- Indica la dirección en cada descripción, como "a person is employed by an organization", para que las cabezas y las colas salgan en el sentido correcto.
+- Define etiquetas de entidad para cada tipo de elemento que conectan tus relaciones, de modo que las entidades aparezcan tipadas en los resultados.
+- Baja `threshold` mientras ajustas para ver las coincidencias cercanas y después filtra en el código según la confianza de la cabeza y la cola.
+- Guarda `start` y `end` con cada hecho para poder rastrearlo hasta su frase de origen.
+
+<CardGroup cols={2}>
+  <Card title="Llamar a GLiNER" icon="brackets-curly" href="/es/inference/chat-completions">
+    Todos los tipos de schema de GLiNER y cómo leer su resultado.
+  </Card>
+  <Card title="Referencia de la API de Chat Completions" icon="code" href="/es/api-reference/inference/chat-completions">
+    Todos los campos, límites y errores de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

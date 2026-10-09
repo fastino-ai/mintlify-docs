@@ -1,0 +1,119 @@
+---
+title: "Receta: Clasifica texto con tus propias etiquetas"
+sidebarTitle: "Clasifica texto"
+description: "Etiqueta texto con varias tareas de clasificación independientes en una sola llamada a GLiNER 2.5 Multilingual."
+---
+
+La clasificación asigna a cada texto una etiqueta por tarea, a partir de conjuntos de etiquetas que tú defines. Una solicitud puede ejecutar varias tareas a la vez, como tema y prioridad, y el texto puede estar en cualquier idioma compatible.
+
+## Solicitud
+
+El mensaje siguiente está en español. Las etiquetas se mantienen en inglés.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "La aplicación se cierra cada vez que intento pagar con tarjeta. Necesito una solución hoy."
+    }
+  ],
+  "schema": {
+    "classifications": [
+      {
+        "task": "topic",
+        "labels": [
+          "billing",
+          "bug",
+          "account",
+          "feature_request"
+        ],
+        "multi_label": false
+      },
+      {
+        "task": "priority",
+        "labels": [
+          "urgent",
+          "routine"
+        ],
+        "multi_label": false
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Esquema de la solicitud
+
+| Campo | Tipo | En esta receta |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Un mensaje `user` con el texto que se va a clasificar. |
+| `schema.classifications[].task` | string | El nombre que das a la tarea. Se convierte en una clave del resultado. |
+| `schema.classifications[].labels` | array | Las etiquetas entre las que elegir. |
+| `schema.classifications[].multi_label` | boolean | `false` devuelve exactamente una etiqueta por tarea. `true` puede devolver varias. |
+| `threshold` | number | Confianza mínima, de 0 a 1. Valor predeterminado: `0.5`. |
+| `store` | boolean | El valor predeterminado es `true`, que guarda la inferencia. `false` lo desactiva. |
+
+## Respuesta
+
+GLiNER devuelve el resultado como una cadena JSON en `choices[0].message.content`. Una vez analizado, tiene este aspecto. Medido contra `https://api.fastino.ai`; los valores de confianza varían ligeramente entre llamadas.
+
+```json
+{
+  "topic": {
+    "label": "bug",
+    "confidence": 0.844
+  },
+  "priority": {
+    "label": "urgent",
+    "confidence": 0.938
+  }
+}
+```
+
+## Esquema de la respuesta
+
+| Campo | Tipo | Significado |
+| --- | --- | --- |
+| `<task>` | object | Una clave por cada tarea que definiste. Aquí, `topic` y `priority`. |
+| `<task>.label` | string | La etiqueta ganadora de una tarea de etiqueta única. |
+| `<task>.confidence` | number | La confianza de esa etiqueta, de 0 a 1. |
+
+Las tareas se puntúan conjuntamente, así que añadir o quitar una tarea puede alterar ligeramente los valores de confianza de las demás.
+
+## Actúa según la respuesta
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+topic, priority = result["topic"], result["priority"]
+
+if topic["confidence"] < 0.6:
+    route_to("triage")  # let a person choose
+else:
+    route_to(topic["label"], urgent=priority["label"] == "urgent")
+```
+
+## Adáptala
+
+- Mantén las etiquetas mutuamente excluyentes en las tareas de etiqueta única. Las etiquetas que se solapan reparten la confianza.
+- Usa `multi_label: true` para etiquetas que pueden aparecer juntas, como las áreas de producto mencionadas en un mismo mensaje.
+- Usa nombres de etiqueta claros y cortos. El código posterior los lee como valores.
+- Para decisiones que requieren reglas, escalas o respuestas de sí o no sobre una situación, usa [GLiDE](/es/concepts/glide).
+
+<CardGroup cols={2}>
+  <Card title="Llamar a GLiNER" icon="brackets-curly" href="/es/inference/chat-completions">
+    Todos los tipos de schema de GLiNER y cómo leer su resultado.
+  </Card>
+  <Card title="Referencia de la API de Chat Completions" icon="code" href="/es/api-reference/inference/chat-completions">
+    Todos los campos, límites y errores de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

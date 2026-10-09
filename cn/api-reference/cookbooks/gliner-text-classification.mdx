@@ -1,0 +1,119 @@
+---
+title: "实战示例：使用自定义标签对文本分类"
+sidebarTitle: "文本分类"
+description: "在一次 GLiNER 2.5 Multilingual 调用中，用多个相互独立的分类任务为文本打标签。"
+---
+
+分类会根据你定义的标签集，为每段文本在每个任务中分配一个标签。一次请求可以同时运行多个任务（例如主题和优先级），文本可以使用任意受支持的语言。
+
+## 请求
+
+下面的消息是西班牙语，标签仍保持英文。
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "La aplicación se cierra cada vez que intento pagar con tarjeta. Necesito una solución hoy."
+    }
+  ],
+  "schema": {
+    "classifications": [
+      {
+        "task": "topic",
+        "labels": [
+          "billing",
+          "bug",
+          "account",
+          "feature_request"
+        ],
+        "multi_label": false
+      },
+      {
+        "task": "priority",
+        "labels": [
+          "urgent",
+          "routine"
+        ],
+        "multi_label": false
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## 请求 schema
+
+| 字段 | 类型 | 在本示例中 |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`。 |
+| `messages` | array | 一条包含待分类文本的 `user` 消息。 |
+| `schema.classifications[].task` | string | 你为该任务起的名称，它会成为结果中的键。 |
+| `schema.classifications[].labels` | array | 可供选择的标签。 |
+| `schema.classifications[].multi_label` | boolean | `false` 时每个任务只返回一个标签；`true` 时可返回多个。 |
+| `threshold` | number | 最低置信度，范围为 0 到 1。默认值为 `0.5`。 |
+| `store` | boolean | 默认为 `true`，即保存本次推理。设为 `false` 可选择不保存。 |
+
+## 响应
+
+GLiNER 以 JSON 字符串的形式在 `choices[0].message.content` 中返回结果。解析后如下所示。基于 `https://api.fastino.ai` 实测；置信度值在不同调用之间会略有差异。
+
+```json
+{
+  "topic": {
+    "label": "bug",
+    "confidence": 0.844
+  },
+  "priority": {
+    "label": "urgent",
+    "confidence": 0.938
+  }
+}
+```
+
+## 响应 schema
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `<task>` | object | 你定义的每个任务对应一个键。此处为 `topic` 和 `priority`。 |
+| `<task>.label` | string | 单标签任务中胜出的标签。 |
+| `<task>.confidence` | number | 该标签的置信度，范围为 0 到 1。 |
+
+所有任务会一起评分，因此增加或删除某个任务可能会使其他任务的置信度值略有变化。
+
+## 根据答案执行操作
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+topic, priority = result["topic"], result["priority"]
+
+if topic["confidence"] < 0.6:
+    route_to("triage")  # let a person choose
+else:
+    route_to(topic["label"], urgent=priority["label"] == "urgent")
+```
+
+## 调整示例
+
+- 对于单标签任务，请保持标签互斥。相互重叠的标签会分散置信度。
+- 对于可能同时出现的标签（例如一条消息中提到的多个产品领域），请使用 `multi_label: true`。
+- 使用清晰、简短的标签名称。下游代码会将它们作为值读取。
+- 如果决策需要规则、等级量表，或针对某种情况的是/否答案，请改用 [GLiDE](/cn/concepts/glide)。
+
+<CardGroup cols={2}>
+  <Card title="调用 GLiNER" icon="brackets-curly" href="/cn/inference/chat-completions">
+    所有 GLiNER schema 类型及其结果的读取方式。
+  </Card>
+  <Card title="Chat Completions API 参考" icon="code" href="/cn/api-reference/inference/chat-completions">
+    `POST /v1/chat/completions` 的所有字段、限制和错误。
+  </Card>
+</CardGroup>

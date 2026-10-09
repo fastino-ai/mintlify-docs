@@ -1,0 +1,157 @@
+---
+title: "Recette : Extraire des entités d'un texte multilingue"
+sidebarTitle: "Extraire des entités"
+description: "Extrayez les personnes, organisations, lieux et dates d'un texte dans n'importe quelle langue prise en charge avec GLiNER 2.5 Multilingual."
+---
+
+L'extraction d'entités est la charge de travail la plus courante de GLiNER 2.5 Multilingual. Vous nommez en anglais les libellés souhaités, envoyez un texte dans n'importe quelle langue prise en charge et récupérez chaque correspondance avec ses positions exactes en caractères. Aucun entraînement n'est nécessaire.
+
+## Requête
+
+Le texte ci-dessous est en allemand. Les libellés restent en anglais.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Dr. María Fernández, Finanzvorständin der Banco Santander, traf sich am 3. März 2026 in München mit Siemens, um den Liefervertrag zu unterzeichnen."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company, bank, or institution"
+      },
+      {
+        "name": "location",
+        "description": "city, region, or country"
+      },
+      {
+        "name": "date",
+        "description": "calendar date"
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Schéma de la requête
+
+| Champ | Type | Dans cette recette |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Un message `user` contenant le texte à analyser. |
+| `schema.entities` | array | Un objet par libellé. `name` est la clé dans le résultat ; `description` indique à GLiNER ce qui doit être retenu. |
+| `threshold` | number | Confiance minimale pour qu'une correspondance soit renvoyée, de 0 à 1. Valeur par défaut : `0.5`. |
+| `store` | boolean | Vaut `true` par défaut, ce qui enregistre l'inférence. `false` permet de s'y soustraire. |
+
+## Réponse
+
+GLiNER renvoie le résultat sous forme de chaîne JSON dans `choices[0].message.content`. Une fois analysé, il se présente ainsi. Mesuré sur `https://api.fastino.ai` ; les valeurs de confiance varient légèrement d'un appel à l'autre.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "María Fernández",
+        "confidence": 0.949,
+        "start": 4,
+        "end": 19
+      }
+    ],
+    "organization": [
+      {
+        "text": "Banco Santander",
+        "confidence": 0.996,
+        "start": 42,
+        "end": 57
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 100,
+        "end": 107
+      }
+    ],
+    "location": [
+      {
+        "text": "München",
+        "confidence": 1.0,
+        "start": 88,
+        "end": 95
+      }
+    ],
+    "date": [
+      {
+        "text": "3. März 2026",
+        "confidence": 0.996,
+        "start": 72,
+        "end": 84
+      }
+    ]
+  }
+}
+```
+
+## Schéma de la réponse
+
+| Champ | Type | Signification |
+| --- | --- | --- |
+| `entities` | object | Une clé par libellé demandé. |
+| `entities.<label>[].text` | string | Le texte trouvé, exactement tel qu'il figure dans l'entrée. |
+| `entities.<label>[].confidence` | number | Confiance de la correspondance, de 0 à 1. |
+| `entities.<label>[].start`, `end` | integer | Positions en caractères dans l'entrée, fin exclue. |
+
+## Exploiter la réponse
+
+```python
+import json
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/chat/completions",
+    headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+text = body["messages"][0]["content"]
+for label, matches in result["entities"].items():
+    for match in matches:
+        assert text[match["start"]:match["end"]] == match["text"]
+        print(f"{label:<12} {match['text']}  ({match['confidence']:.2f})")
+```
+
+Les positions renvoient à votre texte d'origine : vous pouvez donc surligner ou masquer les correspondances sur place.
+
+## L'adapter
+
+- Rédigez des descriptions qui distinguent les libellés proches, comme `company` et `government agency`. Un libellé vague comme `product` peut attirer des quasi-correspondances, par exemple des noms de contrats.
+- Augmentez `threshold` pour gagner en précision, ou diminuez-le pour gagner en rappel. Ajustez-le sur un échantillon annoté.
+- Gardez des noms de libellés stables. Le code en aval les lit comme des clés.
+- Besoin d'enregistrements fixes plutôt que de segments isolés ? Utilisez `schema.structures`.
+
+<CardGroup cols={2}>
+  <Card title="Appeler GLiNER" icon="brackets-curly" href="/fr/inference/chat-completions">
+    Chaque type de schéma GLiNER et la façon de lire son résultat.
+  </Card>
+  <Card title="Référence de l'API Chat Completions" icon="code" href="/fr/api-reference/inference/chat-completions">
+    Chaque champ, limite et erreur de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

@@ -1,0 +1,157 @@
+---
+title: "Receta: Extrae entidades de texto multilingüe"
+sidebarTitle: "Extrae entidades"
+description: "Extrae personas, organizaciones, lugares y fechas de texto en cualquier idioma compatible con GLiNER 2.5 Multilingual."
+---
+
+La extracción de entidades es la carga de trabajo más común de GLiNER 2.5 Multilingual. Nombras en inglés las etiquetas que quieres, envías texto en cualquier idioma compatible y recibes cada coincidencia con sus desplazamientos de caracteres exactos. No hace falta entrenamiento.
+
+## Solicitud
+
+El texto siguiente está en alemán. Las etiquetas se mantienen en inglés.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Dr. María Fernández, Finanzvorständin der Banco Santander, traf sich am 3. März 2026 in München mit Siemens, um den Liefervertrag zu unterzeichnen."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company, bank, or institution"
+      },
+      {
+        "name": "location",
+        "description": "city, region, or country"
+      },
+      {
+        "name": "date",
+        "description": "calendar date"
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Esquema de la solicitud
+
+| Campo | Tipo | En esta receta |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Un mensaje `user` con el texto que se va a leer. |
+| `schema.entities` | array | Un objeto por etiqueta. `name` es la clave en el resultado; `description` indica a GLiNER qué cuenta. |
+| `threshold` | number | Confianza mínima para que se devuelva una coincidencia, de 0 a 1. Valor predeterminado: `0.5`. |
+| `store` | boolean | El valor predeterminado es `true`, que guarda la inferencia. `false` lo desactiva. |
+
+## Respuesta
+
+GLiNER devuelve el resultado como una cadena JSON en `choices[0].message.content`. Una vez analizado, tiene este aspecto. Medido contra `https://api.fastino.ai`; los valores de confianza varían ligeramente entre llamadas.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "María Fernández",
+        "confidence": 0.949,
+        "start": 4,
+        "end": 19
+      }
+    ],
+    "organization": [
+      {
+        "text": "Banco Santander",
+        "confidence": 0.996,
+        "start": 42,
+        "end": 57
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 100,
+        "end": 107
+      }
+    ],
+    "location": [
+      {
+        "text": "München",
+        "confidence": 1.0,
+        "start": 88,
+        "end": 95
+      }
+    ],
+    "date": [
+      {
+        "text": "3. März 2026",
+        "confidence": 0.996,
+        "start": 72,
+        "end": 84
+      }
+    ]
+  }
+}
+```
+
+## Esquema de la respuesta
+
+| Campo | Tipo | Significado |
+| --- | --- | --- |
+| `entities` | object | Una clave por cada etiqueta que solicitaste. |
+| `entities.<label>[].text` | string | El texto coincidente, exactamente como aparece en la entrada. |
+| `entities.<label>[].confidence` | number | La confianza de la coincidencia, de 0 a 1. |
+| `entities.<label>[].start`, `end` | integer | Desplazamientos de caracteres en la entrada; `end` es exclusivo. |
+
+## Actúa según la respuesta
+
+```python
+import json
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/chat/completions",
+    headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+text = body["messages"][0]["content"]
+for label, matches in result["entities"].items():
+    for match in matches:
+        assert text[match["start"]:match["end"]] == match["text"]
+        print(f"{label:<12} {match['text']}  ({match['confidence']:.2f})")
+```
+
+Los desplazamientos apuntan a tu texto original, así que puedes resaltar o censurar las coincidencias en su sitio.
+
+## Adáptala
+
+- Escribe descripciones que distingan etiquetas parecidas, como `company` frente a `government agency`. Una etiqueta vaga como `product` puede captar coincidencias cercanas, como nombres de contratos.
+- Sube `threshold` para ganar precisión o bájalo para ganar exhaustividad. Ajústalo con una muestra etiquetada.
+- Mantén estables los nombres de las etiquetas. El código posterior los lee como claves.
+- ¿Necesitas que las etiquetas sean registros fijos en lugar de fragmentos sueltos? Usa `schema.structures`.
+
+<CardGroup cols={2}>
+  <Card title="Llamar a GLiNER" icon="brackets-curly" href="/es/inference/chat-completions">
+    Todos los tipos de schema de GLiNER y cómo leer su resultado.
+  </Card>
+  <Card title="Referencia de la API de Chat Completions" icon="code" href="/es/api-reference/inference/chat-completions">
+    Todos los campos, límites y errores de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

@@ -1,0 +1,157 @@
+---
+title: "实战示例：从多语言文本中提取实体"
+sidebarTitle: "提取实体"
+description: "使用 GLiNER 2.5 Multilingual，从任意受支持语言的文本中提取人名、组织、地点和日期。"
+---
+
+实体提取是 GLiNER 2.5 Multilingual 最常见的工作负载。你用英文命名想要的标签，发送任意受支持语言的文本，即可获得每个匹配项及其精确的字符偏移量。无需训练。
+
+## 请求
+
+下面的文本是德语，标签仍保持英文。
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Dr. María Fernández, Finanzvorständin der Banco Santander, traf sich am 3. März 2026 in München mit Siemens, um den Liefervertrag zu unterzeichnen."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company, bank, or institution"
+      },
+      {
+        "name": "location",
+        "description": "city, region, or country"
+      },
+      {
+        "name": "date",
+        "description": "calendar date"
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## 请求 schema
+
+| 字段 | 类型 | 在本示例中 |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`。 |
+| `messages` | array | 一条包含待读取文本的 `user` 消息。 |
+| `schema.entities` | array | 每个标签一个对象。`name` 是结果中的键；`description` 告诉 GLiNER 哪些内容算作该标签。 |
+| `threshold` | number | 返回匹配项所需的最低置信度，范围为 0 到 1。默认值为 `0.5`。 |
+| `store` | boolean | 默认为 `true`，即保存本次推理。设为 `false` 可选择不保存。 |
+
+## 响应
+
+GLiNER 以 JSON 字符串的形式在 `choices[0].message.content` 中返回结果。解析后如下所示。基于 `https://api.fastino.ai` 实测；置信度值在不同调用之间会略有差异。
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "María Fernández",
+        "confidence": 0.949,
+        "start": 4,
+        "end": 19
+      }
+    ],
+    "organization": [
+      {
+        "text": "Banco Santander",
+        "confidence": 0.996,
+        "start": 42,
+        "end": 57
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 100,
+        "end": 107
+      }
+    ],
+    "location": [
+      {
+        "text": "München",
+        "confidence": 1.0,
+        "start": 88,
+        "end": 95
+      }
+    ],
+    "date": [
+      {
+        "text": "3. März 2026",
+        "confidence": 0.996,
+        "start": 72,
+        "end": 84
+      }
+    ]
+  }
+}
+```
+
+## 响应 schema
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `entities` | object | 你请求的每个标签对应一个键。 |
+| `entities.<label>[].text` | string | 匹配的文本，与输入中的写法完全一致。 |
+| `entities.<label>[].confidence` | number | 该匹配项的置信度，范围为 0 到 1。 |
+| `entities.<label>[].start`, `end` | integer | 输入中的字符偏移量，不包含结束位置。 |
+
+## 根据答案执行操作
+
+```python
+import json
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/chat/completions",
+    headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+text = body["messages"][0]["content"]
+for label, matches in result["entities"].items():
+    for match in matches:
+        assert text[match["start"]:match["end"]] == match["text"]
+        print(f"{label:<12} {match['text']}  ({match['confidence']:.2f})")
+```
+
+偏移量指向你的原始文本，因此你可以就地高亮或脱敏匹配项。
+
+## 调整示例
+
+- 编写能够区分相似标签的描述，例如 `company` 与 `government agency`。像 `product` 这样含糊的标签可能会混入合同名称等近似匹配。
+- 提高 `threshold` 以提升精确率，或降低它以提升召回率。请在已标注样本上进行调整。
+- 保持标签名称稳定。下游代码会将它们作为键读取。
+- 需要将标签组织为固定记录而不是零散片段？请使用 `schema.structures`。
+
+<CardGroup cols={2}>
+  <Card title="调用 GLiNER" icon="brackets-curly" href="/cn/inference/chat-completions">
+    所有 GLiNER schema 类型及其结果的读取方式。
+  </Card>
+  <Card title="Chat Completions API 参考" icon="code" href="/cn/api-reference/inference/chat-completions">
+    `POST /v1/chat/completions` 的所有字段、限制和错误。
+  </Card>
+</CardGroup>
