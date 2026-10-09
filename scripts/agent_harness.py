@@ -83,7 +83,7 @@ JOURNEY_PAGES = (
     "api-reference/training-jobs/create.mdx",
     "api-reference/training/overview.mdx",
 )
-COOKBOOK_DIR = "api-reference/cookbooks"
+COOKBOOK_DIR = "cookbooks"
 COOKBOOK_ENDPOINTS = {
     "/v1/systemone": "X-API-Key: $FASTINO_API_KEY",
     "/v1/chat/completions": "Authorization: Bearer $FASTINO_API_KEY",
