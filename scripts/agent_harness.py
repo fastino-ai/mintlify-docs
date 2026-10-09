@@ -103,6 +103,7 @@ SDK_COOKBOOK_MARKERS = {
     "rl-verifiable-rewards.mdx": (
         "https://api.fastino.ai/tinker",
         "TINKER_API_KEY",
+        "tinker-cookbook[math-rl]",
         "get_reward",
         "importance_sampling",
         "save_state",
@@ -118,12 +119,14 @@ SDK_COOKBOOK_MARKERS = {
 RL_CONTRACT_MARKERS = {
     "rl-api.mdx": (
         "tinker==0.32.0",
+        "limited access",
         "/rl-api/migrate-from-tinker",
         "/rl-api/compatibility",
     ),
     "rl-api/quickstart.mdx": (
         "https://api.fastino.ai/tinker",
         "TINKER_API_KEY",
+        "tinker-cookbook[math-rl]",
         "get_server_capabilities",
         'close("success").result()',
     ),

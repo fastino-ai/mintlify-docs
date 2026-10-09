@@ -17,6 +17,8 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
 - For reinforcement learning and custom post-training, use the
   [RL API](https://docs.fastino.ai/rl-api) and the documented `tinker` Python
   SDK contract. RL API routes are intentionally absent from Fastino's OpenAPI.
+- The RL API is a limited-access preview. Do not assume that a team has access;
+  verify capabilities before planning or running a workload.
 
 ## API conventions
 
