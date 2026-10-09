@@ -47,8 +47,10 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   `TINKER_BASE_URL=https://api.fastino.ai/tinker` and a
   `TINKER_API_KEY=tml-fast_sk_...` credential.
 - Do not invent routes, model IDs, request fields, or response fields.
-- If an operation is absent from the public OpenAPI specification and the RL
-  API [SDK compatibility](https://docs.fastino.ai/rl-api/compatibility)
-  reference, treat it as unsupported for customer integrations. Use
+- For RL workloads, use Fastino's
+  [Tinker compatibility](https://docs.fastino.ai/rl-api/compatibility) page
+  for Fastino-specific support boundaries. The pinned `tinker==0.32.0` package
+  defines method signatures; an explicitly unsupported item on Fastino's page
+  overrides its availability in the client package. Use
   [runtime behavior and errors](https://docs.fastino.ai/rl-api/runtime) for
   lifecycle, retry, limit, billing, and error behavior.

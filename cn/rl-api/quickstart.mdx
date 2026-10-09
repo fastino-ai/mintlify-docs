@@ -11,46 +11,88 @@ description: "验证 RL API 访问权限，并运行一个小型强化学习任�
   功能检查为只读操作。训练命令会提交计费的采样和训练操作，并存储检查点。
 </Warning>
 
-## 前提条件
+## 1. 设置 API 密钥
 
-你需要 Python 3.11 或更高版本、Fastino API 密钥，并且你的团队已启用 RL API
-访问权限。
+1. **创建 [Fastino](https://agent.fastino.ai/) 账户**
+2. 从[设置](https://agent.fastino.ai/api-keys)中**获取 API 密钥**
 
-在 [agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys)
-创建密钥。Fastino 密钥以 `fast_sk_` 开头。
-
-## 1. 创建 Python 环境
+将密钥设为环境变量，以便直接运行下面的示例：
 
 <CodeGroup>
 
-```bash uv
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "your_api_key_here"
+```
+
+</CodeGroup>
+
+Fastino 密钥以 `fast_sk_` 开头。你的团队还必须已启用 RL API 访问权限。安装
+Tinker SDK 并不代表你已获得访问权限。
+
+## 2. 创建 Python 环境
+
+你需要 Python 3.11 或更高版本。
+
+<CodeGroup>
+
+```bash uv · macOS/Linux
 uv init fastino-rl
 cd fastino-rl
 uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+source .venv/bin/activate
 ```
 
-```bash pip
+```powershell uv · Windows
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash pip · macOS/Linux
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
 pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
 ```
 
+```powershell pip · Windows
+mkdir fastino-rl
+cd fastino-rl
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+```
+
 </CodeGroup>
 
-## 2. 配置客户端
+## 3. 配置 Tinker 客户端
 
-设置 RL API 端点，并按 Tinker SDK 所需的凭据格式封装 Fastino 密钥：
+将 Tinker SDK 指向 Fastino，并派生出该 SDK 所需的环境变量：
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
+<CodeGroup>
+
+```bash macOS/Linux
 export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
 export TINKER_BASE_URL="https://api.fastino.ai/tinker"
 ```
 
-不要将任何一个密钥提交到源代码控制系统。`tml-` 前缀是 SDK 兼容性前缀。用于验证请求的凭据仍是你的 Fastino 密钥。
+```powershell Windows
+$env:TINKER_API_KEY = "tml-$env:FASTINO_API_KEY"
+$env:TINKER_BASE_URL = "https://api.fastino.ai/tinker"
+```
 
-## 3. 验证访问权限
+</CodeGroup>
+
+不要创建第二个密钥。`TINKER_API_KEY` 是 Tinker SDK 使用的环境变量名，`tml-`
+则是该 SDK 所需的兼容性前缀。真正用于验证请求的凭据仍是你的 Fastino 密钥。
+不要将其提交到源代码控制系统。
+
+## 4. 验证访问权限
 
 创建 `check_rl_api.py`：
 
@@ -58,12 +100,25 @@ export TINKER_BASE_URL="https://api.fastino.ai/tinker"
 import tinker
 
 
+TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
 client = tinker.ServiceClient()
 try:
     capabilities = client.get_server_capabilities()
-    for model in capabilities.supported_models:
-        print(model.model_name)
-finally:
+    model_names = {model.model_name for model in capabilities.supported_models}
+    if TUTORIAL_MODEL not in model_names:
+        available = ", ".join(sorted(model_names)) or "none"
+        raise RuntimeError(
+            f"{TUTORIAL_MODEL} is not available; available models: {available}. "
+            "Stop before billable work and ask Fastino about tutorial-model access."
+        )
+    print(f"Ready to use {TUTORIAL_MODEL}")
+except KeyboardInterrupt:
+    client.close("interrupted").result()
+    raise
+except Exception:
+    client.close("errored").result()
+    raise
+else:
     client.close("success").result()
 ```
 
@@ -73,18 +128,20 @@ finally:
 python check_rl_api.py
 ```
 
-成功响应会输出你的团队当前可用的模型。选择模型时，请以此功能响应为准。
+成功响应会确认下文所用模型目前可供你的团队使用。选择模型时，请以功能响应为准。
 
 如果调用返回 `404 Not Found`，请确认基础 URL 以 `/tinker` 结尾。如果确实如此，请联系 Fastino 为你的团队启用 RL API 访问权限。
 
-## 4. 运行两个 RL 步骤
+## 5. 运行两个 RL 步骤
 
 安装的软件包包含一个最简 GRPO 风格循环。它会为每个 GSM8K
 问题采样多个答案，对方框中的数值答案评分，在每组内对奖励进行中心化处理，并执行重要性采样更新。
 
 先运行一个刻意缩小的任务：
 
-```bash
+<CodeGroup>
+
+```bash macOS/Linux
 python -m tinker_cookbook.recipes.rl_loop \
   base_url=https://api.fastino.ai/tinker \
   model_name=Qwen/Qwen3.6-35B-A3B \
@@ -95,6 +152,19 @@ python -m tinker_cookbook.recipes.rl_loop \
   log_path=./runs/first-fastino-rl
 ```
 
+```powershell Windows
+python -m tinker_cookbook.recipes.rl_loop `
+  base_url=https://api.fastino.ai/tinker `
+  model_name=Qwen/Qwen3.6-35B-A3B `
+  batch_size=4 `
+  group_size=4 `
+  max_steps=2 `
+  save_every=1 `
+  log_path=./runs/first-fastino-rl
+```
+
+</CodeGroup>
+
 首次运行会下载 GSM8K 数据集和 tokenizer。执行期间，该示例会报告采样进度、
 奖励指标和优化器指标。最后，它会保存最终状态检查点，并将本地运行元数据保存到
 所选的 `log_path` 下。
@@ -104,7 +174,7 @@ python -m tinker_cookbook.recipes.rl_loop \
   契约支持该模型。在未先检查功能响应的情况下，请勿复制其他 Tinker 环境中的模型名称。
 </Note>
 
-## 5. 确认学习工作确实发生
+## 6. 确认学习工作确实发生
 
 检查命令输出中是否出现以下三个信号：
 
@@ -114,7 +184,7 @@ python -m tinker_cookbook.recipes.rl_loop \
 
 两个步骤的奖励没有变化并不代表失败。这个小型运行验证的是端到端链路，而不是模型收敛。
 
-## 6. 在自己的代码中关闭客户端
+## 7. 在自己的代码中关闭客户端
 
 该示例会自行处理进程生命周期。在长时间运行的应用中，请在运行结束时关闭每个
 `ServiceClient`：
@@ -124,6 +194,9 @@ service_client.close("success").result()
 ```
 
 关闭客户端会结束其会话并释放活跃的训练运行。已保存的检查点仍会按照其保留设置继续可用。
+
+仅在运行完成后使用 `success`。如果异常继续向外抛出，请使用 `errored`；如果运行被取消
+或关闭，请使用 `interrupted`。
 
 ## 后续步骤
 

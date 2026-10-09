@@ -68,7 +68,7 @@ REQUIRED_DISCOVERY_LINKS = {
     "verifiable rewards": "/rl-api/verifiable-rewards.md",
     "RL checkpoint resume": "/rl-api/checkpoint-and-resume.md",
     "RL training loop": "/rl-api/training-loop.md",
-    "RL API compatibility": "/rl-api/compatibility.md",
+    "Tinker compatibility": "/rl-api/compatibility.md",
     "RL API runtime": "/rl-api/runtime.md",
     "errors": "/troubleshooting/errors.md",
     "retries": "/troubleshooting/retries.md",

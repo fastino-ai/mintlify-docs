@@ -12,49 +12,89 @@ and runs two small reinforcement-learning steps on GSM8K.
   sampling and training operations and stores a checkpoint.
 </Warning>
 
-## Prerequisites
+## 1. Set up your API key
 
-You need Python 3.11 or later, a Fastino API key, and RL API access enabled for
-your team.
+1. **Create a [Fastino](https://agent.fastino.ai/) account**
+2. **Get your API key** from [Settings](https://agent.fastino.ai/api-keys)
 
-Create a key at [agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys).
-Fastino keys begin with `fast_sk_`.
-
-## 1. Create a Python environment
+Set your key as an environment variable so the examples below work as-is:
 
 <CodeGroup>
 
-```bash uv
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "your_api_key_here"
+```
+
+</CodeGroup>
+
+Fastino keys begin with `fast_sk_`. Your team must also have RL API access
+enabled. Installing the Tinker SDK does not grant access.
+
+## 2. Create a Python environment
+
+You need Python 3.11 or later.
+
+<CodeGroup>
+
+```bash uv · macOS/Linux
 uv init fastino-rl
 cd fastino-rl
 uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+source .venv/bin/activate
 ```
 
-```bash pip
+```powershell uv · Windows
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash pip · macOS/Linux
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
 pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
 ```
 
+```powershell pip · Windows
+mkdir fastino-rl
+cd fastino-rl
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+```
+
 </CodeGroup>
 
-## 2. Configure the client
+## 3. Configure the Tinker client
 
-Set the RL API endpoint and wrap your Fastino key in the credential format
-expected by the Tinker SDK:
+Point the Tinker SDK at Fastino and derive the environment variable it expects:
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
+<CodeGroup>
+
+```bash macOS/Linux
 export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
 export TINKER_BASE_URL="https://api.fastino.ai/tinker"
 ```
 
-Do not commit either key to source control. The `tml-` prefix is an SDK
-compatibility prefix. Your Fastino key remains the credential that authenticates
-the request.
+```powershell Windows
+$env:TINKER_API_KEY = "tml-$env:FASTINO_API_KEY"
+$env:TINKER_BASE_URL = "https://api.fastino.ai/tinker"
+```
 
-## 3. Verify access
+</CodeGroup>
+
+Do not create a second key. `TINKER_API_KEY` is the Tinker SDK's
+environment-variable name, and `tml-` is the compatibility prefix it expects.
+Your Fastino key remains the credential that authenticates the request. Do not
+commit it to source control.
+
+## 4. Verify access
 
 Create `check_rl_api.py`:
 
@@ -62,12 +102,25 @@ Create `check_rl_api.py`:
 import tinker
 
 
+TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
 client = tinker.ServiceClient()
 try:
     capabilities = client.get_server_capabilities()
-    for model in capabilities.supported_models:
-        print(model.model_name)
-finally:
+    model_names = {model.model_name for model in capabilities.supported_models}
+    if TUTORIAL_MODEL not in model_names:
+        available = ", ".join(sorted(model_names)) or "none"
+        raise RuntimeError(
+            f"{TUTORIAL_MODEL} is not available; available models: {available}. "
+            "Stop before billable work and ask Fastino about tutorial-model access."
+        )
+    print(f"Ready to use {TUTORIAL_MODEL}")
+except KeyboardInterrupt:
+    client.close("interrupted").result()
+    raise
+except Exception:
+    client.close("errored").result()
+    raise
+else:
     client.close("success").result()
 ```
 
@@ -77,13 +130,14 @@ Run it:
 python check_rl_api.py
 ```
 
-A successful response prints the models currently available to your team. Use
-this capability response as the source of truth when choosing a model.
+A successful response confirms that the model used below is currently available
+to your team. Use the capability response as the source of truth when choosing
+a model.
 
 If the call returns `404 Not Found`, confirm that the base URL ends in
 `/tinker`. If it does, ask Fastino to enable RL API access for your team.
 
-## 4. Run two RL steps
+## 5. Run two RL steps
 
 The installed package includes a minimal GRPO-style loop. It samples several
 answers for each GSM8K problem, grades the boxed numeric answer, centers rewards
@@ -91,7 +145,9 @@ within each group, and applies an importance-sampling update.
 
 Run a deliberately small job first:
 
-```bash
+<CodeGroup>
+
+```bash macOS/Linux
 python -m tinker_cookbook.recipes.rl_loop \
   base_url=https://api.fastino.ai/tinker \
   model_name=Qwen/Qwen3.6-35B-A3B \
@@ -101,6 +157,19 @@ python -m tinker_cookbook.recipes.rl_loop \
   save_every=1 \
   log_path=./runs/first-fastino-rl
 ```
+
+```powershell Windows
+python -m tinker_cookbook.recipes.rl_loop `
+  base_url=https://api.fastino.ai/tinker `
+  model_name=Qwen/Qwen3.6-35B-A3B `
+  batch_size=4 `
+  group_size=4 `
+  max_steps=2 `
+  save_every=1 `
+  log_path=./runs/first-fastino-rl
+```
+
+</CodeGroup>
 
 The first run downloads the GSM8K dataset and tokenizer. During execution, the
 recipe reports sampling progress, reward metrics, and optimizer metrics. At
@@ -113,7 +182,7 @@ chosen `log_path`.
   without checking the capability response first.
 </Note>
 
-## 5. Confirm that learning work happened
+## 6. Confirm that learning work happened
 
 Check the command output for all three signals:
 
@@ -124,7 +193,7 @@ Check the command output for all three signals:
 A flat reward over two steps is not a failure. This small run verifies the
 end-to-end path, not model convergence.
 
-## 6. Close clients in your own code
+## 7. Close clients in your own code
 
 The recipe handles its process lifecycle. In long-running applications, close
 each `ServiceClient` when the run is finished:
@@ -135,6 +204,9 @@ service_client.close("success").result()
 
 Closing the client ends its session and releases active training runs. Saved
 checkpoints remain available according to their retention settings.
+
+Use `success` only after a completed run. Close with `errored` when an exception
+escapes, and with `interrupted` after cancellation or shutdown.
 
 ## Next steps
 

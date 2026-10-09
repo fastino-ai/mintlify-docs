@@ -13,50 +13,92 @@ equipo y ejecuta dos pasos pequeños de aprendizaje por refuerzo en GSM8K.
   punto de control.
 </Warning>
 
-## Requisitos previos
+## 1. Configura tu clave de API
 
-Necesitas Python 3.11 o posterior, una clave de API de Fastino y acceso a la API
-de RL habilitado para tu equipo.
+1. **Crea una cuenta de [Fastino](https://agent.fastino.ai/)**
+2. **Obtén tu clave de API** en [Configuración](https://agent.fastino.ai/api-keys)
 
-Crea una clave en
-[agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys). Las claves de
-Fastino comienzan por `fast_sk_`.
-
-## 1. Crea un entorno de Python
+Configura la clave como variable de entorno para poder ejecutar los ejemplos
+sin modificarlos:
 
 <CodeGroup>
 
-```bash uv
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "your_api_key_here"
+```
+
+</CodeGroup>
+
+Las claves de Fastino comienzan por `fast_sk_`. Tu equipo también debe tener
+habilitado el acceso a la API de RL. Instalar el SDK de Tinker no concede
+acceso.
+
+## 2. Crea un entorno de Python
+
+Necesitas Python 3.11 o posterior.
+
+<CodeGroup>
+
+```bash uv · macOS/Linux
 uv init fastino-rl
 cd fastino-rl
 uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+source .venv/bin/activate
 ```
 
-```bash pip
+```powershell uv · Windows
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash pip · macOS/Linux
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
 pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
 ```
 
+```powershell pip · Windows
+mkdir fastino-rl
+cd fastino-rl
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+```
+
 </CodeGroup>
 
-## 2. Configura el cliente
+## 3. Configura el cliente de Tinker
 
-Configura el endpoint de la API de RL y encapsula tu clave de Fastino en el
-formato de credencial que espera el SDK de Tinker:
+Conecta el SDK de Tinker con Fastino y deriva la variable de entorno que el SDK
+espera:
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
+<CodeGroup>
+
+```bash macOS/Linux
 export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
 export TINKER_BASE_URL="https://api.fastino.ai/tinker"
 ```
 
-No confirmes ninguna de las claves en el control de versiones. El prefijo
-`tml-` es un prefijo de compatibilidad del SDK. Tu clave de Fastino sigue siendo
-la credencial que autentica la solicitud.
+```powershell Windows
+$env:TINKER_API_KEY = "tml-$env:FASTINO_API_KEY"
+$env:TINKER_BASE_URL = "https://api.fastino.ai/tinker"
+```
 
-## 3. Verifica el acceso
+</CodeGroup>
+
+No crees una segunda clave. `TINKER_API_KEY` es el nombre de la variable de
+entorno del SDK de Tinker y `tml-` es el prefijo de compatibilidad que espera.
+Tu clave de Fastino sigue siendo la credencial que autentica la solicitud. No la
+incluyas en el control de versiones.
+
+## 4. Verifica el acceso
 
 Crea `check_rl_api.py`:
 
@@ -64,12 +106,25 @@ Crea `check_rl_api.py`:
 import tinker
 
 
+TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
 client = tinker.ServiceClient()
 try:
     capabilities = client.get_server_capabilities()
-    for model in capabilities.supported_models:
-        print(model.model_name)
-finally:
+    model_names = {model.model_name for model in capabilities.supported_models}
+    if TUTORIAL_MODEL not in model_names:
+        available = ", ".join(sorted(model_names)) or "none"
+        raise RuntimeError(
+            f"{TUTORIAL_MODEL} is not available; available models: {available}. "
+            "Stop before billable work and ask Fastino about tutorial-model access."
+        )
+    print(f"Ready to use {TUTORIAL_MODEL}")
+except KeyboardInterrupt:
+    client.close("interrupted").result()
+    raise
+except Exception:
+    client.close("errored").result()
+    raise
+else:
     client.close("success").result()
 ```
 
@@ -79,15 +134,15 @@ Ejecútalo:
 python check_rl_api.py
 ```
 
-Una respuesta correcta muestra los modelos disponibles actualmente para tu
-equipo. Usa esta respuesta de capacidades como fuente de verdad al elegir un
-modelo.
+Una respuesta correcta confirma que el modelo utilizado a continuación está
+disponible para tu equipo. Usa la respuesta de capacidades como fuente de
+verdad al elegir un modelo.
 
 Si la llamada devuelve `404 Not Found`, confirma que la URL base termina en
 `/tinker`. Si es así, solicita a Fastino que habilite el acceso a la API de RL
 para tu equipo.
 
-## 4. Ejecuta dos pasos de RL
+## 5. Ejecuta dos pasos de RL
 
 El paquete instalado incluye un bucle mínimo de estilo GRPO. Muestrea varias
 respuestas para cada problema de GSM8K, evalúa la respuesta numérica enmarcada,
@@ -96,7 +151,9 @@ muestreo por importancia.
 
 Ejecuta primero un trabajo deliberadamente pequeño:
 
-```bash
+<CodeGroup>
+
+```bash macOS/Linux
 python -m tinker_cookbook.recipes.rl_loop \
   base_url=https://api.fastino.ai/tinker \
   model_name=Qwen/Qwen3.6-35B-A3B \
@@ -106,6 +163,19 @@ python -m tinker_cookbook.recipes.rl_loop \
   save_every=1 \
   log_path=./runs/first-fastino-rl
 ```
+
+```powershell Windows
+python -m tinker_cookbook.recipes.rl_loop `
+  base_url=https://api.fastino.ai/tinker `
+  model_name=Qwen/Qwen3.6-35B-A3B `
+  batch_size=4 `
+  group_size=4 `
+  max_steps=2 `
+  save_every=1 `
+  log_path=./runs/first-fastino-rl
+```
+
+</CodeGroup>
 
 La primera ejecución descarga el conjunto de datos GSM8K y el tokenizador.
 Durante la ejecución, el recetario informa del progreso del muestreo, las
@@ -119,7 +189,7 @@ de control del estado final y los metadatos locales de la ejecución en el
   sin comprobar primero la respuesta de capacidades.
 </Note>
 
-## 5. Confirma que se realizó el trabajo de aprendizaje
+## 6. Confirma que se realizó el trabajo de aprendizaje
 
 Comprueba que la salida del comando contenga estas tres señales:
 
@@ -130,7 +200,7 @@ Comprueba que la salida del comando contenga estas tres señales:
 Una recompensa constante durante dos pasos no es un error. Esta ejecución
 pequeña verifica la ruta completa, no la convergencia del modelo.
 
-## 6. Cierra los clientes en tu propio código
+## 7. Cierra los clientes en tu propio código
 
 El recetario gestiona el ciclo de vida de su proceso. En aplicaciones de larga
 duración, cierra cada `ServiceClient` cuando finalice la ejecución:
@@ -142,6 +212,10 @@ service_client.close("success").result()
 Cerrar el cliente finaliza su sesión y libera las ejecuciones de entrenamiento
 activas. Los puntos de control guardados siguen disponibles de acuerdo con su
 configuración de retención.
+
+Usa `success` solo después de una ejecución completada. Cierra con `errored`
+cuando una excepción se propague y con `interrupted` después de una cancelación
+o un cierre.
 
 ## Siguientes pasos
 
