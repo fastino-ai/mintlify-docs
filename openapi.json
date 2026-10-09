@@ -660,7 +660,7 @@
                 "type": "null"
               }
             ],
-            "description": "Effective upper-bound USD list price per million input tokens served from the provider's prompt cache (Anthropic cache_read_input_tokens, Bedrock cacheReadInputTokens, OpenAI prompt_tokens_details.cached_tokens). Always the rate BillableEvent.record actually charges: when a provider does not differentiate cache-read pricing this equals ``input_price_per_million`` rather than ``None``, so customers compute ``cache_read_tokens × cache_read_price`` without special-casing. ``None`` only when the model has no pricing at all (cache reads are still tracked for analytics).",
+            "description": "Effective upper-bound USD list price per million input tokens served from the provider's prompt cache (Anthropic cache_read_input_tokens, Bedrock cacheReadInputTokens, OpenAI prompt_tokens_details.cached_tokens). Always the rate BillableEvent.record actually charges: when a provider does not differentiate cache-read pricing this equals ``input_price_per_million`` rather than ``None``, so customers compute ``cache_read_tokens \u00d7 cache_read_price`` without special-casing. ``None`` only when the model has no pricing at all (cache reads are still tracked for analytics).",
             "title": "Cache Read Price Per Million"
           },
           "cache_write_price_per_million": {
@@ -2901,7 +2901,7 @@
         "type": "object"
       },
       "FastinoExtension": {
-        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, …); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
+        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
         "properties": {
           "inference_id": {
             "anyOf": [
@@ -4910,6 +4910,14 @@
             "title": "Base Model",
             "type": "string"
           },
+          "type": {
+            "description": "Training-job mode. Use config when Fastino runs the training loop.",
+            "enum": [
+              "config"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
           "batch_size": {
             "default": 4,
             "description": "Training batch size (1 to 256). Prefer omitting this field so the training service applies the catalog default for ``base_model``. GLiNER encoder batches that do not fit the training GPU are reduced to the largest that fits. For decoder models, explicit values equal to this Field default (4) that exceed the model's safe maximum are treated as legacy unset clients and clamped to the catalog default; any other oversize value is rejected.",
@@ -5197,7 +5205,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Requests must pin provider_name to 'modal'; Fireworks and other unsupported architectures reject this field. When omitted, encoder and decoder jobs share the same trainer default (3407). Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 - treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
+            "description": "Optional reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Requests must pin provider_name to 'modal'; Fireworks and other unsupported architectures reject this field. When omitted, encoder and decoder jobs share the same trainer default (3407). Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38\u20130.63 - treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
           },
           "system_prompt": {
@@ -5368,6 +5376,15 @@
           },
           "base_model": {
             "title": "Base Model",
+            "type": "string"
+          },
+          "type": {
+            "description": "Training-job mode.",
+            "enum": [
+              "config",
+              "interactive"
+            ],
+            "title": "Type",
             "type": "string"
           },
           "batch_size": {
@@ -5735,7 +5752,7 @@
                 "type": "null"
               }
             ],
-            "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded (ENG-6970): its seed is unknown, not reconstructed from the default the migration backfilled. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 - treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
+            "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded (ENG-6970): its seed is unknown, not reconstructed from the default the migration backfilled. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38\u20130.63 - treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
           },
           "started_at": {
@@ -5832,7 +5849,7 @@
       },
       "TrainingJobUpdate": {
         "additionalProperties": false,
-        "description": "Thin PATCH body for ``PATCH /v1/training-jobs/{job_id}``.\n\nExposes only ``project_id``. Send ``null`` to unassign the training job\nfrom its current project. Unknown fields are rejected with HTTP 422.\n\nMovement semantics: this endpoint moves only the ``training_jobs.project_id``\nlabel. It does NOT cascade ``project_id`` updates to dependent rows\n(``deployments``, ``inferences``, ``project_evaluation_runs``) which each carry\ntheir own ``project_id``. Those records remain attached to their original\nproject. Callers needing aggregate-model movement must update the\ndependents explicitly.",
+        "description": "Thin PATCH body for ``PATCH /v1/training/jobs/{job_id}``.\n\nExposes only ``project_id``. Send ``null`` to unassign the training job\nfrom its current project. Unknown fields are rejected with HTTP 422.\n\nMovement semantics: this endpoint moves only the ``training_jobs.project_id``\nlabel. It does NOT cascade ``project_id`` updates to dependent rows\n(``deployments``, ``inferences``, ``project_evaluation_runs``) which each carry\ntheir own ``project_id``. Those records remain attached to their original\nproject. Callers needing aggregate-model movement must update the\ndependents explicitly.",
         "properties": {
           "project_id": {
             "anyOf": [
@@ -6266,7 +6283,7 @@
                     "x_fastino": {
                       "anyOf": [
                         {
-                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, …); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
+                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, \u2026); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
                           "properties": {
                             "inference_id": {
                               "anyOf": [
@@ -6375,7 +6392,7 @@
             }
           },
           {
-            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training/jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -6391,7 +6408,7 @@
                 }
               ],
               "default": 200,
-              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training/jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
               "title": "Limit"
             }
           },
@@ -7359,7 +7376,7 @@
         ]
       }
     },
-    "/v1/training-jobs": {
+    "/v1/training/jobs": {
       "get": {
         "description": "List training jobs for the authenticated user.\n\nSupports pagination via ``limit`` and ``offset`` query parameters.\nOptionally filter by status (requested, running, complete, deployed, errored).",
         "operationId": "list_training_jobs_v1_training_jobs_get",
@@ -7378,6 +7395,44 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "description": "Filter by training-job mode.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "config",
+                    "interactive"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "description": "Filter by base-model ID.",
+            "in": "query",
+            "name": "base_model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Base Model"
             }
           },
           {
@@ -7513,48 +7568,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}": {
-      "delete": {
-        "description": "Delete a training job and associated checkpoints.",
-        "operationId": "delete_training_job_v1_training_jobs__job_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteTrainingJobResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Training Job",
-        "tags": [
-          "training-jobs"
-        ]
-      },
+    "/v1/training/jobs/{job_id}": {
       "get": {
         "description": "Get a training job by ID if it is visible to the caller's team.\n\nRead visibility matches the other ``training-jobs/{job_id}`` read routes\nthat already use ``_get_visible_job`` (logs, checkpoints, download): a\njob on a team-visible project, or a project-less shared job, is\nreturned even when the caller is not the creator. Mutating routes keep\ntheir own owner-scoped service calls.",
         "operationId": "get_training_job_v1_training_jobs__job_id__get",
@@ -7595,60 +7609,9 @@
         "tags": [
           "training-jobs"
         ]
-      },
-      "patch": {
-        "description": "Patch a training job. Currently exposes only ``project_id``.\n\nDelegates to :func:`services.projects.movement.assign_resource_to_project`\nwhich owns the visibility check, target-project gating, and the\nservice-role ``UPDATE``. Send ``project_id: null`` to unassign the job\nfrom its project.\n\nMovement is **label-only**: only ``training_jobs.project_id`` changes.\nDependent rows that carry their own ``project_id`` (``deployments``,\n``inferences``, ``project_evaluation_runs``) are intentionally not cascaded.\nCallers needing aggregate-model movement must update dependents\nexplicitly.",
-        "operationId": "update_training_job_v1_training_jobs__job_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TrainingJobUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateResourceProjectResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Training Job",
-        "tags": [
-          "training-jobs"
-        ]
       }
     },
-    "/v1/training-jobs/{job_id}/billing": {
+    "/v1/training/jobs/{job_id}/billing": {
       "get": {
         "description": "Get the billing outcome for a specific training job, by job ID.\n\nCloses the API gap in ENG-6131: reports whether a job was billed and,\nif so, for how much and how long, so a billing-correctness fix like\nENG-6068 can be verified live without direct database access. Read\nvisibility matches ``get_training_job`` and the other\n``training-jobs/{job_id}`` read routes.",
         "operationId": "get_training_job_billing_v1_training_jobs__job_id__billing_get",
@@ -7691,7 +7654,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/checkpoints": {
+    "/v1/training/jobs/{job_id}/checkpoints": {
       "get": {
         "description": "List all checkpoints for a training job visible to the caller's team.",
         "operationId": "list_training_job_checkpoints_v1_training_jobs__job_id__checkpoints_get",
@@ -7734,59 +7697,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy": {
-      "post": {
-        "description": "Deploy a specific checkpoint to its provider inference location.",
-        "operationId": "deploy_checkpoint",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "checkpoint_id",
-            "required": true,
-            "schema": {
-              "title": "Checkpoint Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeployCheckpointResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Deploy Checkpoint To Mme",
-        "tags": [
-          "training-jobs"
-        ]
-      }
-    },
-    "/v1/training-jobs/{job_id}/deployments": {
+    "/v1/training/jobs/{job_id}/deployments": {
       "get": {
         "description": "Deprecated. Returns deployments that reference the given training job.\n\nArgs:\n    job_id: Training job ID.\n    auth: Authenticated user.\n\nReturns:\n    DeploymentHistoryResponse with deprecation headers.",
         "operationId": "get_training_job_deployments_v1_training_jobs__job_id__deployments_get",
@@ -7830,7 +7741,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/download": {
+    "/v1/training/jobs/{job_id}/download": {
       "get": {
         "description": "Generate a presigned S3 URL to download a trained model.\n\nNeeds the team's weight-download entitlement; without it the call returns 403.",
         "operationId": "download_trained_model_v1_training_jobs__job_id__download_get",
@@ -7876,7 +7787,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/logs": {
+    "/v1/training/jobs/{job_id}/logs": {
       "get": {
         "description": "Get training output logs (stdout/stderr) for a specific job.",
         "operationId": "get_training_job_logs_v1_training_jobs__job_id__logs_get",
@@ -7919,7 +7830,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/model-name": {
+    "/v1/training/jobs/{job_id}/model-name": {
       "patch": {
         "description": "Update the model_name for a training job.\n\nThin wrapper: visibility scoping, validation, the UPDATE, and the\nactivity-event side effect all live in\n:meth:`TrainingJobService.update_model_name`. The router only owns\nHTTP concerns (status codes, request/response shaping) per\n``brain/CLAUDE.md``.",
         "operationId": "update_training_job_model_name_v1_training_jobs__job_id__model_name_patch",
@@ -7972,7 +7883,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/push-to-hub": {
+    "/v1/training/jobs/{job_id}/push-to-hub": {
       "post": {
         "description": "Push a completed training job's model to HuggingFace Hub.\n\nArgs:\n    job_id: Training job UUID.\n    request: Target repo, token, and commit metadata.\n    auth: Authenticated caller admitted by the training-jobs rollout.\n\nReturns:\n    The hub push outcome.\n\nRaises:\n    HTTPException: 400/403/404/409/500 for validation, permission,\n        lookup, conflict, and upload failures.",
         "operationId": "push_training_job_to_huggingface_v1_training_jobs__job_id__push_to_hub_post",
@@ -8028,7 +7939,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/stop": {
+    "/v1/training/jobs/{job_id}/stop": {
       "post": {
         "description": "Stop a running training job.",
         "operationId": "stop_training_job_v1_training_jobs__job_id__stop_post",
@@ -8157,7 +8068,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/sync": {
+    "/v1/training/jobs/{job_id}/sync": {
       "post": {
         "description": "Sync training job status from the provider to the database.",
         "operationId": "sync_training_job_status_v1_training_jobs__job_id__sync_post",
@@ -8200,7 +8111,7 @@
         ]
       }
     },
-    "/v1/training-jobs/{job_id}/terminate": {
+    "/v1/training/jobs/{job_id}/terminate": {
       "post": {
         "description": "Terminate a training job and delete all artifacts.\n\nStops the provider job if running, deletes all checkpoints, and marks\nthe job as terminated. This operation is irreversible.",
         "operationId": "terminate_training_job_v1_training_jobs__job_id__terminate_post",

@@ -1,0 +1,88 @@
+---
+title: "Comportement à l'exécution et erreurs"
+description: "Comprenez les opérations, les checkpoints, la récupération et les erreurs d'un job interactif Fastino."
+---
+
+Un client d'entraînement SDK correspond à un job interactif Fastino. Les
+opérations interactives, les futures, les clients d'échantillonnage et les
+checkpoints sont différentes vues du travail ou des artefacts appartenant à ce
+job, et non des exécutions d'entraînement distinctes.
+
+## Identifier le job
+
+Lisez l'ID du job depuis le SDK :
+
+```python
+job_id = training_client.get_info().model_data.model_id
+```
+
+La même valeur identifie la ressource renvoyée par :
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
+
+Utilisez les routes canoniques des jobs et des checkpoints pour
+l'administration. Utilisez le SDK pour les opérations interactives du modèle ;
+ne construisez jamais de requêtes HTTP vers l'adaptateur.
+
+## Les futures sont des opérations du job
+
+Les méthodes du SDK peuvent renvoyer des futures pour les opérations soumises
+au job interactif. Le résultat ou l'obtention d'une future résout l'opération
+correspondante. L'annulation d'une future correspond à l'annulation de cette
+opération.
+
+Résolvez les futures avant que votre application ne passe à une étape qui en
+dépend. Conservez l'étape de l'application, le curseur du dataset et les
+identifiants d'opération ou de checkpoint pertinents afin qu'un contrôleur
+redémarré puisse déterminer ce qui a été terminé.
+
+La récupération par lots via `retrieve_futures` n'est pas prise en charge.
+Suivez et résolvez individuellement les futures renvoyées par les appels pris
+en charge.
+
+## Les checkpoints appartiennent au job
+
+Deux types de checkpoints répondent à des objectifs différents :
+
+- `save_state(...)` crée un checkpoint d'état pour la récupération de l'entraînement.
+- `save_weights_for_sampler(...)` crée un checkpoint d'échantillonneur pour les rollouts ou l'évaluation.
+
+Le chargement d'un état correspond à l'opération de chargement d'un checkpoint
+sur le job interactif. La création ou l'obtention d'un échantillonneur résout un
+checkpoint ; l'échantillonnage s'exécute ensuite sur ce checkpoint.
+
+Les routes canoniques des checkpoints permettent de les lister, les obtenir,
+les télécharger, les supprimer, les publier, les dépublier, administrer leur
+TTL et administrer l'utilisation du stockage. La politique de rétention est
+contrôlée par l'application : ne supposez pas une durée de vie ou une garantie
+de stockage non documentée.
+
+Conservez les identifiants de checkpoint avec l'état contrôlé par le client
+nécessaire à la poursuite, notamment l'étape de l'application, la révision du
+dataset, la révision de la récompense et le curseur du dataset.
+
+## Authentification
+
+Le SDK obtient une clé Fastino normale en exécutant `TINKER_CREDENTIAL_CMD` à
+chaque demande de token. La commande doit afficher un identifiant non vide sur
+la sortie standard. Les clés commencent par `fast_sk_` ; les identifiants
+commençant par `tml-` sont rejetés. Ne définissez pas `TINKER_API_KEY`.
+
+## Diagnostiquer les erreurs
+
+| Symptôme | Vérification |
+| --- | --- |
+| Échec de l'authentification | Vérifiez que la commande d'identification affiche une clé `fast_sk_` actuelle sans sortie supplémentaire |
+| Le SDK ne parvient pas à se connecter | Vérifiez que `TINKER_BASE_URL` correspond exactement à `https://api.fastino.ai/v1/training/compat/tinker` |
+| Un modèle ou une opération est rejeté | Interrogez de nouveau les capacités et comparez l'appel avec le tableau de compatibilité |
+| Une future échoue | Enregistrez l'ID du job et le résultat de l'opération ; ne faites pas avancer l'état dépendant de l'application |
+| Un checkpoint ne peut pas être chargé | Vérifiez son job, son type de checkpoint et les métadonnées de reprise contrôlées par le client |
+| La recherche du job canonique échoue | Vérifiez que l'ID provient de `get_info().model_data.model_id` et que la même équipe Fastino est authentifiée |
+
+Ne déduisez pas la prise en charge d'une méthode uniquement parce qu'elle
+existe dans le paquet installé. Consultez la
+[compatibilité du SDK](/fr/rl-api/compatibility) et la réponse de capacités active.

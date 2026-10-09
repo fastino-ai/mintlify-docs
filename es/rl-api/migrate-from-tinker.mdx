@@ -1,0 +1,94 @@
+---
+title: "Migrar desde Tinker"
+description: "Traslada una carga de trabajo compatible del SDK de Tinker a los trabajos de entrenamiento interactivos de Fastino."
+---
+
+Fastino admite un subconjunto definido del SDK `tinker` como interfaz de cliente
+para trabajos de entrenamiento interactivos. Un cliente de entrenamiento
+migrado es un trabajo de Fastino en `/v1/training/jobs`; su ID de modelo del SDK
+y su ID canónico de trabajo de Fastino son idénticos.
+
+Trata tu programa existente como prueba de aceptación. Cambia la conexión,
+comprueba cada operación y ejecuta una pequeña prueba de humo antes de
+restablecer los tamaños de las cargas de producción.
+
+## 1. Fija el paquete probado
+
+<CodeGroup>
+
+```bash uv
+uv add "tinker==0.33.1"
+```
+
+```bash pip
+pip install "tinker==0.33.1"
+```
+
+</CodeGroup>
+
+## 2. Sustituye el endpoint y la autenticación
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
+```
+
+</CodeGroup>
+
+El SDK añade `/api/v1/{operation}` a `TINKER_BASE_URL`.
+`TINKER_CREDENTIAL_CMD` se ejecuta con cada solicitud de token y debe imprimir
+una credencial no vacía. Usa una clave normal `fast_sk_` de Fastino; las
+credenciales `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
+
+## 3. Comprueba la carga de trabajo
+
+1. Consulta `ServiceClient.get_server_capabilities()` y elige un modelo base disponible. Conserva el nombre de parámetro `base_model` del SDK.
+2. Compara cada método de tu código con la [tabla de compatibilidad del SDK](/es/rl-api/compatibility).
+3. Elimina dependencias de la recuperación de futures por lotes no compatible, la exportación de pesos externos, las URL de pesos externos, los métodos de autenticación/tokens del SDK o los métodos de facturación, uso y eventos del SDK.
+4. Mantén en tu aplicación el renderizado de prompts, la lógica de recompensas, el procesamiento por lotes, la evaluación y los criterios de parada.
+
+Las capacidades son la fuente de verdad de la compatibilidad dependiente del
+entorno. No traslades supuestos sobre modelos, rangos, contexto, pérdidas o
+límites de solicitudes desde otro despliegue.
+
+## 4. Ejecuta una prueba de humo
+
+Usa los datums válidos más pequeños y los ajustes del optimizador de tu carga de
+trabajo existente para realizar una prueba de bajo coste que:
+
+- Cree un cliente con `create_lora_training_client(base_model=...)`
+- Lea `training_client.get_info().model_data.model_id`
+- Guarde los pesos del muestreador y realice un muestreo
+- Ejecute una operación compatible hacia delante/hacia atrás y un paso del optimizador
+- Guarde y vuelva a cargar un checkpoint de estado
+- Obtenga el mismo ID de `GET /v1/training/jobs/{job_id}`
+
+Usa el SDK para las operaciones interactivas. El adaptador se omite
+intencionadamente del OpenAPI y de la referencia de la API de Fastino, así que
+no construyas llamadas HTTP al adaptador.
+
+## Lista de comprobación de la migración
+
+- [ ] Fija `tinker==0.33.1`.
+- [ ] Establece la URL base del adaptador de Fastino.
+- [ ] Proporciona una clave `fast_sk_` mediante `TINKER_CREDENTIAL_CMD`.
+- [ ] Confirma que el entrenamiento interactivo esté habilitado para el equipo de Fastino.
+- [ ] Comprueba cada método del SDK con la tabla de compatibilidad.
+- [ ] Selecciona el modelo y las funciones opcionales a partir de las capacidades.
+- [ ] Completa una actualización de muestreo y entrenamiento.
+- [ ] Guarda y vuelve a cargar un checkpoint de estado.
+- [ ] Verifica el ID de modelo del SDK mediante el endpoint canónico del trabajo.
+- [ ] Aumenta el tamaño de la carga solo después de superar la prueba de humo.
+
+<Card title="Comprueba la compatibilidad del SDK" icon="list-check" href="/es/rl-api/compatibility">
+  Revisa las asignaciones exactas entre el SDK y Fastino y los métodos no compatibles.
+</Card>

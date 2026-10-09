@@ -1,0 +1,123 @@
+---
+title: "Der RL-Trainingsloop"
+description: "Verbinden Sie Sampling, Rewards, Updates und Checkpoints innerhalb eines interaktiven Fastino-Jobs."
+---
+
+Ihre Anwendung entscheidet, was gesampelt, wie es bewertet und wann es
+aktualisiert wird. Fastino führt die interaktiven Modelloperationen aus. Ein
+`TrainingClient` repräsentiert während des gesamten Loops einen interaktiven
+Fastino-Job.
+
+## Der Kontrollloop
+
+<Steps>
+  <Step title="Interaktiven Job erstellen">
+    Wählen Sie `base_model` und weitere Optionen aus der Antwort zu den
+    Fähigkeiten und rufen Sie anschließend
+    `create_lora_training_client(...)` auf. Lesen Sie die kanonische Job-ID aus
+    `training_client.get_info().model_data.model_id`.
+  </Step>
+  <Step title="Gewichte für Sampling als Checkpoint speichern">
+    Rufen Sie `save_weights_for_sampler(name)` auf und erstellen Sie
+    anschließend aus dem zurückgegebenen Checkpoint-Pfad einen Sampling-Client.
+    Dadurch wird die Rollout-Policy an ein explizites Artefakt desselben Jobs
+    gebunden.
+  </Step>
+  <Step title="Rollout-Gruppen sammeln">
+    Sampeln Sie für jeden Prompt mehrere Antwortkandidaten. Ihre Anwendung ist
+    für Prompt-Erstellung, Rendering der Antworten und Gruppierung
+    verantwortlich.
+  </Step>
+  <Step title="Rewards und Advantages berechnen">
+    Bewerten Sie jede Antwort und wandeln Sie die Rewards anschließend in die
+    Advantages um, die von Ihrer ausgewählten und durch die Fähigkeiten
+    unterstützten Trainingsoperation benötigt werden.
+  </Step>
+  <Step title="Trainings-Datums erstellen">
+    Kombinieren Sie Modelleingaben, gesampelte Antwort-Tokens,
+    Sampling-Metadaten und Trainingssignale auf Token-Ebene in der vom SDK
+    erwarteten Form.
+  </Step>
+  <Step title="Denselben Job aktualisieren">
+    Senden Sie unterstützte Forward-/Backward-Arbeit und anschließend einen
+    Optimierungsschritt über den bestehenden `TrainingClient`.
+  </Step>
+  <Step title="Wiederherstellungsgrenze speichern">
+    Speichern Sie einen Status-Checkpoint und persistieren Sie seine ID mit dem
+    Anwendungsschritt und Datensatz-Cursor, bevor die nächste Iteration beginnt.
+  </Step>
+</Steps>
+
+## Objektmodell
+
+| Objekt | Rolle |
+| --- | --- |
+| `ServiceClient` | Fragt Fähigkeiten ab und erstellt SDK-Clients |
+| `TrainingClient` | Repräsentiert einen interaktiven Fastino-Job und sendet dessen Modelloperationen |
+| `SamplingClient` | Sampelt aus einem aufgelösten Checkpoint |
+| `RestClient` | Listet kanonische Jobs auf oder ruft sie ab und verwaltet Checkpoints |
+| Future | Verfolgt eine an den Job gesendete Operation |
+
+Die SDK-Modell-ID ist die kanonische Fastino-Job-ID. Futures und
+Sampling-Clients erstellen keine unabhängigen Läufe.
+
+## Gruppenrelative Rewards
+
+Eine übliche, von der Anwendung ausgeführte Transformation für eine Gruppe von
+Antworten zieht den mittleren Reward der Gruppe ab:
+
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+```
+
+Wenn jeder zentrierte Advantage null ist, enthält die Gruppe kein relatives
+Signal. Ihre Anwendung kann dies protokollieren und die Gruppe überspringen.
+
+## Ausgerichtete Datums erstellen
+
+Bei einem Loop im Importance-Sampling-Stil ist der Prompt der Kontext und die
+gesampelte Vervollständigung die Aktion. Halten Sie Token-Arrays auf das SDK und
+den Renderer des ausgewählten Modells ausgerichtet:
+
+- Modelleingabe mit Prompt- und Vervollständigungs-Tokens
+- An der Modelleingabe ausgerichtete Ziel-Tokens
+- An generierten Tokens ausgerichtete Sampling-Log-Wahrscheinlichkeiten
+- Auf Positionen der Vervollständigung angewendete Advantages
+
+<Warning>
+  Prompt-Rendering, Tokenisierung, Erstellung von Datums und Reward-Ausführung
+  liegen beim Client. Validieren Sie ihre Formen anhand von `tinker==0.33.1`
+  und der aktuellen Antwort zu den Fähigkeiten, bevor Sie einen größeren
+  Workload ausführen.
+</Warning>
+
+## Abhängige Arbeit geordnet halten
+
+Lösen Sie ein Forward-/Backward-Future auf, bevor Sie diese Phase als
+abgeschlossen behandeln, und lösen Sie das Optimizer-Future auf, bevor Sie den
+aktualisierten Status als Checkpoint speichern. Lassen Sie nicht mehrere
+unabhängige Controller denselben Job ohne Koordination auf Anwendungsebene
+verändern.
+
+Das SDK führt diese interaktiven Operationen aus. Bilden Sie sie nicht als
+direkte HTTP-Aufrufe nach.
+
+## Checkpoint-Art auswählen
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Verwenden Sie den Status-Checkpoint als Wiederherstellungsgrenze für das
+Training. Verwenden Sie den Sampler-Checkpoint für Rollouts oder Evaluierung.
+Speichern Sie die ausgewählte Checkpoint-ID mit Ihren Anwendungsmetadaten,
+anstatt den Status aus einem Namen abzuleiten.
+
+Um diesen Loop mit einem deterministischen Grader zu implementieren, fahren Sie
+mit [Mit verifizierbaren Rewards trainieren](/de/rl-api/verifiable-rewards)
+fort. Folgen Sie zur Wiederherstellung
+[Checkpoint speichern und fortsetzen](/de/rl-api/checkpoint-and-resume).

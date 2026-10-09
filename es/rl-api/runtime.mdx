@@ -1,0 +1,86 @@
+---
+title: "Comportamiento en tiempo de ejecución y errores"
+description: "Comprende las operaciones, los checkpoints, la recuperación y los errores de un trabajo interactivo de Fastino."
+---
+
+Un cliente de entrenamiento del SDK es un trabajo interactivo de Fastino. Las
+operaciones interactivas, los futures, los clientes de muestreo y los
+checkpoints son vistas diferentes del trabajo o de los artefactos propiedad de
+ese trabajo, no ejecuciones de entrenamiento independientes.
+
+## Identifica el trabajo
+
+Lee el ID del trabajo desde el SDK:
+
+```python
+job_id = training_client.get_info().model_data.model_id
+```
+
+El mismo valor identifica el recurso devuelto por:
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
+
+Usa las rutas canónicas de trabajos y checkpoints para la administración. Usa
+el SDK para las operaciones interactivas del modelo; nunca construyas
+solicitudes HTTP al adaptador.
+
+## Los futures son operaciones del trabajo
+
+Los métodos del SDK pueden devolver futures de operaciones enviadas al trabajo
+interactivo. Obtener o resolver el resultado de un future resuelve la operación
+correspondiente. Cancelar un future se asigna a la cancelación de esa operación.
+
+Resuelve los futures antes de que tu aplicación avance a un paso dependiente.
+Conserva el paso de la aplicación, el cursor del dataset y los identificadores
+de operaciones o checkpoints pertinentes para que un controlador reiniciado
+pueda determinar qué se completó.
+
+La recuperación por lotes mediante `retrieve_futures` no es compatible. Realiza
+el seguimiento y resuelve los futures individuales devueltos por las llamadas
+compatibles.
+
+## Los checkpoints pertenecen al trabajo
+
+Dos tipos de checkpoint tienen propósitos diferentes:
+
+- `save_state(...)` crea un checkpoint de estado para recuperar el entrenamiento.
+- `save_weights_for_sampler(...)` crea un checkpoint de muestreador para rollouts o evaluación.
+
+La carga de estado se asigna a la operación de carga del checkpoint en el
+trabajo interactivo. Crear u obtener un muestreador resuelve un checkpoint; el
+muestreo se ejecuta después contra ese checkpoint.
+
+Las rutas canónicas de checkpoints permiten listar, obtener, descargar,
+eliminar, publicar, retirar la publicación, administrar el TTL y administrar
+el uso de almacenamiento. La política de retención pertenece a la aplicación:
+no supongas una duración ni una garantía de almacenamiento no documentadas.
+
+Guarda los identificadores de checkpoints junto con el estado controlado por el
+cliente necesario para continuar, incluidos el paso de la aplicación, la
+revisión del dataset, la revisión de la recompensa y el cursor del dataset.
+
+## Autenticación
+
+El SDK obtiene una clave normal de Fastino ejecutando `TINKER_CREDENTIAL_CMD`
+con cada solicitud de token. El comando debe imprimir una credencial no vacía
+en la salida estándar. Las claves comienzan por `fast_sk_`; las credenciales que
+comienzan por `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
+
+## Diagnostica errores
+
+| Síntoma | Comprobación |
+| --- | --- |
+| La autenticación falla | Confirma que el comando de credenciales imprima una clave `fast_sk_` actual y ninguna salida adicional |
+| El SDK no puede conectarse | Confirma que `TINKER_BASE_URL` sea exactamente `https://api.fastino.ai/v1/training/compat/tinker` |
+| Se rechaza el modelo o la operación | Vuelve a consultar las capacidades y compara la llamada con la tabla de compatibilidad |
+| Falla un future | Registra el ID del trabajo y el resultado de la operación; no avances el estado dependiente de la aplicación |
+| No se puede cargar un checkpoint | Verifica su trabajo, tipo de checkpoint y metadatos de reanudación controlados por el cliente |
+| Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_data.model_id` y que esté autenticado el mismo equipo de Fastino |
+
+No deduzcas la compatibilidad porque un método exista en el paquete instalado.
+Consulta la [compatibilidad del SDK](/es/rl-api/compatibility) y la respuesta de
+capacidades activa.

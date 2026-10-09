@@ -1,0 +1,201 @@
+---
+title: "RL API 快速入门"
+sidebarTitle: "快速入门"
+description: "创建 Fastino 交互式训练任务、从中采样并验证该任务。"
+---
+
+本快速入门将通过受支持的 SDK 创建一个 Fastino 交互式训练任务，保存采样器权重，
+生成一个响应，并通过 Fastino 的规范训练 API 验证同一个任务。
+
+## 前提条件
+
+- Python 3.11 或更高版本
+- 已启用交互式训练的 Fastino 账户
+- 来自 [API 密钥](https://agent.fastino.ai/api-keys)的 Fastino API 密钥
+- 功能响应中可用的基础模型和 LoRA 秩
+
+Fastino 密钥以 `fast_sk_` 开头。以 `tml-` 开头的凭据会被拒绝。
+
+## 1. 设置 Fastino 密钥
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+```
+
+</CodeGroup>
+
+不要提交密钥，也不要将其直接放入源代码。
+
+## 2. 安装经过测试的 SDK
+
+<CodeGroup>
+
+```bash uv
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.33.1"
+```
+
+```bash pip
+mkdir fastino-rl && cd fastino-rl
+python -m venv .venv
+source .venv/bin/activate
+pip install "tinker==0.33.1"
+```
+
+```powershell pip · Windows
+mkdir fastino-rl
+cd fastino-rl
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install "tinker==0.33.1"
+```
+
+</CodeGroup>
+
+## 3. 配置 SDK 身份验证
+
+设置受支持的适配器基础 URL。SDK 会追加 `/api/v1/{operation}`。
+
+每次请求令牌时都会执行 `TINKER_CREDENTIAL_CMD`，该命令必须向标准输出打印非空凭据。
+
+<CodeGroup>
+
+```bash macOS/Linux
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
+```
+
+```powershell Windows
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
+```
+
+</CodeGroup>
+
+PowerShell 值会在凭据命令运行时引用 `$env:FASTINO_API_KEY`；设置命令时不会嵌入密钥。
+不要设置 `TINKER_API_KEY`。
+
+## 4. 选择已启用的模型
+
+以 `ServiceClient.get_server_capabilities()` 为权威来源。设置该响应支持的模型和秩：
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_RL_BASE_MODEL="<model from capabilities>"
+export FASTINO_RL_LORA_RANK="<supported rank>"
+```
+
+```powershell Windows
+$env:FASTINO_RL_BASE_MODEL = "<model from capabilities>"
+$env:FASTINO_RL_LORA_RANK = "<supported rank>"
+```
+
+</CodeGroup>
+
+## 5. 创建任务并采样
+
+创建 `quickstart.py`：
+
+```python
+import os
+
+import tinker
+
+
+service_client = tinker.ServiceClient()
+outcome = "errored"
+try:
+    capabilities = service_client.get_server_capabilities()
+    print(capabilities)
+
+    training_client = service_client.create_lora_training_client(
+        base_model=os.environ["FASTINO_RL_BASE_MODEL"],
+        rank=int(os.environ["FASTINO_RL_LORA_RANK"]),
+    )
+
+    job_id = training_client.get_info().model_data.model_id
+    print(f"TRAINING_JOB_ID={job_id}")
+
+    checkpoint = training_client.save_weights_for_sampler(
+        "quickstart-sampler"
+    ).result()
+    sampling_client = service_client.create_sampling_client(
+        model_path=checkpoint.path
+    )
+
+    tokenizer = sampling_client.get_tokenizer()
+    prompt_tokens = tokenizer.apply_chat_template(
+        conversation=[
+            {
+                "role": "user",
+                "content": "Explain the purpose of a reward function in one sentence.",
+            }
+        ],
+        add_generation_prompt=True,
+        return_dict=False,
+    )
+    result = sampling_client.sample(
+        prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
+        num_samples=1,
+        sampling_params=tinker.types.SamplingParams(max_tokens=64),
+    ).result()
+
+    print(tokenizer.decode(result.sequences[0].tokens))
+except KeyboardInterrupt:
+    outcome = "interrupted"
+    raise
+else:
+    outcome = "success"
+finally:
+    service_client.close(outcome).result()
+```
+
+运行：
+
+```bash
+python quickstart.py
+```
+
+复制 `TRAINING_JOB_ID=` 后打印的值。采样器检查点和采样操作属于同一个交互式任务。
+
+## 6. 验证规范任务
+
+<CodeGroup>
+
+```bash macOS/Linux
+export TRAINING_JOB_ID="<ID printed by quickstart.py>"
+curl --fail-with-body \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
+
+```powershell Windows
+$env:TRAINING_JOB_ID = "<ID printed by quickstart.py>"
+Invoke-RestMethod `
+  -Headers @{ "X-API-Key" = "$env:FASTINO_API_KEY" } `
+  -Uri "https://api.fastino.ai/v1/training/jobs/$env:TRAINING_JOB_ID"
+```
+
+</CodeGroup>
+
+响应标识的任务与 `create_lora_training_client(...)` 创建的任务相同。使用 SDK
+执行交互式模型操作；请勿构造适配器 HTTP 调用。
+
+## 后续步骤
+
+<CardGroup cols={2}>
+  <Card title="构建训练循环" icon="diagram-project" href="/cn/rl-api/training-loop">
+    为交互式任务添加奖励、前向/反向传播操作、优化器步骤和检查点。
+  </Card>
+  <Card title="检查兼容性" icon="list-check" href="/cn/rl-api/compatibility">
+    确认工作负载所需的每项 SDK 操作。
+  </Card>
+</CardGroup>

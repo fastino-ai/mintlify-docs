@@ -1,0 +1,149 @@
+---
+title: "Créer un checkpoint et reprendre un job RL"
+description: "Enregistrez l'état d'un job interactif et la progression de l'application, puis reprenez sans rejouer le travail terminé."
+---
+
+Un checkpoint d'état protège l'état d'entraînement côté serveur. Un
+enregistrement de récupération complet protège également l'état contrôlé par
+l'utilisateur qui indique à votre contrôleur ce qu'il doit faire ensuite.
+
+## Éléments à enregistrer
+
+| Enregistrement | Contenu | Stocké par |
+| --- | --- | --- |
+| Checkpoint d'état | Poids d'entraînement et état de l'optimiseur représentés par le checkpoint du SDK | Fastino |
+| Enregistrement de la boucle | ID du job, identifiant du checkpoint, étape, curseur du dataset et configuration | Votre application |
+
+Le client d'entraînement du SDK représente un job interactif Fastino. Lisez son
+ID canonique dans `training_client.get_info().model_data.model_id`.
+
+## 1. Enregistrer l'état et la progression de la boucle
+
+Enregistrez l'état via le SDK, puis conservez le checkpoint renvoyé avec les
+champs contrôlés par le client nécessaires à la poursuite :
+
+```python
+import json
+from pathlib import Path
+
+
+job_id = training_client.get_info().model_data.model_id
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "job_id": job_id,
+    "state_path": state.path,
+    "model": model_name,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
+```
+
+Utilisez des noms de checkpoint uniques afin que chaque enregistrement de
+boucle identifie une limite de récupération sans ambiguïté. Ne supposez pas une
+durée de vie de checkpoint non documentée.
+
+## 2. Lire l'enregistrement complet le plus récent
+
+Un processus peut s'arrêter pendant l'écriture de la dernière ligne. Parcourez
+les lignes à rebours et ignorez une fin mal formée :
+
+```python
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+```
+
+## 3. Valider avant le chargement
+
+Comparez l'enregistrement avec la poursuite demandée :
+
+- ID canonique du job
+- Modèle de base et configuration entraînable
+- Révision et curseur du dataset
+- Révision de l'implémentation de la récompense
+- Configuration de l'optimiseur
+- Hypothèses du renderer et du tokenizer
+
+Arrêtez-vous pour obtenir une décision explicite si ces champs sont
+incompatibles. Ne combinez pas silencieusement un checkpoint avec une
+expérience différente.
+
+Utilisez ensuite le flux de chargement d'état pris en charge par le SDK :
+
+```python
+training_client = (
+    service_client.create_training_client_from_state_with_optimizer(
+        str(resume["state_path"])
+    )
+)
+```
+
+Cette opération du SDK correspond au chargement d'un checkpoint Fastino. Ne
+construisez pas directement la requête vers l'adaptateur et ne déduisez aucune
+lignée d'exécution supplémentaire à partir de l'opération.
+
+## 4. Rendre la limite récupérable
+
+Respectez cet ordre :
+
+1. Résolvez les futures de passe avant/arrière et d'optimisation.
+2. Enregistrez le checkpoint d'état.
+3. Conservez l'enregistrement de boucle contenant son identifiant.
+4. Marquez l'étape de l'application comme terminée.
+5. Commencez l'étape suivante.
+
+Si le processus s'arrête après l'enregistrement du checkpoint, mais avant la
+persistance de l'enregistrement de boucle, conservez l'enregistrement complet
+précédent comme point de récupération fiable. Ne marquez pas une étape comme
+terminée avant que son enregistrement ne soit durable.
+
+## 5. Séparer les types de checkpoints
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Utilisez un checkpoint d'état pour la récupération de l'entraînement. Utilisez
+un checkpoint d'échantillonneur pour les rollouts ou l'évaluation. N'utilisez
+pas un checkpoint d'échantillonneur comme point de récupération de l'état de
+l'optimiseur.
+
+L'administration canonique des checkpoints permet de les lister, les obtenir,
+les télécharger, les supprimer, les publier, les dépublier, mettre à jour leur
+TTL et consulter l'utilisation du stockage. Votre application contrôle la
+politique de rétention et le nettoyage ; ce guide ne promet aucun TTL ni aucune
+durée de rétention.
+
+## 6. Vérifier la poursuite
+
+Avant d'augmenter la taille du workload repris :
+
+1. Chargez le checkpoint d'état sélectionné.
+2. Confirmez l'ID de job canonique du client SDK via `GET /v1/training/jobs/{job_id}`.
+3. Exécutez une petite évaluation sur un ensemble de validation.
+4. Soumettez une mise à jour d'entraînement prise en charge.
+5. Enregistrez un nouveau checkpoint d'état sous un nouveau nom.
+6. Conservez l'enregistrement de boucle suivant.
+
+Utilisez le SDK pour toutes les opérations interactives. Pour la sémantique des
+jobs, des futures et des checkpoints, consultez
+[Comportement à l'exécution et erreurs](/fr/rl-api/runtime).

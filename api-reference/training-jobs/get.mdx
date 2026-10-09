@@ -1,13 +1,15 @@
 ---
 title: "Get a training job"
 sidebarTitle: "Get job status"
-description: "Get a training job's status, configuration, metrics, and artifact readiness."
-api: "GET /v1/training-jobs/{job_id}"
+description: "Get a config or interactive training job by its canonical Fastino job ID."
+api: "GET /v1/training/jobs/{job_id}"
 ---
 
-`GET /v1/training-jobs/{job_id}`
+`GET /v1/training/jobs/{job_id}`
 
-Returns one training job visible to the caller's team.
+Returns one config or interactive training job visible to the caller's team.
+For an RL workload, this `job_id` is also the SDK training run ID returned by
+`training_client.get_info().model_data.model_id`.
 
 ## Request
 
@@ -16,13 +18,13 @@ Returns one training job visible to the caller's team.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Training-job UUID.
+  Canonical Fastino training-job ID.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
+curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -31,7 +33,12 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 ## Response
 
 <ResponseField name="id" type="string">
-  Training-job UUID.
+  Canonical Fastino training-job ID.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `config` when Fastino runs the training loop or `interactive` when the caller
+  controls the loop through the supported SDK.
 </ResponseField>
 
 <ResponseField name="status" type="string">
@@ -74,13 +81,17 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
   Why the job is not deployable.
 </ResponseField>
 
-The record also returns the submitted training configuration, timestamps, dataset references, provider details, labels, and artifact metadata.
+Config-job records also return their submitted configuration, dataset
+references, progress, metrics, and artifact metadata. Interactive-job records
+return the fields applicable to caller-directed training. Do not assume
+config-only fields are populated on an interactive job.
 
 <ResponseExample>
 
 ```json Response
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "type": "config",
   "status": "running",
   "normalized_status": "running",
   "is_terminal_status": false,

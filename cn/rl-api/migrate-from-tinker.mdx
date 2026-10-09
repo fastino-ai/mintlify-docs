@@ -1,0 +1,87 @@
+---
+title: "从 Tinker 迁移"
+description: "将兼容的 Tinker SDK 工作负载迁移到 Fastino 交互式训练任务。"
+---
+
+Fastino 支持将 `tinker` SDK 的一个明确子集用作交互式训练任务的客户端接口。
+迁移后的训练客户端是 `/v1/training/jobs` 中的一个 Fastino 任务；其 SDK 模型 ID
+与规范的 Fastino 任务 ID 相同。
+
+将现有程序作为验收测试。更改连接、检查每项操作，并在恢复生产工作负载规模之前运行小型冒烟测试。
+
+## 1. 锁定经过测试的软件包
+
+<CodeGroup>
+
+```bash uv
+uv add "tinker==0.33.1"
+```
+
+```bash pip
+pip install "tinker==0.33.1"
+```
+
+</CodeGroup>
+
+## 2. 替换端点和身份验证
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
+```
+
+</CodeGroup>
+
+SDK 会将 `/api/v1/{operation}` 追加到 `TINKER_BASE_URL`。每次请求令牌时都会运行
+`TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
+密钥；`tml-` 凭据会被拒绝。不要设置 `TINKER_API_KEY`。
+
+## 3. 检查工作负载
+
+1. 查询 `ServiceClient.get_server_capabilities()` 并选择可用的基础模型。保持 SDK 参数名 `base_model` 不变。
+2. 将代码中的每个方法与 [SDK 兼容性表](/cn/rl-api/compatibility)进行比较。
+3. 移除对不受支持的批量 future 检索、外部权重导出、外部权重 URL、SDK 身份验证/令牌方法，
+   或 SDK 计费、用量和事件方法的依赖。
+4. 将提示词渲染、奖励逻辑、批处理、评估和停止条件保留在你的应用中。
+
+功能是环境相关支持的权威来源。不要沿用其他部署中的模型、秩、上下文、损失或请求限制假设。
+
+## 4. 运行冒烟测试
+
+使用现有工作负载中最小的有效 datum 和优化器设置，执行一项低成本测试，以：
+
+- 使用 `create_lora_training_client(base_model=...)` 创建一个客户端
+- 读取 `training_client.get_info().model_data.model_id`
+- 保存采样器权重并采样一次
+- 运行一次受支持的前向/反向操作和一次优化器步骤
+- 保存并重新加载状态检查点
+- 从 `GET /v1/training/jobs/{job_id}` 获取相同的 ID
+
+使用 SDK 执行交互式操作。适配器有意不出现在 Fastino 的 OpenAPI 和 API 参考中，
+因此请勿构造适配器 HTTP 调用。
+
+## 迁移检查清单
+
+- [ ] 锁定 `tinker==0.33.1`。
+- [ ] 设置 Fastino 适配器基础 URL。
+- [ ] 通过 `TINKER_CREDENTIAL_CMD` 提供 `fast_sk_` 密钥。
+- [ ] 确认已为 Fastino 团队启用交互式训练。
+- [ ] 对照兼容性表检查每个 SDK 方法。
+- [ ] 从功能中选择模型和可选功能。
+- [ ] 完成一次采样和训练更新。
+- [ ] 保存并重新加载一个状态检查点。
+- [ ] 通过规范任务端点验证 SDK 模型 ID。
+- [ ] 仅在冒烟测试通过后增加工作负载规模。
+
+<Card title="检查 SDK 兼容性" icon="list-check" href="/cn/rl-api/compatibility">
+  查看确切的 SDK 到 Fastino 映射和不受支持的方法。
+</Card>

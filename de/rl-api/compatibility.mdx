@@ -1,0 +1,85 @@
+---
+title: "SDK-Kompatibilität"
+description: "Genaue Unterstützung und Zuordnungen des Tinker SDK für interaktive Fastino-Trainingsjobs."
+---
+
+Fastino testet den Kompatibilitätsvertrag mit `tinker==0.33.1`. Das Paket
+definiert die SDK-Signaturen; diese Seite legt fest, welche Methoden Fastino
+unterstützt und wie sie der Fastino-Trainingsdomäne zugeordnet werden.
+
+| Element | Unterstützter Wert |
+| --- | --- |
+| Paket | `tinker==0.33.1` |
+| Basis-URL | `https://api.fastino.ai/v1/training/compat/tinker` |
+| Authentifizierung | Ein von `TINKER_CREDENTIAL_CMD` ausgegebener `fast_sk_`-Schlüssel |
+| Ressourcenidentität | Ein Trainingsclient ist ein interaktiver Fastino-Job mit derselben ID |
+
+Das SDK ergänzt die Basis-URL um `/api/v1/{operation}`. Adapter-Routen sind in
+OpenAPI und API-Referenz nicht sichtbar. Benutzer dürfen Adapter-Requests nicht
+selbst konstruieren.
+
+## Training und Sampling
+
+| SDK-Methode oder -Operation | Fastino-Zuordnung | Unterstützung |
+| --- | --- | --- |
+| `create_lora_training_client` | `POST /v1/training/jobs` mit interaktivem Jobtyp | Unterstützt |
+| `copy_weights` | Interaktiven Job aus dem Checkpoint erstellen | Unterstützt |
+| `TrainingClient.get_info` | Kanonischen Fastino-Job mit `GET` abrufen | Unterstützt |
+| `forward` | `/forward` auf dem interaktiven Job | Unterstützt |
+| `forward_backward` | `/forward-backward` auf dem interaktiven Job | Unterstützt |
+| Benutzerdefinierte Forward-/Backward-Operation | `/forward-backward` auf dem interaktiven Job | Unterstützt |
+| `optim_step` | `/optim-step` auf dem interaktiven Job | Unterstützt |
+| `save_state` | Checkpoint der Art `state` mit `POST` erstellen | Unterstützt |
+| `save_weights_for_sampler` | Checkpoint der Art `sampler` mit `POST` erstellen | Unterstützt |
+| Trainingsstatus laden | Checkpoint auf dem interaktiven Job laden | Unterstützt |
+| Sampling-Client erstellen oder abrufen | Ausgewählten Checkpoint auflösen | Unterstützt |
+| `SamplingClient.sample` | Aus Checkpoint sampeln | Unterstützt |
+
+Behalten Sie den SDK-Methodenparameter `base_model` unverändert bei. Fragen Sie
+`ServiceClient.get_server_capabilities()` ab, bevor Sie ein Basismodell
+auswählen oder sich auf eine optionale Operation verlassen. Die Fähigkeiten
+sind die verbindliche Quelle; diese Referenz legt keinen festen Modellkatalog,
+Loss-Katalog, Rang, kein Kontextfenster und kein Limit pro Aufruf fest.
+
+## Futures
+
+| SDK-Methode oder -Operation | Fastino-Zuordnung | Unterstützung |
+| --- | --- | --- |
+| Future result/get | Operationen abrufen | Unterstützt |
+| Future cancel | Operationen abbrechen | Unterstützt |
+| Batch-Abruf mit `retrieve_futures` | Keine | Nicht unterstützt |
+
+## Verwaltung
+
+| SDK-Methode oder -Operation | Fastino-Zuordnung | Unterstützung |
+| --- | --- | --- |
+| Trainingsläufe mit `RestClient` auflisten | Kanonische Fastino-Jobs auflisten | Unterstützt |
+| Trainingslauf mit `RestClient` abrufen | Kanonischen Fastino-Job abrufen | Unterstützt |
+| Checkpoints auflisten oder abrufen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint herunterladen oder löschen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint veröffentlichen oder Veröffentlichung aufheben | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint-TTL festlegen oder löschen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint-Speichernutzung abrufen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+
+## Reine Adapter-Infrastruktur
+
+Das SDK kann Adapter-Infrastruktur für Fähigkeiten, Sitzungen, Heartbeat,
+Telemetrie, Authentifizierung und Audit-Integration verwenden. Dies sind
+Implementierungsdetails ohne öffentliche Fastino-Route. Behandeln Sie sie nicht
+als kundenorientierte HTTP-APIs.
+
+## Ausdrücklich nicht unterstützt
+
+- Batch-Abruf von Futures über `retrieve_futures`
+- `save_weights_external`
+- `external_weights_urls`
+- SDK-Authentifizierungs- oder Token-Operationen
+- SDK-Operationen für Abrechnung, Nutzung oder Events
+
+Die Authentifizierung erfolgt ausschließlich über einen normalen Fastino-
+`fast_sk_`-Schlüssel durch `TINKER_CREDENTIAL_CMD`. Anmeldedaten, die mit
+`tml-` beginnen, werden abgelehnt, und aktive Beispiele dürfen
+`TINKER_API_KEY` nicht setzen.
+
+Hinweise zu Lebenszyklus und Wiederherstellung finden Sie unter
+[Laufzeitverhalten und Fehler](/de/rl-api/runtime).

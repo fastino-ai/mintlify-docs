@@ -1,0 +1,97 @@
+---
+title: "Migrate from Tinker"
+description: "Move a compatible Tinker SDK workload onto Fastino interactive training jobs."
+---
+
+Fastino supports a defined subset of the `tinker` SDK as a client interface for
+interactive training jobs. A migrated training client is a Fastino job in
+`/v1/training/jobs`; its SDK model ID and canonical Fastino job ID are identical.
+
+Treat your existing program as the acceptance test. Change the connection,
+check every operation, and run a small smoke test before restoring production
+workload sizes.
+
+## 1. Pin the tested package
+
+<CodeGroup>
+
+```bash uv
+uv add "tinker==0.33.1"
+```
+
+```bash pip
+pip install "tinker==0.33.1"
+```
+
+</CodeGroup>
+
+## 2. Replace endpoint and authentication
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
+```
+
+</CodeGroup>
+
+The SDK appends `/api/v1/{operation}` to `TINKER_BASE_URL`.
+`TINKER_CREDENTIAL_CMD` runs on every token request and must print a nonempty
+credential. Use a normal `fast_sk_` Fastino key; `tml-` credentials are rejected.
+Do not set `TINKER_API_KEY`.
+
+## 3. Check the workload
+
+1. Query `ServiceClient.get_server_capabilities()` and choose an available base
+   model. Keep the SDK parameter name `base_model`.
+2. Compare every method in your code with the
+   [SDK compatibility table](/rl-api/compatibility).
+3. Remove dependencies on unsupported batch future retrieval, external weight
+   export, external weight URLs, SDK auth/token methods, or SDK billing, usage,
+   and event methods.
+4. Keep prompt rendering, reward logic, batching, evaluation, and stopping
+   criteria in your application.
+
+Capabilities are the source of truth for environment-dependent support. Do not
+carry over model, rank, context, loss, or request-limit assumptions from another
+deployment.
+
+## 4. Run a smoke test
+
+Use the smallest valid datums and optimizer settings from your existing
+workload for a low-cost test that:
+
+- Creates one client with `create_lora_training_client(base_model=...)`
+- Reads `training_client.get_info().model_data.model_id`
+- Saves sampler weights and samples once
+- Runs one supported forward/backward operation and one optimizer step
+- Saves and reloads a state checkpoint
+- Fetches the same ID from `GET /v1/training/jobs/{job_id}`
+
+Use the SDK for interactive operations. The adapter is intentionally absent
+from Fastino's OpenAPI and API reference, so do not construct adapter HTTP calls.
+
+## Migration checklist
+
+- [ ] Pin `tinker==0.33.1`.
+- [ ] Set the Fastino adapter base URL.
+- [ ] Deliver a `fast_sk_` key through `TINKER_CREDENTIAL_CMD`.
+- [ ] Confirm interactive training is enabled for the Fastino team.
+- [ ] Check every SDK method against the compatibility table.
+- [ ] Select the model and optional features from capabilities.
+- [ ] Complete one sampling and training update.
+- [ ] Save and reload one state checkpoint.
+- [ ] Verify the SDK model ID through the canonical job endpoint.
+- [ ] Increase workload size only after the smoke test passes.
+
+<Card title="Check SDK compatibility" icon="list-check" href="/rl-api/compatibility">
+  Review exact SDK-to-Fastino mappings and unsupported methods.
+</Card>

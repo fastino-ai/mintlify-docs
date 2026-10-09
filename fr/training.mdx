@@ -1,53 +1,105 @@
 ---
-title: "API des jobs d'entraînement"
+title: "API d'entraînement"
 sidebarTitle: "Vue d'ensemble"
-description: "Créez et gérez les jobs d'entraînement Fastino, de la soumission jusqu'à la livraison des artefacts."
+description: "Choisissez un job d'entraînement géré ou interactif, puis créez-le, surveillez-le et gérez-le via l'API d'entraînement canonique."
 ---
 
-L'API Training Jobs gère le cycle de vie complet d'un job de fine-tuning. Tous les endpoints utilisent la famille de routes `/v1/training-jobs` et requièrent une clé API dans l'en-tête `X-API-Key`.
+Fastino expose une seule famille de routes pour l'entraînement :
 
-Toutes les opérations d'entraînement utilisent la même [authentification de l'API](/fr/authentication) que l'inférence.
-
-**URL de base de l'API :** `https://api.fastino.ai`
-
-```bash
-export FASTINO_API_KEY="fast_sk_..."
+```text
+/v1/training/jobs
 ```
 
-Envoyez la clé avec chaque requête d'entraînement :
-
-```http
-X-API-Key: $FASTINO_API_KEY
-```
-
-Utilisez `GET /v1/base-models?supports_training=true` juste avant de créer un job. C'est la source de vérité en temps réel pour les ID de modèles entraînables.
-Avant de soumettre un job, [préparez et importez un dataset d'entraînement](/fr/concepts/datasets) et attendez que sa version traitée soit prête.
-
-<Warning>
-  L'ancienne famille de routes `/felix/training-jobs` est retirée. Utilisez `/v1/training-jobs`
-  pour les intégrations nouvelles et migrées.
-</Warning>
-
-## Cycle d’entraînement
+Chaque job possède un `type` :
 
 <CardGroup cols={2}>
-  <Card title="Choisir un modèle de base" icon="boxes-stacked" href="/fr/api-reference/training/base-models">
-    Lister les modèles actuellement disponibles pour l’entraînement.
+  <Card title="Jobs de configuration" icon="sliders">
+    Envoyez un dataset préparé et une configuration d'entraînement. Fastino
+    exécute la boucle d'entraînement. Commencez par le [guide de fine-tuning de GLiNER](/fr/guides/fine-tune-gliner).
   </Card>
-  <Card title="Importer un jeu de données" icon="upload" href="/fr/concepts/datasets">
-    Réserver une URL, importer le JSONL et le traiter.
-  </Card>
-  <Card title="Créer une tâche" icon="play" href="/fr/api-reference/training-jobs/create">
-    Envoyer les jeux de données et la configuration d’entraînement.
-  </Card>
-  <Card title="Surveiller et gérer" icon="chart-line" href="/fr/api-reference/training-jobs/get">
-    Interroger le statut, consulter les journaux et la facturation, puis gérer les artefacts.
+  <Card title="Jobs interactifs" icon="code">
+    Exécutez la boucle d'entraînement étape par étape depuis votre application.
+    Commencez par la [présentation de l'API RL](/fr/rl-api) et le
+    [démarrage rapide de l'API RL](/fr/rl-api/quickstart).
   </Card>
 </CardGroup>
 
-## Cycle de vie des statuts
+Utilisez un job `config` pour le fine-tuning géré. Utilisez un job `interactive`
+lorsque votre application doit contrôler les passes avant, les passes arrière,
+les étapes d'optimisation et le moment de création des checkpoints.
 
-Les réponses des jobs d'entraînement contiennent :
+## Configurer votre clé API
+
+1. **Créez un compte [Fastino](https://agent.fastino.ai/)**
+2. **Obtenez votre clé API** dans les [paramètres](https://agent.fastino.ai/api-keys)
+
+Définissez votre clé comme variable d'environnement afin que les exemples
+ci-dessous fonctionnent tels quels :
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "your_api_key_here"
+```
+
+</CodeGroup>
+
+L'URL de base de l'API est `https://api.fastino.ai`. Envoyez
+`X-API-Key: $FASTINO_API_KEY` avec chaque requête. Consultez
+[l'authentification de l'API](/fr/authentication) pour toutes les formes
+d'authentification prises en charge.
+
+## Démarrage rapide d'un job de configuration
+
+### 1. Préparer un dataset
+
+[Préparez, importez et traitez un dataset d'entraînement](/fr/concepts/datasets).
+Attendez que la version du dataset soit `ready`.
+
+### 2. Choisir un modèle de base actif
+
+Interrogez le catalogue juste avant la soumission. Il constitue la source de
+vérité pour les ID des modèles entraînables.
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_training=true" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+### 3. Créer le job
+
+Conservez le nom de champ `base_model` et définissez `type` sur `config` :
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "config",
+    "model_name": "my-gliner-model",
+    "base_model": "BASE_MODEL_ID_FROM_CATALOG",
+    "datasets": [
+      {"name": "my-ready-dataset", "version": "VERSION_NUMBER"}
+    ],
+    "training_type": "lora"
+  }'
+```
+
+Conservez l'`id` renvoyé ; il s'agit du `job_id` utilisé par chaque route
+propre à un job.
+
+### 4. Interroger et inspecter
+
+```bash
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+Pour les jobs de configuration, les réponses comprennent :
 
 - `status` : statut persisté du job.
 - `normalized_status` : statut stable destiné à l'interrogation côté client.
@@ -56,7 +108,18 @@ Les réponses des jobs d'entraînement contiennent :
 - `is_deployable` : indique si l'artefact terminé passe la validation de déploiement.
 - `deployability_reason` : raison pour laquelle l'artefact n'est pas déployable.
 
-Dans les clients d'interrogation, préférez `normalized_status` et `is_terminal_status`.
+Lors de l'interrogation d'un job de configuration, préférez `normalized_status`
+et `is_terminal_status`. Vous pouvez également consulter
+[`GET /v1/training/jobs/{job_id}/logs`](/fr/api-reference/training-jobs/logs),
+[`GET /v1/training/jobs/{job_id}/billing`](/fr/api-reference/training-jobs/billing)
+et
+[`GET /v1/training/jobs/{job_id}/checkpoints`](/fr/api-reference/training-jobs/checkpoints).
+
+## Cycle de vie des statuts d'un job de configuration
+
+Les statuts persistés suivants décrivent les jobs de configuration gérés. Les
+jobs interactifs ont un comportement contrôlé par l'appelant ; ne déduisez pas
+leur cycle de vie à partir de ce tableau.
 
 | Statut persisté | Description |
 | --- | --- |
@@ -66,28 +129,53 @@ Dans les clients d'interrogation, préférez `normalized_status` et `is_terminal
 | `normalizing` | Fastino prépare l'artefact entraîné. |
 | `artifact_ready` | L'artefact entraîné est prêt. |
 | `deployed` | L'artefact a été déployé. |
-| `paused` | Le job ou son pipeline est en pause. |
+| `paused` | Le job géré est en pause. |
 | `errored` | L'entraînement, le dispatch ou la préparation de l'artefact a échoué. |
 | `stopped` | Le job a été arrêté en conservant les checkpoints existants. |
 | `terminated` | Le job a été terminé et ses checkpoints ont été supprimés. |
 
-## Endpoints
+## Routes disponibles pour les deux types de jobs
 
-| Méthode | Endpoint | Objectif |
+| Méthode | Route | Objectif |
 | --- | --- | --- |
-| `POST` | [`/v1/training-jobs`](/fr/api-reference/training-jobs/create) | Créer un job d'entraînement |
-| `GET` | [`/v1/training-jobs`](/fr/api-reference/training-jobs/list) | Lister les jobs d'entraînement |
-| `GET` | [`/v1/training-jobs/{job_id}`](/fr/api-reference/training-jobs/get) | Obtenir le statut, la configuration et les métriques |
-| `PATCH` | [`/v1/training-jobs/{job_id}`](/fr/api-reference/training-jobs/update-project) | Affecter ou désaffecter un projet |
-| `PATCH` | [`/v1/training-jobs/{job_id}/model-name`](/fr/api-reference/training-jobs/update-model-name) | Renommer le modèle entraîné |
-| `GET` | [`/v1/training-jobs/{job_id}/logs`](/fr/api-reference/training-jobs/logs) | Obtenir un instantané des logs d'entraînement |
-| `GET` | [`/v1/training-jobs/{job_id}/billing`](/fr/api-reference/training-jobs/billing) | Obtenir le résultat de facturation |
-| `GET` | [`/v1/training-jobs/{job_id}/deployments`](/fr/api-reference/training-jobs/deployments) | Lister les déploiements créés à partir du job |
-| `POST` | [`/v1/training-jobs/{job_id}/stop`](/fr/api-reference/training-jobs/stop) | Arrêter un job en conservant les checkpoints |
-| `POST` | [`/v1/training-jobs/{job_id}/terminate`](/fr/api-reference/training-jobs/terminate) | Arrêter un job et supprimer les checkpoints |
-| `POST` | [`/v1/training-jobs/{job_id}/sync`](/fr/api-reference/training-jobs/sync) | Actualiser le statut depuis le fournisseur d'entraînement |
-| `POST` | [`/v1/training-jobs/{job_id}/push-to-hub`](/fr/api-reference/training-jobs/push-to-hub) | Pousser l'artefact terminé vers Hugging Face Hub |
-| `GET` | [`/v1/training-jobs/{job_id}/checkpoints`](/fr/api-reference/training-jobs/checkpoints) | Lister les checkpoints |
-| `POST` | [`/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/fr/api-reference/training-jobs/deploy-checkpoint) | Déployer un checkpoint |
-| `GET` | [`/v1/training-jobs/{job_id}/download`](/fr/api-reference/training-jobs/download) | Obtenir une URL temporaire de téléchargement des poids |
-| `DELETE` | [`/v1/training-jobs/{job_id}`](/fr/api-reference/training-jobs/delete) | Supprimer un job et ses checkpoints |
+| `POST` | [`/v1/training/jobs`](/fr/api-reference/training-jobs/create) | Créer directement un job de configuration ; le SDK pris en charge crée les jobs interactifs via l'adaptateur de compatibilité |
+| `GET` | [`/v1/training/jobs`](/fr/api-reference/training-jobs/list) | Lister les jobs |
+| `GET` | [`/v1/training/jobs/{job_id}`](/fr/api-reference/training-jobs/get) | Obtenir un job |
+| `POST` | [`/v1/training/jobs/{job_id}/stop`](/fr/api-reference/training-jobs/stop) | Arrêter un job et libérer ses ressources d'entraînement |
+| `GET` | [`/v1/training/jobs/{job_id}/logs`](/fr/api-reference/training-jobs/logs) | Lire les logs |
+| `GET` | [`/v1/training/jobs/{job_id}/billing`](/fr/api-reference/training-jobs/billing) | Lire les détails de facturation |
+| `POST` | `/v1/training/jobs/{job_id}/deploy` | Déployer l'artefact d'un job |
+| `GET` | [`/v1/training/jobs/{job_id}/deployments`](/fr/api-reference/training-jobs/deployments) | Lister les déploiements |
+| `GET` | [`/v1/training/jobs/{job_id}/checkpoints`](/fr/api-reference/training-jobs/checkpoints) | Lister les checkpoints |
+| `GET` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}` | Obtenir un checkpoint |
+| `GET` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` | Télécharger un checkpoint |
+| `POST` / `DELETE` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/publish` | Publier ou dépublier un checkpoint |
+| `PUT` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/ttl` | Définir la rétention d'un checkpoint |
+| `DELETE` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}` | Supprimer un checkpoint |
+
+## Routes réservées aux jobs de configuration
+
+| Méthode | Route | Objectif |
+| --- | --- | --- |
+| `POST` | [`/v1/training/jobs/{job_id}/terminate`](/fr/api-reference/training-jobs/terminate) | Terminer un job et supprimer ses checkpoints |
+| `POST` | [`/v1/training/jobs/{job_id}/sync`](/fr/api-reference/training-jobs/sync) | Actualiser le statut du fournisseur |
+| `GET` | [`/v1/training/jobs/{job_id}/download`](/fr/api-reference/training-jobs/download) | Télécharger le modèle final |
+| `PATCH` | [`/v1/training/jobs/{job_id}/model-name`](/fr/api-reference/training-jobs/update-model-name) | Modifier le nom du modèle |
+| `POST` | [`/v1/training/jobs/{job_id}/push-to-hub`](/fr/api-reference/training-jobs/push-to-hub) | Envoyer le modèle final vers Hugging Face Hub |
+
+## Routes réservées aux jobs interactifs
+
+Les jobs interactifs exposent les opérations d'entraînement individuelles :
+
+| Méthode | Route | Objectif |
+| --- | --- | --- |
+| `POST` | `/v1/training/jobs/{job_id}/forward` | Exécuter une passe avant |
+| `POST` | `/v1/training/jobs/{job_id}/forward-backward` | Exécuter une passe avant et arrière |
+| `POST` | `/v1/training/jobs/{job_id}/optim-step` | Appliquer une étape d'optimisation |
+| `GET` | `/v1/training/jobs/{job_id}/operations/{operation_id}` | Obtenir une opération asynchrone |
+| `POST` | `/v1/training/jobs/{job_id}/operations/{operation_id}/cancel` | Annuler une opération |
+| `POST` | `/v1/training/jobs/{job_id}/checkpoints` | Enregistrer un checkpoint d'état ou d'échantillonneur |
+| `POST` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/load` | Charger un checkpoint |
+| `POST` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/sample` | Échantillonner depuis un checkpoint |
+
+L'appel d'une route d'étape interactive sur un job `config` renvoie `400`.

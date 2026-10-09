@@ -1,0 +1,71 @@
+---
+title: "运行时行为和错误"
+description: "理解 Fastino 交互式任务的操作、检查点、恢复和错误。"
+---
+
+一个 SDK 训练客户端就是一个 Fastino 交互式任务。交互式操作、future、采样器客户端和检查点
+是该任务所拥有工作或工件的不同视图，而不是独立的训练运行。
+
+## 标识任务
+
+从 SDK 读取任务 ID：
+
+```python
+job_id = training_client.get_info().model_data.model_id
+```
+
+同一个值标识以下调用返回的资源：
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
+
+使用规范的任务和检查点路由进行管理。使用 SDK 执行交互式模型操作；绝不要构造适配器 HTTP 请求。
+
+## Future 是任务操作
+
+SDK 方法可以为提交给交互式任务的操作返回 future。Future result/get 会解析对应操作。
+Future cancel 映射到取消该操作。
+
+在应用推进依赖步骤之前解析 future。持久化应用步骤、数据集游标以及相关操作或检查点标识符，
+以便重启后的控制器可以确定哪些工作已完成。
+
+不支持通过 `retrieve_futures` 批量检索。请跟踪并解析受支持调用返回的各个 future。
+
+## 检查点属于任务
+
+两种检查点类型分别用于不同目的：
+
+- `save_state(...)` 创建用于训练恢复的状态检查点。
+- `save_weights_for_sampler(...)` 创建用于 rollout 或评估的采样器检查点。
+
+加载状态映射到交互式任务上的检查点加载操作。创建或获取采样器会解析检查点；
+之后的采样针对该检查点运行。
+
+规范检查点路由支持列出、获取、下载、删除、发布、取消发布、TTL 管理和存储用量管理。
+保留策略由应用负责：不要假设未记录的生命周期或存储保证。
+
+将检查点标识符与继续运行所需的客户端状态一起存储，包括应用步骤、数据集修订版、
+奖励修订版和数据集游标。
+
+## 身份验证
+
+SDK 每次请求令牌时都会执行 `TINKER_CREDENTIAL_CMD`，以获取普通 Fastino 密钥。
+该命令必须向标准输出打印非空凭据。密钥以 `fast_sk_` 开头；以 `tml-` 开头的凭据会被拒绝。
+不要设置 `TINKER_API_KEY`。
+
+## 诊断错误
+
+| 症状 | 检查项 |
+| --- | --- |
+| 身份验证失败 | 确认凭据命令打印当前的 `fast_sk_` 密钥，且没有额外输出 |
+| SDK 无法连接 | 确认 `TINKER_BASE_URL` 恰好为 `https://api.fastino.ai/v1/training/compat/tinker` |
+| 模型或操作被拒绝 | 重新查询功能，并将调用与兼容性表进行比较 |
+| Future 失败 | 记录任务 ID 和操作结果；不要推进依赖的应用状态 |
+| 无法加载检查点 | 验证其任务、检查点类型和客户端恢复元数据 |
+| 规范任务查找失败 | 确认 ID 来自 `get_info().model_data.model_id`，且已通过同一 Fastino 团队的身份验证 |
+
+不要仅因为已安装的软件包中存在某个方法就推断其受支持。请查看
+[SDK 兼容性](/cn/rl-api/compatibility)和实时功能响应。

@@ -1,13 +1,16 @@
 ---
 title: "Obtenir un job d'entraînement"
 sidebarTitle: "Obtenir le statut du job"
-description: "Obtenez le statut, la configuration, les métriques et la disponibilité de l'artefact d'un job d'entraînement."
-api: "GET /v1/training-jobs/{job_id}"
+description: "Obtenez un job d'entraînement de configuration ou interactif à partir de son ID de job Fastino canonique."
+api: "GET /v1/training/jobs/{job_id}"
 ---
 
-`GET /v1/training-jobs/{job_id}`
+`GET /v1/training/jobs/{job_id}`
 
-Renvoie un job d'entraînement visible pour l'équipe de l'appelant.
+Renvoie un job d'entraînement de configuration ou interactif visible par
+l'équipe de l'appelant. Pour un workload RL, ce `job_id` est également l'ID
+d'exécution d'entraînement SDK renvoyé par
+`training_client.get_info().model_data.model_id`.
 
 ## Requête
 
@@ -16,13 +19,13 @@ Renvoie un job d'entraînement visible pour l'équipe de l'appelant.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID du job d'entraînement.
+  ID canonique du job d'entraînement Fastino.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
+curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -31,11 +34,16 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 ## Réponse
 
 <ResponseField name="id" type="string">
-  UUID du job d'entraînement.
+  ID canonique du job d'entraînement Fastino.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `config` lorsque Fastino exécute la boucle d'entraînement, ou `interactive`
+  lorsque l'appelant contrôle la boucle via le SDK pris en charge.
 </ResponseField>
 
 <ResponseField name="status" type="string">
-  Statut de cycle de vie persisté.
+  Statut persisté du cycle de vie.
 </ResponseField>
 
 <ResponseField name="normalized_status" type="string | null">
@@ -59,7 +67,7 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 </ResponseField>
 
 <ResponseField name="metrics" type="object | null">
-  Métriques d'entraînement disponibles. Les clés courantes sont `final_training_loss`, `final_validation_loss` et `best_validation_loss`. Les métriques d'évaluation sont distinctes et non garanties.
+  Métriques d'entraînement disponibles. Les clés courantes sont `final_training_loss`, `final_validation_loss` et `best_validation_loss`. Les métriques d'évaluation sont distinctes et ne sont pas garanties.
 </ResponseField>
 
 <ResponseField name="artifact_ready" type="boolean | null">
@@ -74,13 +82,19 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
   Raison pour laquelle le job n'est pas déployable.
 </ResponseField>
 
-L'enregistrement renvoie également la configuration d'entraînement soumise, les horodatages, les références de datasets, les détails du fournisseur, les étiquettes et les métadonnées d'artefact.
+Les enregistrements des jobs de configuration renvoient également leur
+configuration soumise, les références de datasets, la progression, les
+métriques et les métadonnées d'artefact. Les enregistrements des jobs
+interactifs renvoient les champs applicables à l'entraînement contrôlé par
+l'appelant. Ne supposez pas que les champs propres aux jobs de configuration
+sont renseignés sur un job interactif.
 
 <ResponseExample>
 
 ```json Response
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "type": "config",
   "status": "running",
   "normalized_status": "running",
   "is_terminal_status": false,
@@ -99,4 +113,5 @@ L'enregistrement renvoie également la configuration d'entraînement soumise, le
 
 </ResponseExample>
 
-Un job inconnu ou inaccessible renvoie `404`. Une valeur de chemin invalide renvoie `422`.
+Un job inconnu ou inaccessible renvoie `404`. Une valeur de chemin invalide
+renvoie `422`.

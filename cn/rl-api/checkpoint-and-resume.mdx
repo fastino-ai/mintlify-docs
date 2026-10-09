@@ -1,0 +1,130 @@
+---
+title: "为 RL 任务创建检查点并恢复"
+description: "保存交互式任务状态和应用进度，然后在不重放已完成工作的情况下恢复。"
+---
+
+状态检查点保护服务端训练状态。完整的恢复记录还会保护由用户负责、用于告诉控制器下一步操作的状态。
+
+## 要保存的内容
+
+| 记录 | 包含内容 | 存储方 |
+| --- | --- | --- |
+| 状态检查点 | SDK 检查点所表示的训练权重和优化器状态 | Fastino |
+| 循环记录 | 任务 ID、检查点标识符、步骤、数据集游标和配置 | 你的应用 |
+
+SDK 训练客户端代表一个 Fastino 交互式任务。从
+`training_client.get_info().model_data.model_id` 读取其规范 ID。
+
+## 1. 保存状态和循环进度
+
+通过 SDK 保存状态，然后持久化返回的检查点及继续运行所需的客户端字段：
+
+```python
+import json
+from pathlib import Path
+
+
+job_id = training_client.get_info().model_data.model_id
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "job_id": job_id,
+    "state_path": state.path,
+    "model": model_name,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
+```
+
+使用唯一的检查点名称，使每条循环记录都能标识明确的恢复边界。不要假设未记录的检查点生命周期。
+
+## 2. 读取最新的完整记录
+
+进程可能在写入最后一行时停止。反向扫描并跳过格式错误的尾部：
+
+```python
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+```
+
+## 3. 加载前验证
+
+将记录与请求的继续运行进行比较：
+
+- 规范任务 ID
+- 基础模型和可训练配置
+- 数据集修订版和游标
+- 奖励实现修订版
+- 优化器配置
+- 渲染器和 tokenizer 假设
+
+如果这些字段冲突，请停止并要求明确决策。不要悄然将检查点与其他实验组合。
+
+然后使用 SDK 支持的状态加载流程：
+
+```python
+training_client = (
+    service_client.create_training_client_from_state_with_optimizer(
+        str(resume["state_path"])
+    )
+)
+```
+
+此 SDK 操作映射到 Fastino 检查点加载。不要直接构造适配器请求，也不要从该操作推断其他运行沿袭关系。
+
+## 4. 使边界可恢复
+
+按以下顺序操作：
+
+1. 解析前向/反向传播和优化器 future。
+2. 保存状态检查点。
+3. 持久化包含其标识符的循环记录。
+4. 将应用步骤标记为完成。
+5. 开始下一步。
+
+如果进程在保存检查点后、持久化循环记录前退出，请继续将上一条完整记录作为可信恢复点。
+不要在记录持久保存前将步骤标记为完成。
+
+## 5. 区分检查点类型
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+使用状态检查点恢复训练。使用采样器检查点进行 rollout 或评估。不要将采样器检查点用作优化器状态恢复点。
+
+规范检查点管理支持列出、获取、下载、删除、发布、取消发布、更新 TTL 和查询存储用量。
+你的应用负责保留策略和清理；本指南不承诺 TTL 或保留时长。
+
+## 6. 验证继续运行
+
+扩大恢复后的工作负载之前：
+
+1. 加载所选状态检查点。
+2. 通过 `GET /v1/training/jobs/{job_id}` 确认 SDK 客户端的规范任务 ID。
+3. 运行小型留出评估。
+4. 提交一次受支持的训练更新。
+5. 使用新名称保存新的状态检查点。
+6. 持久化下一条循环记录。
+
+所有交互式操作均使用 SDK。有关任务、future 和检查点语义，请参阅
+[运行时行为和错误](/cn/rl-api/runtime)。

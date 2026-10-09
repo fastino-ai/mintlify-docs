@@ -1,13 +1,15 @@
 ---
 title: "获取训练任务"
 sidebarTitle: "获取任务状态"
-description: "获取 Fastino 训练任务的状态、完成百分比、当前 epoch、失败详情、训练指标和工件就绪情况，用于轮询任务进度。"
-api: "GET /v1/training-jobs/{job_id}"
+description: "通过规范的 Fastino 任务 ID 获取配置训练任务或交互式训练任务。"
+api: "GET /v1/training/jobs/{job_id}"
 ---
 
-`GET /v1/training-jobs/{job_id}`
+`GET /v1/training/jobs/{job_id}`
 
-返回一个对调用者所在团队可见的训练任务。
+返回一个对调用者所在团队可见的配置训练任务或交互式训练任务。
+对于 RL 工作负载，此 `job_id` 也是
+`training_client.get_info().model_data.model_id` 返回的 SDK 训练运行 ID。
 
 ## 请求
 
@@ -16,13 +18,13 @@ api: "GET /v1/training-jobs/{job_id}"
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  训练任务 UUID。
+  规范的 Fastino 训练任务 ID。
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
+curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -31,7 +33,11 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 ## 响应
 
 <ResponseField name="id" type="string">
-  训练任务 UUID。
+  规范的 Fastino 训练任务 ID。
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Fastino 运行训练循环时为 `config`；调用方通过受支持的 SDK 控制循环时为 `interactive`。
 </ResponseField>
 
 <ResponseField name="status" type="string">
@@ -74,13 +80,15 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
   任务不可部署的原因。
 </ResponseField>
 
-该记录还会返回已提交的训练配置、时间戳、数据集引用、提供方详情、标签以及工件元数据。
+配置任务记录还会返回已提交的配置、数据集引用、进度、指标和工件元数据。
+交互式任务记录会返回适用于调用方控制训练的字段。不要假设交互式任务中会填充仅配置任务使用的字段。
 
 <ResponseExample>
 
 ```json Response
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "type": "config",
   "status": "running",
   "normalized_status": "running",
   "is_terminal_status": false,

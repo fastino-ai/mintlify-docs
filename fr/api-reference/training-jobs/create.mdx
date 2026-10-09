@@ -1,13 +1,19 @@
 ---
-title: "Créer un job d'entraînement"
-sidebarTitle: "Créer un job"
-description: "Appelez POST /v1/training-jobs pour lancer un job de fine-tuning Fastino asynchrone à partir d'un modèle de base et de datasets, en mode lora ou full."
-api: "POST /v1/training-jobs"
+title: "Créer un job d'entraînement de configuration"
+sidebarTitle: "Créer un job de configuration"
+description: "Appelez POST /v1/training/jobs pour démarrer un job d'entraînement asynchrone géré par Fastino à partir d'un modèle de base et de datasets."
+api: "POST /v1/training/jobs"
 ---
 
-`POST /v1/training-jobs`
+`POST /v1/training/jobs`
 
-Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
+Crée un job d'entraînement asynchrone `config` et renvoie son enregistrement.
+Dans un job de configuration, vous fournissez un dataset et une configuration,
+et Fastino exécute la boucle d'entraînement. Pour contrôler la boucle étape par
+étape, utilisez un
+[job `interactive` via l'API RL](/fr/rl-api/quickstart).
+
+Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
 
 ## Requête
 
@@ -15,8 +21,12 @@ Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpo
   Votre clé API Fastino.
 </ParamField>
 
+<ParamField body="type" type="string">
+  Définissez ce champ sur `config` pour le corps de requête documenté sur cette page.
+</ParamField>
+
 <ParamField body="model_name" type="string" required>
-  Nom d'affichage pour le modèle entraîné. Longueur : 1 à 100 caractères.
+  Nom d'affichage du modèle entraîné. Longueur : 1 à 100 caractères.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
@@ -32,7 +42,7 @@ Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpo
 </ParamField>
 
 <ParamField body="validation_data_percentage" type="number" default="0.2">
-  Fraction réservée pour la validation, de `0` à `1`.
+  Fraction réservée à la validation, de `0` à `1`.
 </ParamField>
 
 <ParamField body="nr_epochs" type="integer" default="100">
@@ -44,11 +54,11 @@ Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpo
 </ParamField>
 
 <ParamField body="batch_size" type="integer" default="4">
-  Taille de batch par appareil. Il est préférable de l'omettre afin que le service d'entraînement puisse appliquer ou ramener en toute sécurité la valeur par défaut spécifique au modèle.
+  Taille du batch par appareil. Il est préférable de l'omettre afin que le service d'entraînement puisse appliquer ou ramener en toute sécurité la valeur par défaut propre au modèle.
 </ParamField>
 
 <ParamField body="seed" type="integer">
-  Seed de reproductibilité optionnelle entre `0` et `2147483647`. Définissez `provider_name` sur `modal` lors de son utilisation. Une seed réduit une source de variation mais ne garantit pas des exécutions GPU identiques bit à bit.
+  Seed de reproductibilité facultative de `0` à `2147483647`. Définissez `provider_name` sur `modal` lors de son utilisation. Une seed réduit une source de variation, mais ne garantit pas des exécutions GPU identiques bit à bit.
 </ParamField>
 
 <ParamField body="project_id" type="string">
@@ -61,11 +71,11 @@ Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpo
   </ParamField>
 
   <ParamField body="profile_training" type="boolean" default="false">
-    Persister un artefact structuré de profil d'entraînement.
+    Conserver un artefact structuré de profil d'entraînement.
   </ParamField>
 
   <ParamField body="wandb_api_key" type="string">
-    Clé API Weights & Biases optionnelle. Traitez-la comme un secret et ne la placez jamais dans le contrôle de source, les logs ou les exemples.
+    Clé API Weights & Biases facultative. Traitez-la comme un secret et ne la placez jamais dans le contrôle de version, les logs ou les exemples.
   </ParamField>
 
   <ParamField body="lora_r" type="integer">
@@ -85,7 +95,7 @@ Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpo
   </ParamField>
 
   <ParamField body="mask_history" type="boolean" default="false">
-    Option de masquage de loss pour décodeur. Les combinaisons non prises en charge sont rejetées.
+    Option de masquage de la loss du décodeur. Les combinaisons non prises en charge sont rejetées.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -157,17 +167,18 @@ Crée un job d'entraînement asynchrone et renvoie son enregistrement. Cet endpo
   </ParamField>
 
   <ParamField body="rl_config" type="object">
-    Paramètres spécifiques à l'algorithme. Les clés partagées incluent `max_steps` et `logging_steps`. GRPO prend en charge `reward_type`, `kl_beta`, `group_size`, `sampling_temperature` et `max_completion_length`. DPO prend en charge `dpo_beta` et `loss_type`. La récompense GRPO `llm_as_judge` prend aussi en charge `llm_judge_model`, `llm_judge_rubric`, `llm_judge_score_scale`, `llm_judge_timeout_s`, `llm_judge_max_concurrent`, `llm_judge_max_retries` et `llm_judge_retry_backoff_s`.
+    Paramètres propres à l'algorithme. Les clés partagées incluent `max_steps` et `logging_steps`. GRPO prend en charge `reward_type`, `kl_beta`, `group_size`, `sampling_temperature` et `max_completion_length`. DPO prend en charge `dpo_beta` et `loss_type`. La récompense GRPO `llm_as_judge` prend aussi en charge `llm_judge_model`, `llm_judge_rubric`, `llm_judge_score_scale`, `llm_judge_timeout_s`, `llm_judge_max_concurrent`, `llm_judge_max_retries` et `llm_judge_retry_backoff_s`.
   </ParamField>
 </Expandable>
 
 <RequestExample>
 
 ```bash cURL
-curl -X POST https://api.fastino.ai/v1/training-jobs \
+curl -X POST https://api.fastino.ai/v1/training/jobs \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "config",
     "model_name": "my-model-name",
     "base_model": "fastino/gliner2-multi-v1",
     "datasets": [{"name": "my-ready-dataset"}],
@@ -182,13 +193,15 @@ curl -X POST https://api.fastino.ai/v1/training-jobs \
 
 ## Réponse
 
-Renvoie `200` avec l'enregistrement complet du travail d'entraînement, y compris un `id` UUID et le statut initial.
+Renvoie `200` avec l'enregistrement complet du job d'entraînement, y compris un
+`id` UUID et le statut initial.
 
 <ResponseExample>
 
 ```json Response
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "type": "config",
   "model_name": "my-model-name",
   "base_model": "fastino/gliner2-multi-v1",
   "status": "requested",
@@ -201,6 +214,10 @@ Renvoie `200` avec l'enregistrement complet du travail d'entraînement, y compri
 
 </ResponseExample>
 
-Conservez l'`id` renvoyé dans cette réponse. Vous l'utiliserez pour interroger le statut, récupérer les métriques et les artefacts, et exécuter des inférences sur le modèle entraîné.
+Conservez l'`id` renvoyé dans cette réponse. Vous l'utiliserez pour interroger
+le statut, récupérer les métriques et les artefacts, et exécuter des inférences
+sur le modèle entraîné.
 
-Un corps mal formé renvoie `422`. Une combinaison valide mais indisponible de modèle, dataset, type d'entraînement ou fournisseur renvoie une erreur `4xx` spécifique à la requête.
+Un corps mal formé renvoie `422`. Une combinaison valide mais indisponible de
+modèle, dataset, type d'entraînement ou fournisseur renvoie une erreur `4xx`
+propre à la requête.

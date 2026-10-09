@@ -6,7 +6,7 @@ description: "Format, upload, validate, and inspect NER, classification, or deco
 
 Training jobs reference ready datasets by name. Prepare a JSONL file, upload it through the
 two-step dataset API, and confirm the processed version exists before calling
-`POST /v1/training-jobs`.
+`POST /v1/training/jobs`.
 
 ## Choose a dataset format
 
@@ -45,40 +45,42 @@ Use a `messages` array containing `system`, `user`, or `assistant` messages.
 ### 1. Reserve an upload URL
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/url \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/url \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "dataset_name": "docs-example-ner",
     "filename": "training.jsonl",
     "dataset_type": "ner"
-  }'
+  }' | tee dataset-upload.json
+
+export PRESIGNED_URL="$(jq -r '.presigned_url' dataset-upload.json)"
+export DATASET_ID="$(jq -r '.dataset_id' dataset-upload.json)"
+export DATASET_VERSION="$(jq -r '.version_number' dataset-upload.json)"
 ```
 
 The response contains a short-lived `presigned_url`, a `dataset_id`, and a
-`version_number`. Upload the exact file bytes to `presigned_url` with an HTTP `PUT`. Keep both
-the dataset ID and version number.
+`version_number`. The commands above retain all three values. Upload the exact
+file bytes to the presigned URL:
 
 ```bash
-curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+curl --fail-with-body -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
 ```
 
 ### 2. Process the uploaded file
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/process \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "dataset_id": "DATASET_ID_FROM_STEP_1"
-  }'
+  -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
 Processing returns `202`. Poll the dataset by name, find the entry whose `version_number`
 matches the upload response, and wait until that entry's `status` is `ready`:
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -92,7 +94,7 @@ endpoint](/api-reference/training-jobs/create):
   "model_name": "my-ner-model",
   "base_model": "fastino/gliner2-base-v1",
   "datasets": [
-    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
   "training_type": "lora"
 }

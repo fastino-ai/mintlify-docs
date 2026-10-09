@@ -1,0 +1,88 @@
+---
+title: "API RL"
+sidebarTitle: "Vue d'ensemble"
+description: "Exécutez des workloads d'apprentissage par renforcement et de post-entraînement personnalisé sous forme de jobs d'entraînement interactifs Fastino."
+---
+
+L'API RL de Fastino exécute les workloads d'apprentissage par renforcement et
+de post-entraînement personnalisé sous forme de **jobs d'entraînement
+interactifs**. Les jobs interactifs utilisent la même ressource de job
+d'entraînement et les mêmes ID de job que tous les autres workloads
+d'entraînement Fastino : `/v1/training/jobs`.
+
+Votre application contrôle la boucle : prompts, datasets, récompenses,
+avantages, évaluation et critères d'arrêt. Fastino contrôle les opérations du
+modèle demandées par cette boucle, notamment l'échantillonnage, les passes avant
+et arrière, les étapes d'optimisation et les checkpoints.
+
+<Note>
+  L'API RL est en accès limité. Vérifiez que Fastino a activé l'entraînement
+  interactif pour votre équipe avant de planifier un workload de production.
+</Note>
+
+## Un job, deux vues
+
+Un client d'entraînement créé via le SDK pris en charge représente un job
+interactif Fastino. La valeur renvoyée par
+`training_client.get_info().model_data.model_id` est l'ID canonique du job
+d'entraînement. Utilisez ce même ID avec
+`GET /v1/training/jobs/{job_id}` et les autres routes documentées
+d'administration des jobs d'entraînement ou des checkpoints.
+
+Il n'existe aucune exécution Tinker distincte derrière le job ni aucun routage
+sortant vers un autre service d'entraînement. Le paquet Python `tinker` est une
+couche de compatibilité client pour les applications qui utilisent déjà ses
+formes d'objets et de méthodes.
+
+## Client pris en charge
+
+Fastino teste `tinker==0.33.1`. Configurez-le avec :
+
+- URL de base : `https://api.fastino.ai/v1/training/compat/tinker`
+- Source des identifiants : `TINKER_CREDENTIAL_CMD`
+- Identifiant : une clé API Fastino normale commençant par `fast_sk_`
+
+Le SDK ajoute `/api/v1/{operation}` à l'URL de base configurée. Les routes de
+l'adaptateur sont volontairement absentes de l'OpenAPI et de la référence API
+de Fastino. Ne construisez pas vous-même de requêtes HTTP vers l'adaptateur ;
+utilisez le SDK pour les opérations interactives et les routes canoniques
+Fastino pour l'administration des jobs et des checkpoints.
+
+## Fonctionnement de la boucle
+
+1. Créez un client d'entraînement interactif.
+2. Créez un instantané de ses poids pour l'échantillonnage.
+3. Générez et évaluez les réponses candidates dans votre application.
+4. Convertissez les récompenses en données d'entraînement.
+5. Demandez au SDK d'exécuter les opérations avant/arrière et d'optimisation sur le même job.
+6. Enregistrez des checkpoints d'état ou d'échantillonneur et poursuivez.
+
+Interrogez `ServiceClient.get_server_capabilities()` avant de choisir un modèle
+ou de dépendre d'une fonctionnalité facultative du SDK. La réponse des
+capacités constitue la source de vérité pour l'environnement utilisable par
+votre équipe.
+
+## Commencez ici
+
+<CardGroup cols={2}>
+  <Card title="Se connecter et vérifier" icon="play" href="/fr/rl-api/quickstart">
+    Créez un job interactif, échantillonnez depuis un checkpoint et vérifiez son
+    ID de job Fastino canonique.
+  </Card>
+  <Card
+    title="Migrer depuis Tinker"
+    icon="arrow-right-arrow-left"
+    href="/fr/rl-api/migrate-from-tinker"
+  >
+    Remplacez le point de terminaison et l'authentification tout en conservant
+    les formes d'appels SDK prises en charge.
+  </Card>
+  <Card title="La boucle d'entraînement" icon="diagram-project" href="/fr/rl-api/training-loop">
+    Comprenez l'échantillonnage, les récompenses, les mises à jour et les
+    checkpoints au sein d'un même job.
+  </Card>
+  <Card title="Compatibilité du SDK" icon="list-check" href="/fr/rl-api/compatibility">
+    Vérifiez les correspondances exactes des méthodes prises en charge et les
+    opérations non prises en charge.
+  </Card>
+</CardGroup>

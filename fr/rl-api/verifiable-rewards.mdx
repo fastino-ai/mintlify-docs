@@ -1,0 +1,166 @@
+---
+title: "S'entraîner avec des récompenses vérifiables"
+description: "Transformez un évaluateur déterministe en signal d'apprentissage pour un job interactif Fastino."
+---
+
+Utilisez une récompense vérifiable lorsqu'un code peut vérifier une réponse,
+comme une réponse mathématique, un résultat de test, une contrainte de schéma,
+une extraction exacte ou le résultat d'un outil.
+
+```text
+prompt -> sample a group -> grade -> center rewards -> build datums -> update
+```
+
+L'échantillonnage, les opérations avant/arrière, les étapes d'optimisation et
+les checkpoints appartiennent tous au même job interactif Fastino. L'exécution
+des récompenses et l'état de l'application restent dans votre code.
+
+## Avant de commencer
+
+Terminez le [démarrage rapide](/fr/rl-api/quickstart), puis confirmez via les
+capacités que le modèle et les opérations d'entraînement choisis sont activés.
+Les extraits ci-dessous se concentrent sur le flux de récompense contrôlé par
+l'utilisateur ; adaptez la construction des datums à `tinker==0.33.1` et au
+modèle sélectionné.
+
+<Note>
+  Ce guide n'est pas un programme d'entraînement autonome prêt à être copié-collé.
+  Partez d'un workload SDK validé, dont le renderer et la construction des datums
+  correspondent au modèle sélectionné, puis ajoutez le flux de récompense ci-dessous.
+</Note>
+
+<Warning>
+  Exécutez le code généré ou les outils uniquement dans un environnement isolé
+  et aux ressources limitées. Fastino n'exécute pas votre fonction de
+  récompense et ne gère pas ses effets de bord.
+</Warning>
+
+## 1. Définir un évaluateur restreint
+
+Séparez l'analyse de la notation afin que les sorties mal formées restent
+observables :
+
+```python
+def get_reward(response: str, expected: str) -> float:
+    actual = parse_answer(response)
+    if actual is None:
+        return 0.0
+    return 1.0 if actual == expected else 0.0
+```
+
+Conservez un ensemble figé de fixtures comprenant des réponses correctes,
+incorrectes, mal formées et mises en forme de manière équivalente. Journalisez
+les échecs d'analyse séparément des réponses valides mais incorrectes.
+
+## 2. Créer un instantané du job pour l'échantillonnage
+
+Créez un checkpoint d'échantillonneur à partir des poids actuels, puis
+résolvez-le via le SDK :
+
+```python
+checkpoint = training_client.save_weights_for_sampler(
+    f"rollout-{step:06d}"
+).result()
+sampling_client = service_client.create_sampling_client(
+    model_path=checkpoint.path
+)
+
+sample_result = sampling_client.sample(
+    prompt=model_input,
+    num_samples=group_size,
+    sampling_params=sampling_params,
+).result()
+```
+
+Cela ne crée pas une autre exécution d'entraînement. Le checkpoint et le
+travail d'échantillonnage sont associés au même job interactif.
+
+## 3. Convertir les récompenses en avantages
+
+```python
+rewards = [
+    get_reward(render_response(sequence.tokens), expected)
+    for sequence in sample_result.sequences
+]
+
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+
+if all(advantage == 0.0 for advantage in advantages):
+    continue
+```
+
+Suivez les groupes sans variance de récompense. Ils peuvent indiquer que la
+tâche est trop facile, trop difficile ou mal analysée.
+
+## 4. Construire des datums alignés
+
+Le prompt constitue le contexte ; ses positions reçoivent donc normalement un
+avantage nul. Les positions de la complétion reçoivent l'avantage relatif au
+groupe de la réponse. Un constructeur de datum doit échouer avant la soumission
+si les longueurs de l'entrée du modèle, des cibles, des log-probabilités et des
+avantages diffèrent :
+
+```python
+if not (
+    model_input.length
+    == len(target_tokens)
+    == len(padded_logprobs)
+    == len(padded_advantages)
+):
+    raise ValueError("RL datum arrays are not aligned")
+```
+
+Utilisez le renderer et le tokenizer associés au `base_model` sélectionné.
+Conservez les tokens échantillonnés et les log-probabilités nécessaires à
+l'opération SDK sélectionnée à partir des capacités.
+
+## 5. Mettre à jour le job interactif
+
+Pour un workflow activé fondé sur l'échantillonnage d'importance, le schéma
+d'appels du SDK est le suivant :
+
+```python
+train_future = training_client.forward_backward(
+    datums,
+    loss_fn="importance_sampling",
+)
+train_result = train_future.result()
+
+optim_future = training_client.optim_step(optimizer_params)
+optim_result = optim_future.result()
+```
+
+Les deux opérations modifient le job interactif existant. Résolvez et
+enregistrez chaque résultat avant de faire avancer l'étape de l'application. Ne
+construisez pas de requêtes HTTP équivalentes vers l'adaptateur.
+
+## 6. Enregistrer une limite de récupération
+
+```python
+state = training_client.save_state(f"step-{step:06d}").result()
+```
+
+Conservez l'identifiant de checkpoint renvoyé avec :
+
+- L'ID canonique du job provenant de `training_client.get_info().model_data.model_id`
+- L'étape de l'application et le curseur du dataset
+- Les révisions du dataset et de l'implémentation de la récompense
+- Le modèle de base et la configuration d'entraînement
+- Les métriques d'évaluation
+
+Ces métadonnées permettent à un contrôleur de choisir un checkpoint sans le
+déduire de son nom.
+
+## Vérifier avant d'augmenter la taille
+
+- L'évaluateur distingue les fixtures correctes et incorrectes connues.
+- Les réponses mal formées ne font pas échouer la boucle de l'application.
+- Au moins un groupe d'échantillons présente une variance de récompense.
+- Les tableaux de datums respectent les formes attendues par le SDK installé.
+- Les futures avant/arrière et d'optimisation se terminent sur le même job.
+- Un checkpoint d'état peut être chargé avec ses métadonnées de reprise contrôlées par le client.
+- L'évaluation sur un ensemble de validation reste distincte du lot de récompense d'entraînement.
+
+Pour le cycle de vie global, consultez
+[La boucle d'entraînement RL](/fr/rl-api/training-loop).

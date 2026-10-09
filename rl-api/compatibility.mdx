@@ -1,0 +1,83 @@
+---
+title: "SDK compatibility"
+description: "Exact Tinker SDK support and mappings for Fastino interactive training jobs."
+---
+
+Fastino tests the compatibility contract with `tinker==0.33.1`. The package
+defines SDK signatures; this page defines which methods Fastino supports and
+how they map to the Fastino training domain.
+
+| Item | Supported value |
+| --- | --- |
+| Package | `tinker==0.33.1` |
+| Base URL | `https://api.fastino.ai/v1/training/compat/tinker` |
+| Authentication | A `fast_sk_` key printed by `TINKER_CREDENTIAL_CMD` |
+| Resource identity | One training client is one interactive Fastino job with the same ID |
+
+The SDK adds `/api/v1/{operation}` to the base URL. Adapter routes are hidden
+from OpenAPI and the API reference. Users must not construct adapter requests.
+
+## Training and sampling
+
+| SDK method or operation | Fastino mapping | Support |
+| --- | --- | --- |
+| `create_lora_training_client` | `POST /v1/training/jobs` with interactive job type | Supported |
+| `copy_weights` | Create an interactive job from the checkpoint | Supported |
+| `TrainingClient.get_info` | `GET` the canonical Fastino job | Supported |
+| `forward` | `/forward` on the interactive job | Supported |
+| `forward_backward` | `/forward-backward` on the interactive job | Supported |
+| Custom forward/backward operation | `/forward-backward` on the interactive job | Supported |
+| `optim_step` | `/optim-step` on the interactive job | Supported |
+| `save_state` | `POST` a checkpoint with `state` kind | Supported |
+| `save_weights_for_sampler` | `POST` a checkpoint with `sampler` kind | Supported |
+| Load training state | Checkpoint load on the interactive job | Supported |
+| Create or get a sampling client | Resolve the selected checkpoint | Supported |
+| `SamplingClient.sample` | Checkpoint sample | Supported |
+
+Keep the SDK method parameter `base_model` unchanged. Query
+`ServiceClient.get_server_capabilities()` before selecting a base model or
+depending on an optional operation. Capabilities are the source of truth; this
+reference does not establish a fixed model catalog, loss catalog, rank, context
+window, or per-call limit.
+
+## Futures
+
+| SDK method or operation | Fastino mapping | Support |
+| --- | --- | --- |
+| Future result/get | Operations get | Supported |
+| Future cancel | Operations cancel | Supported |
+| `retrieve_futures` batch retrieval | None | Not supported |
+
+## Administration
+
+| SDK method or operation | Fastino mapping | Support |
+| --- | --- | --- |
+| `RestClient` list training runs | List canonical Fastino jobs | Supported |
+| `RestClient` get training run | Get a canonical Fastino job | Supported |
+| List or get checkpoints | Canonical job/checkpoint routes | Supported |
+| Download or delete checkpoint | Canonical job/checkpoint routes | Supported |
+| Publish or unpublish checkpoint | Canonical job/checkpoint routes | Supported |
+| Set or clear checkpoint TTL | Canonical job/checkpoint routes | Supported |
+| Get checkpoint storage usage | Canonical job/checkpoint routes | Supported |
+
+## Adapter-only plumbing
+
+The SDK can use adapter plumbing for capabilities, sessions, heartbeat,
+telemetry, authentication, and audit integration. These are implementation
+details and have no public Fastino route. Do not treat them as customer-facing
+HTTP APIs.
+
+## Explicitly unsupported
+
+- Batch future retrieval through `retrieve_futures`
+- `save_weights_external`
+- `external_weights_urls`
+- SDK auth or token operations
+- SDK billing, usage, or event operations
+
+Authentication is provided only by a normal Fastino `fast_sk_` key through
+`TINKER_CREDENTIAL_CMD`. Credentials beginning with `tml-` are rejected, and
+active examples must not set `TINKER_API_KEY`.
+
+For lifecycle and recovery guidance, see
+[Runtime behavior and errors](/rl-api/runtime).

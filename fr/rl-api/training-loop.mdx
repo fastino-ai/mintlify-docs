@@ -1,0 +1,122 @@
+---
+title: "La boucle d'entraînement RL"
+description: "Reliez l'échantillonnage, les récompenses, les mises à jour et les checkpoints au sein d'un même job interactif Fastino."
+---
+
+Votre application décide quoi échantillonner, comment l'évaluer et quand
+effectuer une mise à jour. Fastino exécute les opérations interactives du
+modèle. Un `TrainingClient` représente un job interactif Fastino pendant toute
+la boucle.
+
+## La boucle de contrôle
+
+<Steps>
+  <Step title="Créer le job interactif">
+    Choisissez un `base_model` et d'autres options à partir de la réponse de
+    capacités, puis appelez `create_lora_training_client(...)`. Lisez l'ID
+    canonique du job dans `training_client.get_info().model_data.model_id`.
+  </Step>
+  <Step title="Créer un checkpoint des poids pour l'échantillonnage">
+    Appelez `save_weights_for_sampler(name)`, puis créez un client
+    d'échantillonnage à partir du chemin de checkpoint renvoyé. Cela associe la
+    politique de rollout à un artefact explicite du même job.
+  </Step>
+  <Step title="Collecter des groupes de rollouts">
+    Échantillonnez plusieurs réponses candidates pour chaque prompt. Votre
+    application contrôle la construction des prompts, le rendu des réponses et
+    le regroupement.
+  </Step>
+  <Step title="Calculer les récompenses et les avantages">
+    Évaluez chaque réponse, puis transformez les récompenses en avantages requis
+    par l'opération d'entraînement sélectionnée et prise en charge par les
+    capacités.
+  </Step>
+  <Step title="Construire les datums d'entraînement">
+    Combinez les entrées du modèle, les tokens des réponses échantillonnées, les
+    métadonnées d'échantillonnage et les signaux d'entraînement au niveau des
+    tokens dans la forme attendue par le SDK.
+  </Step>
+  <Step title="Mettre à jour le même job">
+    Soumettez les opérations avant/arrière prises en charge, puis une étape
+    d'optimisation, via le `TrainingClient` existant.
+  </Step>
+  <Step title="Enregistrer une limite de récupération">
+    Enregistrez un checkpoint d'état et conservez son identifiant avec l'étape
+    de l'application et le curseur du dataset avant de commencer l'itération
+    suivante.
+  </Step>
+</Steps>
+
+## Modèle d'objets
+
+| Objet | Rôle |
+| --- | --- |
+| `ServiceClient` | Interroge les capacités et crée les clients SDK |
+| `TrainingClient` | Représente un job interactif Fastino et soumet ses opérations de modèle |
+| `SamplingClient` | Échantillonne depuis un checkpoint résolu |
+| `RestClient` | Liste ou obtient les jobs canoniques et administre les checkpoints |
+| Future | Suit une opération soumise au job |
+
+L'ID de modèle du SDK est l'ID de job Fastino canonique. Les futures et les
+clients d'échantillonnage ne créent pas d'exécutions indépendantes.
+
+## Récompenses relatives au groupe
+
+Pour un groupe de réponses, une transformation courante contrôlée par
+l'application soustrait la récompense moyenne du groupe :
+
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+```
+
+Si tous les avantages centrés sont nuls, le groupe ne contient aucun signal
+relatif. Votre application peut le journaliser et l'ignorer.
+
+## Construire des datums alignés
+
+Pour une boucle fondée sur l'échantillonnage d'importance, le prompt constitue
+le contexte et la complétion échantillonnée constitue l'action. Conservez les
+tableaux de tokens alignés avec le SDK et le renderer utilisés par le modèle
+sélectionné :
+
+- Entrée du modèle contenant les tokens du prompt et de la complétion
+- Tokens cibles alignés avec l'entrée du modèle
+- Log-probabilités d'échantillonnage alignées avec les tokens générés
+- Avantages appliqués aux positions de la complétion
+
+<Warning>
+  Le rendu des prompts, la tokenisation, la construction des datums et
+  l'exécution des récompenses sont contrôlés par le client. Validez leurs formes
+  par rapport à `tinker==0.33.1` et à la réponse de capacités active avant
+  d'exécuter un workload plus important.
+</Warning>
+
+## Maintenir l'ordre du travail dépendant
+
+Résolvez une future avant/arrière avant de considérer cette étape comme
+terminée, et résolvez la future de l'optimiseur avant de créer un checkpoint de
+l'état mis à jour. Ne laissez pas des contrôleurs indépendants modifier le même
+job sans coordination au niveau de l'application.
+
+Le SDK exécute ces opérations interactives. Ne les reproduisez pas sous forme
+d'appels HTTP directs.
+
+## Choisir le type de checkpoint
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Utilisez le checkpoint d'état comme limite de récupération de l'entraînement.
+Utilisez le checkpoint d'échantillonneur pour les rollouts ou l'évaluation.
+Conservez l'identifiant du checkpoint sélectionné avec les métadonnées de votre
+application plutôt que de déduire l'état à partir d'un nom.
+
+Pour implémenter cette boucle avec un évaluateur déterministe, poursuivez avec
+[S'entraîner avec des récompenses vérifiables](/fr/rl-api/verifiable-rewards).
+Pour la récupération, consultez
+[Créer un checkpoint et reprendre](/fr/rl-api/checkpoint-and-resume).

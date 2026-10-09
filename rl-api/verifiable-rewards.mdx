@@ -1,0 +1,161 @@
+---
+title: "Train with verifiable rewards"
+description: "Turn a deterministic grader into a learning signal for one interactive Fastino job."
+---
+
+Use a verifiable reward when code can check a response, such as a math answer,
+test result, schema constraint, exact extraction, or tool outcome.
+
+```text
+prompt -> sample a group -> grade -> center rewards -> build datums -> update
+```
+
+Sampling, forward/backward work, optimizer steps, and checkpoints all belong to
+the same interactive Fastino job. Reward execution and application state remain
+in your code.
+
+## Before you start
+
+Complete the [Quickstart](/rl-api/quickstart), then confirm through capabilities
+that your chosen model and training operations are enabled. The snippets below
+focus on the user-owned reward flow; adapt datum construction to
+`tinker==0.33.1` and your selected model.
+
+<Note>
+  This guide is not a standalone copy-and-paste trainer. Begin with a validated
+  SDK workload whose renderer and datum construction match the selected model,
+  then add the reward flow below.
+</Note>
+
+<Warning>
+  Run generated code or tools only in an isolated, resource-limited
+  environment. Fastino does not execute your reward function or manage its side
+  effects.
+</Warning>
+
+## 1. Define a narrow grader
+
+Separate parsing from scoring so malformed output is observable:
+
+```python
+def get_reward(response: str, expected: str) -> float:
+    actual = parse_answer(response)
+    if actual is None:
+        return 0.0
+    return 1.0 if actual == expected else 0.0
+```
+
+Keep a frozen fixture set that includes correct, incorrect, malformed, and
+equivalently formatted answers. Log parse failures separately from valid but
+incorrect responses.
+
+## 2. Snapshot the job for sampling
+
+Create a sampler checkpoint from the current weights, then resolve it through
+the SDK:
+
+```python
+checkpoint = training_client.save_weights_for_sampler(
+    f"rollout-{step:06d}"
+).result()
+sampling_client = service_client.create_sampling_client(
+    model_path=checkpoint.path
+)
+
+sample_result = sampling_client.sample(
+    prompt=model_input,
+    num_samples=group_size,
+    sampling_params=sampling_params,
+).result()
+```
+
+This does not create another training run. The checkpoint and sampling work are
+associated with the same interactive job.
+
+## 3. Convert rewards to advantages
+
+```python
+rewards = [
+    get_reward(render_response(sequence.tokens), expected)
+    for sequence in sample_result.sequences
+]
+
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+
+if all(advantage == 0.0 for advantage in advantages):
+    continue
+```
+
+Track groups with no reward variance. They may indicate that the task is too
+easy, too hard, or parsed incorrectly.
+
+## 4. Build aligned datums
+
+The prompt is context, so prompt positions normally receive zero advantage.
+Completion positions receive the response's group-relative advantage. A datum
+builder should fail before submission if model input, target, log-probability,
+and advantage lengths differ:
+
+```python
+if not (
+    model_input.length
+    == len(target_tokens)
+    == len(padded_logprobs)
+    == len(padded_advantages)
+):
+    raise ValueError("RL datum arrays are not aligned")
+```
+
+Use the renderer and tokenizer associated with the selected `base_model`. Keep
+the sampled tokens and log probabilities needed by the SDK operation you
+selected from capabilities.
+
+## 5. Update the interactive job
+
+For an enabled importance-sampling workflow, the SDK call pattern is:
+
+```python
+train_future = training_client.forward_backward(
+    datums,
+    loss_fn="importance_sampling",
+)
+train_result = train_future.result()
+
+optim_future = training_client.optim_step(optimizer_params)
+optim_result = optim_future.result()
+```
+
+Both operations mutate the existing interactive job. Resolve and record each
+result before advancing the application step. Do not construct equivalent
+adapter HTTP requests.
+
+## 6. Save a recovery boundary
+
+```python
+state = training_client.save_state(f"step-{step:06d}").result()
+```
+
+Persist the returned checkpoint identifier with:
+
+- Canonical job ID from `training_client.get_info().model_data.model_id`
+- Application step and dataset cursor
+- Dataset and reward implementation revisions
+- Base model and training configuration
+- Evaluation metrics
+
+This metadata lets a controller choose a checkpoint without guessing from its
+name.
+
+## Verify before scaling
+
+- The grader distinguishes known correct and incorrect fixtures.
+- Malformed responses do not crash the application loop.
+- At least one sample group has reward variance.
+- Datum arrays satisfy the installed SDK's expected shapes.
+- Forward/backward and optimizer futures complete on the same job.
+- A state checkpoint can be loaded with its client-owned resume metadata.
+- Held-out evaluation remains separate from the training reward batch.
+
+For the surrounding lifecycle, read
+[The RL training loop](/rl-api/training-loop).

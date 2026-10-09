@@ -1,13 +1,16 @@
 ---
 title: "Obtener un trabajo de entrenamiento"
 sidebarTitle: "Obtener estado del trabajo"
-description: "Obtén el estado, la configuración, las métricas y la disponibilidad del artefacto de un trabajo de entrenamiento."
-api: "GET /v1/training-jobs/{job_id}"
+description: "Obtén un trabajo de entrenamiento de configuración o interactivo mediante su ID canónico de trabajo de Fastino."
+api: "GET /v1/training/jobs/{job_id}"
 ---
 
-`GET /v1/training-jobs/{job_id}`
+`GET /v1/training/jobs/{job_id}`
 
-Devuelve un trabajo de entrenamiento visible para el equipo del llamante.
+Devuelve un trabajo de entrenamiento de configuración o interactivo visible
+para el equipo del llamante. Para una carga de RL, este `job_id` también es el
+ID de ejecución de entrenamiento del SDK devuelto por
+`training_client.get_info().model_data.model_id`.
 
 ## Solicitud
 
@@ -16,13 +19,13 @@ Devuelve un trabajo de entrenamiento visible para el equipo del llamante.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID del trabajo de entrenamiento.
+  ID canónico del trabajo de entrenamiento de Fastino.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
+curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -31,7 +34,12 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 ## Respuesta
 
 <ResponseField name="id" type="string">
-  UUID del trabajo de entrenamiento.
+  ID canónico del trabajo de entrenamiento de Fastino.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `config` cuando Fastino ejecuta el bucle de entrenamiento o `interactive`
+  cuando el llamante controla el bucle mediante el SDK compatible.
 </ResponseField>
 
 <ResponseField name="status" type="string">
@@ -39,11 +47,11 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 </ResponseField>
 
 <ResponseField name="normalized_status" type="string | null">
-  Estado estable para compatibilidad del cliente.
+  Estado estable para la compatibilidad del cliente.
 </ResponseField>
 
 <ResponseField name="is_terminal_status" type="boolean | null">
-  Si la consulta puede detenerse.
+  Indica si la consulta puede detenerse.
 </ResponseField>
 
 <ResponseField name="progress_percent" type="integer | null">
@@ -63,24 +71,29 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 </ResponseField>
 
 <ResponseField name="artifact_ready" type="boolean | null">
-  Si hay una ubicación de artefacto disponible.
+  Indica si hay disponible una ubicación para el artefacto.
 </ResponseField>
 
 <ResponseField name="is_deployable" type="boolean | null">
-  Decisión autoritativa sobre la disponibilidad para despliegue.
+  Decisión autoritativa sobre si está listo para el despliegue.
 </ResponseField>
 
 <ResponseField name="deployability_reason" type="string | null">
-  Por qué el trabajo no es desplegable.
+  Motivo por el que el trabajo no es desplegable.
 </ResponseField>
 
-El registro también devuelve la configuración de entrenamiento enviada, las marcas de tiempo, las referencias a datasets, los detalles del proveedor, las etiquetas y los metadatos del artefacto.
+Los registros de trabajos de configuración también devuelven su configuración
+enviada, referencias a datasets, progreso, métricas y metadatos del artefacto.
+Los registros de trabajos interactivos devuelven los campos aplicables al
+entrenamiento dirigido por el llamante. No supongas que los campos exclusivos
+de configuración estén poblados en un trabajo interactivo.
 
 <ResponseExample>
 
 ```json Response
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "type": "config",
   "status": "running",
   "normalized_status": "running",
   "is_terminal_status": false,
@@ -99,4 +112,4 @@ El registro también devuelve la configuración de entrenamiento enviada, las ma
 
 </ResponseExample>
 
-Un trabajo desconocido o inaccesible devuelve `404`. Un valor de ruta inválido devuelve `422`.
+Un trabajo desconocido o inaccesible devuelve `404`. Un valor de ruta no válido devuelve `422`.

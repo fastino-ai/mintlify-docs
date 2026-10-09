@@ -164,16 +164,21 @@ class AgentHarnessTests(unittest.TestCase):
     def test_agent_index_orders_guides_before_contracts(self) -> None:
         self.assertEqual(CHECKS._journey_order_findings(HARNESS.ROOT), [])
 
+    def test_rl_navigation_starts_with_overview_and_quickstart(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text())
+
+        self.assertEqual(HARNESS._rl_navigation_findings(config), [])
+
     def test_operation_matching_handles_path_parameters_and_queries(self) -> None:
         operations = {
-            ("get", "/v1/training-jobs/{job_id}"): {"responses": {}},
+            ("get", "/v1/training/jobs/{job_id}"): {"responses": {}},
             ("get", "/v1/base-models"): {"responses": {}},
         }
 
         training = HARNESS._operation_for_path(
             operations,
             "GET",
-            "/v1/training-jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "/v1/training/jobs/3fa85f64-5717-4562-b3fc-2c963f66afa6",
         )
         catalog = HARNESS._operation_for_path(
             operations,
@@ -181,8 +186,32 @@ class AgentHarnessTests(unittest.TestCase):
             "/v1/base-models?supports_training=true",
         )
 
-        self.assertEqual(training[0], "/v1/training-jobs/{job_id}")
+        self.assertEqual(training[0], "/v1/training/jobs/{job_id}")
         self.assertEqual(catalog[0], "/v1/base-models")
+
+    def test_sdk_compatibility_base_is_an_allowed_non_openapi_url(self) -> None:
+        self.assertTrue(
+            CHECKS._path_matches_route("/v1/training/compat/tinker", {})
+        )
+        self.assertFalse(CHECKS._path_matches_route("/tinker", {}))
+        self.assertFalse(CHECKS._path_matches_route("/not-a-public-route", {}))
+
+    def test_training_preview_rename_still_requires_the_deployed_route(self) -> None:
+        deployed = {"GET": [CHECKS.re.compile(r"^/v1/training\-jobs/?$")]}
+
+        self.assertTrue(
+            CHECKS._path_matches_route("/v1/training/jobs", deployed, "GET")
+        )
+        self.assertFalse(
+            CHECKS._path_matches_route("/v1/training/jobs", {}, "GET")
+        )
+        self.assertTrue(
+            CHECKS._path_matches_route(
+                "/v1/training/jobs/job-1/forward",
+                {},
+                "POST",
+            )
+        )
 
     def test_schema_validation_rejects_missing_required_field(self) -> None:
         document = {
@@ -547,7 +576,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_wait_for_billing_polls_until_finalized(self) -> None:
         pending = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs/job/billing",
+            "https://api.fastino.ai/v1/training/jobs/job/billing",
             {},
             json.dumps({"billed": False, "gpu_minutes": None}).encode(),
         )
@@ -574,7 +603,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_wait_for_billing_fails_when_record_never_finalizes(self) -> None:
         pending = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs/job/billing",
+            "https://api.fastino.ai/v1/training/jobs/job/billing",
             {},
             json.dumps({"billed": False, "gpu_minutes": None}).encode(),
         )
@@ -673,14 +702,14 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_stop_retries_cancellation_unconfirmed_until_terminal(self) -> None:
         stop_unconfirmed = HARNESS.Response(
             409,
-            "https://api.fastino.ai/v1/training-jobs/job-1/stop",
+            "https://api.fastino.ai/v1/training/jobs/job-1/stop",
             {},
             json.dumps({"error": {"code": "cancellation_unconfirmed"}}).encode(),
         )
         stop_accepted = HARNESS.Response(202, stop_unconfirmed.url, {}, b"{}")
         running = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs/job-1",
+            "https://api.fastino.ai/v1/training/jobs/job-1",
             {},
             json.dumps(
                 {"status": "running", "is_terminal_status": False}
@@ -710,7 +739,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_create_recovers_after_ambiguous_server_response(self) -> None:
         unavailable = HARNESS.Response(
             503,
-            "https://api.fastino.ai/v1/training-jobs",
+            "https://api.fastino.ai/v1/training/jobs",
             {},
             b"temporarily unavailable",
         )
@@ -736,7 +765,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_training_job_listing_follows_pagination(self) -> None:
         first = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs?limit=200&offset=0",
+            "https://api.fastino.ai/v1/training/jobs?limit=200&offset=0",
             {},
             json.dumps(
                 {
@@ -747,7 +776,7 @@ curl https://api.fastino.ai/v1/systemone \\
         )
         second = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs?limit=200&offset=1",
+            "https://api.fastino.ai/v1/training/jobs?limit=200&offset=1",
             {},
             json.dumps(
                 {
@@ -802,7 +831,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_replay_stops_and_deletes_unexpected_job(self) -> None:
         existing = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs/expected-job",
+            "https://api.fastino.ai/v1/training/jobs/expected-job",
             {},
             json.dumps(
                 {
@@ -814,7 +843,7 @@ curl https://api.fastino.ai/v1/systemone \\
         )
         unexpected = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs",
+            "https://api.fastino.ai/v1/training/jobs",
             {},
             json.dumps({"id": "unexpected-job"}).encode(),
         )
@@ -853,7 +882,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_replay_ambiguous_responses_trigger_reconciliation(self) -> None:
         existing = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs/expected-job",
+            "https://api.fastino.ai/v1/training/jobs/expected-job",
             {},
             json.dumps(
                 {
@@ -865,8 +894,8 @@ curl https://api.fastino.ai/v1/systemone \\
         )
         ambiguous = (
             urllib.error.URLError("lost response"),
-            HARNESS.Response(503, "https://api.fastino.ai/v1/training-jobs", {}, b""),
-            HARNESS.Response(200, "https://api.fastino.ai/v1/training-jobs", {}, b"{}"),
+            HARNESS.Response(503, "https://api.fastino.ai/v1/training/jobs", {}, b""),
+            HARNESS.Response(200, "https://api.fastino.ai/v1/training/jobs", {}, b"{}"),
         )
         for outcome in ambiguous:
             with (
@@ -904,7 +933,7 @@ curl https://api.fastino.ai/v1/systemone \\
     def test_successful_replay_reconciles_before_and_after_request(self) -> None:
         expected = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs/expected-job",
+            "https://api.fastino.ai/v1/training/jobs/expected-job",
             {},
             json.dumps(
                 {
@@ -916,7 +945,7 @@ curl https://api.fastino.ai/v1/systemone \\
         )
         replay = HARNESS.Response(
             200,
-            "https://api.fastino.ai/v1/training-jobs",
+            "https://api.fastino.ai/v1/training/jobs",
             {},
             json.dumps({"id": "expected-job"}).encode(),
         )

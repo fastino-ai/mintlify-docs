@@ -3,7 +3,7 @@
 > 使用 GLiDE 构建结构化决策，使用 GLiNER 进行基于模式的抽取，并通过 Fastino 微调专用模型。
 
 > ## 代理说明
-> 使用 https://docs.fastino.ai/openapi.json 作为面向客户的 API 路由的事实来源。不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，切勿在代码、日志或报告中嵌入凭据。
+> 使用 https://docs.fastino.ai/openapi.json 作为面向客户的 API 路由的事实来源。训练作业使用 `/v1/training/jobs`。对于交互式 RL 操作，请遵循 RL API 页面并使用受支持的 SDK；其兼容适配器不会出现在 OpenAPI 中，也不应被直接调用。不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，切勿在代码、日志或报告中嵌入凭据。
 
 ## 代理资源
 
@@ -59,9 +59,21 @@
 
 ### 训练 API
 
-- [训练任务 API](https://docs.fastino.ai/cn/training.md): 训练任务 API 管理微调任务的完整生命周期，涵盖 /v1/training-jobs 端点、X-API-Key 身份验证和任务状态。
+- [训练 API](https://docs.fastino.ai/cn/training.md): 选择托管式或交互式训练任务，然后通过规范的训练 API 创建、监控和管理任务。
+- [微调 GLiNER](https://docs.fastino.ai/cn/guides/fine-tune-gliner.md): 准备 GLiNER 数据集、创建托管式配置任务，并通过检查点直至任务完成进行监控。
 - [训练智能体技能](https://docs.fastino.ai/cn/concepts/gliner-agent-skill.md): 为 Cursor、Claude Code 和 Codex 安装 Fastino 托管的 GLiNER 技能。
 - [准备并上传训练数据集](https://docs.fastino.ai/cn/concepts/datasets.md): 在启动 Fastino 训练任务之前，格式化、上传、验证并检查 NER、分类或解码器数据集。
+
+### RL API
+
+- [RL API](https://docs.fastino.ai/cn/rl-api.md): 以 Fastino 交互式训练任务的形式运行强化学习和自定义后训练工作负载。
+- [RL API 快速入门](https://docs.fastino.ai/cn/rl-api/quickstart.md): 创建 Fastino 交互式训练任务、从中采样并验证该任务。
+- [从 Tinker 迁移](https://docs.fastino.ai/cn/rl-api/migrate-from-tinker.md): 将兼容的 Tinker SDK 工作负载迁移到 Fastino 交互式训练任务。
+- [RL 训练循环](https://docs.fastino.ai/cn/rl-api/training-loop.md): 在一个 Fastino 交互式任务中连接采样、奖励、更新和检查点。
+- [使用可验证奖励进行训练](https://docs.fastino.ai/cn/rl-api/verifiable-rewards.md): 将确定性评分器转化为一个 Fastino 交互式任务的学习信号。
+- [为 RL 任务创建检查点并恢复](https://docs.fastino.ai/cn/rl-api/checkpoint-and-resume.md): 保存交互式任务状态和应用进度，然后在不重放已完成工作的情况下恢复。
+- [SDK 兼容性](https://docs.fastino.ai/cn/rl-api/compatibility.md): Fastino 交互式训练任务的确切 Tinker SDK 支持和映射。
+- [运行时行为和错误](https://docs.fastino.ai/cn/rl-api/runtime.md): 理解 Fastino 交互式任务的操作、检查点、恢复和错误。
 
 ### 故障排除
 
@@ -110,19 +122,16 @@
 - [处理已上传的数据集](https://docs.fastino.ai/cn/api-reference/datasets/process-upload.md): 文件上传完成后，调用 POST /v1/datasets/upload/process 并传入上传的 dataset_id，以注册并处理该数据集。
 - [列出数据集版本](https://docs.fastino.ai/cn/api-reference/datasets/versions.md): 使用 GET /v1/datasets/{name} 列出单个数据集的已处理版本及其元数据，在 name 路径参数中传入数据集名称。
 - [删除数据集](https://docs.fastino.ai/cn/api-reference/datasets/delete.md): 使用 DELETE /v1/datasets/{name} 按名称删除数据集及其已存储的所有版本，在 name 路径参数中传入数据集名称。
-- [创建训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/create.md): 通过 POST /v1/training-jobs 基于基础模型和数据集创建异步训练任务，可选择 LoRA 或完整训练，并设置 epoch 上限。
-- [列出训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/list.md): 调用 GET /v1/training-jobs 列出账户可见的训练任务，可按状态或项目 ID 筛选，并用 limit 和 offset 分页。
-- [获取训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/get.md): 获取 Fastino 训练任务的状态、完成百分比、当前 epoch、失败详情、训练指标和工件就绪情况，用于轮询任务进度。
-- [更新训练任务的项目](https://docs.fastino.ai/cn/api-reference/training-jobs/update-project.md): 调用 PATCH /v1/training-jobs/{job_id}，将训练任务分配到项目，或发送 null 取消分配。相关的部署和推理记录保持不变。
-- [重命名训练后的模型](https://docs.fastino.ai/cn/api-reference/training-jobs/update-model-name.md): 通过 PATCH /v1/training-jobs/{job_id}/model-name 重命名训练模型，名称限 1–64 个字母、数字、连字符或下划线。
+- [创建配置训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/create.md): 调用 POST /v1/training/jobs，基于基础模型和数据集启动由 Fastino 管理的异步训练任务。
+- [列出训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/list.md): 调用 GET /v1/training/jobs，列出账户可见的配置任务和交互式任务。
+- [获取训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/get.md): 通过规范的 Fastino 任务 ID 获取配置训练任务或交互式训练任务。
+- [重命名训练后的模型](https://docs.fastino.ai/cn/api-reference/training-jobs/update-model-name.md): 通过 PATCH /v1/training/jobs/{job_id}/model-name 重命名训练模型，名称限 1–64 个字母、数字、连字符或下划线。
 - [获取训练日志](https://docs.fastino.ai/cn/api-reference/training-jobs/logs.md): 获取 Fastino 训练任务结构化的 stdout 和 stderr 日志条目快照。该端点不流式传输，需轮询以跟随运行中的任务。
-- [获取训练任务的计费信息](https://docs.fastino.ai/cn/api-reference/training-jobs/billing.md): 通过 GET /v1/training-jobs/{job_id}/billing 查询 Fastino 训练任务是否已计费，以及费用金额和 GPU 分钟数。
-- [列出训练任务的部署](https://docs.fastino.ai/cn/api-reference/training-jobs/deployments.md): 调用 GET /v1/training-jobs/{job_id}/deployments 并传入任务 ID，列出由训练任务创建或与其关联的部署。
+- [获取训练任务的计费信息](https://docs.fastino.ai/cn/api-reference/training-jobs/billing.md): 通过 GET /v1/training/jobs/{job_id}/billing 查询 Fastino 训练任务是否已计费，以及费用金额和 GPU 分钟数。
+- [列出训练任务的部署](https://docs.fastino.ai/cn/api-reference/training-jobs/deployments.md): 调用 GET /v1/training/jobs/{job_id}/deployments 并传入任务 ID，列出由训练任务创建或与其关联的部署。
 - [停止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/stop.md): 停止运行中的 Fastino 训练任务并保留停止前创建的检查点。JSON 请求体为可选，可附带停止原因、数值指标和检查点路径。
-- [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 通过 POST /v1/training-jobs/{job_id}/terminate 停止训练任务并删除全部检查点。如需保留检查点，请使用停止端点。
-- [同步训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/sync.md): 调用 POST /v1/training-jobs/{job_id}/sync 并传入训练任务 ID，从训练提供方刷新该训练任务的状态。
-- [将训练模型推送到 Hugging Face Hub](https://docs.fastino.ai/cn/api-reference/training-jobs/push-to-hub.md): 调用 POST /v1/training-jobs/{job_id}/push-to-hub，并提供目标 repo_id 和 hf_token，将已完成的训练工件发布到 Hugging Face Hub。
-- [列出训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/checkpoints.md): 通过 GET /v1/training-jobs/{job_id}/checkpoints 列出训练任务的检查点及其 epoch、step、损失值和可部署标志。
-- [部署训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/deploy-checkpoint.md): 使用列表端点返回的检查点 ID，将 Fastino 训练任务中一个可部署的检查点部署到托管的多模型推理端点。
-- [下载训练后的权重](https://docs.fastino.ai/cn/api-reference/training-jobs/download.md): 调用 GET /v1/training-jobs/{job_id}/download，获取训练工件的临时预签名下载 URL、有效期和建议的文件名。
-- [删除训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/delete.md): 调用 DELETE /v1/training-jobs/{job_id}，永久删除训练任务及其检查点和存储的工件；如果任务处于活动状态，会先将其停止。
+- [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 通过 POST /v1/training/jobs/{job_id}/terminate 停止训练任务并删除全部检查点。如需保留检查点，请使用停止端点。
+- [同步训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/sync.md): 调用 POST /v1/training/jobs/{job_id}/sync 并传入训练任务 ID，从训练提供方刷新该训练任务的状态。
+- [将训练模型推送到 Hugging Face Hub](https://docs.fastino.ai/cn/api-reference/training-jobs/push-to-hub.md): 调用 POST /v1/training/jobs/{job_id}/push-to-hub，并提供目标 repo_id 和 hf_token，将已完成的训练工件发布到 Hugging Face Hub。
+- [列出训练检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/checkpoints.md): 通过 GET /v1/training/jobs/{job_id}/checkpoints 列出训练任务的检查点及其 epoch、step、损失值和可部署标志。
+- [下载训练后的权重](https://docs.fastino.ai/cn/api-reference/training-jobs/download.md): 调用 GET /v1/training/jobs/{job_id}/download，获取训练工件的临时预签名下载 URL、有效期和建议的文件名。

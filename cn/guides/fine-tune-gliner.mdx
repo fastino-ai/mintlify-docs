@@ -1,0 +1,174 @@
+---
+title: "微调 GLiNER"
+sidebarTitle: "微调 GLiNER"
+description: "准备 GLiNER 数据集、创建托管式配置任务，并通过检查点直至任务完成进行监控。"
+---
+
+本指南将创建一个 `config` 训练任务。你提供就绪的数据集和训练设置；Fastino 负责运行训练循环。
+
+## 开始之前
+
+按照[训练 API 概览](/cn/training)中的说明设置 `FASTINO_API_KEY`。示例通过
+`X-API-Key` 请求头发送密钥，并使用 `jq` 读取 JSON 响应。
+
+## 1. 选择任务
+
+<CardGroup cols={2}>
+  <Card title="抽取" icon="highlighter">
+    训练 GLiNER 查找人物、产品或地点等带标签的文本片段。准备包含 `text` 和
+    `entities` 的数据行，并将数据集作为 NER 数据上传。
+  </Card>
+  <Card title="分类" icon="tags">
+    训练 GLiNER 为文本分配一个或多个标签。准备包含 `text` 和 `label` 或
+    `labels` 的数据行，并将数据集作为分类数据上传。
+  </Card>
+</CardGroup>
+
+每个 JSONL 文件始终使用同一种数据行结构。有关确切的 GLiNER JSONL 格式、
+上传 URL 请求、文件上传、处理请求和就绪检查，请参阅
+[准备和上传训练数据集](/cn/concepts/datasets)。仅在数据集版本报告为 `ready` 后继续。
+
+## 2. 查询可训练模型
+
+不要硬编码旧示例中的基础模型。创建任务前立即查询实时目录：
+
+```bash
+curl -sS "https://api.fastino.ai/v1/base-models?supports_training=true" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+选择支持你的任务和所需训练类型的 GLiNER 模型。复制其确切 ID，用作 `base_model` 字段。
+
+## 3. 创建配置任务
+
+替换下面的目录模型、数据集名称和版本。保持 `type` 为 `config`。
+
+```bash
+curl -sS -X POST "https://api.fastino.ai/v1/training/jobs" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "config",
+    "model_name": "support-request-extractor",
+    "base_model": "BASE_MODEL_ID_FROM_CATALOG",
+    "datasets": [
+      {
+        "name": "READY_DATASET_NAME",
+        "version": "VERSION_NUMBER"
+      }
+    ],
+    "training_type": "lora"
+  }' | tee training-job.json
+```
+
+响应就是已创建的任务记录。保存其 `id`：
+
+```bash
+export TRAINING_JOB_ID="$(jq -r '.id' training-job.json)"
+test "$TRAINING_JOB_ID" != "null"
+```
+
+可选配置任务字段请参阅[创建任务 API 参考](/cn/api-reference/training-jobs/create)。
+
+## 4. 轮询任务
+
+轮询 `GET /v1/training/jobs/{job_id}`，直到 `is_terminal_status` 为 `true`：
+
+```bash
+while true; do
+  if ! JOB="$(
+    curl --fail-with-body -sS \
+      "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
+      -H "X-API-Key: $FASTINO_API_KEY"
+  )"; then
+    echo "Could not read training job" >&2
+    exit 1
+  fi
+
+  echo "$JOB" | jq -e 'has("is_terminal_status")' >/dev/null || {
+    echo "Training response has no terminal-state field" >&2
+    exit 1
+  }
+
+  echo "$JOB" | jq '{
+    normalized_status,
+    is_terminal_status,
+    error_message,
+    is_deployable,
+    deployability_reason
+  }'
+
+  [ "$(echo "$JOB" | jq -r '.is_terminal_status')" = "true" ] && break
+  sleep 10
+done
+```
+
+有关配置任务状态和终止状态的指导，请参阅
+[训练 API 概览](/cn/training)。
+
+## 5. 查看日志和检查点
+
+需要进度或失败详情时读取日志：
+
+```bash
+curl -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/logs" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+列出 Fastino 创建的检查点：
+
+```bash
+curl -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+有关响应字段，请参阅
+[日志](/cn/api-reference/training-jobs/logs)和
+[检查点](/cn/api-reference/training-jobs/checkpoints)。
+
+## 6. 部署训练后的模型
+
+部署前，请检查已完成任务的 `is_deployable` 和 `deployability_reason` 字段：
+
+```bash
+curl --fail-with-body -sS -X POST \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+再次轮询任务，直到其部署状态就绪。训练任务 ID 是托管推理所使用的模型标识符。
+
+## 7. 运行 GLiNER 推理
+
+```bash
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"$TRAINING_JOB_ID\",
+    \"messages\": [
+      {
+        \"role\": \"user\",
+        \"content\": \"Ada Lovelace worked in London.\"
+      }
+    ],
+    \"schema\": {
+      \"entities\": [
+        {\"name\": \"person\"},
+        {\"name\": \"location\"}
+      ]
+    }
+  }" | jq -r '.choices[0].message.content | fromjson'
+```
+
+<CardGroup cols={2}>
+  <Card title="调用 GLiNER" icon="braces" href="/cn/inference/chat-completions">
+    通过 `POST /v1/chat/completions` 使用 GLiNER 进行抽取或分类。
+  </Card>
+  <Card title="安装 GLiNER 智能体技能" icon="bot" href="/cn/concepts/gliner-agent-skill">
+    可选择为 Cursor、Claude Code 或 Codex 提供托管式 GLiNER 工作流。
+  </Card>
+</CardGroup>

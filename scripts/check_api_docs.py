@@ -31,24 +31,41 @@ TRAINING_OPERATIONS = {
     ("POST", "/v1/datasets/upload/url"),
     ("DELETE", "/v1/datasets/{name}"),
     ("GET", "/v1/datasets/{name}"),
-    ("GET", "/v1/training-jobs"),
-    ("POST", "/v1/training-jobs"),
-    ("DELETE", "/v1/training-jobs/{job_id}"),
-    ("GET", "/v1/training-jobs/{job_id}"),
-    ("PATCH", "/v1/training-jobs/{job_id}"),
-    ("GET", "/v1/training-jobs/{job_id}/billing"),
-    ("GET", "/v1/training-jobs/{job_id}/checkpoints"),
-    ("POST", "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy"),
-    ("GET", "/v1/training-jobs/{job_id}/deployments"),
-    ("GET", "/v1/training-jobs/{job_id}/download"),
-    ("GET", "/v1/training-jobs/{job_id}/logs"),
-    ("PATCH", "/v1/training-jobs/{job_id}/model-name"),
-    ("POST", "/v1/training-jobs/{job_id}/push-to-hub"),
-    ("POST", "/v1/training-jobs/{job_id}/stop"),
-    ("POST", "/v1/training-jobs/{job_id}/sync"),
-    ("POST", "/v1/training-jobs/{job_id}/terminate"),
+    ("GET", "/v1/training/jobs"),
+    ("POST", "/v1/training/jobs"),
+    ("GET", "/v1/training/jobs/{job_id}"),
+    ("GET", "/v1/training/jobs/{job_id}/billing"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints"),
+    ("GET", "/v1/training/jobs/{job_id}/deployments"),
+    ("GET", "/v1/training/jobs/{job_id}/download"),
+    ("GET", "/v1/training/jobs/{job_id}/logs"),
+    ("PATCH", "/v1/training/jobs/{job_id}/model-name"),
+    ("POST", "/v1/training/jobs/{job_id}/push-to-hub"),
+    ("POST", "/v1/training/jobs/{job_id}/stop"),
+    ("POST", "/v1/training/jobs/{job_id}/sync"),
+    ("POST", "/v1/training/jobs/{job_id}/terminate"),
 }
 EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
+PREVIEW_ONLY_TRAINING_OPERATIONS = {
+    ("POST", "/v1/training/jobs/estimate"),
+    ("POST", "/v1/training/jobs/{job_id}/forward"),
+    ("POST", "/v1/training/jobs/{job_id}/forward-backward"),
+    ("POST", "/v1/training/jobs/{job_id}/optim-step"),
+    ("GET", "/v1/training/jobs/{job_id}/operations/{operation_id}"),
+    ("POST", "/v1/training/jobs/{job_id}/operations/{operation_id}/cancel"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/load"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/sample"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/publish"),
+    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/publish"),
+    ("PUT", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/ttl"),
+    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}"),
+    ("POST", "/v1/training/jobs/{job_id}/deploy"),
+    ("GET", "/v1/training/usage"),
+}
+PREVIEW_TRAINING_OPERATIONS = TRAINING_OPERATIONS | PREVIEW_ONLY_TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",
@@ -64,6 +81,7 @@ ACTIVE_LEGACY_INFERENCE = (
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[A-Za-z0-9_{}\-./:*?=&%]+)")
 LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
+SDK_BASE_PATHS = {"/v1/training/compat/tinker"}
 API_BINDING = re.compile(
     r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
     re.MULTILINE,
@@ -334,8 +352,16 @@ def _path_matches_route(
     method: str | None = None,
 ) -> bool:
     path = url_path.split("?", maxsplit=1)[0].rstrip(".,)")
-    if "$" in path or path in {"", "/v1"}:
+    if "$" in path or path in {"", "/v1"} | SDK_BASE_PATHS:
         return True
+    preview_methods = {method} if method is not None else HTTP_METHODS
+    normalized_preview_methods = {value.lower() for value in preview_methods}
+    for preview_method, template in PREVIEW_ONLY_TRAINING_OPERATIONS:
+        if preview_method.lower() not in normalized_preview_methods:
+            continue
+        expression = re.sub(r"\\\{[^}]+\\\}", r"[^/?#]+", re.escape(template))
+        if re.fullmatch(expression, path):
+            return True
     concrete_path = re.sub(r"(\{[^}]+\}|YOUR_[A-Z_]+|[A-Z_]{2,}|:[a-z_]+)", "VALUE", path)
     candidates = patterns.get(method, []) if method is not None else [
         pattern for method_patterns in patterns.values() for pattern in method_patterns
@@ -343,9 +369,17 @@ def _path_matches_route(
     if path.endswith("/*"):
         escaped_prefix = f"^{re.escape(path[:-1])}"
         return any(pattern.pattern.startswith(escaped_prefix) for pattern in candidates)
+    candidate_paths = {path, concrete_path}
+    if path.startswith("/v1/training/jobs"):
+        legacy_path = path.replace("/v1/training/jobs", "/v1/training-jobs", 1)
+        legacy_concrete = concrete_path.replace(
+            "/v1/training/jobs", "/v1/training-jobs", 1
+        )
+        candidate_paths.update({legacy_path, legacy_concrete})
     return any(
-        pattern.fullmatch(concrete_path) or pattern.fullmatch(path)
+        pattern.fullmatch(candidate)
         for pattern in candidates
+        for candidate in candidate_paths
     )
 
 

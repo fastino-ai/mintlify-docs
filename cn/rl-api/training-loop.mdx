@@ -1,0 +1,97 @@
+---
+title: "RL 训练循环"
+description: "在一个 Fastino 交互式任务中连接采样、奖励、更新和检查点。"
+---
+
+你的应用决定采样内容、评分方式和更新时机。Fastino 执行交互式模型操作。
+一个 `TrainingClient` 在整个循环中代表一个 Fastino 交互式任务。
+
+## 控制循环
+
+<Steps>
+  <Step title="创建交互式任务">
+    从功能响应中选择 `base_model` 和其他选项，然后调用
+    `create_lora_training_client(...)`。从
+    `training_client.get_info().model_data.model_id` 读取规范任务 ID。
+  </Step>
+  <Step title="为采样创建权重检查点">
+    调用 `save_weights_for_sampler(name)`，然后使用返回的检查点路径创建采样客户端。
+    这会将 rollout 策略绑定到同一个任务的明确工件。
+  </Step>
+  <Step title="收集 rollout 组">
+    为每个提示词采样多个候选响应。你的应用负责提示词构建、响应渲染和分组。
+  </Step>
+  <Step title="计算奖励和优势值">
+    为每个响应评分，然后将奖励转换为所选且功能支持的训练操作所需的优势值。
+  </Step>
+  <Step title="构建训练 datum">
+    按 SDK 预期的形式组合模型输入、采样响应 token、采样元数据和 token 级训练信号。
+  </Step>
+  <Step title="更新同一个任务">
+    通过现有 `TrainingClient` 提交受支持的前向/反向传播工作，然后执行优化器步骤。
+  </Step>
+  <Step title="保存恢复边界">
+    在开始下一次迭代前，保存状态检查点，并将其标识符与应用步骤及数据集游标一起持久化。
+  </Step>
+</Steps>
+
+## 对象模型
+
+| 对象 | 作用 |
+| --- | --- |
+| `ServiceClient` | 查询功能并创建 SDK 客户端 |
+| `TrainingClient` | 代表一个 Fastino 交互式任务并提交其模型操作 |
+| `SamplingClient` | 从已解析的检查点采样 |
+| `RestClient` | 列出或获取规范任务并管理检查点 |
+| Future | 跟踪提交给任务的一项操作 |
+
+SDK 模型 ID 就是规范的 Fastino 任务 ID。Future 和采样客户端不会创建独立运行。
+
+## 组相对奖励
+
+对于一组响应，一种常见的应用侧转换是减去该组的平均奖励：
+
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+```
+
+如果所有居中后的优势值都为零，则该组没有相对信号。你的应用可以记录并跳过它。
+
+## 构建对齐的 datum
+
+对于重要性采样式循环，提示词是上下文，采样到的补全是动作。确保 token 数组与所选模型
+使用的 SDK 和渲染器对齐：
+
+- 包含提示词和补全 token 的模型输入
+- 与模型输入对齐的目标 token
+- 与生成 token 对齐的采样对数概率
+- 应用于补全位置的优势值
+
+<Warning>
+  提示词渲染、token 化、datum 构建和奖励执行均由客户端负责。在运行更大的工作负载前，
+  请根据 `tinker==0.33.1` 和实时功能响应验证它们的形式。
+</Warning>
+
+## 保持依赖工作有序
+
+将前向/反向传播阶段视为完成之前，请先解析其 future；在为更新后的状态创建检查点之前，
+请先解析优化器 future。没有应用级协调时，不要让独立控制器修改同一个任务。
+
+SDK 执行这些交互式操作。不要将它们复现为直接 HTTP 调用。
+
+## 选择检查点类型
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+使用状态检查点作为训练恢复边界。使用采样器检查点进行 rollout 或评估。将所选检查点标识符
+与应用元数据一起存储，不要根据名称推断状态。
+
+要使用确定性评分器实现此循环，请继续阅读
+[使用可验证奖励进行训练](/cn/rl-api/verifiable-rewards)。有关恢复，请参阅
+[创建检查点并恢复](/cn/rl-api/checkpoint-and-resume)。

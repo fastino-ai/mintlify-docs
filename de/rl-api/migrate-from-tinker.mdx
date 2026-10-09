@@ -1,0 +1,100 @@
+---
+title: "Von Tinker migrieren"
+description: "Migrieren Sie einen kompatiblen Workload des Tinker SDK zu interaktiven Fastino-Trainingsjobs."
+---
+
+Fastino unterstützt eine definierte Teilmenge des `tinker` SDK als
+Client-Schnittstelle für interaktive Trainingsjobs. Ein migrierter
+Trainingsclient ist ein Fastino-Job in `/v1/training/jobs`; seine SDK-Modell-ID
+und seine kanonische Fastino-Job-ID sind identisch.
+
+Behandeln Sie Ihr bestehendes Programm als Akzeptanztest. Ändern Sie die
+Verbindung, prüfen Sie jede Operation und führen Sie einen kleinen Smoke-Test
+aus, bevor Sie die Produktionsgröße wiederherstellen.
+
+## 1. Getestetes Paket pinnen
+
+<CodeGroup>
+
+```bash uv
+uv add "tinker==0.33.1"
+```
+
+```bash pip
+pip install "tinker==0.33.1"
+```
+
+</CodeGroup>
+
+## 2. Endpunkt und Authentifizierung ersetzen
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
+```
+
+</CodeGroup>
+
+Das SDK hängt `/api/v1/{operation}` an `TINKER_BASE_URL` an.
+`TINKER_CREDENTIAL_CMD` wird bei jedem Token-Request ausgeführt und muss
+nicht leere Anmeldedaten ausgeben. Verwenden Sie einen normalen Fastino-
+`fast_sk_`-Schlüssel; Anmeldedaten mit `tml-` werden abgelehnt. Setzen Sie
+`TINKER_API_KEY` nicht.
+
+## 3. Workload prüfen
+
+1. Fragen Sie `ServiceClient.get_server_capabilities()` ab und wählen Sie ein
+   verfügbares Basismodell. Behalten Sie den SDK-Parameternamen `base_model` bei.
+2. Vergleichen Sie jede Methode in Ihrem Code mit der
+   [Tabelle zur SDK-Kompatibilität](/de/rl-api/compatibility).
+3. Entfernen Sie Abhängigkeiten von nicht unterstütztem Batch-Abruf von Futures,
+   externem Gewichtsexport, externen Gewichts-URLs, SDK-Authentifizierungs- oder
+   Token-Methoden sowie SDK-Methoden für Abrechnung, Nutzung und Events.
+4. Behalten Sie Prompt-Rendering, Reward-Logik, Batching, Evaluierung und
+   Abbruchkriterien in Ihrer Anwendung.
+
+Die Fähigkeiten sind die verbindliche Quelle für umgebungsabhängige
+Unterstützung. Übernehmen Sie keine Annahmen zu Modell, Rang, Kontext, Loss oder
+Request-Limits aus einer anderen Bereitstellung.
+
+## 4. Smoke-Test ausführen
+
+Verwenden Sie die kleinsten gültigen Datums und Optimierer-Einstellungen aus
+Ihrem bestehenden Workload für einen kostengünstigen Test, der:
+
+- einen Client mit `create_lora_training_client(base_model=...)` erstellt,
+- `training_client.get_info().model_data.model_id` liest,
+- Sampler-Gewichte speichert und einmal sampelt,
+- eine unterstützte Forward-/Backward-Operation und einen Optimierungsschritt ausführt,
+- einen Status-Checkpoint speichert und erneut lädt,
+- dieselbe ID über `GET /v1/training/jobs/{job_id}` abruft.
+
+Verwenden Sie das SDK für interaktive Operationen. Der Adapter fehlt
+absichtlich in Fastinos OpenAPI und API-Referenz; konstruieren Sie daher keine
+Adapter-HTTP-Aufrufe.
+
+## Migrationscheckliste
+
+- [ ] `tinker==0.33.1` pinnen.
+- [ ] Die Fastino-Adapter-Basis-URL festlegen.
+- [ ] Einen `fast_sk_`-Schlüssel über `TINKER_CREDENTIAL_CMD` bereitstellen.
+- [ ] Bestätigen, dass interaktives Training für das Fastino-Team aktiviert ist.
+- [ ] Jede SDK-Methode anhand der Kompatibilitätstabelle prüfen.
+- [ ] Modell und optionale Funktionen aus den Fähigkeiten auswählen.
+- [ ] Ein Sampling- und Trainingsupdate abschließen.
+- [ ] Einen Status-Checkpoint speichern und erneut laden.
+- [ ] Die SDK-Modell-ID über den kanonischen Job-Endpunkt prüfen.
+- [ ] Die Workload-Größe erst erhöhen, nachdem der Smoke-Test erfolgreich war.
+
+<Card title="SDK-Kompatibilität prüfen" icon="list-check" href="/de/rl-api/compatibility">
+  Prüfen Sie genaue SDK-zu-Fastino-Zuordnungen und nicht unterstützte Methoden.
+</Card>

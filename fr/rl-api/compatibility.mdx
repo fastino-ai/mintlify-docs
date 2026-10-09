@@ -1,0 +1,86 @@
+---
+title: "Compatibilité du SDK"
+description: "Prise en charge exacte du SDK Tinker et correspondances avec les jobs d'entraînement interactifs Fastino."
+---
+
+Fastino teste le contrat de compatibilité avec `tinker==0.33.1`. Le paquet
+définit les signatures du SDK ; cette page définit les méthodes prises en
+charge par Fastino et leur correspondance avec le domaine d'entraînement
+Fastino.
+
+| Élément | Valeur prise en charge |
+| --- | --- |
+| Paquet | `tinker==0.33.1` |
+| URL de base | `https://api.fastino.ai/v1/training/compat/tinker` |
+| Authentification | Une clé `fast_sk_` affichée par `TINKER_CREDENTIAL_CMD` |
+| Identité de la ressource | Un client d'entraînement correspond à un job interactif Fastino portant le même ID |
+
+Le SDK ajoute `/api/v1/{operation}` à l'URL de base. Les routes de l'adaptateur
+sont masquées dans l'OpenAPI et la référence API. Les utilisateurs ne doivent
+pas construire de requêtes vers l'adaptateur.
+
+## Entraînement et échantillonnage
+
+| Méthode ou opération du SDK | Correspondance Fastino | Prise en charge |
+| --- | --- | --- |
+| `create_lora_training_client` | `POST /v1/training/jobs` avec le type de job interactif | Prise en charge |
+| `copy_weights` | Créer un job interactif à partir du checkpoint | Prise en charge |
+| `TrainingClient.get_info` | `GET` sur le job Fastino canonique | Prise en charge |
+| `forward` | `/forward` sur le job interactif | Prise en charge |
+| `forward_backward` | `/forward-backward` sur le job interactif | Prise en charge |
+| Opération avant/arrière personnalisée | `/forward-backward` sur le job interactif | Prise en charge |
+| `optim_step` | `/optim-step` sur le job interactif | Prise en charge |
+| `save_state` | `POST` d'un checkpoint de type `state` | Prise en charge |
+| `save_weights_for_sampler` | `POST` d'un checkpoint de type `sampler` | Prise en charge |
+| Charger l'état d'entraînement | Chargement du checkpoint sur le job interactif | Prise en charge |
+| Créer ou obtenir un client d'échantillonnage | Résoudre le checkpoint sélectionné | Prise en charge |
+| `SamplingClient.sample` | Échantillonnage du checkpoint | Prise en charge |
+
+Conservez le paramètre de méthode SDK `base_model` inchangé. Interrogez
+`ServiceClient.get_server_capabilities()` avant de sélectionner un modèle de
+base ou de dépendre d'une opération facultative. Les capacités constituent la
+source de vérité ; cette référence n'établit aucun catalogue de modèles,
+catalogue de fonctions de perte, rang, fenêtre de contexte ou limite par appel
+fixes.
+
+## Futures
+
+| Méthode ou opération du SDK | Correspondance Fastino | Prise en charge |
+| --- | --- | --- |
+| Résultat/obtention d'une future | Obtention d'une opération | Prise en charge |
+| Annulation d'une future | Annulation d'une opération | Prise en charge |
+| Récupération par lots avec `retrieve_futures` | Aucune | Non prise en charge |
+
+## Administration
+
+| Méthode ou opération du SDK | Correspondance Fastino | Prise en charge |
+| --- | --- | --- |
+| Lister les exécutions d'entraînement avec `RestClient` | Lister les jobs Fastino canoniques | Prise en charge |
+| Obtenir une exécution d'entraînement avec `RestClient` | Obtenir un job Fastino canonique | Prise en charge |
+| Lister ou obtenir les checkpoints | Routes canoniques des jobs/checkpoints | Prise en charge |
+| Télécharger ou supprimer un checkpoint | Routes canoniques des jobs/checkpoints | Prise en charge |
+| Publier ou dépublier un checkpoint | Routes canoniques des jobs/checkpoints | Prise en charge |
+| Définir ou effacer le TTL d'un checkpoint | Routes canoniques des jobs/checkpoints | Prise en charge |
+| Obtenir l'utilisation du stockage des checkpoints | Routes canoniques des jobs/checkpoints | Prise en charge |
+
+## Mécanismes réservés à l'adaptateur
+
+Le SDK peut utiliser les mécanismes de l'adaptateur pour les capacités, les
+sessions, le heartbeat, la télémétrie, l'authentification et l'intégration
+d'audit. Il s'agit de détails d'implémentation sans route Fastino publique. Ne
+les considérez pas comme des API HTTP destinées aux clients.
+
+## Explicitement non pris en charge
+
+- Récupération par lots des futures via `retrieve_futures`
+- `save_weights_external`
+- `external_weights_urls`
+- Opérations d'authentification ou de token du SDK
+- Opérations de facturation, d'utilisation ou d'événement du SDK
+
+L'authentification est fournie uniquement par une clé Fastino `fast_sk_`
+normale via `TINKER_CREDENTIAL_CMD`. Les identifiants commençant par `tml-`
+sont rejetés, et les exemples actifs ne doivent pas définir `TINKER_API_KEY`.
+
+Pour les recommandations relatives au cycle de vie et à la récupération,
+consultez [Comportement à l'exécution et erreurs](/fr/rl-api/runtime).

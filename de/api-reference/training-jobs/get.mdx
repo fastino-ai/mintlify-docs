@@ -1,13 +1,16 @@
 ---
 title: "Trainingsjob abrufen"
 sidebarTitle: "Job-Status abrufen"
-description: "Rufen Sie Status, Konfiguration, Metriken und Artefaktbereitschaft eines Trainingsjobs ab."
-api: "GET /v1/training-jobs/{job_id}"
+description: "Rufen Sie einen Config- oder Interactive-Trainingsjob anhand seiner kanonischen Fastino-Job-ID ab."
+api: "GET /v1/training/jobs/{job_id}"
 ---
 
-`GET /v1/training-jobs/{job_id}`
+`GET /v1/training/jobs/{job_id}`
 
-Gibt einen für das Team des Aufrufers sichtbaren Trainingsjob zurück.
+Gibt einen für das Team des Aufrufers sichtbaren Config- oder
+Interactive-Trainingsjob zurück. Bei einem RL-Workload ist diese `job_id`
+zugleich die vom SDK über
+`training_client.get_info().model_data.model_id` zurückgegebene Trainingslauf-ID.
 
 ## Request
 
@@ -16,13 +19,13 @@ Gibt einen für das Team des Aufrufers sichtbaren Trainingsjob zurück.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID des Trainingsjobs.
+  Kanonische Fastino-Trainingsjob-ID.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
+curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -31,7 +34,12 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
 ## Response
 
 <ResponseField name="id" type="string">
-  UUID des Trainingsjobs.
+  Kanonische Fastino-Trainingsjob-ID.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `config`, wenn Fastino den Trainingsloop ausführt, oder `interactive`, wenn
+  der Aufrufer den Loop über das unterstützte SDK steuert.
 </ResponseField>
 
 <ResponseField name="status" type="string">
@@ -74,13 +82,18 @@ curl https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID \
   Grund, warum der Job nicht bereitstellbar ist.
 </ResponseField>
 
-Der Datensatz gibt außerdem die eingereichte Trainingskonfiguration, Zeitstempel, Datensatzreferenzen, Anbieterdetails, Labels und Artefakt-Metadaten zurück.
+Datensätze von Config-Jobs geben außerdem ihre eingereichte Konfiguration,
+Datensatzreferenzen, Fortschritt, Metriken und Artefakt-Metadaten zurück.
+Datensätze von Interactive-Jobs geben die für aufrufergesteuertes Training
+relevanten Felder zurück. Gehen Sie nicht davon aus, dass reine Config-Felder
+bei einem Interactive-Job befüllt sind.
 
 <ResponseExample>
 
 ```json Response
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "type": "config",
   "status": "running",
   "normalized_status": "running",
   "is_terminal_status": false,

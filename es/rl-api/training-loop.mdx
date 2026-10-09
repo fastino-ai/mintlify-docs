@@ -1,0 +1,113 @@
+---
+title: "El bucle de entrenamiento de RL"
+description: "Conecta el muestreo, las recompensas, las actualizaciones y los checkpoints dentro de un trabajo interactivo de Fastino."
+---
+
+Tu aplicación decide qué muestrear, cómo puntuarlo y cuándo actualizar. Fastino
+ejecuta las operaciones interactivas del modelo. Un `TrainingClient` representa
+un trabajo interactivo de Fastino durante todo el bucle.
+
+## El bucle de control
+
+<Steps>
+  <Step title="Crea el trabajo interactivo">
+    Elige un `base_model` y otras opciones de la respuesta de capacidades, llama
+    a `create_lora_training_client(...)` y lee el ID canónico del trabajo de
+    `training_client.get_info().model_data.model_id`.
+  </Step>
+  <Step title="Captura los pesos para el muestreo">
+    Llama a `save_weights_for_sampler(name)` y crea un cliente de muestreo con
+    la ruta del checkpoint devuelta. Esto vincula la política de rollout a un
+    artefacto explícito del mismo trabajo.
+  </Step>
+  <Step title="Recopila grupos de rollouts">
+    Muestrea varias respuestas candidatas para cada prompt. Tu aplicación
+    controla la construcción de prompts, el renderizado y la agrupación.
+  </Step>
+  <Step title="Calcula recompensas y ventajas">
+    Puntúa cada respuesta y transforma las recompensas en las ventajas que
+    requiera la operación de entrenamiento compatible seleccionada.
+  </Step>
+  <Step title="Construye los datums de entrenamiento">
+    Combina entradas del modelo, tokens de respuestas muestreadas, metadatos de
+    muestreo y señales de entrenamiento por token con la forma esperada del SDK.
+  </Step>
+  <Step title="Actualiza el mismo trabajo">
+    Envía el trabajo compatible hacia delante/hacia atrás y después un paso del
+    optimizador mediante el `TrainingClient` existente.
+  </Step>
+  <Step title="Guarda un límite de recuperación">
+    Guarda un checkpoint de estado y conserva su identificador con el paso de
+    la aplicación y el cursor del dataset antes de iniciar la siguiente iteración.
+  </Step>
+</Steps>
+
+## Modelo de objetos
+
+| Objeto | Función |
+| --- | --- |
+| `ServiceClient` | Consulta capacidades y crea clientes del SDK |
+| `TrainingClient` | Representa un trabajo interactivo de Fastino y envía sus operaciones del modelo |
+| `SamplingClient` | Muestrea desde un checkpoint resuelto |
+| `RestClient` | Lista u obtiene trabajos canónicos y administra checkpoints |
+| Future | Realiza el seguimiento de una operación enviada al trabajo |
+
+El ID de modelo del SDK es el ID canónico del trabajo de Fastino. Los futures y
+los clientes de muestreo no crean ejecuciones independientes.
+
+## Recompensas relativas al grupo
+
+Para un grupo de respuestas, una transformación habitual controlada por la
+aplicación resta la recompensa media del grupo:
+
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+```
+
+Si todas las ventajas centradas son cero, el grupo no contiene una señal
+relativa. Tu aplicación puede registrarlo y omitirlo.
+
+## Construye datums alineados
+
+En un bucle de muestreo por importancia, el prompt es el contexto y la
+finalización muestreada es la acción. Mantén los arrays de tokens alineados con
+el SDK y el renderizador del modelo seleccionado:
+
+- Entrada del modelo con tokens del prompt y de la finalización
+- Tokens objetivo alineados con la entrada del modelo
+- Probabilidades logarítmicas de muestreo alineadas con los tokens generados
+- Ventajas aplicadas a las posiciones de la finalización
+
+<Warning>
+  El renderizado de prompts, la tokenización, la construcción de datums y la
+  ejecución de recompensas pertenecen al cliente. Valida sus formas con
+  `tinker==0.33.1` y la respuesta de capacidades activa antes de aumentar la carga.
+</Warning>
+
+## Mantén ordenado el trabajo dependiente
+
+Resuelve un future hacia delante/hacia atrás antes de considerar completa esa
+etapa y el future del optimizador antes de crear el checkpoint del estado
+actualizado. No permitas que controladores independientes muten el mismo trabajo
+sin coordinación en la aplicación.
+
+El SDK realiza estas operaciones interactivas. No las reproduzcas como llamadas
+HTTP directas.
+
+## Elige el tipo de checkpoint
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Usa el checkpoint de estado como límite de recuperación del entrenamiento y el
+checkpoint de muestreador para rollouts o evaluación. Guarda el identificador
+elegido con los metadatos de tu aplicación en lugar de deducir el estado del nombre.
+
+Para implementar este bucle con un evaluador determinista, continúa con
+[Entrenar con recompensas verificables](/es/rl-api/verifiable-rewards). Para la
+recuperación, sigue [Guardar un checkpoint y reanudar](/es/rl-api/checkpoint-and-resume).

@@ -1,0 +1,77 @@
+---
+title: "SDK 兼容性"
+description: "Fastino 交互式训练任务的确切 Tinker SDK 支持和映射。"
+---
+
+Fastino 使用 `tinker==0.33.1` 测试兼容性契约。该软件包定义 SDK 签名；
+本页定义 Fastino 支持的方法及其到 Fastino 训练领域的映射方式。
+
+| 项目 | 支持的值 |
+| --- | --- |
+| 软件包 | `tinker==0.33.1` |
+| 基础 URL | `https://api.fastino.ai/v1/training/compat/tinker` |
+| 身份验证 | 由 `TINKER_CREDENTIAL_CMD` 打印的 `fast_sk_` 密钥 |
+| 资源标识 | 一个训练客户端就是一个具有相同 ID 的 Fastino 交互式任务 |
+
+SDK 会将 `/api/v1/{operation}` 添加到基础 URL。适配器路由不会出现在 OpenAPI
+和 API 参考中。用户不得构造适配器请求。
+
+## 训练和采样
+
+| SDK 方法或操作 | Fastino 映射 | 支持情况 |
+| --- | --- | --- |
+| `create_lora_training_client` | 使用交互式任务类型的 `POST /v1/training/jobs` | 支持 |
+| `copy_weights` | 从检查点创建交互式任务 | 支持 |
+| `TrainingClient.get_info` | `GET` 规范的 Fastino 任务 | 支持 |
+| `forward` | 交互式任务上的 `/forward` | 支持 |
+| `forward_backward` | 交互式任务上的 `/forward-backward` | 支持 |
+| 自定义前向/反向操作 | 交互式任务上的 `/forward-backward` | 支持 |
+| `optim_step` | 交互式任务上的 `/optim-step` | 支持 |
+| `save_state` | `POST` 一个类型为 `state` 的检查点 | 支持 |
+| `save_weights_for_sampler` | `POST` 一个类型为 `sampler` 的检查点 | 支持 |
+| 加载训练状态 | 在交互式任务上加载检查点 | 支持 |
+| 创建或获取采样客户端 | 解析所选检查点 | 支持 |
+| `SamplingClient.sample` | 从检查点采样 | 支持 |
+
+保持 SDK 方法参数 `base_model` 不变。在选择基础模型或依赖可选操作前，请查询
+`ServiceClient.get_server_capabilities()`。功能是权威来源；本参考不会规定固定的模型目录、
+损失目录、秩、上下文窗口或单次调用限制。
+
+## Future
+
+| SDK 方法或操作 | Fastino 映射 | 支持情况 |
+| --- | --- | --- |
+| Future result/get | 获取操作 | 支持 |
+| Future cancel | 取消操作 | 支持 |
+| `retrieve_futures` 批量检索 | 无 | 不支持 |
+
+## 管理
+
+| SDK 方法或操作 | Fastino 映射 | 支持情况 |
+| --- | --- | --- |
+| `RestClient` 列出训练运行 | 列出规范的 Fastino 任务 | 支持 |
+| `RestClient` 获取训练运行 | 获取规范的 Fastino 任务 | 支持 |
+| 列出或获取检查点 | 规范的任务/检查点路由 | 支持 |
+| 下载或删除检查点 | 规范的任务/检查点路由 | 支持 |
+| 发布或取消发布检查点 | 规范的任务/检查点路由 | 支持 |
+| 设置或清除检查点 TTL | 规范的任务/检查点路由 | 支持 |
+| 获取检查点存储用量 | 规范的任务/检查点路由 | 支持 |
+
+## 仅适配器使用的基础机制
+
+SDK 可以使用适配器机制处理功能、会话、心跳、遥测、身份验证和审计集成。这些是实现细节，
+没有公开的 Fastino 路由。不要将其视为面向客户的 HTTP API。
+
+## 明确不受支持
+
+- 通过 `retrieve_futures` 批量检索 future
+- `save_weights_external`
+- `external_weights_urls`
+- SDK 身份验证或令牌操作
+- SDK 计费、用量或事件操作
+
+身份验证只能通过 `TINKER_CREDENTIAL_CMD` 提供普通的 Fastino `fast_sk_` 密钥。
+以 `tml-` 开头的凭据会被拒绝，并且有效示例不得设置 `TINKER_API_KEY`。
+
+有关生命周期和恢复指导，请参阅
+[运行时行为和错误](/cn/rl-api/runtime)。

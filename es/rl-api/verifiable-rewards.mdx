@@ -1,0 +1,164 @@
+---
+title: "Entrenar con recompensas verificables"
+description: "Convierte un evaluador determinista en una señal de aprendizaje para un trabajo interactivo de Fastino."
+---
+
+Usa una recompensa verificable cuando el código pueda comprobar una respuesta,
+como una respuesta matemática, el resultado de una prueba, una restricción de
+esquema, una extracción exacta o el resultado de una herramienta.
+
+```text
+prompt -> sample a group -> grade -> center rewards -> build datums -> update
+```
+
+El muestreo, el trabajo hacia delante/hacia atrás, los pasos del optimizador y
+los checkpoints pertenecen al mismo trabajo interactivo de Fastino. La
+ejecución de recompensas y el estado de la aplicación permanecen en tu código.
+
+## Antes de comenzar
+
+Completa la [Guía rápida](/es/rl-api/quickstart) y confirma después mediante las
+capacidades que estén habilitados el modelo y las operaciones elegidos. Los
+fragmentos siguientes se centran en el flujo de recompensas controlado por el
+usuario; adapta la construcción de datums a `tinker==0.33.1` y al modelo elegido.
+
+<Note>
+  Esta guía no es un programa de entrenamiento independiente listo para copiar y
+  pegar. Parte de una carga de trabajo validada del SDK cuyo renderizador y cuya
+  construcción de datums correspondan al modelo seleccionado; después, añade el
+  flujo de recompensas que se muestra a continuación.
+</Note>
+
+<Warning>
+  Ejecuta el código o las herramientas generados únicamente en un entorno
+  aislado y con recursos limitados. Fastino no ejecuta tu función de recompensa
+  ni administra sus efectos secundarios.
+</Warning>
+
+## 1. Define un evaluador específico
+
+Separa el análisis de la puntuación para que los resultados con formato
+incorrecto sean observables:
+
+```python
+def get_reward(response: str, expected: str) -> float:
+    actual = parse_answer(response)
+    if actual is None:
+        return 0.0
+    return 1.0 if actual == expected else 0.0
+```
+
+Mantén un conjunto fijo de fixtures con respuestas correctas, incorrectas, con
+formato incorrecto y con formatos equivalentes. Registra los errores de análisis
+por separado de las respuestas válidas pero incorrectas.
+
+## 2. Captura el trabajo para el muestreo
+
+Crea un checkpoint de muestreador con los pesos actuales y resuélvelo mediante
+el SDK:
+
+```python
+checkpoint = training_client.save_weights_for_sampler(
+    f"rollout-{step:06d}"
+).result()
+sampling_client = service_client.create_sampling_client(
+    model_path=checkpoint.path
+)
+
+sample_result = sampling_client.sample(
+    prompt=model_input,
+    num_samples=group_size,
+    sampling_params=sampling_params,
+).result()
+```
+
+Esto no crea otra ejecución de entrenamiento. El checkpoint y el muestreo se
+asocian al mismo trabajo interactivo.
+
+## 3. Convierte las recompensas en ventajas
+
+```python
+rewards = [
+    get_reward(render_response(sequence.tokens), expected)
+    for sequence in sample_result.sequences
+]
+
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+
+if all(advantage == 0.0 for advantage in advantages):
+    continue
+```
+
+Controla los grupos sin varianza en las recompensas. Pueden indicar que la tarea
+es demasiado fácil, demasiado difícil o que se analiza incorrectamente.
+
+## 4. Construye datums alineados
+
+El prompt es contexto, por lo que sus posiciones suelen recibir una ventaja de
+cero. Las posiciones de la finalización reciben la ventaja relativa al grupo.
+El constructor de datums debe fallar antes del envío si difieren las longitudes
+de la entrada, el objetivo, las probabilidades logarítmicas y las ventajas:
+
+```python
+if not (
+    model_input.length
+    == len(target_tokens)
+    == len(padded_logprobs)
+    == len(padded_advantages)
+):
+    raise ValueError("RL datum arrays are not aligned")
+```
+
+Usa el renderizador y el tokenizador asociados al `base_model` seleccionado.
+Conserva los tokens muestreados y las probabilidades logarítmicas que necesite
+la operación del SDK seleccionada mediante las capacidades.
+
+## 5. Actualiza el trabajo interactivo
+
+Para un flujo habilitado de muestreo por importancia, el patrón de llamadas es:
+
+```python
+train_future = training_client.forward_backward(
+    datums,
+    loss_fn="importance_sampling",
+)
+train_result = train_future.result()
+
+optim_future = training_client.optim_step(optimizer_params)
+optim_result = optim_future.result()
+```
+
+Ambas operaciones mutan el trabajo interactivo existente. Resuelve y registra
+cada resultado antes de avanzar el paso de la aplicación. No construyas
+solicitudes HTTP equivalentes al adaptador.
+
+## 6. Guarda un límite de recuperación
+
+```python
+state = training_client.save_state(f"step-{step:06d}").result()
+```
+
+Conserva el identificador del checkpoint devuelto con:
+
+- ID canónico del trabajo de `training_client.get_info().model_data.model_id`
+- Paso de la aplicación y cursor del dataset
+- Revisiones del dataset y de la implementación de recompensas
+- Modelo base y configuración de entrenamiento
+- Métricas de evaluación
+
+Estos metadatos permiten que un controlador elija un checkpoint sin deducirlo
+por su nombre.
+
+## Verifica antes de aumentar la carga
+
+- El evaluador distingue fixtures correctos e incorrectos conocidos.
+- Las respuestas con formato incorrecto no bloquean el bucle.
+- Al menos un grupo de muestras tiene varianza en las recompensas.
+- Los arrays de datums cumplen las formas esperadas por el SDK instalado.
+- Los futures hacia delante/hacia atrás y del optimizador se completan en el mismo trabajo.
+- Se puede cargar un checkpoint de estado con sus metadatos de reanudación del cliente.
+- La evaluación con datos reservados permanece separada del lote de recompensas de entrenamiento.
+
+Para consultar el ciclo de vida circundante, lee
+[El bucle de entrenamiento de RL](/es/rl-api/training-loop).

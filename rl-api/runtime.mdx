@@ -1,0 +1,83 @@
+---
+title: "Runtime behavior and errors"
+description: "Reason about operations, checkpoints, recovery, and errors for an interactive Fastino job."
+---
+
+An SDK training client is one interactive Fastino job. Interactive operations,
+futures, sampler clients, and checkpoints are different views of work or
+artifacts owned by that job, not separate training runs.
+
+## Identify the job
+
+Read the job ID from the SDK:
+
+```python
+job_id = training_client.get_info().model_data.model_id
+```
+
+The same value identifies the resource returned by:
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
+
+Use canonical job and checkpoint routes for administration. Use the SDK for
+interactive model operations; never construct adapter HTTP requests.
+
+## Futures are job operations
+
+SDK methods can return futures for operations submitted to the interactive job.
+Future result/get resolves the corresponding operation. Future cancel maps to
+cancellation of that operation.
+
+Resolve futures before your application advances a dependent step. Persist the
+application step, dataset cursor, and relevant operation or checkpoint
+identifiers so a restarted controller can determine what completed.
+
+Batch retrieval through `retrieve_futures` is not supported. Track and resolve
+the individual futures returned by supported calls.
+
+## Checkpoints belong to the job
+
+Two checkpoint kinds serve different purposes:
+
+- `save_state(...)` creates a state checkpoint for training recovery.
+- `save_weights_for_sampler(...)` creates a sampler checkpoint for rollout or
+  evaluation.
+
+Loading state maps to the checkpoint-load operation on the interactive job.
+Creating or getting a sampler resolves a checkpoint; sampling then runs against
+that checkpoint.
+
+Canonical checkpoint routes support list, get, download, delete, publish,
+unpublish, TTL administration, and storage-usage administration. A retention
+policy is application-owned: do not assume an undocumented lifetime or storage
+guarantee.
+
+Store checkpoint identifiers with the client-owned state needed to continue,
+including the application step, dataset revision, reward revision, and dataset
+cursor.
+
+## Authentication
+
+The SDK obtains a normal Fastino key by executing `TINKER_CREDENTIAL_CMD` on
+every token request. The command must print a nonempty credential to standard
+output. Keys begin with `fast_sk_`; credentials beginning with `tml-` are
+rejected. Do not set `TINKER_API_KEY`.
+
+## Diagnose errors
+
+| Symptom | Check |
+| --- | --- |
+| Authentication fails | Confirm the credential command prints a current `fast_sk_` key and no extra output |
+| SDK cannot connect | Confirm `TINKER_BASE_URL` is exactly `https://api.fastino.ai/v1/training/compat/tinker` |
+| Model or operation is rejected | Re-query capabilities and compare the call with the compatibility table |
+| A future fails | Record the job ID and operation result; do not advance dependent application state |
+| A checkpoint cannot be loaded | Verify its job, checkpoint kind, and client-owned resume metadata |
+| Canonical job lookup fails | Confirm the ID came from `get_info().model_data.model_id` and the same Fastino team is authenticated |
+
+Do not infer support from a method merely existing in the installed package.
+Check [SDK compatibility](/rl-api/compatibility) and the live capability
+response.

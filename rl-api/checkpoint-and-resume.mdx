@@ -1,0 +1,143 @@
+---
+title: "Checkpoint and resume an RL job"
+description: "Save interactive-job state and application progress, then resume without replaying completed work."
+---
+
+A state checkpoint protects server-side training state. A complete recovery
+record also protects the user-owned state that tells your controller what to do
+next.
+
+## What to save
+
+| Record | Contains | Stored by |
+| --- | --- | --- |
+| State checkpoint | Training weights and optimizer state represented by the SDK checkpoint | Fastino |
+| Loop record | Job ID, checkpoint identifier, step, dataset cursor, and configuration | Your application |
+
+The SDK training client represents one interactive Fastino job. Read its
+canonical ID from `training_client.get_info().model_data.model_id`.
+
+## 1. Save state and loop progress
+
+Save state through the SDK, then persist the returned checkpoint with the
+client-owned fields needed to continue:
+
+```python
+import json
+from pathlib import Path
+
+
+job_id = training_client.get_info().model_data.model_id
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "job_id": job_id,
+    "state_path": state.path,
+    "model": model_name,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
+```
+
+Use unique checkpoint names so each loop record identifies an unambiguous
+recovery boundary. Do not assume an undocumented checkpoint lifetime.
+
+## 2. Read the newest complete record
+
+A process can stop while writing the final line. Scan backward and skip a
+malformed tail:
+
+```python
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+```
+
+## 3. Validate before loading
+
+Compare the record with the requested continuation:
+
+- Canonical job ID
+- Base model and trainable configuration
+- Dataset revision and cursor
+- Reward implementation revision
+- Optimizer configuration
+- Renderer and tokenizer assumptions
+
+Stop for an explicit decision if these fields conflict. Do not silently combine
+a checkpoint with a different experiment.
+
+Then use the SDK's supported state-load flow:
+
+```python
+training_client = (
+    service_client.create_training_client_from_state_with_optimizer(
+        str(resume["state_path"])
+    )
+)
+```
+
+This SDK operation maps to Fastino checkpoint loading. Do not construct the
+adapter request directly or infer additional run lineage from the operation.
+
+## 4. Make the boundary recoverable
+
+Use this order:
+
+1. Resolve the forward/backward and optimizer futures.
+2. Save the state checkpoint.
+3. Persist the loop record containing its identifier.
+4. Mark the application step complete.
+5. Begin the next step.
+
+If the process exits after saving the checkpoint but before persisting the loop
+record, keep the previous complete record as the trusted recovery point. Do not
+mark a step complete before its record is durable.
+
+## 5. Keep checkpoint kinds separate
+
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Use a state checkpoint for training recovery. Use a sampler checkpoint for
+rollouts or evaluation. Do not use a sampler checkpoint as an optimizer-state
+recovery point.
+
+Canonical checkpoint administration supports list, get, download, delete,
+publish, unpublish, TTL updates, and storage-usage lookup. Your application owns
+retention policy and cleanup; this guide does not promise a TTL or retention
+duration.
+
+## 6. Verify the continuation
+
+Before scaling the resumed workload:
+
+1. Load the selected state checkpoint.
+2. Confirm the SDK client's canonical job ID through
+   `GET /v1/training/jobs/{job_id}`.
+3. Run a small held-out evaluation.
+4. Submit one supported training update.
+5. Save a new state checkpoint under a new name.
+6. Persist the next loop record.
+
+Use the SDK for all interactive operations. For job, future, and checkpoint
+semantics, see [Runtime behavior and errors](/rl-api/runtime).
