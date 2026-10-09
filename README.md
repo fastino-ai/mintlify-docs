@@ -75,13 +75,30 @@ autonomous client:
 python3 -m pip install -r scripts/requirements-agent-harness.txt
 python3 scripts/agent_harness.py static
 python3 scripts/agent_harness.py published
+python3 scripts/agent_harness.py diagnostics
 ```
 
 The static check validates OpenAPI references, cURL JSON requests on the critical journey
 pages, local links, and the GLiDE, GLiNER, dataset, authentication, and training journeys
 exposed through `llms.txt`.
 The published check validates content negotiation at `docs.fastino.ai`, public links, and the
-deployed OpenAPI contract. Both run without credentials.
+deployed OpenAPI contract. The diagnostics check compares default and Googlebot responses,
+cache policy, cross-host proxies, and all published Agent Skills digests. It also checks the
+canonical OpenAPI's complete operation set. The probes cover the docs, agent, API, and
+marketing hosts without credentials. Published and diagnostics checks run only on the daily
+schedule or manual workflow dispatch, never on pull requests.
+
+Google Search Console freshness is an optional diagnostics extension. Install
+`google-auth` and `google-api-python-client`, provide Application Default Credentials, and pass
+a JSON object that maps each inspected URL to its authoritative content-update timestamp:
+
+```bash
+python3 -m pip install google-auth google-api-python-client
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
+  python3 scripts/agent_harness.py diagnostics \
+    --gsc-site-url https://docs.fastino.ai/ \
+    --gsc-modified-manifest /path/to/url-last-modified.json
+```
 
 Authenticated canaries use a dedicated account and the
 `FASTINO_DOCS_CANARY_API_KEY` repository secret. Configure these repository variables before

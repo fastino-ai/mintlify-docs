@@ -41,6 +41,18 @@ class AgentHarnessTests(unittest.TestCase):
 
         self.assertEqual(HARNESS.REQUIRED_OPERATIONS, set(operations))
 
+    def test_openapi_rejects_an_unexpected_published_operation(self) -> None:
+        document = HARNESS._load_openapi()
+        document["paths"]["/v1/undocumented"] = {
+            "get": {"responses": {"200": {"description": "unexpected"}}}
+        }
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "unexpected operations",
+        ):
+            HARNESS._validate_openapi(document)
+
     def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:
         document = HARNESS._load_openapi()
 
@@ -269,6 +281,217 @@ class AgentHarnessTests(unittest.TestCase):
 
         self.assertIs(actual, response)
         self.assertEqual(request.call_count, 2)
+
+    def test_discovery_response_rejects_stale_cache_and_noindex(self) -> None:
+        target = HARNESS.DiscoveryTarget(
+            "canonical skill index",
+            "https://docs.fastino.ai/.well-known/agent-skills/index.json",
+            ("application/json",),
+            3600,
+        )
+        response = HARNESS.Response(
+            200,
+            target.url,
+            {
+                "cache-control": "public, max-age=3000, stale-while-revalidate=1000",
+                "content-type": "application/json",
+                "x-robots-tag": "noindex",
+            },
+            b"{}",
+        )
+
+        self.assertEqual(
+            HARNESS._discovery_response_findings(target, response),
+            [
+                "canonical skill index: X-Robots-Tag blocks indexing with noindex",
+                (
+                    "canonical skill index: cache lifetime plus stale window "
+                    "4000s exceeds 3600s"
+                ),
+            ],
+        )
+
+    def test_discovery_age_can_use_the_allowed_stale_window(self) -> None:
+        target = HARNESS.DiscoveryTarget(
+            "skill",
+            "https://docs.fastino.ai/skill.md",
+            ("text/markdown",),
+            600,
+        )
+        response = HARNESS.Response(
+            200,
+            target.url,
+            {
+                "cache-control": "public, max-age=300, stale-while-revalidate=300",
+                "content-type": "text/markdown",
+                "age": "400",
+            },
+            b"# Skill",
+        )
+
+        self.assertEqual(HARNESS._discovery_response_findings(target, response), [])
+
+    def test_googlebot_must_receive_the_default_status_body_and_policy(self) -> None:
+        target = HARNESS.DiscoveryTarget(
+            "agent card",
+            "https://agent.fastino.ai/.well-known/agent-card.json",
+            ("application/json",),
+            300,
+        )
+        default = HARNESS.Response(
+            200,
+            target.url,
+            {
+                "cache-control": "public, max-age=300",
+                "content-type": "application/json",
+            },
+            b'{"skills":[]}',
+        )
+        googlebot = HARNESS.Response(
+            403,
+            target.url,
+            {
+                "cache-control": "no-store",
+                "content-type": "text/plain",
+            },
+            b"bot blocked",
+        )
+
+        self.assertEqual(
+            HARNESS._googlebot_parity_findings(target, default, googlebot),
+            [
+                "agent card: Googlebot status 403 differs from default status 200",
+                "agent card: Googlebot body differs from default response",
+                "agent card: Googlebot cache-control differs from default response",
+                "agent card: Googlebot content-type differs from default response",
+            ],
+        )
+
+    def test_skill_digests_cover_every_entry_in_the_published_index(self) -> None:
+        index = {
+            "skills": [
+                {
+                    "name": "fastino-gliner",
+                    "url": "/.well-known/agent-skills/fastino-gliner/skill.md",
+                    "digest": (
+                        "sha256:"
+                        "2cf24dba5fb0a30e26e83b2ac5b9e29e"
+                        "1b161e5c1fa7425e73043362938b9824"
+                    ),
+                },
+                {
+                    "name": "fastino-glide",
+                    "url": "/.well-known/agent-skills/fastino-glide/skill.md",
+                    "digest": "sha256:stale",
+                },
+            ]
+        }
+
+        self.assertEqual(
+            HARNESS._skill_digest_findings(
+                index,
+                {
+                    "fastino-gliner": b"hello",
+                    "fastino-glide": b"current",
+                },
+            ),
+            ["fastino-glide: artifact digest does not match skill index"],
+        )
+
+    def test_agent_cards_advertise_the_complete_skill_inventory(self) -> None:
+        response = HARNESS.Response(
+            200,
+            "https://agent.fastino.ai/.well-known/agent-card.json",
+            {"content-type": "application/json"},
+            json.dumps(
+                {
+                    "skills": [
+                        {"id": name}
+                        for name in sorted(HARNESS.EXPECTED_SKILLS - {"fastino-datasets"})
+                    ]
+                }
+            ).encode(),
+        )
+
+        self.assertEqual(
+            HARNESS._agent_card_skill_findings("agent card", response),
+            [
+                (
+                    "agent card: expected skills "
+                    "['fastino-datasets', 'fastino-fine-tune', 'fastino-glide', "
+                    "'fastino-gliner', 'fastino-inference'], got "
+                    "['fastino-fine-tune', 'fastino-glide', 'fastino-gliner', "
+                    "'fastino-inference']"
+                )
+            ],
+        )
+
+    def test_gsc_freshness_uses_content_change_and_crawl_age(self) -> None:
+        now = HARNESS.datetime(2026, 10, 9, tzinfo=HARNESS.UTC)
+        findings = HARNESS._gsc_inspection_findings(
+            url="https://docs.fastino.ai/authentication",
+            index_status={
+                "lastCrawlTime": "2026-10-01T12:00:00Z",
+                "verdict": "NEUTRAL",
+                "coverageState": "Crawled - currently not indexed",
+                "robotsTxtState": "ALLOWED",
+                "pageFetchState": "SUCCESSFUL",
+            },
+            last_modified=HARNESS.datetime(2026, 10, 2, tzinfo=HARNESS.UTC),
+            now=now,
+            max_crawl_age_days=7,
+        )
+
+        self.assertEqual(
+            findings,
+            [
+                (
+                    "https://docs.fastino.ai/authentication: GSC indexing blocker "
+                    "(verdict=NEUTRAL, coverage=Crawled - currently not indexed, "
+                    "robots=ALLOWED, fetch=SUCCESSFUL)"
+                ),
+                (
+                    "https://docs.fastino.ai/authentication: GSC crawl is stale "
+                    "(last crawl 2026-10-01T12:00:00Z)"
+                ),
+            ],
+        )
+
+    def test_diagnostics_are_schedule_only_in_the_workflow(self) -> None:
+        workflow = (
+            HARNESS.ROOT / ".github/workflows/agent-docs-harness.yml"
+        ).read_text()
+        static_job, remainder = workflow.split("\n  published:", maxsplit=1)
+        published_job, remainder = remainder.split("\n  diagnostics:", maxsplit=1)
+        diagnostics_job, _ = remainder.split("\n  authenticated-api:", maxsplit=1)
+
+        self.assertNotIn("agent_harness.py diagnostics", static_job)
+        self.assertNotIn("agent_harness.py diagnostics", published_job)
+        self.assertIn("python scripts/agent_harness.py diagnostics", diagnostics_job)
+        self.assertIn(
+            "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+            diagnostics_job,
+        )
+
+    def test_discovery_fetches_do_not_follow_proxy_redirects(self) -> None:
+        target = HARNESS.DiscoveryTarget(
+            "agent skill index",
+            "https://agent.fastino.ai/.well-known/agent-skills/index.json",
+            ("application/json",),
+            3600,
+        )
+        response = HARNESS.Response(
+            200,
+            target.url,
+            {"content-type": "application/json"},
+            b"{}",
+        )
+        with mock.patch.object(HARNESS, "_request", return_value=response) as request:
+            HARNESS._fetch_discovery_responses((target,))
+
+        self.assertEqual(request.call_count, 2)
+        for call in request.call_args_list:
+            self.assertFalse(call.kwargs["follow_redirects"])
 
     def test_billing_requires_finalized_numeric_minutes(self) -> None:
         self.assertIsNone(HARNESS._billing_minutes({"billed": False}))

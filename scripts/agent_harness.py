@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -13,13 +14,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NoReturn
 
-from check_api_docs import EXPECTED_OPERATIONS, local_docs_findings
+from check_api_docs import EXPECTED_OPERATIONS, EXPECTED_SKILLS, local_docs_findings
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
@@ -28,7 +30,13 @@ from referencing.jsonschema import DRAFT202012
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_ORIGIN = os.getenv("FASTINO_DOCS_ORIGIN", "https://docs.fastino.ai").rstrip("/")
 API_ORIGIN = os.getenv("FASTINO_API_ORIGIN", "https://api.fastino.ai").rstrip("/")
+AGENT_ORIGIN = os.getenv("FASTINO_AGENT_ORIGIN", "https://agent.fastino.ai").rstrip("/")
+MARKETING_ORIGIN = os.getenv("FASTINO_MARKETING_ORIGIN", "https://fastino.ai").rstrip("/")
 USER_AGENT = "FastinoDocsCanary/1.0 (+https://docs.fastino.ai)"
+GOOGLEBOT_USER_AGENT = (
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+)
+UTC = timezone.utc
 HTTP_METHODS = frozenset({"delete", "get", "patch", "post", "put"})
 RETRYABLE_STATUSES = frozenset({425, 429, 503})
 LOCALES = frozenset({"cn", "de", "es", "fr"})
@@ -113,6 +121,119 @@ class Response:
 
     def json(self) -> object:
         return json.loads(self.body)
+
+
+@dataclass(frozen=True)
+class DiscoveryTarget:
+    """One public resource and its crawler/cache contract."""
+
+    name: str
+    url: str
+    content_types: tuple[str, ...]
+    max_cache_seconds: int
+    required_fragments: tuple[str, ...] = ()
+    allow_noindex: bool = False
+
+
+def _base_discovery_targets() -> tuple[DiscoveryTarget, ...]:
+    return (
+        DiscoveryTarget(
+            "agent sitemap",
+            f"{AGENT_ORIGIN}/sitemap.xml",
+            ("application/xml", "text/xml"),
+            3600,
+            (f"{AGENT_ORIGIN}/llms.txt",),
+            True,
+        ),
+        DiscoveryTarget(
+            "agent robots",
+            f"{AGENT_ORIGIN}/robots.txt",
+            ("text/plain",),
+            3600,
+            ("User-agent: Googlebot", "Allow: /"),
+            True,
+        ),
+        DiscoveryTarget(
+            "agent card",
+            f"{AGENT_ORIGIN}/.well-known/agent-card.json",
+            ("application/json",),
+            300,
+            (),
+            True,
+        ),
+        DiscoveryTarget(
+            "agent skill index",
+            f"{AGENT_ORIGIN}/.well-known/agent-skills/index.json",
+            ("application/json",),
+            3600,
+            tuple(sorted(EXPECTED_SKILLS)),
+            True,
+        ),
+        DiscoveryTarget(
+            "canonical skill index",
+            f"{DOCS_ORIGIN}/.well-known/agent-skills/index.json",
+            ("application/json",),
+            3600,
+            tuple(sorted(EXPECTED_SKILLS)),
+        ),
+        DiscoveryTarget(
+            "agent llms",
+            f"{AGENT_ORIGIN}/llms.txt",
+            ("text/markdown", "text/plain"),
+            3600,
+            ("Fastino",),
+            True,
+        ),
+        DiscoveryTarget(
+            "canonical llms",
+            f"{DOCS_ORIGIN}/llms.txt",
+            ("text/markdown", "text/plain"),
+            3600,
+            ("Fastino",),
+        ),
+        DiscoveryTarget(
+            "API sitemap",
+            f"{API_ORIGIN}/sitemap.xml",
+            ("application/xml", "text/xml"),
+            3600,
+            (f"{DOCS_ORIGIN}/.well-known/agent-skills/index.json",),
+            True,
+        ),
+        DiscoveryTarget(
+            "API robots",
+            f"{API_ORIGIN}/robots.txt",
+            ("text/plain",),
+            3600,
+            ("Allow: /.well-known/", "search=yes"),
+            True,
+        ),
+        DiscoveryTarget(
+            "API catalog",
+            f"{API_ORIGIN}/.well-known/api-catalog",
+            ("application/json",),
+            3600,
+            (f"{DOCS_ORIGIN}/openapi.json",),
+        ),
+        DiscoveryTarget(
+            "API agent card",
+            f"{API_ORIGIN}/.well-known/agent-card.json",
+            ("application/json",),
+            3600,
+        ),
+        DiscoveryTarget(
+            "canonical OpenAPI",
+            f"{DOCS_ORIGIN}/openapi.json",
+            ("application/json", "application/openapi+json"),
+            3600,
+        ),
+        DiscoveryTarget(
+            "marketing API catalog",
+            f"{MARKETING_ORIGIN}/.well-known/api-catalog",
+            ("application/json",),
+            86400,
+            ("openapi",),
+        ),
+    )
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -263,6 +384,9 @@ def _validate_openapi(document: dict[str, object]) -> dict[tuple[str, str], dict
     missing = REQUIRED_OPERATIONS - set(operations)
     if missing:
         fail(f"CONTRACT: required operations are missing: {sorted(missing)}")
+    unexpected = set(operations) - REQUIRED_OPERATIONS
+    if unexpected:
+        fail(f"CONTRACT: unexpected operations are published: {sorted(unexpected)}")
     components = document.get("components")
     schemes = components.get("securitySchemes") if isinstance(components, dict) else None
     if not isinstance(schemes, dict) or not {"ApiKeyAuth", "BearerAuth"} <= set(schemes):
@@ -697,6 +821,283 @@ def _require_status(response: Response, expected: set[int], label: str) -> None:
         fail(f"{label}: expected HTTP {sorted(expected)}, got {response.status}: {excerpt}")
 
 
+def _header(response: Response, name: str) -> str:
+    return response.headers.get(name.lower(), "")
+
+
+def _cache_directives(value: str) -> dict[str, str | None]:
+    directives: dict[str, str | None] = {}
+    for raw_directive in value.split(","):
+        name, separator, raw_value = raw_directive.strip().partition("=")
+        if name:
+            directives[name.lower()] = raw_value.strip().strip('"') if separator else None
+    return directives
+
+
+def _cache_seconds(directives: dict[str, str | None], name: str) -> int | None:
+    value = directives.get(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError as error:
+        raise HarnessFailure(f"invalid {name} cache directive: {value!r}") from error
+
+
+def _discovery_response_findings(
+    target: DiscoveryTarget,
+    response: Response,
+) -> list[str]:
+    findings: list[str] = []
+    if response.status != 200:
+        findings.append(f"{target.name}: public discovery returned HTTP {response.status}")
+
+    content_type = _header(response, "content-type").partition(";")[0].strip().lower()
+    if content_type not in target.content_types:
+        findings.append(f"{target.name}: unexpected Content-Type {content_type or '<missing>'}")
+
+    cache_control = _header(response, "cache-control")
+    if not cache_control:
+        findings.append(f"{target.name}: missing Cache-Control")
+    directives = _cache_directives(cache_control)
+    robots_directives = {
+        directive.strip().lower()
+        for directive in _header(response, "x-robots-tag").split(",")
+    }
+    if not target.allow_noindex and "noindex" in robots_directives:
+        findings.append(f"{target.name}: X-Robots-Tag blocks indexing with noindex")
+
+    max_age = _cache_seconds(directives, "s-maxage")
+    if max_age is None:
+        max_age = _cache_seconds(directives, "max-age")
+    explicitly_revalidated = (
+        "no-cache" in directives
+        or "no-store" in directives
+        or (max_age == 0 and "must-revalidate" in directives)
+    )
+    if max_age is None and not explicitly_revalidated:
+        findings.append(f"{target.name}: missing cache freshness directive")
+    if max_age is not None and max_age > target.max_cache_seconds:
+        findings.append(
+            f"{target.name}: cache lifetime {max_age}s exceeds "
+            f"{target.max_cache_seconds}s"
+        )
+
+    stale_window = _cache_seconds(directives, "stale-while-revalidate")
+    if stale_window is not None and stale_window > target.max_cache_seconds:
+        findings.append(
+            f"{target.name}: stale-while-revalidate={stale_window} exceeds "
+            f"{target.max_cache_seconds}s"
+        )
+    if (
+        max_age is not None
+        and stale_window is not None
+        and max_age + stale_window > target.max_cache_seconds
+        and max_age <= target.max_cache_seconds
+        and stale_window <= target.max_cache_seconds
+    ):
+        findings.append(
+            f"{target.name}: cache lifetime plus stale window "
+            f"{max_age + stale_window}s exceeds {target.max_cache_seconds}s"
+        )
+
+    age_header = _header(response, "age")
+    if age_header:
+        try:
+            age = int(age_header)
+        except ValueError as error:
+            raise HarnessFailure(
+                f"{target.name}: invalid Age header {age_header!r}"
+            ) from error
+        stale_deadline = max_age + (stale_window or 0) if max_age is not None else None
+        if (
+            stale_deadline is not None
+            and age > stale_deadline
+            and not explicitly_revalidated
+        ):
+            findings.append(
+                f"{target.name}: Age {age}s exceeds advertised freshness "
+                f"window {stale_deadline}s"
+            )
+
+    text = response.text()
+    for fragment in target.required_fragments:
+        if fragment not in text:
+            findings.append(f"{target.name}: response is missing {fragment!r}")
+    return findings
+
+
+def _googlebot_parity_findings(
+    target: DiscoveryTarget,
+    default: Response,
+    googlebot: Response,
+) -> list[str]:
+    findings: list[str] = []
+    if googlebot.status != default.status:
+        findings.append(
+            f"{target.name}: Googlebot status {googlebot.status} differs "
+            f"from default status {default.status}"
+        )
+    if googlebot.body != default.body:
+        findings.append(f"{target.name}: Googlebot body differs from default response")
+    for header_name in ("cache-control", "x-robots-tag"):
+        if _header(googlebot, header_name) != _header(default, header_name):
+            findings.append(
+                f"{target.name}: Googlebot {header_name} differs from default response"
+            )
+    default_content_type = _header(default, "content-type").partition(";")[0].strip()
+    googlebot_content_type = (
+        _header(googlebot, "content-type").partition(";")[0].strip()
+    )
+    if googlebot_content_type != default_content_type:
+        findings.append(
+            f"{target.name}: Googlebot content-type differs from default response"
+        )
+    if googlebot.status == 200:
+        prefix = f"{target.name}: "
+        for finding in _discovery_response_findings(target, googlebot):
+            findings.append(
+                f"{target.name}: Googlebot {finding.removeprefix(prefix)}"
+            )
+    return findings
+
+
+def _fetch_discovery_responses(
+    targets: tuple[DiscoveryTarget, ...],
+) -> tuple[dict[str, Response], dict[str, Response], list[str]]:
+    requests = tuple(
+        (target, user_agent, label)
+        for target in targets
+        for user_agent, label in (
+            (USER_AGENT, "default"),
+            (GOOGLEBOT_USER_AGENT, "Googlebot"),
+        )
+    )
+    results: dict[tuple[str, str], Response] = {}
+    findings: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(16, len(requests))) as pool:
+        futures = {
+            pool.submit(
+                _request,
+                "GET",
+                target.url,
+                headers={"Accept": "*/*", "User-Agent": user_agent},
+                follow_redirects=False,
+            ): (target, user_agent, label)
+            for target, user_agent, label in requests
+        }
+        for future in as_completed(futures):
+            target, user_agent, label = futures[future]
+            try:
+                results[(target.url, user_agent)] = future.result()
+            except (OSError, TimeoutError, urllib.error.URLError) as error:
+                findings.append(f"{target.name}: {label} fetch failed: {error}")
+
+    default = {
+        target.url: results[(target.url, USER_AGENT)]
+        for target in targets
+        if (target.url, USER_AGENT) in results
+    }
+    googlebot = {
+        target.url: results[(target.url, GOOGLEBOT_USER_AGENT)]
+        for target in targets
+        if (target.url, GOOGLEBOT_USER_AGENT) in results
+    }
+    return default, googlebot, findings
+
+
+def _body_parity_findings(
+    name: str,
+    proxied: Response,
+    canonical: Response,
+) -> list[str]:
+    if proxied.body == canonical.body:
+        return []
+    return [f"{name}: proxied body differs from canonical body"]
+
+
+def _agent_card_skill_findings(name: str, response: Response) -> list[str]:
+    try:
+        payload = response.json()
+    except json.JSONDecodeError:
+        return [f"{name}: response is not valid JSON"]
+    skills = payload.get("skills") if isinstance(payload, dict) else None
+    if not isinstance(skills, list):
+        return [f"{name}: response has no skills list"]
+    skill_ids = {
+        skill.get("id")
+        for skill in skills
+        if isinstance(skill, dict) and isinstance(skill.get("id"), str)
+    }
+    if skill_ids == EXPECTED_SKILLS:
+        return []
+    return [
+        (
+            f"{name}: expected skills {sorted(EXPECTED_SKILLS)}, "
+            f"got {sorted(skill_ids)}"
+        )
+    ]
+
+
+def _skill_entries(index: object) -> list[dict[str, str]]:
+    if not isinstance(index, dict) or not isinstance(index.get("skills"), list):
+        fail("skill index: invalid skills payload")
+    entries: list[dict[str, str]] = []
+    for raw_entry in index["skills"]:
+        if not isinstance(raw_entry, dict):
+            fail("skill index: invalid skill entry")
+        entry = {
+            key: raw_entry.get(key)
+            for key in ("name", "url", "digest")
+        }
+        if not all(isinstance(value, str) for value in entry.values()):
+            fail("skill index: skill entry is missing name, url, or digest")
+        entries.append({key: str(value) for key, value in entry.items()})
+    return entries
+
+
+def _skill_targets(index: object) -> tuple[DiscoveryTarget, ...]:
+    targets: list[DiscoveryTarget] = []
+    for entry in _skill_entries(index):
+        path = urllib.parse.urlsplit(entry["url"]).path
+        targets.extend(
+            (
+                DiscoveryTarget(
+                    f"canonical {entry['name']} skill",
+                    urllib.parse.urljoin(f"{DOCS_ORIGIN}/", path),
+                    ("text/markdown", "text/plain"),
+                    3600,
+                ),
+                DiscoveryTarget(
+                    f"proxied {entry['name']} skill",
+                    urllib.parse.urljoin(f"{AGENT_ORIGIN}/", path),
+                    ("text/markdown", "text/plain"),
+                    3600,
+                    allow_noindex=True,
+                ),
+            )
+        )
+    return tuple(targets)
+
+
+def _skill_digest_findings(
+    index: object,
+    artifacts: dict[str, bytes],
+) -> list[str]:
+    findings: list[str] = []
+    for entry in _skill_entries(index):
+        artifact = artifacts.get(entry["name"])
+        if artifact is None:
+            findings.append(f"{entry['name']}: canonical skill artifact was not fetched")
+            continue
+        actual = f"sha256:{hashlib.sha256(artifact).hexdigest()}"
+        if actual != entry["digest"]:
+            findings.append(
+                f"{entry['name']}: artifact digest does not match skill index"
+            )
+    return findings
+
+
 def _published_link(url: str) -> tuple[str, int]:
     response = _request("GET", url, headers={"Accept": "text/markdown"})
     return url, response.status
@@ -766,6 +1167,248 @@ def run_published() -> None:
         fail("CONTRACT: published OpenAPI must be an object")
     _validate_openapi(published_document)
     print(f"Published agent journey passed: {len(links)} indexed resources")
+
+
+def _parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _gsc_inspection_findings(
+    *,
+    url: str,
+    index_status: dict[str, object],
+    last_modified: datetime,
+    now: datetime,
+    max_crawl_age_days: int,
+) -> list[str]:
+    verdict = str(index_status.get("verdict", "UNKNOWN"))
+    coverage = str(index_status.get("coverageState", "UNKNOWN"))
+    robots = str(index_status.get("robotsTxtState", "UNKNOWN"))
+    fetch = str(index_status.get("pageFetchState", "UNKNOWN"))
+    summary = (
+        f"verdict={verdict}, coverage={coverage}, robots={robots}, fetch={fetch}"
+    )
+    crawl_value = index_status.get("lastCrawlTime")
+    if not isinstance(crawl_value, str):
+        return [f"{url}: GSC has no lastCrawlTime ({summary})"]
+
+    findings: list[str] = []
+    if (
+        verdict != "PASS"
+        or robots == "DISALLOWED"
+        or fetch not in {"SUCCESSFUL", "UNKNOWN"}
+    ):
+        findings.append(f"{url}: GSC indexing blocker ({summary})")
+    crawl_time = _parse_timestamp(crawl_value)
+    if (
+        crawl_time < last_modified
+        or now - crawl_time > timedelta(days=max_crawl_age_days)
+    ):
+        findings.append(f"{url}: GSC crawl is stale (last crawl {crawl_value})")
+    return findings
+
+
+def _gsc_sitemap_findings(
+    site_url: str,
+    sitemap_entries: list[dict[str, object]],
+) -> list[str]:
+    expected_path = f"{site_url.rstrip('/')}/sitemap.xml"
+    sitemap = next(
+        (entry for entry in sitemap_entries if entry.get("path") == expected_path),
+        None,
+    )
+    if sitemap is None:
+        return [f"{site_url}: GSC has no submitted sitemap {expected_path}"]
+    errors = str(sitemap.get("errors", "0"))
+    warnings = str(sitemap.get("warnings", "0"))
+    if errors != "0" or warnings != "0":
+        return [
+            f"{expected_path}: GSC reports {errors} errors and {warnings} warnings"
+        ]
+    return []
+
+
+def _inspect_gsc(
+    *,
+    site_url: str,
+    modified_manifest: Path,
+    max_crawl_age_days: int,
+) -> list[str]:
+    try:
+        import google.auth
+        from googleapiclient.discovery import build
+    except ImportError as error:
+        raise HarnessFailure(
+            "GSC inspection requires google-auth and google-api-python-client"
+        ) from error
+
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+    )
+    service = build("searchconsole", "v1", credentials=credentials, cache_discovery=False)
+    manifest = json.loads(modified_manifest.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        fail("GSC modified manifest must be a URL-to-timestamp object")
+
+    sitemap_result = service.sitemaps().list(siteUrl=site_url).execute()
+    raw_sitemaps = sitemap_result.get("sitemap", [])
+    if not isinstance(raw_sitemaps, list):
+        fail("GSC sitemap response must contain a list")
+    findings = _gsc_sitemap_findings(
+        site_url,
+        [entry for entry in raw_sitemaps if isinstance(entry, dict)],
+    )
+    now = datetime.now(UTC)
+    for url, modified_value in manifest.items():
+        if not isinstance(url, str) or not isinstance(modified_value, str):
+            fail("GSC manifest keys and values must be strings")
+        result = (
+            service.urlInspection()
+            .index()
+            .inspect(
+                body={
+                    "inspectionUrl": url,
+                    "siteUrl": site_url,
+                    "languageCode": "en-US",
+                }
+            )
+            .execute()
+        )
+        index_status = result.get("inspectionResult", {}).get("indexStatusResult", {})
+        if not isinstance(index_status, dict):
+            findings.append(f"{url}: GSC returned an invalid indexStatusResult")
+            continue
+        findings.extend(
+            _gsc_inspection_findings(
+                url=url,
+                index_status=index_status,
+                last_modified=_parse_timestamp(modified_value),
+                now=now,
+                max_crawl_age_days=max_crawl_age_days,
+            )
+        )
+    return findings
+
+
+def run_diagnostics(
+    *,
+    gsc_site_url: str | None,
+    gsc_modified_manifest: Path | None,
+    max_gsc_crawl_age_days: int,
+) -> None:
+    targets = _base_discovery_targets()
+    default, googlebot, findings = _fetch_discovery_responses(targets)
+
+    index_url = f"{DOCS_ORIGIN}/.well-known/agent-skills/index.json"
+    index_response = default.get(index_url)
+    index: object | None = None
+    if index_response is not None:
+        try:
+            index = index_response.json()
+            names = {entry["name"] for entry in _skill_entries(index)}
+            if names != EXPECTED_SKILLS:
+                findings.append(
+                    "canonical skill index has unexpected skills: "
+                    f"expected {sorted(EXPECTED_SKILLS)}, got {sorted(names)}"
+                )
+        except (HarnessFailure, json.JSONDecodeError) as error:
+            findings.append(f"canonical skill index: {error}")
+
+    skill_targets = _skill_targets(index) if index is not None else ()
+    if skill_targets:
+        skill_default, skill_googlebot, skill_findings = _fetch_discovery_responses(
+            skill_targets
+        )
+        default.update(skill_default)
+        googlebot.update(skill_googlebot)
+        findings.extend(skill_findings)
+        targets += skill_targets
+
+    for target in targets:
+        default_response = default.get(target.url)
+        googlebot_response = googlebot.get(target.url)
+        if default_response is not None:
+            findings.extend(
+                _discovery_response_findings(target, default_response)
+            )
+        if default_response is not None and googlebot_response is not None:
+            findings.extend(
+                _googlebot_parity_findings(
+                    target,
+                    default_response,
+                    googlebot_response,
+                )
+            )
+
+    parity_pairs = [
+        (
+            "agent skill index",
+            f"{AGENT_ORIGIN}/.well-known/agent-skills/index.json",
+            index_url,
+        ),
+        (
+            "llms.txt",
+            f"{AGENT_ORIGIN}/llms.txt",
+            f"{DOCS_ORIGIN}/llms.txt",
+        ),
+    ]
+    artifacts: dict[str, bytes] = {}
+    if index is not None:
+        for entry in _skill_entries(index):
+            path = urllib.parse.urlsplit(entry["url"]).path
+            canonical_url = urllib.parse.urljoin(f"{DOCS_ORIGIN}/", path)
+            proxied_url = urllib.parse.urljoin(f"{AGENT_ORIGIN}/", path)
+            parity_pairs.append(
+                (f"{entry['name']} skill", proxied_url, canonical_url)
+            )
+            canonical = default.get(canonical_url)
+            if canonical is not None:
+                artifacts[entry["name"]] = canonical.body
+        findings.extend(_skill_digest_findings(index, artifacts))
+
+    for name, proxied_url, canonical_url in parity_pairs:
+        proxied = default.get(proxied_url)
+        canonical = default.get(canonical_url)
+        if proxied is not None and canonical is not None:
+            findings.extend(_body_parity_findings(name, proxied, canonical))
+
+    for name, url in (
+        ("agent card", f"{AGENT_ORIGIN}/.well-known/agent-card.json"),
+        ("API agent card", f"{API_ORIGIN}/.well-known/agent-card.json"),
+    ):
+        response = default.get(url)
+        if response is not None:
+            findings.extend(_agent_card_skill_findings(name, response))
+
+    openapi_response = default.get(f"{DOCS_ORIGIN}/openapi.json")
+    if openapi_response is not None:
+        try:
+            document = openapi_response.json()
+            if not isinstance(document, dict):
+                fail("canonical OpenAPI must contain an object")
+            _validate_openapi(document)
+        except (HarnessFailure, json.JSONDecodeError) as error:
+            findings.append(f"canonical OpenAPI: {error}")
+
+    if gsc_site_url or gsc_modified_manifest:
+        if not gsc_site_url or not gsc_modified_manifest:
+            findings.append(
+                "GSC inspection requires --gsc-site-url and "
+                "--gsc-modified-manifest"
+            )
+        else:
+            findings.extend(
+                _inspect_gsc(
+                    site_url=gsc_site_url,
+                    modified_manifest=gsc_modified_manifest,
+                    max_crawl_age_days=max_gsc_crawl_age_days,
+                )
+            )
+
+    if findings:
+        fail("\n".join(findings))
+    print(f"Agent discovery diagnostics passed: {len(targets)} public targets")
 
 
 def _auth_headers(api_key: str, *, bearer: bool = False) -> dict[str, str]:
@@ -1575,14 +2218,30 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("static", "published", "api", "training-replay", "training-lifecycle"),
+        choices=(
+            "static",
+            "published",
+            "diagnostics",
+            "api",
+            "training-replay",
+            "training-lifecycle",
+        ),
     )
+    parser.add_argument("--gsc-site-url")
+    parser.add_argument("--gsc-modified-manifest", type=Path)
+    parser.add_argument("--max-gsc-crawl-age-days", type=int, default=7)
     args = parser.parse_args()
     try:
         if args.command == "static":
             run_static()
         elif args.command == "published":
             run_published()
+        elif args.command == "diagnostics":
+            run_diagnostics(
+                gsc_site_url=args.gsc_site_url,
+                gsc_modified_manifest=args.gsc_modified_manifest,
+                max_gsc_crawl_age_days=args.max_gsc_crawl_age_days,
+            )
         elif args.command == "api":
             run_api(replay_training=False)
         elif args.command == "training-replay":
