@@ -144,7 +144,8 @@ Response:
 - No multi-label primitive — one answer per question; use multiple independent questions instead. `probabilities` are already normalized per question — do not reinterpret or renormalize them.
 - Tune thresholds (e.g. `noul`) on real data, not a hardcoded 0.5. Validate the chosen `choice`/`score` before acting on it.
 - No documented chunking/batching contract for `/v1/systemone` — see Limits above for the token ceiling.
-- Add timeouts and bounded backoff for transient errors and rate limits. Surface authentication and validation errors (e.g. `422 Extra inputs are not permitted`) clearly; avoid retrying them indefinitely.
+- Set the client timeout to 175 seconds. GLiDE gives up after 170 seconds and returns a retryable `503` with `Retry-After`, before the public edge closes the connection at 180 seconds.
+- Retry `425`, `429`, `503`, and `504`, waiting for `Retry-After` when present, for at most 3 to 5 attempts in total. Do not retry other `4xx` responses; surface authentication and validation errors (e.g. `422 Extra inputs are not permitted`) clearly. See https://docs.fastino.ai/inference/systemone#timeouts-and-retries.
 
 ## Note
 

@@ -88,7 +88,7 @@ Utilisez un objet lorsque la décision dépend de la comparaison de plusieurs pa
 ### Requête complète
 
 ```bash
-curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
+curl --max-time 175 -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -137,7 +137,7 @@ Posez plusieurs questions de types différents sur le même `state` en un seul a
 <CodeGroup>
 
 ```bash cURL
-curl -s https://api.fastino.ai/v1/systemone \
+curl --max-time 175 -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -234,7 +234,7 @@ l'intégration n'est pas un simple remplacement direct. Suivez cette liste de co
 | Modèle de requête `jev-latest` | Modèle de requête `fastino/GLiDE` |
 | Identifiant de modèle Jev dans la réponse | Modèle de réponse `glide` |
 | Client du SDK TypeSafe | Votre client HTTP appelant `/v1/systemone` |
-| Nouvelles tentatives sur `429` et `529` | Nouvelles tentatives sur `425`, `429` et `503` avec un backoff borné |
+| Nouvelles tentatives sur `429` et `529` | Nouvelles tentatives sur `425`, `429`, `503` et `504` avec un backoff borné |
 
 <Steps>
   <Step title="Conserver la structure de requête System One">
@@ -265,9 +265,10 @@ l'intégration n'est pas un simple remplacement direct. Suivez cette liste de co
     GLiDE renvoie les `probabilities` et la `legend` de Score avec des clés de type chaîne, comme `"0"` et `"1"`.
     La réponse HTTP brute de TypeSafe fait de même, mais son SDK Python peut exposer des clés entières.
     Convertissez les clés uniquement si l'application a besoin de maps à clés entières. Remplacez la gestion des
-    nouvelles tentatives sur `529` de TypeSafe par la gestion de `425` et `503` de Fastino, et conservez un backoff borné pour
+    nouvelles tentatives sur `529` de TypeSafe par la gestion de `425`, `503` et `504` de Fastino, et conservez un backoff borné pour
     `429`. Respectez `Retry-After` lorsqu'il est présent et appliquez le même budget de nouvelles tentatives aux
-    défaillances de transport.
+    défaillances de transport. Définissez le délai d'attente du client comme indiqué dans
+    [Délais et nouvelles tentatives](#délais-et-nouvelles-tentatives).
   </Step>
   <Step title="Revalider les seuils de décision">
     Gardez les actions métier existantes intactes pendant le portage, puis testez GLiDE sur des cas
@@ -296,8 +297,9 @@ Les règles d'endpoint, de validation, de nouvelles tentatives et de Score ci-de
 
 ## Erreurs
 
-Une première requête vers un modèle à froid peut renvoyer `425 model_warming` pendant son préchauffage ; réessayez
-après environ 60 secondes.
+Une première requête vers un modèle à froid peut renvoyer `425 model_warming` pendant son préchauffage. Attendez le
+délai indiqué par `Retry-After`, puis réessayez ; voir
+[Délais et nouvelles tentatives](#délais-et-nouvelles-tentatives).
 
 | Statut | Cause probable | Action |
 | --- | --- | --- |
@@ -309,10 +311,144 @@ après environ 60 secondes.
 | `422` | Un champ obligatoire est manquant, une valeur a une forme incorrecte ou un champ supplémentaire a été envoyé | Lisez et corrigez les détails de validation au niveau du champ |
 | `425` | Le déploiement est en cours de préchauffage | Retentez après le délai indiqué |
 | `429` | Limite de débit ou de capacité | Respectez `Retry-After` et retentez avec un backoff |
-| `503` | Défaillance temporaire du fournisseur ou du service | Retentez avant de considérer l'erreur comme définitive |
+| `503` | GLiDE a dépassé son délai, ou défaillance temporaire du fournisseur ou du service | Retentez avant de considérer l'erreur comme définitive |
+| `504` | L'edge public a dépassé son délai avant que Fastino ne réponde | Retentez comme pour un `503` |
 
-Utilisez un délai de lecture d'au moins 300 secondes et un backoff borné pour `425`, `429` et `503`.
-Ne retentez pas `401`, `402`, `403`, `404` ou `422` sans corriger le problème sous-jacent.
+## Délais et nouvelles tentatives
+
+GLiDE abandonne une requête après **170 secondes** et renvoie un `503` que vous pouvez retenter, avec un
+en-tête `Retry-After`. Cela se produit avant que l'edge public ne ferme la connexion à **180 secondes** : une
+décision lente ou bloquée parvient donc à votre client sous la forme d'une erreur que vous pouvez retenter, et
+non d'une connexion coupée. La plupart des décisions répondent en quelques secondes.
+
+- **Réglez le délai d'attente du client sur 175 secondes**, juste au-dessus du budget serveur de 170 secondes.
+  Un délai plus court met fin à la requête avant que Fastino ne puisse répondre : votre client voit alors son
+  propre délai d'attente au lieu du `503` que vous pouvez retenter.
+- **Retentez `425`, `429`, `503` et `504`.** Attendez le nombre de secondes indiqué par `Retry-After` avant la
+  tentative suivante. Si l'en-tête est absent, utilisez un backoff exponentiel.
+  - `425 model_warming` signifie que le modèle est en cours de préchauffage ; cette réponse peut se répéter
+    jusqu'à ce que le modèle soit prêt. Voir [425 - Trop tôt](/fr/troubleshooting/errors#425-trop-tôt).
+  - `503` signifie que GLiDE a dépassé son délai ou n'avait pas de capacité de service.
+  - `504` provient de l'edge public, et non de GLiDE.
+- **Arrêtez-vous après 3 à 5 tentatives au total.** Les exemples ci-dessous en font au plus 4.
+- **Ne retentez pas les autres réponses `4xx`.** Un `400`, `401`, `402`, `403`, `404` ou `422` échoue à nouveau
+  tant que vous n'avez pas corrigé la requête, la clé d'API ou le compte.
+
+Chaque exemple définit un délai d'attente de 175 secondes et fait au plus 4 tentatives :
+
+<CodeGroup>
+
+```python Python (requests)
+import os
+import time
+
+import requests
+
+CLIENT_TIMEOUT_SECONDS = 175
+MAX_ATTEMPTS = 4
+RETRYABLE_STATUSES = {425, 429, 503, 504}
+
+for attempt in range(1, MAX_ATTEMPTS + 1):
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+            "questions": {
+                "refund_allowed": {
+                    "type": "noul",
+                    "instructions": "Does this request qualify for a refund?",
+                    "criteria": {"true": "Qualifies", "false": "Does not qualify"},
+                }
+            },
+        },
+        timeout=CLIENT_TIMEOUT_SECONDS,
+    )
+    if response.status_code not in RETRYABLE_STATUSES or attempt == MAX_ATTEMPTS:
+        break
+    retry_after = response.headers.get("Retry-After", "")
+    time.sleep(int(retry_after) if retry_after.isdigit() else 2**attempt)
+
+response.raise_for_status()
+print(response.json()["answers"])
+```
+
+```javascript JavaScript (fetch)
+const CLIENT_TIMEOUT_MS = 175_000;
+const MAX_ATTEMPTS = 4;
+const RETRYABLE_STATUSES = new Set([425, 429, 503, 504]);
+
+let response;
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  response = await fetch("https://api.fastino.ai/v1/systemone", {
+    method: "POST",
+    headers: {
+      "X-API-Key": process.env.FASTINO_API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "fastino/GLiDE",
+      state: "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+      questions: {
+        refund_allowed: {
+          type: "noul",
+          instructions: "Does this request qualify for a refund?",
+          criteria: { true: "Qualifies", false: "Does not qualify" },
+        },
+      },
+    }),
+    signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+  });
+  if (!RETRYABLE_STATUSES.has(response.status) || attempt === MAX_ATTEMPTS) break;
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  const delaySeconds = retryAfter > 0 ? retryAfter : 2 ** attempt;
+  await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+}
+
+if (!response.ok) {
+  throw new Error(`GLiDE request failed: ${response.status} ${await response.text()}`);
+}
+const result = await response.json();
+console.log(result.answers);
+```
+
+```python OpenAI SDK (Python)
+import os
+
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.fastino.ai/v1",
+    api_key=os.environ["FASTINO_API_KEY"],
+    timeout=175.0,
+    max_retries=3,
+)
+
+decision = client.post(
+    "/systemone",
+    cast_to=object,
+    body={
+        "model": "fastino/GLiDE",
+        "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+        "questions": {
+            "refund_allowed": {
+                "type": "noul",
+                "instructions": "Does this request qualify for a refund?",
+                "criteria": {"true": "Qualifies", "false": "Does not qualify"},
+            }
+        },
+    },
+)
+print(decision["answers"])
+```
+
+</CodeGroup>
+
+Le SDK OpenAI n'a pas de méthode GLiDE : l'exemple utilise donc `client.post` pour appeler `/v1/systemone` et
+envoie votre clé sous forme de jeton Bearer. Avec `max_retries=3`, le SDK fait jusqu'à 4 tentatives et respecte
+`Retry-After`. Il retente les réponses `429` et `5xx`, ainsi que `425`, car Fastino envoie
+`x-should-retry: true` avec cette réponse. Les autres erreurs, comme `422`, sont levées immédiatement.
 
 ## Pour aller plus loin
 
