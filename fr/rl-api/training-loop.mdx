@@ -1,6 +1,6 @@
 ---
-title: "Fonctionnement de l'API RL"
-description: "Comprenez la boucle de contrôle, les objets clients et les transitions d'état qui sous-tendent l'entraînement RL."
+title: "La boucle d'entraînement RL"
+description: "Comprenez comment s'articulent l'échantillonnage, les récompenses, les avantages, les mises à jour et les checkpoints."
 ---
 
 L'API RL sépare le programme d'apprentissage du calcul effectué sur le modèle.
@@ -102,66 +102,23 @@ réponse aux positions des tokens générés.
   un alignement de tokens incorrects.
 </Warning>
 
-## Mises à jour ordonnées et idempotentes
+## Garder les mises à jour séquentielles
 
-Une exécution d'entraînement est une machine à états ordonnée. Le SDK attribue
-des identifiants de séquence aux opérations telles que les passes avant et
-arrière, les étapes d'optimisation, les sauvegardes et les chargements.
+L'échantillonnage peut être concurrent. Les mises à jour d'un même
+`TrainingClient` doivent rester séquentielles. Récupérez les résultats de
+`forward_backward(...)` et `optim_step(...)` dans l'ordre. Ne modifiez pas le
+même client d'entraînement depuis des processus indépendants.
 
-Si une requête est relancée avec la même exécution, le même identifiant de
-séquence et le même corps, l'API RL renvoie l'opération d'origine au lieu de
-l'appliquer deux fois. La réutilisation de cet identifiant de séquence avec un
-corps différent est rejetée. Cela protège l'état de l'optimiseur lorsqu'un
-client réessaie après une interruption du réseau.
+## Choisir le bon checkpoint
 
-Ne soumettez pas d'opérations destinées à un même client d'entraînement depuis
-des processus indépendants, sauf s'ils partagent un mécanisme d'ordonnancement
-unique.
+`save_state(name)` enregistre les poids d'entraînement et l'état de l'optimiseur
+pour reprendre l'entraînement. `save_weights_for_sampler(name)` enregistre les
+poids pour l'évaluation ou de nouveaux rollouts. Un checkpoint d'échantillonneur
+ne peut pas restaurer l'état de l'optimiseur.
 
-## État actif et état durable
+Pour créer une limite de récupération complète, stockez le chemin du checkpoint
+d'état avec l'étape de votre application et la position dans le jeu de données.
+Suivez [Créer un checkpoint et reprendre](/fr/rl-api/checkpoint-and-resume).
 
-Les poids d'entraînement, les gradients en attente et l'état de l'optimiseur
-constituent l'état actif. L'API RL peut tenter de reconstruire une exécution
-après une réduction d'échelle due à l'inactivité ou une interruption de
-l'infrastructure. La récupération automatique part d'une base de relecture et
-rejoue les mutations `forward_backward` et `optim_step` journalisées. Elle ne
-rejoue pas toutes les opérations de l'API et peut échouer lorsque le résultat
-d'une mutation est inconnu ou lorsque les données requises pour la relecture ne
-sont plus disponibles.
-
-Vos checkpoints explicites constituent la limite de récupération que vous
-contrôlez :
-
-- `save_state(name)` stocke les poids d'entraînement et l'état de l'optimiseur.
-- `save_weights_for_sampler(name)` stocke les poids destinés à l'échantillonnage.
-- `create_training_client_from_state_with_optimizer(path)` démarre une nouvelle exécution avec les poids et l'état de l'optimiseur enregistrés.
-- `create_training_client_from_state(path)` démarre une exécution depuis les poids enregistrés avec un nouvel optimiseur.
-- `load_state(path)` restaure un checkpoint compatible dans une exécution existante.
-
-Enregistrez l'état avant une longue tâche externe, avant une modification de
-code risquée et aux étapes clés que vous pourriez vouloir comparer ou reprendre.
-
-## Limites de facturation
-
-L'échantillonnage est mesuré en tokens d'entrée, tokens d'entrée mis en cache et
-tokens de sortie. Les opérations avant et avant-arrière sont mesurées en tokens
-d'entraînement. Le stockage des checkpoints est mesuré dans le temps.
-
-La création d'un client de modèle, l'application d'une étape d'optimisation et
-l'enregistrement ou le chargement d'un checkpoint n'ajoutent pas à eux seuls
-d'utilisation de tokens. Le travail en tokens et les octets stockés déterminent
-toutefois l'utilisation associée.
-
-## Un modèle fiable pour la production
-
-1. Interrogez les capacités du serveur au démarrage.
-2. Épinglez une version du SDK testée par votre application.
-3. Générez les rollouts simultanément, mais conservez l'ordre des mises à jour d'entraînement.
-4. Enregistrez ensemble le chemin du checkpoint et l'étape de l'application.
-5. Utilisez un nombre limité de nouvelles tentatives lors de la récupération du résultat d'une future.
-6. Fermez le client de service dans un bloc `finally`.
-7. Ne conservez que les checkpoints nécessaires.
-
-Pour découvrir la construction concrète d'un datum et un évaluateur
-déterministe, consultez la
-[recette des récompenses vérifiables](/fr/cookbooks/rl-verifiable-rewards).
+Pour implémenter la boucle avec un évaluateur déterministe, suivez
+[S'entraîner avec des récompenses vérifiables](/fr/rl-api/verifiable-rewards).

@@ -1,6 +1,6 @@
 ---
 title: "从 Tinker 迁移"
-description: "将现有 Tinker SDK 或实战示例工作负载迁移到 Fastino 的 RL API。"
+description: "将现有 Tinker SDK 工作负载迁移到 Fastino 的 RL API。"
 ---
 
 Fastino 的 RL API 实现了 Tinker SDK 契约。大多数迁移都可以保持训练循环不变，只需替换四个集成点：
@@ -73,15 +73,8 @@ for model in capabilities.supported_models:
     print(model.model_name)
 ```
 
-当前契约包括：
-
-| 模型 | 上下文窗口 | 最大 LoRA rank |
-| --- | ---: | ---: |
-| `Qwen/Qwen3.6-35B-A3B` | 32,768 tokens | 32 |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 tokens | 32 |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 tokens | 32 |
-
-生产决策请以实时功能响应为准。此表描述的是当前限量开放契约，可能不会立即包含新部署的模型。
+生产决策请以实时功能响应为准。如果需要查看上下文窗口或 LoRA 限制，请将结果与
+[SDK 兼容性](/cn/rl-api/compatibility)对照。
 
 ## 4. 保留学习循环
 
@@ -108,28 +101,7 @@ optim_result = optim_future.result()
 
 首次迁移测试时，请保持 renderer、提示词构建、奖励函数、优势值计算、批处理和停止条件不变。
 
-## 5. 迁移实战示例命令
-
-如果实战示例接受 `base_url`，请传入 Fastino 端点并选择受支持的模型：
-
-```bash
-python -m tinker_cookbook.recipes.rl_loop \
-  base_url=https://api.fastino.ai/tinker \
-  model_name=Qwen/Qwen3.6-35B-A3B \
-  max_steps=2 \
-  batch_size=4 \
-  group_size=4 \
-  log_path=./runs/fastino-migration-check
-```
-
-对于其他提供 `base_url` 的实战示例，请使用相同模式。如果实战示例构造 `ServiceClient()`
-时没有基础 URL 参数，`TINKER_BASE_URL` 环境变量会提供该值。
-
-<Warning>
-  上游实战示例的当前检出版本可能使用 Fastino 未提供的模型。即使示例的其余部分兼容，也请更改模型。
-</Warning>
-
-## 6. 验证小型运行
+## 5. 验证小型运行
 
 恢复生产批次大小之前，先进行低成本验收运行：
 
@@ -144,20 +116,24 @@ python -m tinker_cookbook.recipes.rl_loop \
 
 比较语义结果，而非精确的浮点值。不同的受支持模型和基础设施可能产生不同的样本和指标。
 
-## 7. 查看运维差异
+## 6. 查看运维差异
 
 | 领域 | 迁移操作 |
 | --- | --- |
 | 访问权限 | RL API 访问权限按 Fastino 团队启用。未启用的团队会收到 `404 Not Found`。 |
 | 身份验证 | 使用由 `tml-` 兼容性前缀封装的 Fastino API 密钥。 |
 | 模型 | 从功能响应中选择。不要保留不受支持的源模型。 |
-| 计费 | 用量计入与会话关联的 Fastino 团队和项目。 |
 | 会话生命周期 | 关闭 `ServiceClient` 以释放活跃运行。 |
 | 恢复 | 使用显式检查点作为由应用掌控的恢复边界。 |
+| Future 结果 | 在一小时内解析并持久化已完成的结果。 |
+| 取消 | 取消操作适用于采样，但不适用于单个训练操作。 |
+| 已发布的检查点 | 发布检查点不会让其他 Fastino 团队加载该检查点。 |
 | Trace 导出 | 删除依赖 Tinker trace 导出的代码。此功能不受支持。 |
 | 审计条目 | 不要依赖审计历史记录。审计调用不返回任何条目。 |
 
-有关支持的损失函数、检查点管理和已知差异，请参阅[兼容性参考](/cn/rl-api/compatibility)。
+支持的损失函数和方法请参阅 [SDK 兼容性](/cn/rl-api/compatibility)。
+重试、计费、检查点和失败行为请参阅
+[运行时行为和错误](/cn/rl-api/runtime)。
 
 ## 迁移检查清单
 

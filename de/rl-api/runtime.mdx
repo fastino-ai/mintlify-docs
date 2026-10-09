@@ -1,0 +1,121 @@
+---
+title: "Laufzeitverhalten und Fehler"
+description: "Futures, Sitzungen, Checkpoints, Wiederholungsversuche, Abrechnung, Limits und Fehler für RL-API-Workloads."
+---
+
+Verwenden Sie diese Referenz, wenn ein Workload verbunden ist und Sie seinen
+Lebenszyklus oder einen Fehler untersuchen.
+
+## Futures und Sitzungen
+
+Gesendete Operationen geben Tinker-Futures zurück. Die API unterstützt das
+Abrufen und Abwarten von Futures, Meldungen zum Warteschlangenstatus und den
+Abbruch von Sampling.
+
+Eine akzeptierte Operation kann `paused_capacity` melden. Behandeln Sie dies als
+wartende Arbeit, nicht als abgelehnte Anfrage.
+
+Ergebnisse abgeschlossener Futures werden eine Stunde lang aufbewahrt. Lösen
+Sie das Ergebnis zeitnah auf und speichern Sie es dauerhaft.
+
+Der Abbruch gilt für Sampling-Operationen. Einzelne Trainingsoperationen können
+nach dem Senden nicht abgebrochen werden.
+
+Schließen Sie `ServiceClient`, wenn Ihre Anwendung fertig ist. Dadurch werden
+aktive Läufe freigegeben, aber aufbewahrte Checkpoints nicht gelöscht.
+
+Anfragen sind nach Fastino-Team isoliert. Ein Schlüssel kann Sitzungen, Läufe
+oder Checkpoints eines anderen Teams weder einsehen noch bedienen.
+
+## Checkpoints und Laufverwaltung
+
+Der REST-Client des SDK unterstützt:
+
+- Trainingsläufe auflisten
+- Einen Trainingslauf abrufen
+- Checkpoints für einen Lauf oder ein Team auflisten
+- Metadaten der Checkpoint-Gewichte untersuchen
+- Gewichte in einen neuen Lauf kopieren
+- Einen Checkpoint löschen
+- Einen Checkpoint veröffentlichen oder seine Veröffentlichung aufheben
+- Die Gültigkeitsdauer eines Checkpoints setzen oder aufheben
+- Die aktuelle Nutzung des Checkpoint-Speichers melden
+
+Die Veröffentlichung macht einen Checkpoint nicht für ein anderes Fastino-Team
+ladbar. Nehmen Sie die teamübergreifende Verteilung nicht in einen
+automatisierten Workflow auf.
+
+Pfade für Trainingsstatus verwenden:
+
+```text
+tinker://<run-id>/weights/<name>
+```
+
+Pfade für Sampler-Gewichte verwenden:
+
+```text
+tinker://<run-id>/sampler_weights/<name>
+```
+
+Ein Status-Checkpoint enthält die Informationen zur Wiederherstellung des
+Trainings einschließlich der Optimizer-Konfiguration. Ein Sampler-Checkpoint
+ist für Inferenz und Rollout-Erzeugung vorgesehen und kann den Optimizer-Status
+nicht wiederherstellen. Für eine zuverlässige Fortsetzung benötigen Sie auch
+Ihre dauerhaften lokalen Loop-Metadaten, etwa Dataset-Cursor und abgeschlossenen
+Schritt.
+
+## Limits
+
+Für Sampling-, Forward- und Forward-Backward-Aufrufe gelten getrennte
+Sequenzlimits pro Aufruf. Jedes Limit kann unter dem Kontextfenster des Modells
+liegen und sich ohne SDK-Update ändern. Behandeln Sie eine Antwort wegen
+ungültiger Länge als Fehler bei der Formung der Anfrage:
+
+1. Verringern Sie die Länge von Prompt oder Vervollständigung.
+2. Teilen Sie große Trainingsbatches auf.
+3. Wiederholen Sie den Versuch mit einer gültigen Anfrage, nicht mit demselben ungültigen Body.
+
+Codieren Sie kein undokumentiertes Limit pro Aufruf in wiederverwendbare
+Agentenlogik. Das Tinker SDK teilt Trainingsbatches auf. Wenn eine Anfrage zu
+groß ist, teilen Sie den Batch und senden Sie eine neue gültige Anfrage.
+
+## Semantik von Wiederholungsversuchen
+
+Das SDK hält Operationen eines Trainingslaufs in der richtigen Reihenfolge.
+Ein erneuter Versuch derselben Operation gibt das ursprüngliche Future zurück,
+statt das Update zweimal anzuwenden. Ein Future bleibt abrufbar, wenn die
+ursprüngliche Antwort auf das Senden verloren geht.
+
+Ändern Sie eine Anfrage während eines erneuten Versuchs nicht. Verändern Sie
+einen `TrainingClient` nicht aus unabhängigen Prozessen.
+
+## Abrechnungsverhalten
+
+| Arbeit | Messgröße |
+| --- | --- |
+| Sampling | Eingabe-, gecachte Eingabe- und Ausgabe-Tokens |
+| `forward` und `forward_backward` | Trainings-Tokens |
+| Checkpoints | Gespeicherte Bytes über die Zeit |
+| Client- oder Modellerstellung | Keine Token-Messung |
+| `optim_step` | Keine Token-Messung |
+| Anfrage zum Speichern oder Laden | Keine Token-Messung über die Nutzung des gespeicherten Checkpoints hinaus |
+
+Die Nutzung wird dem Fastino-Projekt der Sitzung zugeordnet. Wenn kein Projekt
+angegeben ist, wird das Standardprojekt des Teams verwendet.
+
+## Fehler
+
+| Symptom | Wahrscheinliche Ursache | Maßnahme |
+| --- | --- | --- |
+| `404 Not Found` beim Aufruf der Fähigkeiten | Falsche Basis-URL oder RL-API-Zugriff ist nicht aktiviert | Bestätigen Sie das Suffix `/tinker` und wenden Sie sich dann an Fastino |
+| Authentifizierungsfehler | Fehlende `tml-`-Verpackung oder ungültiger Fastino-Schlüssel | Erstellen Sie `TINKER_API_KEY` aus einem aktuellen Schlüssel `fast_sk_...` neu |
+| `402 Payment Required` bei kostenpflichtiger Arbeit | Fastino-Abrechnung oder Ausgabenzulassung hat die Anfrage abgelehnt | Beheben Sie die Abrechnungsbedingung des Kontos vor einem erneuten Versuch |
+| Modell wird nicht bereitgestellt | Das Quellmodell gehört nicht zum RL-Katalog von Fastino | Wählen Sie ein Modell aus `get_server_capabilities()` |
+| Rang abgelehnt | Angeforderter LoRA-Rang ist größer als 32 | Verwenden Sie Rang 32 oder niedriger |
+| Loss abgelehnt | Loss-Name gehört nicht zur unterstützten Menge | Verwenden Sie eine der fünf dokumentierten Loss-Funktionen |
+| Future meldet `paused_capacity` | Der Lauf wartet auf Kapazität | Fragen Sie den Status weiterhin mit dem SDK-Backoff ab |
+| Future-Ergebnis gibt `410` zurück | Das Ergebnis ist abgelaufen oder sein Ausgang ist nicht verfügbar | Lassen Sie das SDK erneut senden. Bleibt der Ausgang des Updates unbekannt, verwenden Sie Ihren neuesten Checkpoint |
+| Lauf kann Live-Status nicht wiederherstellen | Der aktive Lauf kann nicht fortgesetzt werden | Setzen Sie den Lauf vom neuesten expliziten Status-Checkpoint fort |
+
+Unter [SDK-Kompatibilität](/de/rl-api/compatibility) finden Sie unterstützte
+Modelle, Methoden, Loss-Funktionen und nicht unterstützte Funktionen.

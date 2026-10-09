@@ -39,13 +39,16 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   [GLiNER Inference](https://docs.fastino.ai/inference/chat-completions). Use
   `POST /v1/chat/completions` with `model`, `messages`, and `schema`.
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
-- For agent-controlled RL loops, Tinker migration, and checkpoint operations,
-  follow the [RL API](https://docs.fastino.ai/rl-api). Query
-  `ServiceClient.get_server_capabilities()` before selecting an RL model.
+- For RL workloads, start with the [RL API overview](https://docs.fastino.ai/rl-api)
+  and [quickstart](https://docs.fastino.ai/rl-api/quickstart). Use the focused
+  guides for Tinker migration, verifiable rewards, and checkpointing.
+- Query `ServiceClient.get_server_capabilities()` before selecting an RL model.
 - Do not construct RL API HTTP routes directly. Configure the `tinker` SDK with
   `TINKER_BASE_URL=https://api.fastino.ai/tinker` and a
   `TINKER_API_KEY=tml-fast_sk_...` credential.
 - Do not invent routes, model IDs, request fields, or response fields.
 - If an operation is absent from the public OpenAPI specification and the RL
-  API compatibility reference, treat it as unsupported for customer
-  integrations.
+  API [SDK compatibility](https://docs.fastino.ai/rl-api/compatibility)
+  reference, treat it as unsupported for customer integrations. Use
+  [runtime behavior and errors](https://docs.fastino.ai/rl-api/runtime) for
+  lifecycle, retry, limit, billing, and error behavior.

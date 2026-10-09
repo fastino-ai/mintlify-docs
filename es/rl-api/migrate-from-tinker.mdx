@@ -1,6 +1,6 @@
 ---
 title: "Migrar desde Tinker"
-description: "Migra una carga de trabajo existente del SDK o el recetario de Tinker a la API de RL de Fastino."
+description: "Migra una carga de trabajo existente del SDK de Tinker a la API de RL de Fastino."
 ---
 
 La API de RL de Fastino implementa el contrato del SDK de Tinker. La mayoría de
@@ -81,17 +81,9 @@ for model in capabilities.supported_models:
     print(model.model_name)
 ```
 
-El contrato actual incluye:
-
-| Modelo | Ventana de contexto | Rango máximo de LoRA |
-| --- | ---: | ---: |
-| `Qwen/Qwen3.6-35B-A3B` | 32,768 tokens | 32 |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 tokens | 32 |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 tokens | 32 |
-
 Usa la respuesta de capacidades activa para tomar decisiones de producción.
-Esta tabla describe el contrato actual de acceso limitado y puede no reflejar
-un modelo recién desplegado.
+Compara el resultado con [Compatibilidad del SDK](/es/rl-api/compatibility)
+cuando necesites consultar las ventanas de contexto o los límites de LoRA.
 
 ## 4. Conserva el bucle de aprendizaje
 
@@ -120,31 +112,7 @@ Mantén sin cambios el renderizador, la construcción de prompts, la función de
 recompensa, el cálculo de ventajas, el procesamiento por lotes y los criterios
 de parada para la primera prueba de migración.
 
-## 5. Migra un comando del recetario
-
-Si una receta acepta `base_url`, pasa el endpoint de Fastino y selecciona un
-modelo compatible:
-
-```bash
-python -m tinker_cookbook.recipes.rl_loop \
-  base_url=https://api.fastino.ai/tinker \
-  model_name=Qwen/Qwen3.6-35B-A3B \
-  max_steps=2 \
-  batch_size=4 \
-  group_size=4 \
-  log_path=./runs/fastino-migration-check
-```
-
-Usa el mismo patrón para otras recetas que expongan `base_url`. Si una receta
-construye `ServiceClient()` sin un argumento de URL base, la variable de
-entorno `TINKER_BASE_URL` se la proporciona.
-
-<Warning>
-  Una versión actual del recetario upstream puede nombrar modelos que Fastino
-  no ofrece. Cambia el modelo aunque el resto de la receta sea compatible.
-</Warning>
-
-## 6. Verifica una ejecución pequeña
+## 5. Verifica una ejecución pequeña
 
 Usa una ejecución de aceptación de bajo coste antes de restaurar los tamaños de
 lote de producción:
@@ -162,14 +130,13 @@ Compara los resultados semánticos, no valores de coma flotante exactos. Los
 distintos modelos e infraestructuras compatibles pueden producir muestras y
 métricas diferentes.
 
-## 7. Revisa las diferencias operativas
+## 6. Revisa las diferencias operativas
 
 | Área | Acción de migración |
 | --- | --- |
 | Acceso | El acceso a la API de RL se habilita por equipo de Fastino. Un equipo sin acceso recibe `404 Not Found`. |
 | Autenticación | Usa una clave de API de Fastino encapsulada con el prefijo de compatibilidad `tml-`. |
 | Modelos | Elige entre los modelos de la respuesta de capacidades. No conserves un modelo de origen no compatible. |
-| Facturación | El uso se factura al equipo y proyecto de Fastino asociados con la sesión. |
 | Ciclo de vida de la sesión | Cierra `ServiceClient` para liberar las ejecuciones activas. |
 | Recuperación | Mantén puntos de control explícitos como límite de recuperación controlado por tu aplicación. |
 | Resultados de futures | Resuelve y conserva los resultados completados en el plazo de una hora. |
@@ -178,9 +145,10 @@ métricas diferentes.
 | Exportación de trazas | Elimina el código que requiera la exportación de trazas de Tinker. No es compatible. |
 | Entradas de auditoría | No dependas del historial de auditoría. Las llamadas de auditoría no devuelven entradas. |
 
-Consulta la [referencia de compatibilidad](/es/rl-api/compatibility) para conocer
-las funciones de pérdida compatibles, la gestión de puntos de control y las
-diferencias conocidas.
+Consulta [Compatibilidad del SDK](/es/rl-api/compatibility) para conocer las
+funciones de pérdida y los métodos compatibles. Consulta [Comportamiento en
+tiempo de ejecución y errores](/es/rl-api/runtime) para conocer los reintentos,
+la facturación, los puntos de control y los errores.
 
 ## Lista de comprobación de la migración
 

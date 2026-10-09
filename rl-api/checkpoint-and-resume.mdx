@@ -22,24 +22,15 @@ Saving only model state can restore the policy but cannot tell the application
 which examples were already processed. Saving only a step number cannot restore
 the policy that produced it.
 
-## 1. Configure the client
+## Before you start
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
-```
+Complete the [Quickstart](/rl-api/quickstart) first. This guide assumes that
+your client can create a training run and save a state checkpoint.
 
-Pin the tested SDK:
+## 1. Save state and loop progress
 
-```bash
-pip install "tinker==0.32.0" tinker-cookbook
-```
-
-## 2. Save state and loop progress
-
-The cookbook utility writes a server-side state checkpoint and appends its path
-with your loop fields to `checkpoints.jsonl`:
+The `checkpoint_utils` module writes a server-side state checkpoint. It appends
+the checkpoint path and your loop fields to `checkpoints.jsonl`:
 
 ```python
 from tinker_cookbook import checkpoint_utils
@@ -77,12 +68,12 @@ The time-to-live applies to the server-side checkpoint. Keep a final checkpoint
 without a TTL when it is an artifact you intend to retain.
 
 <Warning>
-  The cookbook helper does not request overwrite. Reusing a checkpoint name is
+  `save_checkpoint(...)` does not request overwrite. Reusing a checkpoint name is
   rejected. The lower-level `save_state(..., overwrite=True)` call can replace
   a state checkpoint explicitly, but unique names are safer recovery markers.
 </Warning>
 
-## 3. Find the newest valid resume point
+## 2. Find the newest valid resume point
 
 At process startup, read the last local record that contains a state path:
 
@@ -121,7 +112,7 @@ else:
 `create_training_client_from_state_with_optimizer(...)` creates a new ordered
 training run from the saved weights and optimizer state.
 
-## 4. Validate the resume record
+## 3. Validate the resume record
 
 Before training continues, compare the stored loop record with the requested
 run:
@@ -145,7 +136,7 @@ Validate at least:
 An agent should stop and ask for a decision when these fields conflict. It
 should not silently combine a checkpoint with a different experiment.
 
-## 5. Make the step boundary atomic
+## 4. Make the step boundary atomic
 
 Use this order:
 
@@ -161,7 +152,7 @@ resume point. A later cleanup can delete it.
 
 Do not mark a step complete before the checkpoint path is durable.
 
-## 6. Keep sampler artifacts separate
+## 5. Keep sampler artifacts separate
 
 Use a state checkpoint to resume training:
 
@@ -186,7 +177,7 @@ tinker://<run-id>/sampler_weights/<name>
 
 Do not select a sampler checkpoint as the optimizer resume point.
 
-## 7. Bound storage
+## 6. Bound storage
 
 A practical retention policy uses:
 
@@ -194,7 +185,7 @@ A practical retention policy uses:
 - Longer-lived periodic state and sampler checkpoints for comparison
 - One permanent final checkpoint
 
-The Tinker cookbook's `CheckpointManager` implements this pattern, including
+`CheckpointManager` implements this pattern, including
 rolling-checkpoint deletion and TTLs:
 
 ```python
@@ -244,4 +235,4 @@ service_client.close("success").result()
 ```
 
 For the complete lifecycle and administrative operations, see the
-[compatibility reference](/rl-api/compatibility).
+[runtime behavior and errors reference](/rl-api/runtime).

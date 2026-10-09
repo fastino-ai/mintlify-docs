@@ -1,5 +1,5 @@
 ---
-title: "为 RL 运行创建检查点并恢复"
+title: "创建检查点并恢复 RL 运行"
 description: "保存模型和优化器状态，持久化循环进度，并在不重放已完成工作的情况下恢复 RL。"
 ---
 
@@ -18,23 +18,15 @@ RL 检查点用于保护模型状态。完整的恢复记录还会保护应用�
 
 仅保存模型状态可以恢复策略，却无法告诉应用哪些样本已经处理。仅保存步骤编号则无法恢复生成该编号的策略。
 
-## 1. 配置客户端
+## 开始之前
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
-```
+请先完成[快速入门](/cn/rl-api/quickstart)。本指南假设客户端可以创建训练运行并保存
+状态检查点。
 
-固定经过测试的 SDK：
+## 1. 保存状态和循环进度
 
-```bash
-pip install "tinker==0.32.0" tinker-cookbook
-```
-
-## 2. 保存状态和循环进度
-
-实战示例工具会写入服务器端状态检查点，并将其路径与你的循环字段一同追加到 `checkpoints.jsonl`：
+`checkpoint_utils` 模块会写入服务器端状态检查点，并将检查点路径和循环字段追加到
+`checkpoints.jsonl`：
 
 ```python
 from tinker_cookbook import checkpoint_utils
@@ -70,11 +62,11 @@ tinker://<run-id>/weights/step-000100
 生存时间适用于服务器端检查点。如果最终检查点是你打算保留的产物，请不要为它设置 TTL。
 
 <Warning>
-  实战示例辅助函数不会请求覆盖，因此重复使用检查点名称会被拒绝。底层
+  `save_checkpoint(...)` 不会请求覆盖，因此重复使用检查点名称会被拒绝。底层
   `save_state(..., overwrite=True)` 调用可以显式替换状态检查点，但唯一名称是更安全的恢复标记。
 </Warning>
 
-## 3. 查找最新的有效恢复点
+## 2. 查找最新的有效恢复点
 
 进程启动时，读取最后一条包含状态路径的本地记录：
 
@@ -113,7 +105,7 @@ else:
 `create_training_client_from_state_with_optimizer(...)`
 会根据已保存的权重和优化器状态创建新的有序训练运行。
 
-## 4. 验证恢复记录
+## 3. 验证恢复记录
 
 继续训练之前，将存储的循环记录与请求的运行进行比较：
 
@@ -135,7 +127,7 @@ if resume is not None and resume.get("reward_version") != reward_version:
 
 当这些字段冲突时，智能体应停止并请求决策，不应静默地将检查点与另一个实验组合。
 
-## 5. 使步骤边界具备原子性
+## 4. 使步骤边界具备原子性
 
 请按以下顺序执行：
 
@@ -149,7 +141,7 @@ if resume is not None and resume.get("reward_version") != reward_version:
 
 检查点路径持久化之前，不要将步骤标记为完成。
 
-## 6. 将采样器产物分开保存
+## 5. 将采样器产物分开保存
 
 使用状态检查点恢复训练：
 
@@ -174,7 +166,7 @@ tinker://<run-id>/sampler_weights/<name>
 
 不要选择采样器检查点作为优化器恢复点。
 
-## 7. 限制存储
+## 6. 限制存储
 
 实用的保留策略包括：
 
@@ -182,7 +174,7 @@ tinker://<run-id>/sampler_weights/<name>
 - 用于比较的长期定期状态检查点和采样器检查点
 - 一个永久最终检查点
 
-Tinker 实战示例的 `CheckpointManager` 实现了此模式，包括删除滚动检查点和设置 TTL：
+`CheckpointManager` 实现了此模式，包括删除滚动检查点和设置 TTL：
 
 ```python
 manager = checkpoint_utils.CheckpointManager(
@@ -227,4 +219,4 @@ manager = checkpoint_utils.CheckpointManager(
 service_client.close("success").result()
 ```
 
-有关完整生命周期和管理操作，请参阅[兼容性参考](/cn/rl-api/compatibility)。
+有关完整生命周期和管理操作，请参阅[运行时行为和错误参考](/cn/rl-api/runtime)。

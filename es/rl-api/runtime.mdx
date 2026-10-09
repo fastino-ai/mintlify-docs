@@ -1,0 +1,123 @@
+---
+title: "Comportamiento en tiempo de ejecución y errores"
+description: "Futures, sesiones, puntos de control, reintentos, facturación, límites y errores para las cargas de trabajo de la API de RL."
+---
+
+Usa esta referencia cuando una carga de trabajo ya esté conectada y necesites
+entender su ciclo de vida o un error.
+
+## Futures y sesiones
+
+Las operaciones enviadas devuelven futures de Tinker. La API permite recuperar
+futures, esperar, informar del estado de la cola y cancelar muestreos.
+
+Una operación aceptada puede informar de `paused_capacity`. Trátala como trabajo
+en espera, no como una solicitud rechazada.
+
+Los resultados de futures completados se conservan durante una hora. Resuelve y
+conserva el resultado cuanto antes.
+
+La cancelación se aplica a las operaciones de muestreo. Las operaciones de
+entrenamiento individuales no se pueden cancelar después de enviarlas.
+
+Cierra `ServiceClient` cuando finalice tu aplicación. Cerrar el cliente libera
+las ejecuciones activas, pero no elimina los puntos de control conservados.
+
+Las solicitudes están aisladas por equipo de Fastino. Una clave no puede
+inspeccionar ni operar sobre las sesiones, ejecuciones o puntos de control de
+otro equipo.
+
+## Puntos de control y administración de ejecuciones
+
+El cliente REST del SDK permite:
+
+- Enumerar ejecuciones de entrenamiento
+- Obtener una ejecución de entrenamiento
+- Enumerar los puntos de control de una ejecución o un equipo
+- Inspeccionar los metadatos de pesos de un punto de control
+- Copiar pesos en una ejecución nueva
+- Eliminar un punto de control
+- Publicar o anular la publicación de un punto de control
+- Establecer o borrar el tiempo de vida de un punto de control
+- Informar del uso actual de almacenamiento de puntos de control
+
+Publicar un punto de control no permite que otro equipo de Fastino lo cargue.
+No incluyas la distribución entre equipos en un flujo de trabajo automatizado.
+
+Las rutas de estado de entrenamiento usan:
+
+```text
+tinker://<run-id>/weights/<name>
+```
+
+Las rutas de pesos del muestreador usan:
+
+```text
+tinker://<run-id>/sampler_weights/<name>
+```
+
+Un punto de control de estado incluye la información necesaria para restaurar
+el entrenamiento, incluida la configuración del optimizador. Un punto de
+control del muestreador está destinado a la inferencia y la generación de
+rollouts y no puede restaurar el estado del optimizador. Una reanudación fiable
+también requiere los metadatos locales duraderos de tu bucle, como el cursor del
+conjunto de datos y el paso completado.
+
+## Límites
+
+Las llamadas de muestreo, hacia delante y hacia delante-atrás tienen límites de
+secuencia por llamada independientes. Cada límite puede ser inferior a la
+ventana de contexto del modelo y puede cambiar sin una actualización del SDK.
+Trata una respuesta por longitud no válida como un error de configuración de la
+solicitud:
+
+1. Reduce la longitud del prompt o la finalización.
+2. Divide los lotes de entrenamiento grandes.
+3. Reintenta con una solicitud válida, no con el mismo cuerpo no válido.
+
+No fijes en la lógica reutilizable de un agente un límite por llamada que no
+esté documentado. El SDK de Tinker divide los lotes de entrenamiento. Si una
+solicitud es demasiado grande, divide el lote y reintenta con una solicitud
+válida.
+
+## Semántica de los reintentos
+
+El SDK mantiene en orden las operaciones de una ejecución de entrenamiento.
+Reintentar la misma operación devuelve el future original en lugar de aplicar
+la actualización dos veces. Un future puede recuperarse después de perderse la
+respuesta del envío original.
+
+No modifiques una solicitud mientras la reintentas. No modifiques un mismo
+`TrainingClient` desde procesos independientes.
+
+## Comportamiento de facturación
+
+| Trabajo | Medidor |
+| --- | --- |
+| Muestreo | Tokens de entrada, entrada en caché y salida |
+| `forward` y `forward_backward` | Tokens de entrenamiento |
+| Puntos de control | Bytes almacenados a lo largo del tiempo |
+| Creación de cliente o modelo | Sin medidor de tokens |
+| `optim_step` | Sin medidor de tokens |
+| Solicitud de guardado o carga | Sin medidor de tokens más allá del uso del punto de control almacenado |
+
+El uso se atribuye al proyecto de Fastino de la sesión. Cuando no se especifica
+ningún proyecto, se usa el proyecto predeterminado del equipo.
+
+## Errores
+
+| Síntoma | Causa probable | Acción |
+| --- | --- | --- |
+| `404 Not Found` en la llamada de capacidades | URL base incorrecta o acceso a la API de RL no habilitado | Confirma el sufijo `/tinker` y después contacta con Fastino |
+| Error de autenticación | Falta el contenedor `tml-` o la clave de Fastino no es válida | Vuelve a crear `TINKER_API_KEY` a partir de una clave `fast_sk_...` actual |
+| `402 Payment Required` en un trabajo facturable | La facturación o el control de gastos de Fastino rechazaron la solicitud | Resuelve la situación de facturación de la cuenta antes de reintentar |
+| El modelo no se ofrece | El modelo de origen no está en el catálogo de RL de Fastino | Selecciona un modelo de `get_server_capabilities()` |
+| Rango rechazado | El rango de LoRA solicitado es superior a 32 | Usa un rango de 32 o inferior |
+| Función de pérdida rechazada | El nombre no pertenece al conjunto compatible | Usa una de las cinco funciones de pérdida documentadas |
+| El future informa de `paused_capacity` | La ejecución está esperando capacidad | Sigue consultando con el backoff del SDK |
+| El resultado del future devuelve `410` | El resultado caducó o no está disponible | Deja que el SDK vuelva a enviarlo; si el resultado de la actualización sigue siendo desconocido, recupérate desde tu último punto de control |
+| La ejecución no puede restaurar el estado activo | La ejecución activa no puede continuar | Reanuda desde tu último punto de control de estado explícito |
+
+Para consultar los modelos, los métodos, las funciones de pérdida y las
+funciones no compatibles, consulta [Compatibilidad del
+SDK](/es/rl-api/compatibility).

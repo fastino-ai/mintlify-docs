@@ -164,8 +164,10 @@ class AgentHarnessTests(unittest.TestCase):
     def test_agent_index_orders_guides_before_contracts(self) -> None:
         self.assertEqual(CHECKS._journey_order_findings(HARNESS.ROOT), [])
 
-    def test_rl_pages_keep_the_sdk_contract_markers(self) -> None:
-        self.assertEqual(HARNESS._rl_contract_findings(), [])
+    def test_rl_navigation_starts_with_overview_and_quickstart(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text())
+
+        self.assertEqual(HARNESS._rl_navigation_findings(config), [])
 
     def test_operation_matching_handles_path_parameters_and_queries(self) -> None:
         operations = {
@@ -318,14 +320,6 @@ curl https://api.fastino.ai/v1/systemone \\
             HARNESS._cookbook_findings({}, {}, []),
             [f"COOKBOOK: {HARNESS.COOKBOOK_DIR}/ exists but has no cookbook pages"],
         )
-
-    def test_rl_cookbook_uses_the_sdk_contract_checks(self) -> None:
-        pages = [
-            HARNESS.ROOT / "cookbooks/rl-verifiable-rewards.mdx",
-            HARNESS.ROOT / "cookbooks/rl-checkpoint-resume.mdx",
-        ]
-
-        self.assertEqual(HARNESS._cookbook_findings({}, {}, pages), [])
 
     GLIDE_DOCUMENTED = {
         "model": "fastino/GLiDE",

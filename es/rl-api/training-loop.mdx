@@ -1,6 +1,6 @@
 ---
-title: "Cómo funciona la API de RL"
-description: "Comprende el bucle de control, los objetos cliente y las transiciones de estado del entrenamiento de RL."
+title: "El bucle de entrenamiento de RL"
+description: "Comprende cómo encajan el muestreo, las recompensas, las ventajas, las actualizaciones y los puntos de control."
 ---
 
 La API de RL separa el programa de aprendizaje del cómputo del modelo. Tu
@@ -101,64 +101,24 @@ posiciones de los tokens generados.
   alineación de tokens incorrectas.
 </Warning>
 
-## Actualizaciones ordenadas e idempotentes
+## Mantén las actualizaciones secuenciales
 
-Una ejecución de entrenamiento es una máquina de estados ordenada. El SDK
-asigna IDs de secuencia a operaciones como las pasadas hacia delante y hacia
-atrás, los pasos del optimizador, los guardados y las cargas.
+El muestreo puede ejecutarse de forma concurrente. Las actualizaciones de un
+`TrainingClient` deben permanecer secuenciales. Resuelve
+`forward_backward(...)` y `optim_step(...)` en orden. No modifiques un mismo
+cliente de entrenamiento desde procesos independientes.
 
-Si se reintenta una solicitud con la misma ejecución, el mismo ID de secuencia y
-el mismo cuerpo, la API de RL devuelve la operación original en lugar de
-aplicarla dos veces. Si se reutiliza ese ID de secuencia con un cuerpo diferente,
-la solicitud se rechaza. Esto protege el estado del optimizador cuando un
-cliente reintenta una operación después de una interrupción de red.
+## Elige el punto de control correcto
 
-No envíes operaciones para un cliente de entrenamiento desde procesos
-independientes a menos que compartan un único mecanismo de ordenación.
+`save_state(name)` almacena los pesos de entrenamiento y el estado del
+optimizador para reanudar el entrenamiento. `save_weights_for_sampler(name)`
+almacena los pesos para la evaluación o para nuevos rollouts. Un punto de
+control del muestreador no puede restaurar el estado del optimizador.
 
-## Estado activo y estado duradero
+Para crear un límite de recuperación completo, almacena la ruta del punto de
+control de estado junto con el paso de la aplicación y la posición en el
+conjunto de datos. Sigue [Guardar puntos de control y
+reanudar](/es/rl-api/checkpoint-and-resume) para consultar el patrón completo.
 
-Los pesos de entrenamiento, los gradientes pendientes y el estado del
-optimizador son estado activo. La API de RL puede intentar reconstruir una
-ejecución después de una reducción por inactividad o una interrupción de la
-infraestructura. La recuperación automática comienza desde una base de
-reproducción y reproduce las mutaciones registradas de `forward_backward` y
-`optim_step`. No reproduce todas las operaciones de la API, y la recuperación
-puede fallar cuando se desconoce el resultado de una mutación o cuando los datos
-de reproducción necesarios ya no están disponibles.
-
-Tus puntos de control explícitos son el límite de recuperación que controlas:
-
-- `save_state(name)` almacena los pesos de entrenamiento y el estado del optimizador.
-- `save_weights_for_sampler(name)` almacena los pesos para el muestreo.
-- `create_training_client_from_state_with_optimizer(path)` inicia una ejecución nueva con los pesos y el estado del optimizador guardados.
-- `create_training_client_from_state(path)` inicia una ejecución desde los pesos guardados con un optimizador nuevo.
-- `load_state(path)` restaura un punto de control compatible en una ejecución existente.
-
-Guarda el estado antes de un trabajo externo prolongado, antes de un cambio de
-código arriesgado y en los hitos que quizá quieras comparar o reanudar.
-
-## Límites de costes
-
-El muestreo se mide por tokens de entrada, entrada en caché y salida. Las
-operaciones hacia delante y hacia delante-atrás se miden por tokens de
-entrenamiento. El almacenamiento de puntos de control se mide a lo largo del
-tiempo.
-
-Crear un cliente de modelo, aplicar un paso del optimizador y guardar o cargar
-un punto de control no añaden por sí mismos uso de tokens. El trabajo con tokens
-y los bytes almacenados siguen determinando el uso asociado.
-
-## Un patrón fiable para producción
-
-1. Consulta las capacidades del servidor al iniciar.
-2. Fija una versión del SDK que tu aplicación haya probado.
-3. Mantén concurrente la generación de rollouts, pero ordenadas las actualizaciones de entrenamiento.
-4. Registra juntos la ruta del punto de control y el paso de la aplicación.
-5. Usa reintentos limitados al recuperar los resultados de los futures.
-6. Cierra el cliente de servicio en un bloque `finally`.
-7. Conserva solo los puntos de control que necesites.
-
-Para ver la construcción concreta de datums y un evaluador determinista,
-continúa con la [receta de recompensas
-verificables](/es/cookbooks/rl-verifiable-rewards).
+Para implementar el bucle con un evaluador determinista, sigue [Entrenar con
+recompensas verificables](/es/rl-api/verifiable-rewards).

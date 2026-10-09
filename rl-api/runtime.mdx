@@ -1,0 +1,117 @@
+---
+title: "Runtime behavior and errors"
+description: "Futures, sessions, checkpoints, retries, billing, limits, and errors for RL API workloads."
+---
+
+Use this reference when a workload is connected and you need to reason about
+its lifecycle or a failure.
+
+## Futures and sessions
+
+Submitted operations return Tinker futures. The API supports future retrieval,
+waiting, queue-state reporting, and sampling cancellation.
+
+An accepted operation can report `paused_capacity`. Treat this as waiting work,
+not as a rejected request.
+
+Completed future results are retained for one hour. Resolve and persist the
+result promptly.
+
+Cancellation applies to sampling operations. Individual training operations
+cannot be cancelled after submission.
+
+Close `ServiceClient` when your application is done. Closing the client releases
+active runs but does not delete retained checkpoints.
+
+Requests are isolated by Fastino team. A key cannot inspect or operate another
+team's sessions, runs, or checkpoints.
+
+## Checkpoints and run administration
+
+The SDK REST client supports:
+
+- List training runs
+- Get one training run
+- List checkpoints for a run or team
+- Inspect checkpoint weights metadata
+- Copy weights into a new run
+- Delete a checkpoint
+- Publish or unpublish a checkpoint
+- Set or clear checkpoint time-to-live
+- Report current checkpoint storage usage
+
+Publishing a checkpoint does not make it loadable by another Fastino team. Keep
+cross-team distribution out of an automated workflow.
+
+Training-state paths use:
+
+```text
+tinker://<run-id>/weights/<name>
+```
+
+Sampler-weight paths use:
+
+```text
+tinker://<run-id>/sampler_weights/<name>
+```
+
+A state checkpoint includes the information required to restore training,
+including the optimizer configuration. A sampler checkpoint is intended for
+inference and rollout generation and cannot restore optimizer state. Reliable
+resume also requires your durable local loop metadata, such as the dataset
+cursor and completed step.
+
+## Limits
+
+Sampling, forward, and forward-backward calls have separate per-call sequence
+limits. Each limit can be lower than the model's context window and can change
+without an SDK update. Treat an invalid-length response as a request-shaping
+error:
+
+1. Reduce prompt or completion length.
+2. Split large training batches.
+3. Retry with a valid request, not the same invalid body.
+
+Do not hard-code an undocumented per-call limit into reusable agent logic. The
+Tinker SDK chunks training batches. If a request is too large, split the batch
+and retry with a new valid request.
+
+## Retry semantics
+
+The SDK keeps operations on one training run in order. Retrying the same
+operation returns the original future instead of applying the update twice. A
+future remains retrievable after the original submission response is lost.
+
+Do not modify a request while retrying it. Do not mutate one `TrainingClient`
+from independent processes.
+
+## Billing behavior
+
+| Work | Meter |
+| --- | --- |
+| Sampling | Input, cached input, and output tokens |
+| `forward` and `forward_backward` | Training tokens |
+| Checkpoints | Stored bytes over time |
+| Client or model creation | No token meter |
+| `optim_step` | No token meter |
+| Save or load request | No token meter beyond stored checkpoint usage |
+
+Usage is attributed to the session's Fastino project. When no project is
+specified, the team's default project is used.
+
+## Errors
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| `404 Not Found` on the capability call | Wrong base URL or RL API access is not enabled | Confirm the `/tinker` suffix, then contact Fastino |
+| Authentication error | Missing `tml-` wrapper or invalid Fastino key | Rebuild `TINKER_API_KEY` from a current `fast_sk_...` key |
+| `402 Payment Required` on billable work | Fastino billing or spend admission rejected the request | Resolve the account billing condition before retrying |
+| Model is not served | Source model is not in Fastino's RL catalog | Select a model from `get_server_capabilities()` |
+| Rank rejected | Requested LoRA rank is greater than 32 | Use rank 32 or lower |
+| Loss rejected | Loss name is outside the supported set | Use one of the five documented losses |
+| Future reports `paused_capacity` | The run is waiting for capacity | Continue polling with SDK backoff |
+| Future result returns `410` | The result expired or its outcome is unavailable | Let the SDK resubmit; if the update outcome remains unknown, recover from your latest checkpoint |
+| Run cannot restore live state | The active run cannot continue | Resume from your latest explicit state checkpoint |
+
+For supported models, methods, losses, and unsupported features, see
+[SDK compatibility](/rl-api/compatibility).

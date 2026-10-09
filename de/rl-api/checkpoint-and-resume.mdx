@@ -24,23 +24,15 @@ der Anwendung jedoch nicht mitteilen, welche Beispiele bereits verarbeitet
 wurden. Wenn Sie nur eine Schrittnummer speichern, können Sie die Policy, die
 sie erzeugt hat, nicht wiederherstellen.
 
-## 1. Client konfigurieren
+## Bevor Sie beginnen
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
-```
+Schließen Sie zuerst den [Schnellstart](/de/rl-api/quickstart) ab. Dieser
+Leitfaden setzt voraus, dass Ihr Client einen Trainingslauf erstellen und einen
+Status-Checkpoint speichern kann.
 
-Pinnen Sie das getestete SDK:
+## 1. Status und Loop-Fortschritt speichern
 
-```bash
-pip install "tinker==0.32.0" tinker-cookbook
-```
-
-## 2. Status und Loop-Fortschritt speichern
-
-Das Cookbook-Hilfsprogramm schreibt einen serverseitigen Status-Checkpoint und
+Das Modul `checkpoint_utils` schreibt einen serverseitigen Status-Checkpoint und
 hängt dessen Pfad zusammen mit Ihren Loop-Feldern an `checkpoints.jsonl` an:
 
 ```python
@@ -80,13 +72,13 @@ finalen Checkpoint ohne TTL auf, wenn es sich um ein Artefakt handelt, das Sie
 behalten möchten.
 
 <Warning>
-  Der Cookbook-Helper fordert kein Überschreiben an. Die Wiederverwendung eines
+  `save_checkpoint(...)` fordert kein Überschreiben an. Die Wiederverwendung eines
   Checkpoint-Namens wird daher abgelehnt. Der Low-Level-Aufruf
   `save_state(..., overwrite=True)` kann einen Status-Checkpoint ausdrücklich
   ersetzen, aber eindeutige Namen sind sicherere Wiederherstellungsmarker.
 </Warning>
 
-## 3. Den neuesten gültigen Fortsetzungspunkt finden
+## 2. Den neuesten gültigen Fortsetzungspunkt finden
 
 Lesen Sie beim Prozessstart den letzten lokalen Datensatz, der einen
 Statuspfad enthält:
@@ -127,7 +119,7 @@ else:
 gespeicherten Gewichten und dem Optimizer-Status einen neuen geordneten
 Trainingslauf.
 
-## 4. Datensatz zur Fortsetzung validieren
+## 3. Datensatz zur Fortsetzung validieren
 
 Vergleichen Sie den gespeicherten Loop-Datensatz mit dem angeforderten Lauf,
 bevor das Training fortgesetzt wird:
@@ -152,7 +144,7 @@ Ein Agent sollte anhalten und um eine Entscheidung bitten, wenn diese Felder
 einander widersprechen. Er sollte einen Checkpoint nicht stillschweigend mit
 einem anderen Experiment kombinieren.
 
-## 5. Die Schrittgrenze atomar gestalten
+## 4. Die Schrittgrenze atomar gestalten
 
 Verwenden Sie diese Reihenfolge:
 
@@ -170,7 +162,7 @@ Bereinigung kann er gelöscht werden.
 Markieren Sie einen Schritt nicht als abgeschlossen, bevor der Checkpoint-Pfad
 dauerhaft gespeichert ist.
 
-## 6. Sampler-Artefakte getrennt halten
+## 5. Sampler-Artefakte getrennt halten
 
 Verwenden Sie einen Status-Checkpoint, um das Training fortzusetzen:
 
@@ -195,7 +187,7 @@ tinker://<run-id>/sampler_weights/<name>
 
 Wählen Sie keinen Sampler-Checkpoint als Fortsetzungspunkt für den Optimizer.
 
-## 7. Speicher begrenzen
+## 6. Speicher begrenzen
 
 Eine praktische Aufbewahrungsrichtlinie verwendet:
 
@@ -203,7 +195,7 @@ Eine praktische Aufbewahrungsrichtlinie verwendet:
 - Längerlebige regelmäßige Status- und Sampler-Checkpoints für Vergleiche
 - Einen dauerhaften finalen Checkpoint
 
-Der `CheckpointManager` des Tinker-Cookbooks implementiert dieses Muster
+`CheckpointManager` implementiert dieses Muster
 einschließlich der Löschung rollierender Checkpoints und TTLs:
 
 ```python
@@ -254,4 +246,4 @@ service_client.close("success").result()
 ```
 
 Den vollständigen Lebenszyklus und die administrativen Operationen finden Sie
-in der [Kompatibilitätsreferenz](/de/rl-api/compatibility).
+in der [Referenz zu Laufzeitverhalten und Fehlern](/de/rl-api/runtime).

@@ -1,10 +1,10 @@
 ---
-title: "Referencia de compatibilidad de la API de RL"
-description: "Versiones del SDK de Tinker, modelos, operaciones, funciones de pérdida, límites y diferencias conocidas compatibles."
+title: "Compatibilidad del SDK"
+description: "Versiones del SDK de Tinker, modelos, operaciones de entrenamiento, operaciones de muestreo y funciones de pérdida compatibles."
 ---
 
-Usa esta página para decidir si un programa de Tinker existente puede
-ejecutarse en la API de RL de Fastino sin cambios en el algoritmo.
+Usa esta referencia para comprobar si una aplicación de Tinker existente puede
+ejecutarse en Fastino sin cambios en el algoritmo.
 
 ## Contrato del cliente
 
@@ -15,52 +15,40 @@ ejecutarse en la API de RL de Fastino sin cambios en el algoritmo.
 | Versión mínima compatible | `0.25.0` |
 | URL base | `https://api.fastino.ai/tinker` |
 | Credencial | `tml-` seguido de una clave de Fastino `fast_sk_...` |
-| Acceso del equipo | Controlado por el acceso a la API de RL del equipo de Fastino autenticado |
+| Acceso del equipo | Acceso limitado para el equipo de Fastino autenticado |
 
-Fija la versión probada para producción:
+Fija `tinker==0.32.0` cuando desarrolles con esta versión preliminar.
 
-```bash
-pip install "tinker==0.32.0"
-```
+## Modelos
 
-## Catálogo de modelos
+| Modelo base | Ventana de contexto | Rango máximo de LoRA |
+| --- | ---: | ---: |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 |
 
-| Modelo base | Ventana de contexto | Rango máximo de LoRA | Comportamiento |
-| --- | ---: | ---: | --- |
-| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 | Configuración de entrenamiento predeterminada |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 | El ID de modelo simple se resuelve al nivel rápido |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 | Configuración LoRA totalmente compatible con Tinker |
-
-Nemotron 3 Super también acepta un sufijo `:fast`. Se selecciona una ejecución
-solo con atención mediante sus indicadores de entrenamiento LoRA cuando la
-atención está habilitada y el entrenamiento de MLP y unembedding está
-deshabilitado.
-
-Consulta siempre `get_server_capabilities()` en tiempo de ejecución. La
-respuesta es la fuente autoritativa sobre la disponibilidad de modelos y las
-ventanas de contexto.
+Llama a `get_server_capabilities()` antes de elegir un modelo. La respuesta de
+capacidades es la fuente de verdad para la disponibilidad y las ventanas de
+contexto actuales.
 
 ## Operaciones de entrenamiento
 
 | Capacidad | Compatibilidad |
 | --- | --- |
-| Crear un cliente de entrenamiento LoRA | Compatible; otras configuraciones de entrenamiento no lo son |
+| Crear un cliente de entrenamiento LoRA | Compatible |
 | `forward` | Compatible |
 | `forward_backward` | Compatible |
 | `optim_step` | Compatible |
-| Guardar el estado de entrenamiento | Compatible |
-| Cargar el estado de entrenamiento | Compatible |
+| Guardar o cargar el estado de entrenamiento | Compatible |
 | Crear un cliente nuevo desde un estado guardado | Compatible |
 | Guardar pesos del muestreador | Compatible |
-| Guardar pesos y obtener un cliente de muestreo efímero | Compatible |
+| Crear un cliente de muestreo desde los pesos de entrenamiento | Compatible |
 | Descargar o liberar una ejecución | Compatible |
+| Configuraciones de entrenamiento distintas de LoRA | No compatibles |
 
-La familia de optimizadores compatible es `adamw`. Los valores `AdamParams` del
-SDK proporcionan los parámetros del paso.
+La familia de optimizadores compatible es AdamW mediante `AdamParams` del SDK.
 
 ### Funciones de pérdida
-
-Los nombres de función de pérdida aceptados son:
 
 - `cross_entropy`
 - `importance_sampling`
@@ -68,185 +56,38 @@ Los nombres de función de pérdida aceptados son:
 - `cispo`
 - `dro`
 
-Usa `importance_sampling` para el bucle on-policy estándar del recetario que
-entrena a partir de probabilidades logarítmicas muestreadas y ventajas.
+Usa `importance_sampling` para el bucle on-policy de [Entrenar con recompensas
+verificables](/es/rl-api/verifiable-rewards).
 
 ## Operaciones de muestreo
 
 | Capacidad | Compatibilidad |
 | --- | --- |
 | Muestrear desde un modelo base | Compatible |
-| Muestrear desde pesos de muestreador con nombre | Compatible |
-| Muestrear desde pesos de entrenamiento efímeros | Compatible |
+| Muestrear desde pesos del muestreador con nombre | Compatible |
+| Muestrear desde los pesos de entrenamiento actuales | Compatible |
 | Solicitar varias muestras | Compatible |
 | Calcular probabilidades logarítmicas de tokens | Compatible |
 | Cancelar un future de muestreo en cola | Compatible |
-| Fragmentos de prompts de imagen o multimodales | No compatibles; los modelos actuales son solo de texto |
+| Fragmentos de prompts de imagen o multimodales | No compatibles |
 | `target_prompt_logprobs` | No compatible |
 | `prompt_alt_tokens_k` | No compatible |
 
-El muestreo desde la política de entrenamiento actual suele comenzar con
-`save_weights_and_get_sampling_client()`.
+Los modelos actuales aceptan fragmentos codificados de tokens de texto. El
+muestreo requiere un `SamplingClient`.
 
-Los prompts usan fragmentos codificados de tokens de texto. El muestreo directo
-sin estado no es compatible. Crea un `SamplingClient` a partir de un modelo
-base, un punto de control del muestreador con nombre o los pesos de
-entrenamiento actuales.
+## Otras diferencias
 
-## Futures y sesiones
-
-Las operaciones enviadas devuelven futures de Tinker. La API permite recuperar
-futures, esperar, informar del estado de la cola y cancelar muestreos.
-
-Una operación aceptada puede informar de `paused_capacity` mientras Fastino
-ubica o restaura su ejecución. Trátala como trabajo en espera, no como una
-solicitud rechazada.
-
-Los resultados de futures completados se conservan durante una hora. Resuelve y
-conserva el resultado cuanto antes. Los metadatos de la solicitud se conservan
-durante más tiempo, pero no sustituyen al cuerpo del resultado caducado.
-
-La cancelación se aplica a las operaciones de muestreo. Las operaciones de
-entrenamiento individuales no se pueden cancelar después de enviarlas.
-
-El SDK envía latidos de sesión automáticamente. Una sesión que no tenga latidos
-durante cinco minutos se considera obsoleta y sus recursos activos pueden
-liberarse. Cierra `ServiceClient` explícitamente cuando finalice tu aplicación.
-
-Las solicitudes están aisladas por equipo de Fastino. Una clave no puede
-inspeccionar ni operar sobre las sesiones, ejecuciones o puntos de control de
-otro equipo.
-
-## Puntos de control y administración de ejecuciones
-
-El cliente REST del SDK permite:
-
-- Enumerar ejecuciones de entrenamiento
-- Obtener una ejecución de entrenamiento
-- Enumerar los puntos de control de una ejecución o un equipo
-- Inspeccionar los metadatos de pesos de un punto de control
-- Copiar pesos en una ejecución nueva
-- Eliminar un punto de control
-- Publicar o anular la publicación de un punto de control
-- Establecer o borrar el tiempo de vida de un punto de control
-- Informar del uso actual de almacenamiento de puntos de control
-
-La publicación cambia los metadatos del punto de control. Actualmente no
-permite que otro equipo de Fastino cargue el punto de control. No incluyas la
-distribución entre equipos en un flujo de trabajo automatizado.
-
-Las rutas de estado de entrenamiento usan:
-
-```text
-tinker://<run-id>/weights/<name>
-```
-
-Las rutas de pesos del muestreador usan:
-
-```text
-tinker://<run-id>/sampler_weights/<name>
-```
-
-Un punto de control de estado incluye la información necesaria para restaurar
-el entrenamiento, incluida la configuración del optimizador. Un punto de
-control del muestreador está destinado a la inferencia y la generación de
-rollouts y no puede restaurar el estado del optimizador. Una reanudación fiable
-también requiere los metadatos locales duraderos de tu bucle, como el cursor del
-conjunto de datos y el paso completado.
-
-## Límites
-
-La respuesta de capacidades informa de la longitud de contexto máxima de cada
-modelo y el catálogo de modelos limita el rango de LoRA a 32.
-
-Las llamadas de muestreo, hacia delante y hacia delante-atrás tienen límites de
-secuencia por llamada independientes. Cada uno puede ser inferior a la ventana
-de contexto del modelo, y Fastino puede ajustarlos de forma independiente sin
-cambiar el contrato del SDK. Trata una respuesta por longitud no válida como un
-error de configuración de la solicitud:
-
-1. Reduce la longitud del prompt o la finalización.
-2. Divide los lotes de entrenamiento grandes.
-3. Reintenta con una solicitud válida, no con el mismo cuerpo no válido.
-
-No fijes en la lógica reutilizable de un agente un límite por llamada que no
-esté documentado.
-
-Mantén los cuerpos de las solicitudes de muestreo y hacia delante-atrás en
-32 MiB o menos. Este es el valor predeterminado actual de HTTP y el límite
-descomprimido para las solicitudes hacia delante-atrás. La configuración de
-solicitudes del servicio puede cambiar de forma independiente. Si el código de
-un cliente personalizado recibe un error de tamaño de solicitud, divide el lote
-antes de enviarlo. El SDK de Tinker suele realizar esta división para los lotes
-de entrenamiento.
-
-## Semántica de los reintentos
-
-Las operaciones dentro de una ejecución de entrenamiento se ordenan por ID de
-secuencia.
-
-- Reintentar la misma ejecución, ID de secuencia y cuerpo de solicitud devuelve la operación original.
-- Reutilizar un ID de secuencia con un cuerpo diferente devuelve un error.
-- Se puede recuperar un future después de perderse la respuesta al envío original.
-
-Esto hace que los reintentos de red sean seguros sin aplicar dos veces la misma
-mutación del optimizador. No hace que sea seguro reutilizar una solicitud
-modificada en la misma secuencia.
-
-## Comportamiento de facturación
-
-| Trabajo | Medidor |
+| Capacidad | Comportamiento |
 | --- | --- |
-| Muestreo | Tokens de entrada, entrada en caché y salida |
-| `forward` y `forward_backward` | Tokens de entrenamiento |
-| Puntos de control | Bytes almacenados a lo largo del tiempo |
-| Creación de cliente o modelo | Sin medidor de tokens |
-| `optim_step` | Sin medidor de tokens |
-| Solicitud de guardado o carga | Sin medidor de tokens más allá del uso del punto de control almacenado |
+| Exportación de trazas de sesión | No compatible |
+| Endpoint de auditoría del SDK | No devuelve entradas |
+| Carga de puntos de control entre equipos | No compatible |
+| Descubrimiento mediante OpenAPI | Las rutas de RL se omiten intencionadamente |
 
-El uso se atribuye al proyecto de Fastino de la sesión. Cuando no se especifica
-ningún proyecto, se usa el proyecto predeterminado del equipo.
+Usa los registros de tu aplicación y los registros de uso de proyectos de
+Fastino para la atribución operativa.
 
-## Diferencias conocidas
-
-### Exportación de trazas
-
-La exportación de trazas de sesión no es compatible. Una solicitud informa de
-una exportación fallida en lugar de devolver datos de trazas.
-
-### Registro de auditoría
-
-El endpoint de auditoría del SDK no devuelve entradas. Usa los registros de tu
-propia aplicación y los registros de uso del proyecto de Fastino para la
-atribución operativa.
-
-### Disponibilidad de modelos
-
-La API de RL no replica todos los modelos disponibles en otros entornos de
-Tinker. Usa la respuesta de capacidades y uno de los IDs de modelo compatibles
-indicados anteriormente.
-
-### Descubrimiento mediante OpenAPI
-
-Las rutas de RL no se incluyen en el documento OpenAPI público de Fastino. Es
-intencionado porque el contrato de cliente público es el SDK de Tinker. Las
-rutas nativas de Fastino siguen descritas en la [referencia de la
-API](/es/api-reference/inference/overview).
-
-## Interpretación de errores comunes
-
-| Síntoma | Causa probable | Acción |
-| --- | --- | --- |
-| `404 Not Found` en la llamada de capacidades | URL base incorrecta o acceso a la API de RL no habilitado | Confirma el sufijo `/tinker` y después contacta con Fastino |
-| Error de autenticación | Falta el contenedor `tml-` o la clave de Fastino no es válida | Vuelve a crear `TINKER_API_KEY` a partir de una clave `fast_sk_...` actual |
-| `402 Payment Required` en un trabajo facturable | La facturación o el control de gastos de Fastino rechazaron la solicitud | Resuelve la situación de facturación de la cuenta antes de reintentar |
-| El modelo no se ofrece | El modelo de origen no está en el catálogo de RL de Fastino | Selecciona un modelo de `get_server_capabilities()` |
-| Rango rechazado | El rango de LoRA solicitado es superior a 32 | Usa un rango de 32 o inferior |
-| Función de pérdida rechazada | El nombre no pertenece al conjunto compatible | Usa una de las cinco funciones de pérdida documentadas |
-| Misma secuencia, cuerpo diferente | Conflicto de ordenación del cliente | Crea una operación nueva en la secuencia; no reescribas el historial |
-| El future informa de `paused_capacity` | La ejecución está esperando su ubicación, inicio o restauración | Sigue consultando con el backoff del SDK |
-| El resultado del future devuelve `410` | El cuerpo del resultado caducó o se perdió su efecto | Deja que el SDK vuelva a enviarlo; si el resultado de la mutación sigue siendo desconocido, recupérate desde tu último punto de control |
-| La ejecución no puede restaurar el estado activo | Falló la reproducción duradera o la recuperación de infraestructura | Reanuda desde tu último punto de control de estado explícito |
-
-Para consultar una secuencia de migración orientada a tareas, consulta
-[Migrar desde Tinker](/es/rl-api/migrate-from-tinker).
+Para consultar los futures, los puntos de control, los reintentos, la
+facturación, los límites y los errores, consulta [Comportamiento en tiempo de
+ejecución y errores](/es/rl-api/runtime).

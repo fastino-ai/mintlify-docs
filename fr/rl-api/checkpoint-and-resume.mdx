@@ -24,23 +24,15 @@ ne permet pas à l'application de savoir quels exemples ont déjà été traité
 Enregistrer uniquement un numéro d'étape ne permet pas de restaurer la politique
 qui l'a produit.
 
-## 1. Configurer le client
+## Avant de commencer
 
-```bash
-export FASTINO_API_KEY="fast_sk_..."
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
-```
+Terminez d'abord le [démarrage rapide](/fr/rl-api/quickstart). Ce guide suppose
+que votre client peut créer une exécution d'entraînement et enregistrer un
+checkpoint d'état.
 
-Épinglez la version testée du SDK :
+## 1. Enregistrer l'état et la progression de la boucle
 
-```bash
-pip install "tinker==0.32.0" tinker-cookbook
-```
-
-## 2. Enregistrer l'état et la progression de la boucle
-
-L'utilitaire du livre de recettes crée un checkpoint d'état côté serveur et
+Le module `checkpoint_utils` crée un checkpoint d'état côté serveur et
 ajoute son chemin ainsi que les champs de votre boucle à `checkpoints.jsonl` :
 
 ```python
@@ -79,13 +71,13 @@ La durée de vie s'applique au checkpoint côté serveur. Conservez un checkpoin
 final sans TTL lorsqu'il s'agit d'un artefact que vous souhaitez garder.
 
 <Warning>
-  L'utilitaire du livre de recettes ne demande pas l'écrasement. Réutiliser un
+  `save_checkpoint(...)` ne demande pas l'écrasement. Réutiliser un
   nom de checkpoint est donc rejeté. L'appel de bas niveau
   `save_state(..., overwrite=True)` peut remplacer explicitement un checkpoint
   d'état, mais des noms uniques constituent des marqueurs de reprise plus sûrs.
 </Warning>
 
-## 3. Trouver le point de reprise valide le plus récent
+## 2. Trouver le point de reprise valide le plus récent
 
 Au démarrage du processus, lisez le dernier enregistrement local qui contient un
 chemin d'état :
@@ -126,7 +118,7 @@ else:
 exécution d'entraînement ordonnée à partir des poids et de l'état de
 l'optimiseur enregistrés.
 
-## 4. Valider l'enregistrement de reprise
+## 3. Valider l'enregistrement de reprise
 
 Avant de poursuivre l'entraînement, comparez l'enregistrement stocké de la
 boucle avec l'exécution demandée :
@@ -151,7 +143,7 @@ Un agent doit s'arrêter et demander une décision lorsque ces champs sont
 incompatibles. Il ne doit pas associer silencieusement un checkpoint à une
 expérience différente.
 
-## 5. Rendre la limite de l'étape atomique
+## 4. Rendre la limite de l'étape atomique
 
 Respectez cet ordre :
 
@@ -169,7 +161,7 @@ supprimer.
 Ne marquez pas une étape comme terminée avant que le chemin du checkpoint ne
 soit durable.
 
-## 6. Séparer les artefacts d'échantillonnage
+## 5. Séparer les artefacts d'échantillonnage
 
 Utilisez un checkpoint d'état pour reprendre l'entraînement :
 
@@ -195,7 +187,7 @@ tinker://<run-id>/sampler_weights/<name>
 Ne sélectionnez pas un checkpoint d'échantillonneur comme point de reprise de
 l'optimiseur.
 
-## 7. Limiter le stockage
+## 6. Limiter le stockage
 
 Une politique de rétention pratique utilise :
 
@@ -205,7 +197,7 @@ Une politique de rétention pratique utilise :
   longtemps à des fins de comparaison
 - Un checkpoint final permanent
 
-Le `CheckpointManager` du livre de recettes Tinker implémente ce modèle, y
+`CheckpointManager` implémente ce modèle, y
 compris la suppression des checkpoints glissants et les TTL :
 
 ```python
@@ -256,4 +248,5 @@ service_client.close("success").result()
 ```
 
 Pour connaître le cycle de vie complet et les opérations administratives,
-consultez la [référence de compatibilité](/fr/rl-api/compatibility).
+consultez la [référence sur le comportement d'exécution et les
+erreurs](/fr/rl-api/runtime).

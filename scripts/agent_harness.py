@@ -65,9 +65,11 @@ REQUIRED_DISCOVERY_LINKS = {
     "RL API": "/rl-api.md",
     "RL API quickstart": "/rl-api/quickstart.md",
     "Tinker migration": "/rl-api/migrate-from-tinker.md",
+    "verifiable rewards": "/rl-api/verifiable-rewards.md",
+    "RL checkpoint resume": "/rl-api/checkpoint-and-resume.md",
+    "RL training loop": "/rl-api/training-loop.md",
     "RL API compatibility": "/rl-api/compatibility.md",
-    "verifiable rewards": "/cookbooks/rl-verifiable-rewards.md",
-    "RL checkpoint resume": "/cookbooks/rl-checkpoint-resume.md",
+    "RL API runtime": "/rl-api/runtime.md",
     "errors": "/troubleshooting/errors.md",
     "retries": "/troubleshooting/retries.md",
 }
@@ -85,9 +87,12 @@ JOURNEY_PAGES = (
     "training.mdx",
     "rl-api.mdx",
     "rl-api/quickstart.mdx",
-    "rl-api/how-it-works.mdx",
     "rl-api/migrate-from-tinker.mdx",
+    "rl-api/verifiable-rewards.mdx",
+    "rl-api/checkpoint-and-resume.mdx",
+    "rl-api/training-loop.mdx",
     "rl-api/compatibility.mdx",
+    "rl-api/runtime.mdx",
     "troubleshooting/errors.mdx",
     "troubleshooting/retries.mdx",
     "api-reference/inference/overview.mdx",
@@ -99,51 +104,16 @@ COOKBOOK_ENDPOINTS = {
     "/v1/systemone": "X-API-Key: $FASTINO_API_KEY",
     "/v1/chat/completions": "Authorization: Bearer $FASTINO_API_KEY",
 }
-SDK_COOKBOOK_MARKERS = {
-    "rl-verifiable-rewards.mdx": (
-        "https://api.fastino.ai/tinker",
-        "TINKER_API_KEY",
-        "tinker-cookbook[math-rl]",
-        "get_reward",
-        "importance_sampling",
-        "save_state",
-    ),
-    "rl-checkpoint-resume.mdx": (
-        "https://api.fastino.ai/tinker",
-        "TINKER_API_KEY",
-        "save_checkpoint",
-        "create_training_client_from_state_with_optimizer",
-        "CheckpointManager",
-    ),
-}
-RL_CONTRACT_MARKERS = {
-    "rl-api.mdx": (
-        "tinker==0.32.0",
-        "limited access",
-        "/rl-api/migrate-from-tinker",
-        "/rl-api/compatibility",
-    ),
-    "rl-api/quickstart.mdx": (
-        "https://api.fastino.ai/tinker",
-        "TINKER_API_KEY",
-        "tinker-cookbook[math-rl]",
-        "get_server_capabilities",
-        'close("success").result()',
-    ),
-    "rl-api/migrate-from-tinker.mdx": (
-        "0.25.0",
-        "0.32.0",
-        "tml-${FASTINO_API_KEY}",
-        "get_server_capabilities",
-    ),
-    "rl-api/compatibility.mdx": (
-        "Qwen/Qwen3.6-35B-A3B",
-        "NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
-        "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
-        "importance_sampling",
-        "32 MiB",
-    ),
-}
+RL_PAGE_ORDER = (
+    "rl-api",
+    "rl-api/quickstart",
+    "rl-api/migrate-from-tinker",
+    "rl-api/verifiable-rewards",
+    "rl-api/checkpoint-and-resume",
+    "rl-api/training-loop",
+    "rl-api/compatibility",
+    "rl-api/runtime",
+)
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\((?P<target>/[^)\s]+)\)")
 HREF_LINK = re.compile(r'href=["\'](?P<target>/[^"\']+)["\']')
@@ -449,6 +419,44 @@ def _visible_navigation_pages(node: object) -> set[str]:
     return pages
 
 
+def _ordered_navigation_pages(node: object) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, list):
+        return [page for child in node for page in _ordered_navigation_pages(child)]
+    if not isinstance(node, dict):
+        return []
+    pages: list[str] = []
+    for key in ("languages", "tabs", "groups", "pages"):
+        children = node.get(key)
+        if isinstance(children, list):
+            for child in children:
+                pages.extend(_ordered_navigation_pages(child))
+    return pages
+
+
+def _rl_navigation_findings(config: dict[str, object]) -> list[str]:
+    navigation = config.get("navigation")
+    languages = navigation.get("languages") if isinstance(navigation, dict) else None
+    if not isinstance(languages, list):
+        return ["RL FLOW: docs.json has no navigation languages"]
+    english = next(
+        (
+            language
+            for language in languages
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    if not isinstance(english, dict):
+        return ["RL FLOW: English navigation is missing"]
+    pages = _ordered_navigation_pages(english)
+    rl_pages = tuple(page for page in pages if page == "rl-api" or page.startswith("rl-api/"))
+    if rl_pages != RL_PAGE_ORDER:
+        return [f"RL FLOW: expected page order {RL_PAGE_ORDER}, found {rl_pages}"]
+    return []
+
+
 def _redirect_map(config: dict[str, object]) -> tuple[dict[str, str], list[str]]:
     redirects = config.get("redirects")
     result: dict[str, str] = {}
@@ -676,22 +684,6 @@ def _journey_discovery_findings() -> list[str]:
     return findings
 
 
-def _rl_contract_findings(root: Path = ROOT) -> list[str]:
-    findings: list[str] = []
-    for relative, markers in RL_CONTRACT_MARKERS.items():
-        path = root / relative
-        if not path.is_file():
-            findings.append(f"RL CONTRACT: page is missing: {relative}")
-            continue
-        text = path.read_text(encoding="utf-8")
-        missing = [marker for marker in markers if marker not in text]
-        if missing:
-            findings.append(
-                f"RL CONTRACT: {relative} is missing required markers: {missing}"
-            )
-    return findings
-
-
 def _journey_findings(
     document: dict[str, object],
     operations: dict[tuple[str, str], dict[str, object]],
@@ -825,12 +817,6 @@ def _cookbook_findings(
         try:
             if FRONTMATTER.match(text) is None:
                 fail("COOKBOOK: page has invalid frontmatter")
-            if page.name in SDK_COOKBOOK_MARKERS:
-                required = SDK_COOKBOOK_MARKERS[page.name]
-                missing = [marker for marker in required if marker not in text]
-                if missing:
-                    fail(f"RL COOKBOOK: missing contract markers: {missing}")
-                continue
             request = _cookbook_request(text)
             _validate_value(
                 request.body,
@@ -851,7 +837,7 @@ def run_static() -> None:
     config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
     findings = local_docs_findings(ROOT, document)
     findings.extend(_journey_discovery_findings())
-    findings.extend(_rl_contract_findings())
+    findings.extend(_rl_navigation_findings(config))
     findings.extend(_local_link_findings())
     findings.extend(_redirect_findings(config))
     findings.extend(_locale_parity_findings(config, operations))

@@ -1,6 +1,6 @@
 ---
-title: "How the RL API works"
-description: "Understand the control loop, client objects, and state transitions behind RL training."
+title: "The RL training loop"
+description: "Understand how sampling, rewards, advantages, updates, and checkpoints fit together."
 ---
 
 The RL API separates the learning program from the model compute. Your process
@@ -96,61 +96,21 @@ positions.
   different model can produce incorrect stop sequences or token alignment.
 </Warning>
 
-## Ordered and idempotent updates
+## Keep updates sequential
 
-A training run is an ordered state machine. The SDK assigns sequence IDs to
-operations such as forward and backward passes, optimizer steps, saves, and
-loads.
+Sampling can run concurrently. Updates to one `TrainingClient` must remain
+sequential. Resolve `forward_backward(...)` and `optim_step(...)` in order, and
+do not mutate one training client from independent processes.
 
-If a request is retried with the same run, sequence ID, and body, the RL API
-returns the original operation instead of applying it twice. Reusing that
-sequence ID with a different body is rejected. This protects optimizer state
-when a client retries after a network interruption.
+## Choose the right checkpoint
 
-Do not submit operations for one training client from independent processes
-unless they share a single ordering mechanism.
+`save_state(name)` stores training weights and optimizer state for training
+resume. `save_weights_for_sampler(name)` stores weights for evaluation or more
+rollouts. A sampler checkpoint cannot restore optimizer state.
 
-## Live state and durable state
+To build a complete recovery boundary, store the state-checkpoint path with
+your application step and dataset position. Follow
+[Checkpoint and resume](/rl-api/checkpoint-and-resume) for the full pattern.
 
-Training weights, pending gradients, and optimizer state are live state. The RL
-API can attempt to reconstruct a run after idle scale-down or an infrastructure
-interruption. Automatic recovery starts from a replay base and replays logged
-`forward_backward` and `optim_step` mutations. It does not replay every API
-operation, and recovery can fail when the outcome of a mutation is unknown or
-required replay data is no longer available.
-
-Your explicit checkpoints are the recovery boundary you control:
-
-- `save_state(name)` stores training weights and optimizer state.
-- `save_weights_for_sampler(name)` stores weights for sampling.
-- `create_training_client_from_state_with_optimizer(path)` starts a new run with
-  saved weights and optimizer state.
-- `create_training_client_from_state(path)` starts from saved weights with a
-  fresh optimizer.
-- `load_state(path)` restores a compatible checkpoint into an existing run.
-
-Save state before long external work, before a risky code change, and at
-milestones you may want to compare or resume.
-
-## Cost boundaries
-
-Sampling is metered by input, cached input, and output tokens. Forward and
-forward-backward operations are metered by training tokens. Checkpoint storage
-is metered over time.
-
-Creating a model client, applying an optimizer step, and saving or loading a
-checkpoint do not add token usage by themselves. The token work and stored
-bytes still determine the associated usage.
-
-## A reliable production pattern
-
-1. Query server capabilities at startup.
-2. Pin an SDK version your application has tested.
-3. Keep rollout generation concurrent, but keep training updates ordered.
-4. Record the checkpoint path and application step together.
-5. Use bounded retries around future result retrieval.
-6. Close the service client in a `finally` block.
-7. Retain only the checkpoints you need.
-
-For concrete datum construction and a deterministic grader, continue to the
-[verifiable rewards cookbook](/cookbooks/rl-verifiable-rewards).
+To implement the loop with a deterministic grader, follow
+[Train with verifiable rewards](/rl-api/verifiable-rewards).
