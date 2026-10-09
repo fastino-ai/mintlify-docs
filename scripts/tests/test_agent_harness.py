@@ -65,6 +65,25 @@ class AgentHarnessTests(unittest.TestCase):
             ["Inference", "Training"],
         )
 
+    def test_method_path_stops_at_full_width_punctuation(self) -> None:
+        line = "调用 GLiDE 端点 POST /v1/systemone：发送 state，GET /v1/inferences，列出记录。"
+
+        self.assertEqual(
+            CHECKS.METHOD_PATH.findall(line),
+            [("POST", "/v1/systemone"), ("GET", "/v1/inferences")],
+        )
+
+    def test_localized_key_retirement_notices_are_migration_lines(self) -> None:
+        for line in (
+            "Ältere `pio_sk_`-Schlüssel sind außer Betrieb genommen.",
+            "veraltete `pio_sk_`-Schlüssel wurden eingestellt.",
+            "Les anciennes clés `pio_sk_` sont retirées.",
+            "Las claves heredadas `pio_sk_` están retiradas.",
+        ):
+            with self.subTest(line=line):
+                self.assertTrue(CHECKS._is_migration_line(line))
+        self.assertFalse(CHECKS._is_migration_line("Use a `pio_sk_` key."))
+
     def test_openapi_config_uses_current_mintlify_api_shape(self) -> None:
         config = json.loads((HARNESS.ROOT / "docs.json").read_text())
 

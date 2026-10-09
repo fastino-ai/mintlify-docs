@@ -62,7 +62,7 @@ ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
 )
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
-METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
+METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[A-Za-z0-9_{}\-./:*?=&%]+)")
 LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
 API_BINDING = re.compile(
     r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
@@ -359,6 +359,10 @@ def _is_migration_line(line: str) -> bool:
             "supprim",
             "elimin",
             "entfernt",
+            "eingestellt",
+            "außer betrieb",
+            "retir",
+            "heredad",
             "旧版",
             "移除",
         )
