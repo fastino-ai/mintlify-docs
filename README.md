@@ -85,8 +85,10 @@ The published check validates content negotiation at `docs.fastino.ai`, public l
 deployed OpenAPI contract. The diagnostics check compares default and Googlebot responses,
 cache policy, cross-host proxies, and all published Agent Skills digests. It also checks the
 canonical OpenAPI's complete operation set. The probes cover the docs, agent, API, and
-marketing hosts without credentials. Published and diagnostics checks run only on the daily
-schedule or manual workflow dispatch, never on pull requests.
+marketing hosts without credentials. Published checks run daily or by manual workflow
+dispatch. Diagnostics are manual-only while their known production cache-policy findings
+remain unresolved, so expected failures do not make the scheduled workflow permanently red.
+Neither live check runs on pull requests.
 
 Google Search Console freshness is an optional diagnostics extension. Install
 `google-auth` and `google-api-python-client`, provide Application Default Credentials, and pass
