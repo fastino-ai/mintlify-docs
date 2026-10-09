@@ -1,0 +1,157 @@
+---
+title: "Cookbook: Extract entities from multilingual text"
+sidebarTitle: "Extract entities"
+description: "Pull people, organizations, places, and dates out of text in any supported language with GLiNER 2.5 Multilingual."
+---
+
+Entity extraction is the most common GLiNER 2.5 Multilingual workload. You name the labels you want in English, send text in any supported language, and get back each match with its exact character offsets. No training is needed.
+
+## Request
+
+The text below is German. The labels stay in English.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Dr. María Fernández, Finanzvorständin der Banco Santander, traf sich am 3. März 2026 in München mit Siemens, um den Liefervertrag zu unterzeichnen."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company, bank, or institution"
+      },
+      {
+        "name": "location",
+        "description": "city, region, or country"
+      },
+      {
+        "name": "date",
+        "description": "calendar date"
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Request schema
+
+| Field | Type | In this recipe |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | One `user` message holding the text to read. |
+| `schema.entities` | array | One object per label. `name` is the key in the result; `description` tells GLiNER what counts. |
+| `threshold` | number | Minimum confidence for a match to be returned, from 0 to 1. Default `0.5`. |
+| `store` | boolean | Defaults to `true`, which saves the inference. `false` opts out. |
+
+## Response
+
+GLiNER returns the result as a JSON string in `choices[0].message.content`. Parsed, it looks like this. Measured against `https://api.fastino.ai`; confidence values vary slightly between calls.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "María Fernández",
+        "confidence": 0.949,
+        "start": 4,
+        "end": 19
+      }
+    ],
+    "organization": [
+      {
+        "text": "Banco Santander",
+        "confidence": 0.996,
+        "start": 42,
+        "end": 57
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 100,
+        "end": 107
+      }
+    ],
+    "location": [
+      {
+        "text": "München",
+        "confidence": 1.0,
+        "start": 88,
+        "end": 95
+      }
+    ],
+    "date": [
+      {
+        "text": "3. März 2026",
+        "confidence": 0.996,
+        "start": 72,
+        "end": 84
+      }
+    ]
+  }
+}
+```
+
+## Response schema
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `entities` | object | One key per label you asked for. |
+| `entities.<label>[].text` | string | The matched text, exactly as written in the input. |
+| `entities.<label>[].confidence` | number | Confidence for the match, from 0 to 1. |
+| `entities.<label>[].start`, `end` | integer | Character offsets into the input, end exclusive. |
+
+## Act on the answer
+
+```python
+import json
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/chat/completions",
+    headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+text = body["messages"][0]["content"]
+for label, matches in result["entities"].items():
+    for match in matches:
+        assert text[match["start"]:match["end"]] == match["text"]
+        print(f"{label:<12} {match['text']}  ({match['confidence']:.2f})")
+```
+
+The offsets point back into your original text, so you can highlight or redact matches in place.
+
+## Adapt it
+
+- Write descriptions that separate similar labels, such as `company` versus `government agency`. A vague label such as `product` can pull in near misses like contract names.
+- Raise `threshold` for precision, or lower it for recall. Tune it on a labeled sample.
+- Keep label names stable. Downstream code reads them as keys.
+- Need labels to be fixed records instead of loose spans? Use `schema.structures`.
+
+<CardGroup cols={2}>
+  <Card title="Call GLiNER" icon="brackets-curly" href="/inference/chat-completions">
+    Every GLiNER schema type and how to read its result.
+  </Card>
+  <Card title="Chat Completions API reference" icon="code" href="/api-reference/inference/chat-completions">
+    Every field, limit, and error for `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>
