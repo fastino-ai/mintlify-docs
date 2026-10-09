@@ -31,7 +31,14 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS_ORIGIN = os.getenv("FASTINO_DOCS_ORIGIN", "https://docs.fastino.ai").rstrip("/")
 API_ORIGIN = os.getenv("FASTINO_API_ORIGIN", "https://api.fastino.ai").rstrip("/")
 USER_AGENT = "FastinoDocsCanary/1.0 (+https://docs.fastino.ai)"
-HTTP_METHODS = frozenset({"delete", "get", "patch", "post", "put"})
+PUBLIC_OPENAPI_URLS = (
+    "https://docs.fastino.ai/openapi.json",
+    "https://api.fastino.ai/openapi.json",
+    "https://agent.fastino.ai/openapi.json",
+)
+HTTP_METHODS = frozenset(
+    {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+)
 RETRYABLE_STATUSES = frozenset({425, 429, 503})
 LOCALES = frozenset({"cn", "de", "es", "fr"})
 TERMINAL_TRAINING_STATUSES = frozenset(
@@ -232,7 +239,9 @@ def _walk(value: object) -> list[object]:
     return values
 
 
-def _operations(document: dict[str, object]) -> dict[tuple[str, str], dict[str, object]]:
+def _operations(
+    document: dict[str, object],
+) -> dict[tuple[str, str], dict[str, object]]:
     paths = document.get("paths")
     if not isinstance(paths, dict):
         fail("CONTRACT: OpenAPI has no paths object")
@@ -241,18 +250,22 @@ def _operations(document: dict[str, object]) -> dict[tuple[str, str], dict[str, 
         if not isinstance(path, str) or not isinstance(path_item, dict):
             continue
         for method, operation in path_item.items():
-            if method in HTTP_METHODS and isinstance(operation, dict):
-                result[(method, path)] = operation
+            normalized_method = method.lower()
+            if normalized_method in HTTP_METHODS and isinstance(operation, dict):
+                result[(normalized_method, path)] = operation
     return result
 
 
-def _validate_openapi(document: dict[str, object]) -> dict[tuple[str, str], dict[str, object]]:
+def _validate_openapi(
+    document: dict[str, object],
+) -> dict[tuple[str, str], dict[str, object]]:
     version = document.get("openapi")
     if not isinstance(version, str) or not version.startswith("3."):
         fail(f"CONTRACT: unsupported OpenAPI version: {version!r}")
     servers = document.get("servers")
     if not isinstance(servers, list) or not any(
-        isinstance(server, dict) and server.get("url") == API_ORIGIN for server in servers
+        isinstance(server, dict) and server.get("url") == API_ORIGIN
+        for server in servers
     ):
         fail(f"CONTRACT: OpenAPI does not advertise {API_ORIGIN}")
     serialized = json.dumps(document)
@@ -269,9 +282,29 @@ def _validate_openapi(document: dict[str, object]) -> dict[tuple[str, str], dict
     if unexpected:
         fail(f"CONTRACT: unexpected operations are published: {sorted(unexpected)}")
     components = document.get("components")
-    schemes = components.get("securitySchemes") if isinstance(components, dict) else None
-    if not isinstance(schemes, dict) or not {"ApiKeyAuth", "BearerAuth"} <= set(schemes):
+    schemes = (
+        components.get("securitySchemes") if isinstance(components, dict) else None
+    )
+    if not isinstance(schemes, dict) or not {"ApiKeyAuth", "BearerAuth"} <= set(
+        schemes
+    ):
         fail("CONTRACT: X-API-Key and Bearer security schemes must both be published")
+    global_security = document.get("security")
+    if not isinstance(global_security, list) or not global_security:
+        fail("CONTRACT: public OpenAPI has no default security requirement")
+    for operation in operations.values():
+        security = operation.get("security", global_security)
+        if not isinstance(security, list):
+            fail("CONTRACT: operation has an invalid effective security requirement")
+        for requirement in security:
+            if not isinstance(requirement, dict):
+                fail("CONTRACT: security requirement must be an object")
+            missing = set(requirement) - set(schemes)
+            if missing:
+                fail(
+                    "CONTRACT: security requirement references missing schemes: "
+                    f"{sorted(missing)}"
+                )
     return operations
 
 
@@ -699,12 +732,48 @@ def run_static() -> None:
 def _require_status(response: Response, expected: set[int], label: str) -> None:
     if response.status not in expected:
         excerpt = response.text()[:500].replace("\n", " ")
-        fail(f"{label}: expected HTTP {sorted(expected)}, got {response.status}: {excerpt}")
+        fail(
+            f"{label}: expected HTTP {sorted(expected)}, got {response.status}: {excerpt}"
+        )
 
 
 def _published_link(url: str) -> tuple[str, int]:
     response = _request("GET", url, headers={"Accept": "text/markdown"})
     return url, response.status
+
+
+def _validate_openapi_media_type(url: str, response: Response) -> None:
+    content_type = response.headers.get("content-type", "")
+    media_type = content_type.partition(";")[0].strip().lower()
+    hostname = urllib.parse.urlsplit(url).hostname
+    if hostname == "docs.fastino.ai" and media_type == "application/json":
+        return
+    if media_type != "application/openapi+json":
+        fail(f"CONTRACT: {url} returned unexpected Content-Type {content_type!r}")
+
+
+def _validate_published_openapis(responses: dict[str, Response]) -> None:
+    repository_document = _load_openapi()
+    for url, response in responses.items():
+        _require_status(response, {200}, f"CONTRACT public OpenAPI {url}")
+        _validate_openapi_media_type(url, response)
+        try:
+            document = response.json()
+        except json.JSONDecodeError as error:
+            fail(f"CONTRACT: {url} OpenAPI is not valid JSON: {error}")
+        if not isinstance(document, dict):
+            fail(f"CONTRACT: {url} OpenAPI must contain an object")
+        _validate_openapi(document)
+        if document != repository_document:
+            fail(f"CONTRACT: {url} OpenAPI differs from repository openapi.json")
+
+    reference_url = next(iter(responses))
+    reference_body = responses[reference_url].body
+    for url, response in list(responses.items())[1:]:
+        if response.body != reference_body:
+            fail(
+                f"CONTRACT: {url} OpenAPI does not match {reference_url} byte-for-byte"
+            )
 
 
 def run_published() -> None:
@@ -762,14 +831,15 @@ def run_published() -> None:
     if failures:
         fail("\n".join(failures))
 
-    published_openapi = _request("GET", f"{DOCS_ORIGIN}/openapi.json")
-    _require_status(published_openapi, {200}, "CONTRACT published OpenAPI")
-    published_document = published_openapi.json()
-    if published_document != _load_openapi():
-        fail("CONTRACT: published docs OpenAPI differs from repository openapi.json")
-    if not isinstance(published_document, dict):
-        fail("CONTRACT: published OpenAPI must be an object")
-    _validate_openapi(published_document)
+    published_openapis = {
+        url: _request(
+            "GET",
+            url,
+            headers={"Accept": "application/openapi+json"},
+        )
+        for url in PUBLIC_OPENAPI_URLS
+    }
+    _validate_published_openapis(published_openapis)
     print(f"Published agent journey passed: {len(links)} indexed resources")
 
 

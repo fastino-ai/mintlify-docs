@@ -7,6 +7,7 @@ import json
 import sys
 import unittest
 import urllib.error
+from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,31 @@ SPEC.loader.exec_module(HARNESS)
 
 
 class AgentHarnessTests(unittest.TestCase):
+    def _published_openapi_responses(
+        self,
+        bodies: dict[str, bytes] | None = None,
+        content_types: dict[str, str] | None = None,
+    ) -> dict[str, HARNESS.Response]:
+        canonical = (HARNESS.ROOT / "openapi.json").read_bytes()
+        return {
+            url: HARNESS.Response(
+                200,
+                url,
+                {
+                    "content-type": (content_types or {}).get(
+                        url,
+                        (
+                            "application/json"
+                            if url == "https://docs.fastino.ai/openapi.json"
+                            else "application/openapi+json;version=3.1"
+                        ),
+                    )
+                },
+                (bodies or {}).get(url, canonical),
+            )
+            for url in HARNESS.PUBLIC_OPENAPI_URLS
+        }
+
     def test_secret_bearing_workflows_are_pinned_to_main(self) -> None:
         daily = (HARNESS.ROOT / ".github/workflows/agent-docs-harness.yml").read_text()
         lifecycle = (
@@ -52,6 +78,155 @@ class AgentHarnessTests(unittest.TestCase):
             "unexpected operations",
         ):
             HARNESS._validate_openapi(document)
+
+    def test_openapi_rejects_an_unexpected_head_operation(self) -> None:
+        document = HARNESS._load_openapi()
+        document["paths"]["/v1/undocumented"] = {
+            "HEAD": {"responses": {"200": {"description": "unexpected"}}}
+        }
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "unexpected operations",
+        ):
+            HARNESS._validate_openapi(document)
+
+    def test_openapi_requires_global_security(self) -> None:
+        document = deepcopy(HARNESS._load_openapi())
+        document.pop("security")
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "default security requirement",
+        ):
+            HARNESS._validate_openapi(document)
+
+    def test_openapi_rejects_unknown_operation_security_scheme(self) -> None:
+        document = deepcopy(HARNESS._load_openapi())
+        method, path = next(iter(HARNESS.REQUIRED_OPERATIONS))
+        document["paths"][path][method]["security"] = [{"UnknownAuth": []}]
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "references missing schemes.*UnknownAuth",
+        ):
+            HARNESS._validate_openapi(document)
+
+    def test_published_openapi_rejects_one_host_byte_mismatch(self) -> None:
+        mismatched_url = "https://agent.fastino.ai/openapi.json"
+        canonical = (HARNESS.ROOT / "openapi.json").read_bytes()
+        responses = self._published_openapi_responses(
+            {mismatched_url: canonical + b"\n"}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "agent.fastino.ai.*byte-for-byte",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_accepts_three_repository_documents(self) -> None:
+        HARNESS._validate_published_openapis(self._published_openapi_responses())
+
+    def test_published_openapi_rejects_invalid_api_or_agent_media_type(self) -> None:
+        for url in (
+            "https://api.fastino.ai/openapi.json",
+            "https://agent.fastino.ai/openapi.json",
+        ):
+            with (
+                self.subTest(url=url),
+                self.assertRaisesRegex(
+                    HARNESS.HarnessFailure,
+                    f"{url}.*unexpected Content-Type",
+                ),
+            ):
+                HARNESS._validate_published_openapis(
+                    self._published_openapi_responses(
+                        content_types={url: "application/json"}
+                    )
+                )
+
+    def test_published_openapi_accepts_docs_application_json(self) -> None:
+        HARNESS._validate_published_openapis(
+            self._published_openapi_responses(
+                content_types={
+                    "https://docs.fastino.ai/openapi.json": (
+                        "application/json; charset=utf-8"
+                    )
+                }
+            )
+        )
+
+    def test_published_openapi_rejects_one_host_semantic_mismatch(self) -> None:
+        mismatched_url = "https://agent.fastino.ai/openapi.json"
+        document = deepcopy(HARNESS._load_openapi())
+        document["info"]["description"] = "stale public contract"
+        responses = self._published_openapi_responses(
+            {mismatched_url: json.dumps(document).encode()}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "agent.fastino.ai.*differs from repository",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_rejects_malformed_host_json(self) -> None:
+        malformed_url = "https://api.fastino.ai/openapi.json"
+        responses = self._published_openapi_responses(
+            {malformed_url: b"<html>upstream error</html>"}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "api.fastino.ai.*not valid JSON",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_validates_every_host_operation_inventory(self) -> None:
+        invalid_url = "https://api.fastino.ai/openapi.json"
+        document = deepcopy(HARNESS._load_openapi())
+        method, path = next(iter(HARNESS.REQUIRED_OPERATIONS))
+        del document["paths"][path][method]
+        responses = self._published_openapi_responses(
+            {invalid_url: json.dumps(document).encode()}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "required operations are missing",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_validates_every_host_security_schemes(self) -> None:
+        invalid_url = "https://agent.fastino.ai/openapi.json"
+        document = deepcopy(HARNESS._load_openapi())
+        del document["components"]["securitySchemes"]["BearerAuth"]
+        responses = self._published_openapi_responses(
+            {invalid_url: json.dumps(document).encode()}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "security schemes must both be published",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_validates_every_host_references(self) -> None:
+        invalid_url = "https://docs.fastino.ai/openapi.json"
+        document = deepcopy(HARNESS._load_openapi())
+        document["info"]["x-test-schema"] = {
+            "$ref": "#/components/schemas/DoesNotExist"
+        }
+        responses = self._published_openapi_responses(
+            {invalid_url: json.dumps(document).encode()}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "unresolved OpenAPI reference",
+        ):
+            HARNESS._validate_published_openapis(responses)
 
     def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:
         document = HARNESS._load_openapi()

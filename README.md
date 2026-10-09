@@ -82,13 +82,14 @@ The static check validates OpenAPI references, cURL JSON requests on the critica
 pages, local links, and the GLiDE, GLiNER, dataset, authentication, and training journeys
 exposed through `llms.txt`.
 The published check validates content negotiation at `docs.fastino.ai`, public links, and the
-deployed OpenAPI contract. The diagnostics check compares default and Googlebot responses,
-cache policy, cross-host proxies, and all published Agent Skills digests. It also checks the
-canonical OpenAPI's complete operation set. The probes cover the docs, agent, API, and
-marketing hosts without credentials. Published checks run daily or by manual workflow
-dispatch. Diagnostics are manual-only while their known production cache-policy findings
-remain unresolved, so expected failures do not make the scheduled workflow permanently red.
-Neither live check runs on pull requests.
+deployed OpenAPI contract. Its daily run replaces Pioneer's public OpenAPI host parity by
+checking byte and semantic parity across the docs, API, and agent hosts. The diagnostics check
+compares default and Googlebot responses, cache policy, cross-host proxies, and all published
+Agent Skills digests. The probes cover the docs, agent, API, and marketing hosts without
+credentials. Published checks also run by manual workflow dispatch. Diagnostics are
+manual-only while their known production cache-policy findings remain unresolved, so expected
+failures do not make the scheduled workflow permanently red. Neither live check runs on pull
+requests.
 
 Google Search Console freshness is an optional diagnostics extension. Install
 `google-auth` and `google-api-python-client`, provide Application Default Credentials, and pass

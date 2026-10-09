@@ -476,6 +476,7 @@ class AgentDiagnosticsTests(unittest.TestCase):
             "github.event_name == 'workflow_dispatch'",
             published_job,
         )
+        self.assertIn("python scripts/agent_harness.py published", published_job)
         self.assertIn("if: github.event_name == 'workflow_dispatch'", diagnostics_job)
         self.assertNotIn("github.event_name == 'schedule'", diagnostics_job)
         self.assertIn("python scripts/agent_harness.py diagnostics", diagnostics_job)
