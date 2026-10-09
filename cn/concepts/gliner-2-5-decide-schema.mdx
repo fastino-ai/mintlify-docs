@@ -1,0 +1,159 @@
+---
+title: "GLiNER 2.5 Decide 分类"
+sidebarTitle: "分类"
+description: "定义 Decide 分类任务，并解析单标签、多标签和多任务结果。"
+---
+
+添加顶层 `schema.classifications` 数组，以定义一个或多个分类任务。每个任务仅接受以下键：
+
+<ParamField body="task" type="string" required>
+  分类任务的稳定名称。解析后的结果中会出现相同名称。
+</ParamField>
+
+<ParamField body="labels" type="string[]" required>
+  至少一个允许的标签。Decide 不接受标签描述对象。
+</ParamField>
+
+<ParamField body="multi_label" type="boolean" default="false">
+  当为 `false` 时，返回得分最高的单个标签。当为 `true` 时，返回每个达到 `cls_threshold` 的标签。
+</ParamField>
+
+<ParamField body="cls_threshold" type="number">
+  多标签任务在推理时使用的临界值，取值范围为 `0` 到 `1`。它不影响训练，也不会改变单标签选择。
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  为兼容性而接受，但目前对 GLiNER 2.5 Decide 不起作用。
+</ParamField>
+
+## 解析结果
+
+GLiNER 2.5 Decide 返回标准的 Chat Completions 信封。分类结果本身以 JSON 形式序列化在 `choices[0].message.content` 中：
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+不要直接从 `choices[0]` 读取分类任务；请先解析 `message.content`。
+
+## 单标签分类
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+单标签任务始终返回得分最高的标签。标签是无序的；按此顺序列出 `low`、`medium` 和 `high` 并不会创建有序量表。
+
+解析后的每个单标签任务都是一个对象：
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` 是该任务 `labels` 数组中的一个字符串，`confidence` 是模型对所选标签的置信度，取值范围为 `0` 到 `1`。
+
+## 多标签分类
+
+```json
+{
+  "classifications": [
+    {
+      "task": "tags",
+      "labels": ["technical_issue", "login_problem", "urgent", "human_handoff"],
+      "multi_label": true,
+      "cls_threshold": 0.2
+    }
+  ]
+}
+```
+
+多标签任务返回一个数组，其中包含每个选中的标签及其置信度。提高 `cls_threshold` 更偏向精确率；降低它更偏向召回率。
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+只选择达到该任务 `cls_threshold` 的标签。更严格的阈值可能产生更短的数组，或不选择任何标签。
+
+## 在一个请求中运行多个任务
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    },
+    {
+      "task": "urgency",
+      "labels": ["low", "normal", "high", "critical"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+任务会在一次前向传播中完成评分，但仍然彼此独立。经典分类不会在任务之间强制执行蕴含、排斥、基数规则或有序关系。
+
+解析后的对象使用请求中的 `task` 名称作为键，每个任务保持自己的单标签或多标签结果结构：
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
+## 默认 schema
+
+如果同时省略 `schema` 和 `response_format`，Decide 会使用目录中默认的 `intent` 任务及 `book`、`cancel`、`change` 和 `status`。使用该默认值时，响应会报告 `x_fastino.default_schema_applied: true`。
+
+## 常见验证错误
+
+| 无效输入 | 应改为 |
+| --- | --- |
+| `"labels": {"book": "user wants to book"}` | `"labels": ["book", "cancel"]` |
+| `label_descriptions` 键 | 删除该键，并将标签保留为字符串 |
+| 任务上的 `description` 键 | 删除该键 |
+| 任务内的 `"threshold": 0.5` | `"cls_threshold": 0.5`，并设置 `"multi_label": true` |
+| 空标签列表 | 至少提供一个标签 |
+
+<CardGroup cols={2}>
+  <Card title="评估与训练" icon="sliders" href="/cn/concepts/gliner-2-5-decide-thresholds">
+    使用代表性数据评估质量、选择阈值，并在需要时微调模型。
+  </Card>
+
+  <Card title="API 参考" icon="book" href="/cn/api-reference/inference/chat-completions">
+    查看完整的 Chat Completions 请求和响应 schema。
+  </Card>
+</CardGroup>

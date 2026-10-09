@@ -1,0 +1,78 @@
+---
+title: "Classify Requests with GLiDE"
+sidebarTitle: "Classification"
+description: "Classify requests with GLiDE using binary Noul questions or multi-category Choice questions."
+---
+
+Use GLiDE when an application must map supplied state to bounded outcomes and act on the returned probabilities. Choose the primitive from the classification shape:
+
+- Use [Noul](/concepts/glide-noul) for a binary condition.
+- Use [Choice](/concepts/glide-choice) when exactly one category should win.
+- Ask several independent questions when you need several judgments about the same state.
+
+## Classify into one category
+
+This example assigns a support request to one issue category:
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": "I was charged twice for the same monthly subscription.",
+        "questions": {
+            "issue_type": {
+                "type": "choice",
+                "instructions": "What is the primary issue in this request?",
+                "criteria": {
+                    "billing": "Charges, invoices, payments, or refunds",
+                    "technical": "Product errors, failures, or integration problems",
+                    "account": "Login, permissions, or account settings",
+                    "other": "Does not fit another category"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["issue_type"]
+```
+
+`answer["choice"]` is one of the criteria keys. `answer["probabilities"]` contains the full distribution, and `answer["confidence"]` is the margin between the two most likely categories.
+
+## Act on confidence
+
+```python
+if answer["confidence"] >= 0.6:
+    category = answer["choice"]
+else:
+    category = "manual_review"
+```
+
+Tune the threshold on labeled examples from your application. Include an explicit `other` or review option when the listed categories are not exhaustive.
+
+## Binary classification
+
+For a yes/no condition, use Noul and threshold the returned probability:
+
+```json
+{
+  "type": "noul",
+  "instructions": "Does this request qualify for a refund?",
+  "criteria": {
+    "true": "Qualifies under the supplied policy",
+    "false": "Does not qualify under the supplied policy"
+  }
+}
+```
+
+A Noul answer returns the probability of `true`; it does not return a boolean label. Use separate upper and lower thresholds when ambiguous cases should go to review.
+
+<Card title="Call GLiDE" icon="terminal" href="/inference/systemone">
+  See authentication, complete response shapes, multiple questions, limits, and errors.
+</Card>

@@ -1,0 +1,78 @@
+---
+title: "使用 GLiDE 对请求进行分类"
+sidebarTitle: "分类"
+description: "使用二元 Noul 问题或多类别 Choice 问题，通过 GLiDE 对请求进行分类。"
+---
+
+当应用必须将提供的 state 映射到有界结果，并根据返回的概率采取行动时，请使用 GLiDE。根据分类结构选择基本类型：
+
+- 使用 [Noul](/cn/concepts/glide-noul) 判断二元条件。
+- 当必须且只能有一个类别胜出时，使用 [Choice](/cn/concepts/glide-choice)。
+- 当需要对同一个 state 作出多个判断时，提出多个独立问题。
+
+## 分类到一个类别
+
+此示例将支持请求分配到一个问题类别：
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": "I was charged twice for the same monthly subscription.",
+        "questions": {
+            "issue_type": {
+                "type": "choice",
+                "instructions": "What is the primary issue in this request?",
+                "criteria": {
+                    "billing": "Charges, invoices, payments, or refunds",
+                    "technical": "Product errors, failures, or integration problems",
+                    "account": "Login, permissions, or account settings",
+                    "other": "Does not fit another category"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["issue_type"]
+```
+
+`answer["choice"]` 是 criteria 键之一。`answer["probabilities"]` 包含完整分布，`answer["confidence"]` 是最可能的两个类别之间的差值。
+
+## 根据置信度采取行动
+
+```python
+if answer["confidence"] >= 0.6:
+    category = answer["choice"]
+else:
+    category = "manual_review"
+```
+
+请使用应用中的已标注示例调整阈值。如果列出的类别并不完备，请加入明确的 `other` 或复核选项。
+
+## 二元分类
+
+对于是/否条件，请使用 Noul，并对返回的概率设置阈值：
+
+```json
+{
+  "type": "noul",
+  "instructions": "Does this request qualify for a refund?",
+  "criteria": {
+    "true": "Qualifies under the supplied policy",
+    "false": "Does not qualify under the supplied policy"
+  }
+}
+```
+
+Noul 答案返回 `true` 的概率，而不是布尔标签。当模糊情况应转交复核时，请分别设置上限和下限阈值。
+
+<Card title="调用 GLiDE" icon="terminal" href="/cn/inference/systemone">
+  查看身份验证、完整响应结构、多个问题、限制和错误。
+</Card>

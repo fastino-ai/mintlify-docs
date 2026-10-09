@@ -1,0 +1,81 @@
+---
+title: "Build Policy and Safety Gates with GLiDE"
+sidebarTitle: "Policy and Safety Gates"
+description: "Evaluate proposed actions against supplied policy and route uncertain or high-risk cases to review."
+---
+
+Use GLiDE as a bounded decision layer before software performs an action. Supply the proposed action, relevant context, and policy together as state; define only outcomes your application can safely handle.
+
+## Evaluate a proposed action
+
+```python
+import os
+import requests
+
+state = {
+    "proposed_action": {
+        "tool": "send_email",
+        "recipient": "customer@example.com",
+        "content": "Your refund has been approved."
+    },
+    "context": {
+        "refund_status": "pending_manager_approval",
+        "customer_verified": True
+    },
+    "policy": {
+        "rule": "Do not communicate approval until manager approval is recorded."
+    }
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": state,
+        "questions": {
+            "action": {
+                "type": "choice",
+                "instructions": "What should happen to the proposed action under the supplied policy?",
+                "criteria": {
+                    "execute": "The action is clearly allowed and can proceed",
+                    "request_approval": "The action requires human approval before execution",
+                    "revise": "The action can proceed only after its content or parameters change",
+                    "block": "The action conflicts with policy and must not proceed"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["action"]
+```
+
+## Fail safely on uncertainty
+
+```python
+if answer["choice"] == "execute" and answer["confidence"] >= 0.7:
+    execute_action()
+else:
+    require_review(answer)
+```
+
+Treat the example threshold as a starting point only. Validate thresholds on representative cases, and default uncertain outcomes to the safer review path.
+
+## Design the gate
+
+- Include the exact policy text and all facts needed to apply it.
+- Use an object for state so actions, context, permissions, and policy remain clearly labeled.
+- Define outcomes that map directly to application behavior.
+- Include approval or review as an explicit outcome.
+- Keep irreversible execution outside the model call; application code enforces the result.
+- Log the supplied state, selected outcome, probabilities, and final application action according to your data-handling policy.
+
+<Warning>
+  Use GLiDE as decision support, not as the sole authority for irreversible or high-impact decisions involving safety, legal rights, employment, credit, healthcare, or access control. Validate on representative data and preserve a qualified human-review path.
+</Warning>
+
+<Card title="Call GLiDE" icon="terminal" href="/inference/systemone">
+  Review the complete request contract, limits, confidence behavior, and errors.
+</Card>

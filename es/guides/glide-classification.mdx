@@ -1,0 +1,78 @@
+---
+title: "Clasifica solicitudes con GLiDE"
+sidebarTitle: "Clasificación"
+description: "Clasifica solicitudes con GLiDE mediante preguntas Noul binarias o preguntas Choice con varias categorías."
+---
+
+Usa GLiDE cuando una aplicación deba asignar el estado proporcionado a resultados acotados y actuar según las probabilidades devueltas. Elige la primitiva según la forma de la clasificación:
+
+- Usa [Noul](/es/concepts/glide-noul) para una condición binaria.
+- Usa [Choice](/es/concepts/glide-choice) cuando deba ganar exactamente una categoría.
+- Haz varias preguntas independientes cuando necesites varios juicios sobre el mismo estado.
+
+## Clasifica en una categoría
+
+Este ejemplo asigna una solicitud de soporte a una categoría de problema:
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": "I was charged twice for the same monthly subscription.",
+        "questions": {
+            "issue_type": {
+                "type": "choice",
+                "instructions": "What is the primary issue in this request?",
+                "criteria": {
+                    "billing": "Charges, invoices, payments, or refunds",
+                    "technical": "Product errors, failures, or integration problems",
+                    "account": "Login, permissions, or account settings",
+                    "other": "Does not fit another category"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["issue_type"]
+```
+
+`answer["choice"]` es una de las claves de `criteria`. `answer["probabilities"]` contiene la distribución completa y `answer["confidence"]` es el margen entre las dos categorías más probables.
+
+## Actúa según la confianza
+
+```python
+if answer["confidence"] >= 0.6:
+    category = answer["choice"]
+else:
+    category = "manual_review"
+```
+
+Ajusta el umbral con ejemplos etiquetados de tu aplicación. Incluye una opción explícita `other` o de revisión cuando las categorías enumeradas no sean exhaustivas.
+
+## Clasificación binaria
+
+Para una condición de sí/no, usa Noul y aplica un umbral a la probabilidad devuelta:
+
+```json
+{
+  "type": "noul",
+  "instructions": "Does this request qualify for a refund?",
+  "criteria": {
+    "true": "Qualifies under the supplied policy",
+    "false": "Does not qualify under the supplied policy"
+  }
+}
+```
+
+Una respuesta Noul devuelve la probabilidad de `true`; no devuelve una etiqueta booleana. Usa umbrales superior e inferior separados cuando los casos ambiguos deban enviarse a revisión.
+
+<Card title="Llamar a GLiDE" icon="terminal" href="/es/inference/systemone">
+  Consulta la autenticación, las formas de respuesta completas, las preguntas múltiples, los límites y los errores.
+</Card>

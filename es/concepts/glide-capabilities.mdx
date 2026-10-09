@@ -1,0 +1,56 @@
+---
+title: "Capacidades de GLiDE"
+sidebarTitle: "Capacidades"
+description: "Consulta el comportamiento del razonamiento, la confianza, los límites de contexto y las formas de solicitud no admitidas de GLiDE."
+---
+
+GLiDE evalúa resultados definidos por quien llama en lugar de generar prosa. Esta página resume su comportamiento técnico y sus límites. Para realizar una primera solicitud, empieza por [Llamar a GLiDE](/es/inference/systemone).
+
+## Capacidades de decisión
+
+- Evalúa una cadena, un objeto o un array proporcionado como `state` compartido.
+- Haz una o varias preguntas con nombre sobre ese estado.
+- Usa [Noul](/es/concepts/glide-noul) para probabilidades de sí/no.
+- Usa [Choice](/es/concepts/glide-choice) para una opción sin orden de un conjunto definido por quien llama.
+- Usa [Score](/es/concepts/glide-score) para un nivel de una rúbrica ordenada.
+- Recibe probabilidades y confianza para cada respuesta.
+- Razona sobre aritmética, seguimiento de código, fechas, políticas, excepciones y hechos relacionados del estado proporcionado.
+
+GLiDE realiza primero una evaluación rápida y dedica razonamiento adicional a las decisiones inciertas. Cada pregunta se evalúa de forma independiente frente al mismo estado.
+
+## Confianza e incertidumbre
+
+La respuesta indica qué concluyó GLiDE. `confidence` indica con qué claridad se separó el resultado principal de las alternativas.
+
+| Tipo de pregunta | Fórmula de confianza | Rango |
+| --- | --- | --- |
+| Noul | Valor absoluto de `2 × noul − 1` | De `0` en la máxima incertidumbre a `1` en cualquiera de los extremos |
+| Choice | `top1 − top2` | De `0` para un empate a `1` para una opción dominante |
+| Score | `top1 − top2` | De `0` para un empate a `1` para un nivel dominante |
+
+Una respuesta con baja confianza no es necesariamente incorrecta. Significa que la masa de probabilidad está repartida entre varios resultados. Ajusta los umbrales de acción y de ruta alternativa con datos representativos en lugar de asumir un valor universal.
+
+## Límites
+
+- Cada prompt renderizado —`state` más una pregunta— debe caber en **40 000 tokens**.
+- Choice requiere **entre 2 y 255 opciones**.
+- Score acepta hasta **255 niveles**.
+- Cada pregunta es de una sola etiqueta. No existe una primitiva multietiqueta.
+- Una solicitud evalúa un `state` compartido; las distintas preguntas se incluyen en `questions`.
+- `usage.input_tokens` suma las pasadas internas de todas las preguntas y puede superar 40 000 aunque cada prompt renderizado quepa.
+
+## Formas de solicitud no admitidas
+
+- `/v1/systemone` no hace streaming.
+- No acepta un lote de estados independientes.
+- Actualmente no acepta ID de despliegues ajustados.
+- Los campos adicionales de nivel superior se rechazan.
+- Choice no puede contener una sola opción.
+
+## Evaluación
+
+En Decision Index 0.2.1, GLiDE obtuvo **64,81**, frente al **57,91** publicado por Jev, y lideró las cinco áreas de evaluación y 31 de los 38 benchmarks.
+
+<Card title="Llamar a GLiDE" icon="terminal" href="/es/inference/systemone">
+  Consulta la solicitud y la respuesta completas, el manejo de errores y la guía de migración.
+</Card>

@@ -1,80 +1,41 @@
 ---
-title: "Modèles de décision pour la classification et le routage"
-sidebarTitle: "Modèles de décision"
-description: "En quoi les modèles de décision diffèrent des LLM génératifs, quand les utiliser et comment fonctionnent les primitives Noul, Choice et Score de GLiDE."
-og:title: "Modèles de décision pour la classification, le routage et la notation"
+title: "Modèles de décision"
+sidebarTitle: "Vue d'ensemble"
+description: "Découvrez comment les modèles de décision de Fastino assurent classification, routage et notation avec des scores de confiance explicites, et en quoi ils diffèrent des modèles génératifs."
+og:title: "Modèles de décision : classification, routage, notation et confiance"
 ---
 
-Un **modèle de décision** évalue du texte ou l'état structuré d'une application par rapport à des résultats définis par l'appelant et renvoie des décisions structurées (étiquettes, distributions de probabilité, scores et confiance) plutôt que de la prose générée. Utilisez les modèles de décision pour la classification, le routage d'agents et de modèles, la notation, la modération, les garde-fous et les portes oui/non lorsque le code de l'application doit agir sur une réponse bornée.
+Un **modèle de décision** évalue du texte ou l'état structuré d'une application par rapport à des résultats définis par l'appelant et renvoie des décisions structurées — étiquettes, probabilités, scores et confiance — plutôt que de la prose générée.
 
-Le [modèle de décision GLiDE](/fr/concepts/glide) de Fastino accepte un `state` partagé et une ou plusieurs `questions` typées via l'API System One. L'appelant définit les résultats autorisés, et GLiDE renvoie des probabilités calibrées que le code peut comparer à un seuil, router ou escalader pour revue.
+Utilisez les modèles de décision lorsque le code de l'application doit classifier une entrée, sélectionner une route, noter selon une grille, modérer du contenu ou décider si une action doit être exécutée.
 
-## Modèles de décision et LLM génératifs
+## Modèles de décision et modèles génératifs
 
-|  | Modèle de décision | LLM génératif |
+|  | Modèle de décision | Modèle génératif |
 | --- | --- | --- |
-| Idéal pour | Classification, routage, notation, modération et portes | Génération ouverte, conversation, résumé et code |
-| Sortie | Réponses typées sur des résultats définis par l'appelant | Texte généré ou appels d'outils |
+| Idéal pour | Classification, routage, notation, modération et garde-fous | Génération ouverte, conversation, résumé et code |
+| Sortie | Réponses structurées sur des résultats définis par l'appelant | Texte généré ou appels d'outils |
 | Incertitude | Probabilités et confiance explicites | Nécessite généralement une calibration ou une validation supplémentaire |
 | Modèle d'application | Agir, router ou escalader à partir d'un résultat borné | Générer, expliquer, planifier ou transformer du contenu |
 
-Les deux types de modèles peuvent fonctionner ensemble : utilisez un modèle de décision pour classer une requête, sélectionner un agent ou un modèle, ou conditionner une action, puis appelez un LLM génératif uniquement lorsque le flux de travail nécessite une sortie ouverte.
+Les deux types de modèles peuvent fonctionner ensemble. Un modèle de décision peut classifier une requête, sélectionner un agent ou un modèle, ou conditionner une action avant qu'un modèle génératif produise un résultat ouvert.
 
 ## Pourquoi utiliser un modèle de décision
 
-Un modèle de décision convient aux applications qui doivent exécuter une action définie plutôt qu'afficher du texte généré :
+- **Structuré par construction** — le code en aval reçoit une réponse bornée plutôt que de la prose qui doit être analysée.
+- **Résultats définis par l'appelant** — votre application contrôle les étiquettes, routes ou niveaux autorisés.
+- **Incertitude explicite** — les probabilités et la confiance permettent d'automatiser les cas clairs et d'envoyer les cas ambigus vers une voie de repli ou de revue.
 
-- **Structuré par construction** — chaque réponse respecte le format Noul, Choice ou Score, sans texte généré à analyser ou valider.
-- **Résultats définis par l'appelant** — l'application contrôle les actions autorisées et associe directement chaque résultat au code.
-- **Incertitude explicite** — les probabilités et la confiance permettent d'automatiser les cas clairs et d'envoyer les cas ambigus vers une approbation, une vérification ou une solution de repli.
+<span id="primitives-des-modeles-de-decision" />
+<span id="confiance" />
 
-## Primitives des modèles de décision
-
-Chaque question posée à [GLiDE](/fr/concepts/glide) utilise l'un des trois types suivants, envoyés à `POST /v1/systemone` sur un `state` partagé :
-
-- **[Noul](/fr/concepts/glide-noul)** : une question oui/non qui renvoie une probabilité comprise entre 0 et 1. Voyez-la comme un booléen sur une échelle continue. « Cette demande est-elle éligible à un remboursement ? » peut renvoyer `0.999`, soit une probabilité de 99,9 % que la réponse soit oui.
-- **[Choice](/fr/concepts/glide-choice)** : une question à choix unique parmi plusieurs options qui renvoie une distribution de probabilité sur 2 à 255 options nommées. « Quelle équipe doit traiter cette demande ? » peut renvoyer `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/fr/concepts/glide-score)** : une question de notation sur une échelle, selon une grille ordonnée que vous définissez. « Quelle est l'urgence de cette demande ? » avec trois niveaux peut renvoyer `score: 0` (faible) et `expected_level: 0.276`, un résultat pondéré par les probabilités entre « faible » et « moyenne », plus proche de « faible ».
-
-Choisissez le type qui correspond à la forme de la réponse dont votre code a besoin.
-
-<Tip>
-  Noul ou Score : un Noul à `0.5` signifie une incertitude maximale entre oui et non ; il n'exprime pas un degré. Si vous devez mesurer un degré (urgence, gravité, frustration), utilisez un Score avec des niveaux définis. Si vous avez besoin d'une décision binaire, utilisez un Noul.
-</Tip>
-
-Il n'existe pas de primitive multi-libellé : chaque question n'accepte qu'un seul libellé. Posez plusieurs questions indépendantes dans un même appel si vous avez besoin de plusieurs jugements simultanés. Consultez [Combiner plusieurs questions](/fr/inference/systemone#combiner-plusieurs-questions).
-
-## Confiance
-
-Chaque réponse comporte une valeur `confidence`. La réponse vous indique *ce que* GLiDE a conclu ; la confiance vous indique *s'il faut agir en conséquence*. Traitez-les comme deux axes distincts, et non comme un seul.
-
-| Type de question | Formule | Plage |
-| --- | --- | --- |
-| Noul | `\|2 × noul − 1\|` | De `0` (incertitude maximale, `noul = 0.5`) à `1` (certitude totale, `noul = 0` ou `1`) |
-| Choice / Score | `top1 − top2` (écart de probabilité entre la meilleure et la deuxième meilleure option ou niveau) | De `0` (deux options à égalité) à `1` (une option concentre la quasi-totalité de la masse de probabilité) |
-
-Une réponse à faible confiance n'est pas fausse : elle signifie que la masse de probabilité est répartie entre deux résultats ou plus au lieu d'être concentrée sur un seul, ce qui constitue en soi un signal utile. Un schéma courant est le **routage conditionné par la confiance** : agissez automatiquement sur les réponses à confiance élevée et redirigez celles à faible confiance vers une solution de repli (revue humaine, catégorie plus large, vérification secondaire) :
-
-```python
-answer = response["answers"]["department"]
-
-if answer["confidence"] >= 0.6:
-    route_to(answer["choice"])
-else:
-    route_to("triage-queue")  # ambiguous - let a human or a broader handler decide
-```
-
-Ajustez le seuil sur des données réelles pour votre cas d'usage plutôt que de supposer que `0.5` est la bonne valeur : la confiance est calibrée par modèle et ne correspond pas nécessairement à une tolérance métier particulière vis-à-vis de l'ambiguïté.
-
-Chaque page de primitive propose un exemple complet et des conseils supplémentaires sur l'utilisation de son résultat : [Noul](/fr/concepts/glide-noul), [Choice](/fr/concepts/glide-choice), [Score](/fr/concepts/glide-score).
-
-## Étapes suivantes
+## Découvrir les modèles de décision Fastino
 
 <CardGroup cols={2}>
-  <Card title="Capacités de GLiDE" icon="sparkles" href="/fr/concepts/glide">
-    Découvrez comment GLiDE raisonne, ses résultats aux benchmarks et les cas de décision courants.
+  <Card title="GLiDE" icon="sparkles" href="/fr/concepts/glide">
+    Posez des questions typées Noul, Choice et Score sur du texte ou l'état structuré d'une application.
   </Card>
-  <Card title="Appeler GLiDE" icon="terminal" href="/fr/inference/systemone">
-    Envoyez une requête `POST /v1/systemone` complète et traitez la réponse.
+  <Card title="GLiNER 2.5 Decide" icon="tags" href="/fr/concepts/gliner-2-5-decide">
+    Exécutez une classification mono-étiquette ou multi-étiquettes définie par schéma sur du texte anglais.
   </Card>
 </CardGroup>

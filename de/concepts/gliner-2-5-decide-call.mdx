@@ -1,0 +1,104 @@
+---
+title: "GLiNER 2.5 Decide aufrufen"
+sidebarTitle: "GLiNER 2.5 Decide aufrufen"
+description: "Authentifizieren Sie sich und stellen Sie eine erste schema-definierte Klassifizierungsanfrage mit GLiNER 2.5 Decide."
+---
+
+Rufen Sie GLiNER 2.5 Decide über den OpenAI-kompatiblen Chat-Completions-Endpunkt von Fastino auf. Platzieren Sie den zu klassifizierenden Text in einer Benutzernachricht und definieren Sie die zulässigen Labels in einem `classifications`-Schema.
+
+```text
+POST https://api.fastino.ai/v1/chat/completions
+```
+
+## Ihren API-Schlüssel einrichten
+
+Erstellen Sie unter [Fastino Settings](https://agent.fastino.ai/api-keys) einen Schlüssel und stellen Sie ihn dann Ihrem Prozess bereit:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## Eine Klassifizierungsanfrage stellen
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiNER-2.5-Decide",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My subscription renewed after I cancelled it. Please refund the charge."
+      }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem"],
+          "multi_label": false
+        }
+      ]
+    },
+    "store": false
+  }'
+```
+
+Jede Klassifizierungsaufgabe benötigt mindestens ein Label. Mit `multi_label: false` gibt Decide das Label mit dem höchsten Wert zurück.
+
+## Die Antwort lesen
+
+Eine erfolgreiche Antwort verwendet den Chat-Completions-Umschlag. Das Klassifizierungsergebnis ist ein JSON-String in `choices[0].message.content`:
+
+```json
+{
+  "model": "fastino/GLiNER-2.5-Decide",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"intent\": {\"label\": \"refund_request\", \"confidence\": 0.999862551689148}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 13,
+    "completion_tokens": 22,
+    "total_tokens": 35
+  },
+  "token_usage": 35
+}
+```
+
+Parsen Sie den Nachrichteninhalt, bevor Sie das Aufgabenergebnis lesen:
+
+```python
+import json
+
+# `body` is the decoded JSON response body.
+result = json.loads(body["choices"][0]["message"]["content"])
+intent = result["intent"]["label"]
+confidence = result["intent"]["confidence"]
+```
+
+## Nächste Schritte
+
+<CardGroup cols={2}>
+  <Card title="Klassifikation" icon="brackets-curly" href="/de/concepts/gliner-2-5-decide-schema">
+    Fügen Sie Multi-Label-Verhalten, mehrere Aufgaben und Klassifizierungsschwellenwerte hinzu und parsen Sie die Ergebnisse.
+  </Card>
+
+  <Card title="API-Referenz" icon="book" href="/de/api-reference/inference/chat-completions">
+    Sehen Sie sich den vollständigen Vertrag für `POST /v1/chat/completions` an.
+  </Card>
+</CardGroup>

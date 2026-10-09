@@ -1,0 +1,81 @@
+---
+title: "使用 GLiDE 构建政策与安全关卡"
+sidebarTitle: "政策与安全关卡"
+description: "根据提供的政策评估拟议操作，并将不确定或高风险的情况转交复核。"
+---
+
+在软件执行操作之前，使用 GLiDE 作为有界决策层。将拟议操作、相关上下文和政策一起作为 state 提供；只定义应用可以安全处理的结果。
+
+## 评估拟议操作
+
+```python
+import os
+import requests
+
+state = {
+    "proposed_action": {
+        "tool": "send_email",
+        "recipient": "customer@example.com",
+        "content": "Your refund has been approved."
+    },
+    "context": {
+        "refund_status": "pending_manager_approval",
+        "customer_verified": True
+    },
+    "policy": {
+        "rule": "Do not communicate approval until manager approval is recorded."
+    }
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": state,
+        "questions": {
+            "action": {
+                "type": "choice",
+                "instructions": "What should happen to the proposed action under the supplied policy?",
+                "criteria": {
+                    "execute": "The action is clearly allowed and can proceed",
+                    "request_approval": "The action requires human approval before execution",
+                    "revise": "The action can proceed only after its content or parameters change",
+                    "block": "The action conflicts with policy and must not proceed"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["action"]
+```
+
+## 在不确定时安全失败
+
+```python
+if answer["choice"] == "execute" and answer["confidence"] >= 0.7:
+    execute_action()
+else:
+    require_review(answer)
+```
+
+请仅将示例阈值作为起点。在代表性案例上验证阈值，并将不确定结果默认转入更安全的复核路径。
+
+## 设计关卡
+
+- 包含准确的政策文本以及应用政策所需的所有事实。
+- 对 state 使用对象，使操作、上下文、权限和政策保持清晰的标签。
+- 定义可直接映射到应用行为的结果。
+- 将审批或复核作为明确结果。
+- 将不可逆的执行留在模型调用之外；由应用代码强制执行结果。
+- 根据你的数据处理政策，记录提供的 state、所选结果、概率和应用最终采取的操作。
+
+<Warning>
+  将 GLiDE 用作决策支持，而不要将其作为涉及安全、法律权利、就业、信贷、医疗或访问控制的不可逆或高影响决策的唯一权威。请使用代表性数据进行验证，并保留合格的人工复核路径。
+</Warning>
+
+<Card title="调用 GLiDE" icon="terminal" href="/cn/inference/systemone">
+  查看完整的请求契约、限制、置信度行为和错误。
+</Card>

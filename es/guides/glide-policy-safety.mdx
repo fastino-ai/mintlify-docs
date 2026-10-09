@@ -1,0 +1,81 @@
+---
+title: "Crea compuertas de políticas y seguridad con GLiDE"
+sidebarTitle: "Compuertas de políticas y seguridad"
+description: "Evalúa acciones propuestas según la política proporcionada y envía los casos inciertos o de alto riesgo a revisión."
+---
+
+Usa GLiDE como una capa de decisión acotada antes de que el software realice una acción. Proporciona conjuntamente la acción propuesta, el contexto relevante y la política como estado; define únicamente resultados que tu aplicación pueda manejar de forma segura.
+
+## Evalúa una acción propuesta
+
+```python
+import os
+import requests
+
+state = {
+    "proposed_action": {
+        "tool": "send_email",
+        "recipient": "customer@example.com",
+        "content": "Your refund has been approved."
+    },
+    "context": {
+        "refund_status": "pending_manager_approval",
+        "customer_verified": True
+    },
+    "policy": {
+        "rule": "Do not communicate approval until manager approval is recorded."
+    }
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": state,
+        "questions": {
+            "action": {
+                "type": "choice",
+                "instructions": "What should happen to the proposed action under the supplied policy?",
+                "criteria": {
+                    "execute": "The action is clearly allowed and can proceed",
+                    "request_approval": "The action requires human approval before execution",
+                    "revise": "The action can proceed only after its content or parameters change",
+                    "block": "The action conflicts with policy and must not proceed"
+                }
+            }
+        }
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answer = response.json()["answers"]["action"]
+```
+
+## Falla de forma segura ante la incertidumbre
+
+```python
+if answer["choice"] == "execute" and answer["confidence"] >= 0.7:
+    execute_action()
+else:
+    require_review(answer)
+```
+
+Trata el umbral del ejemplo únicamente como punto de partida. Valida los umbrales con casos representativos y envía los resultados inciertos a la ruta de revisión más segura.
+
+## Diseña la compuerta
+
+- Incluye el texto exacto de la política y todos los hechos necesarios para aplicarla.
+- Usa un objeto como estado para etiquetar claramente las acciones, el contexto, los permisos y la política.
+- Define resultados que se correspondan directamente con el comportamiento de la aplicación.
+- Incluye la aprobación o revisión como resultado explícito.
+- Mantén la ejecución irreversible fuera de la llamada al modelo; el código de la aplicación aplica el resultado.
+- Registra el estado proporcionado, el resultado seleccionado, las probabilidades y la acción final de la aplicación según tu política de tratamiento de datos.
+
+<Warning>
+  Usa GLiDE como apoyo a la decisión, no como única autoridad para decisiones irreversibles o de alto impacto relacionadas con la seguridad, los derechos legales, el empleo, el crédito, la atención sanitaria o el control de acceso. Valida con datos representativos y conserva una ruta de revisión humana cualificada.
+</Warning>
+
+<Card title="Llamar a GLiDE" icon="terminal" href="/es/inference/systemone">
+  Consulta el contrato de solicitud completo, los límites, el comportamiento de la confianza y los errores.
+</Card>

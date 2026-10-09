@@ -1,80 +1,41 @@
 ---
-title: "Modelos de decisión para clasificar, enrutar y puntuar"
-sidebarTitle: "Modelos de decisión"
-description: "Diferencias entre modelos de decisión y LLM generativos, cuándo usarlos y cómo funcionan las primitivas Noul, Choice y Score de GLiDE y la confianza."
-og:title: "Modelos de decisión para clasificación, enrutamiento y puntuación"
+title: "Modelos de decisión"
+sidebarTitle: "Descripción general"
+description: "Comprende cómo los modelos de decisión permiten la clasificación, el enrutamiento y la puntuación con confianza explícita, y explora las familias de modelos de Fastino."
+og:title: "Modelos de decisión para clasificación, enrutamiento y puntuación con confianza"
 ---
 
-Un **modelo de decisión** evalúa texto o el estado estructurado de una aplicación frente a resultados definidos por quien llama y devuelve decisiones estructuradas (etiquetas, distribuciones de probabilidad, puntuaciones y confianza) en lugar de prosa generada. Usa modelos de decisión para clasificación, enrutamiento de agentes y modelos, puntuación, moderación, barreras de protección y compuertas de sí o no en las que el código de la aplicación debe actuar sobre una respuesta acotada.
+Un **modelo de decisión** evalúa texto o el estado estructurado de una aplicación frente a resultados definidos por quien llama y devuelve decisiones estructuradas —etiquetas, probabilidades, puntuaciones y confianza— en lugar de prosa generada.
 
-El [modelo de decisión GLiDE](/es/concepts/glide) de Fastino acepta un `state` compartido y una o más `questions` tipadas a través de la API de System One. Quien llama define los resultados permitidos, y GLiDE devuelve probabilidades calibradas que el código puede comparar con un umbral, enrutar o escalar para revisión.
+Usa modelos de decisión cuando el código de la aplicación deba clasificar una entrada, seleccionar una ruta, puntuar según una rúbrica, moderar contenido o decidir si una acción debe continuar.
 
-## Modelos de decisión frente a LLM generativos
+## Modelos de decisión frente a modelos generativos
 
-|  | Modelo de decisión | LLM generativo |
+|  | Modelo de decisión | Modelo generativo |
 | --- | --- | --- |
 | Ideal para | Clasificación, enrutamiento, puntuación, moderación y compuertas | Generación abierta, conversación, resumen y programación |
-| Salida | Respuestas tipadas sobre resultados definidos por quien llama | Texto generado o llamadas a herramientas |
+| Salida | Respuestas estructuradas sobre resultados definidos por quien llama | Texto generado o llamadas a herramientas |
 | Incertidumbre | Probabilidades y confianza explícitas | Normalmente requiere calibración o validación adicional |
 | Patrón de aplicación | Actuar, enrutar o escalar a partir de un resultado acotado | Generar, explicar, planificar o transformar contenido |
 
-Los dos tipos de modelo pueden trabajar juntos: usa un modelo de decisión para clasificar una solicitud, seleccionar un agente o modelo, o controlar una acción, y luego llama a un LLM generativo solo cuando el flujo de trabajo necesite una salida abierta.
+Los dos tipos de modelo pueden trabajar juntos. Un modelo de decisión puede clasificar una solicitud, seleccionar un agente o modelo, o controlar una acción antes de que un modelo generativo produzca un resultado abierto.
 
 ## Por qué usar un modelo de decisión
 
-Un modelo de decisión encaja en aplicaciones que deben ejecutar una acción definida, no mostrar texto generado:
+- **Estructurado por diseño** — el código posterior recibe una respuesta acotada en lugar de prosa que deba analizarse.
+- **Resultados definidos por quien llama** — tu aplicación controla las etiquetas, rutas o niveles permitidos.
+- **Incertidumbre explícita** — las probabilidades y la confianza permiten automatizar los casos claros y enviar los ambiguos a una ruta alternativa o de revisión.
 
-- **Estructurado por diseño** — cada respuesta sigue la forma Noul, Choice o Score, sin texto generado que analizar o validar.
-- **Resultados definidos por quien llama** — la aplicación controla las acciones permitidas y asigna cada resultado directamente a código.
-- **Incertidumbre explícita** — las probabilidades y la confianza permiten automatizar casos claros y enviar los ambiguos a aprobación, revisión o una alternativa.
+<span id="primitivas-de-los-modelos-de-decision" />
+<span id="confianza" />
 
-## Primitivas de los modelos de decisión
-
-Cada pregunta que le haces a [GLiDE](/es/concepts/glide) usa uno de tres tipos y se envía a `POST /v1/systemone` sobre un `state` compartido:
-
-- **[Noul](/es/concepts/glide-noul)**: una pregunta de sí o no que devuelve una probabilidad entre 0 y 1. Piensa en ella como un booleano en una escala continua. "¿Esta solicitud cumple los requisitos para un reembolso?" podría devolver `0.999`, es decir, un 99,9 % de probabilidad de que la respuesta sea sí.
-- **[Choice](/es/concepts/glide-choice)**: una pregunta de elegir una entre varias opciones que devuelve una distribución de probabilidad entre 2 y 255 opciones con nombre. "¿Qué equipo debería encargarse de esto?" podría devolver `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/es/concepts/glide-score)**: una pregunta de calificar en una escala según una rúbrica ordenada que tú defines. "¿Qué tan urgente es esta solicitud?" con tres niveles podría devolver `score: 0` (baja) y `expected_level: 0.276`, un resultado ponderado por probabilidad entre baja y media, más cercano a baja.
-
-Elige el tipo que coincida con la forma de la respuesta que necesita tu código.
-
-<Tip>
-  Noul frente a Score: un Noul en `0.5` significa la máxima incertidumbre entre sí y no; no expresa grado. Si necesitas medir un grado (urgencia, gravedad, frustración), usa un Score con niveles definidos. Si necesitas una compuerta binaria, usa un Noul.
-</Tip>
-
-No existe una primitiva multietiqueta: cada pregunta es de una sola etiqueta. Si necesitas varios juicios simultáneos, haz varias preguntas independientes en una misma llamada; consulta [Combinar varias preguntas](/es/inference/systemone#combinar-varias-preguntas).
-
-## Confianza
-
-Cada respuesta incluye un valor `confidence`. La respuesta te dice *qué* concluyó GLiDE; la confianza te dice *si debes actuar en consecuencia*. Trátalos como dos ejes separados, no como uno solo.
-
-| Tipo de pregunta | Fórmula | Rango |
-| --- | --- | --- |
-| Noul | `\|2 × noul − 1\|` | De `0` (máxima incertidumbre, `noul = 0.5`) a `1` (certeza total, `noul = 0` o `1`) |
-| Choice / Score | `top1 − top2` (margen de probabilidad entre la mejor y la segunda mejor opción o nivel) | De `0` (dos opciones empatadas) a `1` (una opción concentra ~toda la masa de probabilidad) |
-
-Una respuesta con baja confianza no es incorrecta: significa que la masa de probabilidad está repartida entre dos o más resultados en lugar de concentrarse en uno, lo cual ya es una señal útil. Un patrón habitual es el **enrutamiento condicionado por la confianza**: actúa automáticamente sobre las respuestas con alta confianza y deriva las de baja confianza a una alternativa (revisión humana, una categoría más amplia, una comprobación secundaria):
-
-```python
-answer = response["answers"]["department"]
-
-if answer["confidence"] >= 0.6:
-    route_to(answer["choice"])
-else:
-    route_to("triage-queue")  # ambiguous - let a human or a broader handler decide
-```
-
-Ajusta el umbral con datos reales de tu caso de uso en lugar de dar por hecho que `0.5` es el valor correcto: la confianza está calibrada por modelo y no se garantiza que se corresponda con ninguna tolerancia concreta a la ambigüedad de tu negocio.
-
-Cada página de primitiva incluye un ejemplo práctico y más información sobre cómo usar su resultado: [Noul](/es/concepts/glide-noul), [Choice](/es/concepts/glide-choice), [Score](/es/concepts/glide-score).
-
-## Próximos pasos
+## Explora los modelos de decisión de Fastino
 
 <CardGroup cols={2}>
-  <Card title="Capacidades de GLiDE" icon="sparkles" href="/es/concepts/glide">
-    Descubre cómo razona GLiDE, sus resultados en benchmarks y los casos de decisión habituales.
+  <Card title="GLiDE" icon="sparkles" href="/es/concepts/glide">
+    Haz preguntas tipadas Noul, Choice y Score sobre texto o el estado estructurado de una aplicación.
   </Card>
-  <Card title="Llamar a GLiDE" icon="terminal" href="/es/inference/systemone">
-    Envía una solicitud `POST /v1/systemone` completa y gestiona la respuesta.
+  <Card title="GLiNER 2.5 Decide" icon="tags" href="/es/concepts/gliner-2-5-decide">
+    Ejecuta clasificación de una o varias etiquetas, definida por esquema, sobre texto en inglés.
   </Card>
 </CardGroup>

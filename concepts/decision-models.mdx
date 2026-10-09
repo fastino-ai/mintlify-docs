@@ -1,80 +1,41 @@
 ---
-title: "Decision Models for Classification, Routing, and Scoring"
-sidebarTitle: "Decision Models"
-description: "How decision models differ from generative LLMs, when to use one, and how Noul, Choice, and Score primitives and confidence work for classification and routing."
+title: "Decision Models"
+sidebarTitle: "Overview"
+description: "Understand decision models for classification, routing, scoring, and confidence, and explore Fastino's decision model families."
 og:title: "Decision Models for Classification, Routing, and Scoring"
 ---
 
-A **Decision model** evaluates text or structured application state against caller-defined outcomes and returns structured decisions—labels, probability distributions, scores, and confidence—instead of generated prose. Use decision models for classification, agent and model routing, scoring, moderation, guardrails, and yes/no gates where application code must act on a bounded answer.
+A **decision model** evaluates text or structured application state against caller-defined outcomes and returns structured decisions—labels, probabilities, scores, and confidence—instead of generated prose.
 
-Fastino's [GLiDE decision model](/concepts/glide) accepts a shared `state` and one or more typed `questions` through the System One API. The caller defines the permitted outcomes, and GLiDE returns calibrated probabilities that code can threshold, route, or escalate for review.
+Use decision models when application code must classify an input, select a route, score against a rubric, moderate content, or decide whether an action should proceed.
 
-## Decision models vs. generative LLMs
+## Decision models vs. generative models
 
-|  | Decision model | Generative LLM |
+|  | Decision model | Generative model |
 | --- | --- | --- |
 | Best for | Classification, routing, scoring, moderation, and gates | Open-ended generation, conversation, summarization, and coding |
-| Output | Typed answers over caller-defined outcomes | Generated text or tool calls |
+| Output | Structured answers over caller-defined outcomes | Generated text or tool calls |
 | Uncertainty | Explicit probabilities and confidence | Usually requires additional calibration or validation |
 | Application pattern | Act, route, or escalate from a bounded result | Generate, explain, plan, or transform content |
 
-The two model types can work together: use a decision model to classify a request, select an agent or model, or gate an action, then call a generative LLM only when the workflow needs open-ended output.
+The two model types can work together. A decision model can classify a request, select an agent or model, or gate an action before a generative model produces an open-ended result.
 
 ## Why use a decision model
 
-A decision model fits applications that need to take a defined action rather than display generated prose:
+- **Structured by construction** — downstream code receives a bounded answer instead of prose that must be parsed.
+- **Caller-defined outcomes** — your application controls the permitted labels, routes, or levels.
+- **Explicit uncertainty** — probabilities and confidence let you automate clear cases and send ambiguous cases to a fallback or review path.
 
-- **Structured by construction** - every answer matches a Noul, Choice, or Score shape, so there is no generated text to parse or validate.
-- **Caller-defined outcomes** - your application controls the permitted actions and can map each result directly to code.
-- **Explicit uncertainty** - probabilities and confidence let you automate clear cases while routing ambiguous ones to approval, review, or a fallback.
+<span id="decision-model-primitives" />
+<span id="confidence" />
 
-## Decision model primitives
-
-Every question you ask [GLiDE](/concepts/glide) uses one of three types, sent to `POST /v1/systemone` against a shared `state`:
-
-- **[Noul](/concepts/glide-noul)** - a yes/no question that returns a probability between 0 and 1. Think of it as a boolean on a sliding scale. "Does this request qualify for a refund?" might return `0.999` - a 99.9% probability the answer is yes.
-- **[Choice](/concepts/glide-choice)** - a pick-one-from-many question that returns a probability distribution over 2 to 255 named options. "Which team should handle this?" might return `{"billing": 0.0006, "returns": 0.999, "shipping": 0.0005}`.
-- **[Score](/concepts/glide-score)** - a rate-on-a-scale question over an ordered rubric you define. "How urgent is this request?" with three levels might return `score: 0` (low) and `expected_level: 0.276` - a probability-weighted result between low and medium, closer to low.
-
-Pick the type that matches the shape of the answer your code needs.
-
-<Tip>
-  Noul vs. Score: a Noul at `0.5` means maximum uncertainty between yes and no - it doesn't express degree. If you need to measure degree (urgency, severity, frustration), use a Score with defined levels. If you need a binary gate, use a Noul.
-</Tip>
-
-There is no multi-label primitive - each question is single-label. Ask several independent questions in one call if you need several simultaneous judgments; see [Combining multiple questions](/inference/systemone#combining-multiple-questions).
-
-## Confidence
-
-Every answer carries a `confidence` value. The answer tells you *what* GLiDE concluded; confidence tells you *whether to act on it* - treat them as two separate axes, not one.
-
-| Question type | Formula | Range |
-| --- | --- | --- |
-| Noul | `\|2 × noul − 1\|` | `0` (maximum uncertainty, `noul = 0.5`) to `1` (fully certain, `noul = 0` or `1`) |
-| Choice / Score | `top1 − top2` (probability margin between the best and second-best option or level) | `0` (two options tied) to `1` (one option has ~all the probability mass) |
-
-A low-confidence answer isn't wrong - it means the probability mass is spread across two or more outcomes instead of concentrated on one, which is itself useful signal. A common pattern is **confidence-gated routing**: act automatically on high-confidence answers, and route low-confidence ones to a fallback (human review, a broader category, a secondary check):
-
-```python
-answer = response["answers"]["department"]
-
-if answer["confidence"] >= 0.6:
-    route_to(answer["choice"])
-else:
-    route_to("triage-queue")  # ambiguous - let a human or a broader handler decide
-```
-
-Tune the threshold on real data for your use case rather than assuming `0.5` is correct - confidence is calibrated per model, not guaranteed to map onto any particular business tolerance for ambiguity.
-
-Each primitive page has a worked example and more on using its result: [Noul](/concepts/glide-noul), [Choice](/concepts/glide-choice), [Score](/concepts/glide-score).
-
-## Next steps
+## Explore Fastino decision models
 
 <CardGroup cols={2}>
-  <Card title="GLiDE capabilities" icon="sparkles" href="/concepts/glide">
-    See how GLiDE reasons, benchmarks, and fits common decision use cases.
+  <Card title="GLiDE" icon="sparkles" href="/concepts/glide">
+    Ask typed Noul, Choice, and Score questions against text or structured application state.
   </Card>
-  <Card title="Call GLiDE" icon="terminal" href="/inference/systemone">
-    Send a complete `POST /v1/systemone` request and handle the response.
+  <Card title="GLiNER 2.5 Decide" icon="tags" href="/concepts/gliner-2-5-decide">
+    Run schema-defined, single-label or multi-label classification over English text.
   </Card>
 </CardGroup>
