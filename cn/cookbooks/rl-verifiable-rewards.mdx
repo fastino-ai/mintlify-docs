@@ -1,0 +1,291 @@
+---
+title: "使用可验证奖励进行 RL"
+description: "调整 GRPO 风格的 Tinker 实战示例循环，使用 Fastino 的 RL API 根据确定性任务奖励进行训练。"
+---
+
+本实战示例展示如何将确定性评分器转化为学习信号。当响应可以通过代码检查时，例如数学答案、测试结果、schema
+约束、精确抽取或工具使用结果，请使用此模式。
+
+模式如下：
+
+```text
+prompt -> sample a group -> grade -> center rewards -> build datums -> update
+```
+
+## 你将构建什么
+
+对于每个问题，循环会：
+
+1. 从当前策略中采样多个候选响应。
+2. 为每个响应分配 `0.0` 到 `1.0` 的奖励。
+3. 在组内对奖励进行中心化处理。
+4. 使用优势值非零的响应进行训练。
+
+这是一次 GRPO 风格的更新，不需要单独训练奖励模型。
+
+## 从最简实战示例开始
+
+安装经过测试的 SDK 和实战示例：
+
+```bash
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+配置 Fastino：
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+在修改前先运行一次未经改动的实战示例：
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  batch_size=4 \
+  group_size=4 \
+  max_steps=2 \
+  log_path=./runs/reward-baseline
+```
+
+这样可以在引入你的评分器之前，证明凭据、模型访问、渲染、采样、训练和检查点功能均正常工作。
+
+## 1. 定义评分器契约
+
+实用的确定性评分器应具有精简的契约：
+
+```python
+def get_reward(response: str, expected: str) -> float:
+    """Return a finite reward where larger means better."""
+    actual = parse_answer(response)
+    if actual is None:
+        return 0.0
+    return 1.0 if actual == expected else 0.0
+```
+
+将解析与评分分开。这样一来，格式错误的输出会变得可观察，而不会在训练循环中被视为异常。
+
+对于结构化输出任务：
+
+```python
+import json
+
+
+def parse_label(response: str) -> str | None:
+    try:
+        value = json.loads(response)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(value, dict):
+        return None
+    label = value.get("label")
+    return label if isinstance(label, str) else None
+
+
+def get_reward(response: str, expected: str) -> float:
+    label = parse_label(response)
+    return 1.0 if label == expected else 0.0
+```
+
+<Tip>
+  请分别记录解析失败和有效但错误的答案。二者需要不同的提示词或奖励修正。
+</Tip>
+
+## 2. 从当前策略中采样一组响应
+
+在每次训练迭代开始时，根据当前权重创建采样器：
+
+```python
+sampling_client = training_client.save_weights_and_get_sampling_client()
+
+future = sampling_client.sample(
+    prompt=model_input,
+    num_samples=group_size,
+    sampling_params=sampling_params,
+)
+sample_result = future.result()
+```
+
+同时记录生成的 token 及其采样对数概率。重要性采样损失需要这两项数据。
+
+## 3. 将奖励转换为优势值
+
+为每个响应评分，然后减去组平均值：
+
+```python
+rewards = [
+    get_reward(render_response(sequence.tokens), expected)
+    for sequence in sample_result.sequences
+]
+
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+```
+
+跳过所有优势值均为零的组：
+
+```python
+if all(advantage == 0.0 for advantage in advantages):
+    continue
+```
+
+全部正确或全部错误的组都不包含相对信号。请跟踪这类组的比例。退化组比例过高通常表示任务过于简单、过于困难，或者奖励无法区分不同输出。
+
+## 4. 为每个响应构建一个 datum
+
+提示词是上下文，因此其优势值为零。生成的响应携带组相对优势值：
+
+```python
+import tinker
+import torch
+from tinker import TensorData
+
+
+def build_datum(
+    prompt: tinker.ModelInput,
+    tokens: list[int],
+    logprobs: list[float],
+    advantage: float,
+) -> tinker.Datum:
+    prompt_loss_length = prompt.length - 1
+    model_input = prompt.append(
+        tinker.EncodedTextChunk(tokens=tokens[:-1])
+    )
+
+    target_tokens = [0] * prompt_loss_length + tokens
+    padded_logprobs = [0.0] * prompt_loss_length + logprobs
+    padded_advantages = (
+        [0.0] * prompt_loss_length
+        + [advantage] * (model_input.length - prompt_loss_length)
+    )
+
+    if not (
+        model_input.length
+        == len(target_tokens)
+        == len(padded_logprobs)
+        == len(padded_advantages)
+    ):
+        raise ValueError("RL datum arrays are not aligned")
+
+    return tinker.Datum(
+        model_input=model_input,
+        loss_fn_inputs={
+            "target_tokens": TensorData.from_torch(
+                torch.tensor(target_tokens)
+            ),
+            "logprobs": TensorData.from_torch(
+                torch.tensor(padded_logprobs)
+            ),
+            "advantages": TensorData.from_torch(
+                torch.tensor(padded_advantages)
+            ),
+        },
+    )
+```
+
+请使用与所选基础模型关联的 tokenizer 和 renderer。不要使用一个 renderer 解码，再用另一个重建输入。
+
+## 5. 应用更新
+
+将非退化组展平为一个 datum 列表，然后提交更新：
+
+```python
+if datums:
+    train_future = training_client.forward_backward(
+        datums,
+        loss_fn="importance_sampling",
+    )
+    optim_future = training_client.optim_step(
+        tinker.AdamParams(
+            learning_rate=4e-5,
+            beta1=0.9,
+            beta2=0.95,
+        )
+    )
+
+    train_result = train_future.result()
+    optim_result = optim_future.result()
+```
+
+SDK 会为训练客户端排列这些操作。在推进应用步骤之前，请解析两个 future 并记录其指标。
+
+## 6. 在有意义的边界创建检查点
+
+按固定频率以及评估奖励提升时保存完整状态：
+
+```python
+checkpoint = training_client.save_state(
+    f"step-{step:06d}"
+).result()
+print(checkpoint.path)
+```
+
+将返回的 `tinker://` 路径与以下信息一同存储：
+
+- 应用步骤
+- 数据集修订版本
+- 奖励实现修订版本
+- 基础模型
+- LoRA rank
+- 优化器参数
+- 评估指标
+
+这份记录能让智能体在无需根据名称猜测的情况下，决定从哪个检查点恢复。
+
+## 奖励设计检查
+
+长时间运行之前，请使用固定的 fixture 集测试奖励函数。
+
+| 检查项 | 重要原因 |
+| --- | --- |
+| 正确输出获得更高奖励 | 证明优化方向正确 |
+| 格式错误的输出不会使循环崩溃 | 防止单个 rollout 导致整个批次丢失 |
+| 等价的有效格式经过规范化后结果相同 | 避免训练出现格式意外 |
+| 奖励为有限值 | 防止产生无效优势值 |
+| 样本批次中的奖励存在方差 | 证明存在相对学习信号 |
+| 隐藏评估用例不进入训练 | 防止奖励过拟合伪装成进展 |
+
+## 调整此模式
+
+### 代码生成
+
+在资源受限的沙箱中运行生成的代码。通过测试时给予奖励，然后针对部分测试覆盖率或效率添加较小且有界的奖励分量。切勿在训练进程中执行不受信任的模型输出。
+
+### 工具使用
+
+解析工具调用，验证其 schema，在隔离的 fixture 上执行，然后根据最终状态给予奖励。评分应针对结果，而不只是调用语法。
+
+### 抽取和结构化输出
+
+根据 schema 进行验证并比较规范化后的值。仅当输出形状确实是任务的一部分时，才保留单独的格式奖励。
+
+### 多步骤环境
+
+将 transition 奖励累积为 trajectory 奖励，然后针对同一初始问题的多个 trajectory
+计算优势值。不同组成员之间的环境状态和副作用必须相互隔离。
+
+## 诊断运行
+
+| 信号 | 解读 | 后续操作 |
+| --- | --- | --- |
+| 几乎每组都是全零 | 任务可能过难，或 parser 拒绝了有效响应 | 检查原始样本和解析失败率 |
+| 几乎每组都是全一 | 任务可能过于简单 | 增加难度或使用更严格的奖励 |
+| 奖励上升，但留出集质量没有提升 | 奖励正被利用 | 添加隐藏检查，并检查高奖励失败样本 |
+| Datum 对齐错误 | Renderer、token、对数概率或 padding 不匹配 | 输出一个响应的各项长度，并与实战示例比较 |
+| 损失不稳定 | 步长或奖励尺度可能过大 | 降低学习率并限制奖励范围 |
+
+## 完成标准
+
+成功的调整应具备：
+
+- 至少一个非退化组
+- 有限的奖励、损失和优化器指标
+- 独立于训练奖励批次的留出评估
+- 可恢复的状态检查点
+- 足以复现运行的日志元数据
+
+有关本实战示例背后的对象和状态模型，请阅读 [RL API 的工作原理](/cn/rl-api/how-it-works)。

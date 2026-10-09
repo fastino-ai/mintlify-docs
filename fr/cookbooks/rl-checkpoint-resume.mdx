@@ -1,0 +1,259 @@
+---
+title: "Créer un checkpoint et reprendre une exécution RL"
+description: "Enregistrez l'état du modèle et de l'optimiseur, conservez la progression de la boucle et reprenez l'entraînement RL sans rejouer le travail terminé."
+---
+
+Un checkpoint RL protège l'état du modèle. Un enregistrement de reprise complet
+protège également l'état de l'application qui indique à votre boucle la
+prochaine tâche à effectuer.
+
+Utilisez ce modèle pour les tâches longues, les orchestrateurs préemptibles et
+les expériences gérées par des agents.
+
+## Éléments à enregistrer
+
+Considérez une étape reprenable comme deux enregistrements coordonnés :
+
+| Enregistrement | Contenu | Stocké par |
+| --- | --- | --- |
+| Checkpoint d'état | Poids LoRA et état de l'optimiseur | API RL |
+| Enregistrement de la boucle | Étape, curseur du jeu de données, configuration et chemin du checkpoint | Votre application |
+
+Enregistrer uniquement l'état du modèle permet de restaurer la politique, mais
+ne permet pas à l'application de savoir quels exemples ont déjà été traités.
+Enregistrer uniquement un numéro d'étape ne permet pas de restaurer la politique
+qui l'a produit.
+
+## 1. Configurer le client
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+Épinglez la version testée du SDK :
+
+```bash
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+## 2. Enregistrer l'état et la progression de la boucle
+
+L'utilitaire du livre de recettes crée un checkpoint d'état côté serveur et
+ajoute son chemin ainsi que les champs de votre boucle à `checkpoints.jsonl` :
+
+```python
+from tinker_cookbook import checkpoint_utils
+
+
+paths = checkpoint_utils.save_checkpoint(
+    training_client=training_client,
+    name=f"step-{step:06d}",
+    log_path=log_path,
+    kind="state",
+    loop_state={
+        "step": step,
+        "dataset_cursor": dataset_cursor,
+        "reward_version": reward_version,
+    },
+    ttl_seconds=7 * 24 * 60 * 60,
+)
+
+print(paths["state_path"])
+```
+
+<Tip>
+  Dans une boucle d'entraînement asynchrone, utilisez `await
+  checkpoint_utils.save_checkpoint_async(...)` avec les mêmes champs. N'appelez
+  pas le wrapper synchrone depuis une boucle d'événements en cours d'exécution.
+</Tip>
+
+Le chemin renvoyé présente cette forme :
+
+```text
+tinker://<run-id>/weights/step-000100
+```
+
+La durée de vie s'applique au checkpoint côté serveur. Conservez un checkpoint
+final sans TTL lorsqu'il s'agit d'un artefact que vous souhaitez garder.
+
+<Warning>
+  L'utilitaire du livre de recettes ne demande pas l'écrasement. Réutiliser un
+  nom de checkpoint est donc rejeté. L'appel de bas niveau
+  `save_state(..., overwrite=True)` peut remplacer explicitement un checkpoint
+  d'état, mais des noms uniques constituent des marqueurs de reprise plus sûrs.
+</Warning>
+
+## 3. Trouver le point de reprise valide le plus récent
+
+Au démarrage du processus, lisez le dernier enregistrement local qui contient un
+chemin d'état :
+
+```python
+resume = checkpoint_utils.get_last_checkpoint(
+    log_path,
+    required_key="state_path",
+)
+```
+
+Gérez explicitement les deux cas :
+
+```python
+if resume is None:
+    training_client = service_client.create_lora_training_client(
+        base_model=model_name,
+        rank=lora_rank,
+    )
+    start_step = 0
+    dataset_cursor = 0
+else:
+    saved_step = resume.get("step")
+    saved_cursor = resume.get("dataset_cursor")
+    if not isinstance(saved_step, int) or not isinstance(saved_cursor, int):
+        raise ValueError("resume record has no valid step or dataset cursor")
+
+    training_client = (
+        service_client.create_training_client_from_state_with_optimizer(
+            resume.state_path
+        )
+    )
+    start_step = saved_step + 1
+    dataset_cursor = saved_cursor
+```
+
+`create_training_client_from_state_with_optimizer(...)` crée une nouvelle
+exécution d'entraînement ordonnée à partir des poids et de l'état de
+l'optimiseur enregistrés.
+
+## 4. Valider l'enregistrement de reprise
+
+Avant de poursuivre l'entraînement, comparez l'enregistrement stocké de la
+boucle avec l'exécution demandée :
+
+```python
+if resume is not None and resume.get("reward_version") != reward_version:
+    raise ValueError(
+        "reward implementation changed; start a new run or approve the change"
+    )
+```
+
+Validez au moins les éléments suivants :
+
+- Modèle de base
+- Rang LoRA et configuration entraînable
+- Révision et curseur du jeu de données
+- Révision de l'implémentation de la récompense
+- Famille d'optimiseurs et calendrier prévu
+- Hypothèses du renderer et du tokenizer
+
+Un agent doit s'arrêter et demander une décision lorsque ces champs sont
+incompatibles. Il ne doit pas associer silencieusement un checkpoint à une
+expérience différente.
+
+## 5. Rendre la limite de l'étape atomique
+
+Respectez cet ordre :
+
+1. Récupérez les résultats des futures d'entraînement et d'optimisation.
+2. Enregistrez le checkpoint d'état.
+3. Conservez l'enregistrement de la boucle contenant le chemin renvoyé.
+4. Marquez l'étape de l'application comme terminée.
+5. Commencez l'étape suivante.
+
+Si le processus s'arrête après l'étape 2, mais avant l'étape 3, il se peut que le
+serveur conserve un checkpoint non référencé. Cela gaspille du stockage, mais
+n'altère pas le point de reprise précédent. Un nettoyage ultérieur peut le
+supprimer.
+
+Ne marquez pas une étape comme terminée avant que le chemin du checkpoint ne
+soit durable.
+
+## 6. Séparer les artefacts d'échantillonnage
+
+Utilisez un checkpoint d'état pour reprendre l'entraînement :
+
+```python
+state = training_client.save_state("step-000100").result()
+```
+
+Utilisez les poids d'échantillonneur pour l'évaluation ou le service :
+
+```python
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Les deux chemins ont des rôles différents :
+
+```text
+tinker://<run-id>/weights/<name>
+tinker://<run-id>/sampler_weights/<name>
+```
+
+Ne sélectionnez pas un checkpoint d'échantillonneur comme point de reprise de
+l'optimiseur.
+
+## 7. Limiter le stockage
+
+Une politique de rétention pratique utilise :
+
+- Des checkpoints d'état glissants et de courte durée pour la récupération
+  après un incident
+- Des checkpoints périodiques d'état et d'échantillonneur conservés plus
+  longtemps à des fins de comparaison
+- Un checkpoint final permanent
+
+Le `CheckpointManager` du livre de recettes Tinker implémente ce modèle, y
+compris la suppression des checkpoints glissants et les TTL :
+
+```python
+manager = checkpoint_utils.CheckpointManager(
+    training_client=training_client,
+    service_client=service_client,
+    log_path=log_path,
+    save_every=20,
+    rolling_save_every=1,
+    ttl_seconds=7 * 24 * 60 * 60,
+    rolling_ttl_seconds=2 * 60 * 60,
+)
+```
+
+Le stockage des checkpoints est mesuré dans le temps. Supprimez les checkpoints
+qui ne font plus partie de votre plan de récupération, d'évaluation ou de mise
+en production.
+
+## Décisions de récupération pour les agents
+
+| Situation | Action |
+| --- | --- |
+| Aucun enregistrement local de reprise | Démarrer une nouvelle exécution |
+| L'enregistrement de reprise et le checkpoint existent tous les deux | Valider les métadonnées, puis restaurer |
+| L'enregistrement local existe, mais le checkpoint a disparu | Revenir à un enregistrement valide antérieur ou demander à l'utilisateur |
+| Le checkpoint existe sans enregistrement local | Le considérer comme non classé ; ne pas deviner son curseur de jeu de données |
+| La révision de la récompense ou du jeu de données a changé | Démarrer une nouvelle expérience, sauf si l'utilisateur approuve la poursuite |
+| L'exécution active signale un état irrécupérable | Restaurer depuis le dernier checkpoint d'état explicite |
+
+## Vérifier l'exécution reprise
+
+Avant une reprise importante :
+
+1. Restaurez le checkpoint.
+2. Exécutez une petite évaluation sur un ensemble de validation.
+3. Comparez-la à la métrique enregistrée lors de la sauvegarde.
+4. Soumettez une étape d'entraînement.
+5. Enregistrez un nouveau checkpoint sous un nouveau nom.
+
+Les échantillons exacts peuvent varier. Le modèle restauré doit conserver la
+qualité attendue, l'étape d'optimisation doit aboutir et le nouveau checkpoint
+doit être adressable.
+
+Fermez toujours le client de service dans un bloc `finally` :
+
+```python
+service_client.close("success").result()
+```
+
+Pour connaître le cycle de vie complet et les opérations administratives,
+consultez la [référence de compatibilité](/fr/rl-api/compatibility).

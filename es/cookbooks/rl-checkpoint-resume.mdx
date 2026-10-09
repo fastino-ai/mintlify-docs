@@ -1,0 +1,257 @@
+---
+title: "Guardar un punto de control y reanudar una ejecución de RL"
+description: "Guarda el estado del modelo y del optimizador, conserva el progreso del bucle y reanuda RL sin repetir el trabajo completado."
+---
+
+Un punto de control de RL protege el estado del modelo. Un registro de
+reanudación completo también protege el estado de la aplicación que indica a tu
+bucle qué debe hacer a continuación.
+
+Usa este patrón para trabajos largos, orquestadores interrumpibles y
+experimentos gestionados por agentes.
+
+## Qué debe guardarse
+
+Trata un paso reanudable como dos registros coordinados:
+
+| Registro | Contiene | Almacenado por |
+| --- | --- | --- |
+| Punto de control de estado | Pesos de LoRA y estado del optimizador | API de RL |
+| Registro del bucle | Paso, cursor del conjunto de datos, configuración y ruta del punto de control | Tu aplicación |
+
+Guardar solo el estado del modelo permite restaurar la política, pero no indica
+a la aplicación qué ejemplos ya se procesaron. Guardar solo un número de paso
+no permite restaurar la política que lo produjo.
+
+## 1. Configura el cliente
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+Fija la versión probada del SDK:
+
+```bash
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+## 2. Guarda el estado y el progreso del bucle
+
+La utilidad del recetario escribe un punto de control de estado en el servidor
+y añade su ruta junto con los campos de tu bucle a `checkpoints.jsonl`:
+
+```python
+from tinker_cookbook import checkpoint_utils
+
+
+paths = checkpoint_utils.save_checkpoint(
+    training_client=training_client,
+    name=f"step-{step:06d}",
+    log_path=log_path,
+    kind="state",
+    loop_state={
+        "step": step,
+        "dataset_cursor": dataset_cursor,
+        "reward_version": reward_version,
+    },
+    ttl_seconds=7 * 24 * 60 * 60,
+)
+
+print(paths["state_path"])
+```
+
+<Tip>
+  En un bucle de entrenamiento asíncrono, usa `await
+  checkpoint_utils.save_checkpoint_async(...)` con los mismos campos. No
+  llames al wrapper síncrono desde un bucle de eventos en ejecución.
+</Tip>
+
+La ruta devuelta tiene esta forma:
+
+```text
+tinker://<run-id>/weights/step-000100
+```
+
+El tiempo de vida se aplica al punto de control del servidor. Conserva un punto
+de control final sin TTL cuando sea un artefacto que quieras retener.
+
+<Warning>
+  La utilidad del recetario no solicita sobrescritura, por lo que reutilizar un
+  nombre se rechaza. La llamada de bajo nivel
+  `save_state(..., overwrite=True)` puede reemplazar explícitamente un punto de
+  control de estado, pero los nombres únicos son marcadores de recuperación más
+  seguros.
+</Warning>
+
+## 3. Busca el punto de reanudación válido más reciente
+
+Al iniciar el proceso, lee el último registro local que contenga una ruta de
+estado:
+
+```python
+resume = checkpoint_utils.get_last_checkpoint(
+    log_path,
+    required_key="state_path",
+)
+```
+
+Gestiona ambas rutas explícitamente:
+
+```python
+if resume is None:
+    training_client = service_client.create_lora_training_client(
+        base_model=model_name,
+        rank=lora_rank,
+    )
+    start_step = 0
+    dataset_cursor = 0
+else:
+    saved_step = resume.get("step")
+    saved_cursor = resume.get("dataset_cursor")
+    if not isinstance(saved_step, int) or not isinstance(saved_cursor, int):
+        raise ValueError("resume record has no valid step or dataset cursor")
+
+    training_client = (
+        service_client.create_training_client_from_state_with_optimizer(
+            resume.state_path
+        )
+    )
+    start_step = saved_step + 1
+    dataset_cursor = saved_cursor
+```
+
+`create_training_client_from_state_with_optimizer(...)` crea una ejecución de
+entrenamiento ordenada nueva a partir de los pesos guardados y el estado del
+optimizador.
+
+## 4. Valida el registro de reanudación
+
+Antes de continuar el entrenamiento, compara el registro del bucle almacenado
+con la ejecución solicitada:
+
+```python
+if resume is not None and resume.get("reward_version") != reward_version:
+    raise ValueError(
+        "reward implementation changed; start a new run or approve the change"
+    )
+```
+
+Valida al menos:
+
+- Modelo base
+- Rango de LoRA y configuración entrenable
+- Revisión y cursor del conjunto de datos
+- Revisión de la implementación de la recompensa
+- Familia del optimizador y programación prevista
+- Supuestos del renderizador y del tokenizador
+
+Un agente debe detenerse y pedir una decisión cuando estos campos entren en
+conflicto. No debe combinar silenciosamente un punto de control con un
+experimento diferente.
+
+## 5. Haz que el límite del paso sea atómico
+
+Usa este orden:
+
+1. Resuelve los futures de entrenamiento y del optimizador.
+2. Guarda el punto de control de estado.
+3. Conserva el registro del bucle que contiene la ruta devuelta.
+4. Marca el paso de la aplicación como completado.
+5. Inicia el siguiente paso.
+
+Si el proceso finaliza después del paso 2, pero antes del paso 3, el servidor
+puede conservar un punto de control sin referencia. Esto desperdicia
+almacenamiento, pero no daña el punto de reanudación anterior. Una limpieza
+posterior puede eliminarlo.
+
+No marques un paso como completado antes de que la ruta del punto de control sea
+duradera.
+
+## 6. Mantén separados los artefactos del muestreador
+
+Usa un punto de control de estado para reanudar el entrenamiento:
+
+```python
+state = training_client.save_state("step-000100").result()
+```
+
+Usa los pesos del muestreador para la evaluación o el servicio:
+
+```python
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Las dos rutas tienen propósitos diferentes:
+
+```text
+tinker://<run-id>/weights/<name>
+tinker://<run-id>/sampler_weights/<name>
+```
+
+No selecciones un punto de control del muestreador como punto de reanudación del
+optimizador.
+
+## 7. Limita el almacenamiento
+
+Una política práctica de retención usa:
+
+- Puntos de control de estado rotativos de corta duración para la recuperación ante fallos
+- Puntos de control periódicos de estado y del muestreador de mayor duración para comparaciones
+- Un punto de control final permanente
+
+El `CheckpointManager` del recetario de Tinker implementa este patrón, incluida
+la eliminación de puntos de control rotativos y los TTL:
+
+```python
+manager = checkpoint_utils.CheckpointManager(
+    training_client=training_client,
+    service_client=service_client,
+    log_path=log_path,
+    save_every=20,
+    rolling_save_every=1,
+    ttl_seconds=7 * 24 * 60 * 60,
+    rolling_ttl_seconds=2 * 60 * 60,
+)
+```
+
+El almacenamiento de puntos de control se mide a lo largo del tiempo. Elimina
+los puntos de control que ya no formen parte de tu plan de recuperación,
+evaluación o lanzamiento.
+
+## Decisiones de recuperación para agentes
+
+| Situación | Acción |
+| --- | --- |
+| No hay un registro local de reanudación | Inicia una ejecución nueva |
+| Existen tanto el registro de reanudación como el punto de control | Valida los metadatos y después restaura |
+| Existe el registro local, pero el punto de control ya no está | Vuelve a un registro válido anterior o pregunta al usuario |
+| Existe un punto de control sin un registro local | Trátalo como no clasificado; no deduzcas su cursor del conjunto de datos |
+| Cambió la revisión de la recompensa o del conjunto de datos | Inicia un experimento nuevo, a menos que el usuario apruebe continuar |
+| La ejecución activa informa de un estado irrecuperable | Restaura desde el último punto de control de estado explícito |
+
+## Verifica la ejecución reanudada
+
+Antes de una continuación grande:
+
+1. Restaura el punto de control.
+2. Ejecuta una evaluación pequeña con datos reservados.
+3. Compárala con la métrica registrada al guardar.
+4. Envía un paso de entrenamiento.
+5. Guarda un punto de control nuevo con un nombre nuevo.
+
+Las muestras exactas pueden variar. El modelo restaurado debe conservar la
+calidad esperada, el paso del optimizador debe completarse y el nuevo punto de
+control debe ser direccionable.
+
+Cierra siempre el cliente de servicio en un bloque `finally`:
+
+```python
+service_client.close("success").result()
+```
+
+Para consultar el ciclo de vida completo y las operaciones administrativas,
+consulta la [referencia de compatibilidad](/es/rl-api/compatibility).

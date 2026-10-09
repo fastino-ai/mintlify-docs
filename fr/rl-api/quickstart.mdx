@@ -1,0 +1,164 @@
+---
+title: "Démarrage rapide avec l'API RL"
+description: "Vérifiez l'accès à l'API RL et exécutez une petite tâche d'apprentissage par renforcement avec le livre de recettes Tinker."
+---
+
+Ce tutoriel connecte le SDK Tinker à Fastino, vérifie l'accès de votre équipe et
+exécute deux petites étapes d'apprentissage par renforcement sur GSM8K.
+
+<Warning>
+  La vérification des capacités est en lecture seule. La commande d'entraînement
+  soumet des opérations d'échantillonnage et d'entraînement facturables, puis
+  stocke un checkpoint.
+</Warning>
+
+## Prérequis
+
+Vous avez besoin de Python 3.11 ou d'une version ultérieure, d'une clé d'API
+Fastino et de l'accès à l'API RL activé pour votre équipe.
+
+Créez une clé sur
+[agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys). Les clés Fastino
+commencent par `fast_sk_`.
+
+## 1. Créer un environnement Python
+
+<CodeGroup>
+
+```bash uv
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" tinker-cookbook
+```
+
+```bash pip
+mkdir fastino-rl && cd fastino-rl
+python -m venv .venv
+source .venv/bin/activate
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+</CodeGroup>
+
+## 2. Configurer le client
+
+Définissez le point de terminaison de l'API RL et encapsulez votre clé Fastino
+dans le format d'identifiants attendu par le SDK Tinker :
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+Ne validez aucune de ces clés dans le contrôle de version. Le préfixe `tml-` est
+un préfixe de compatibilité du SDK. Votre clé Fastino reste l'identifiant qui
+authentifie la requête.
+
+## 3. Vérifier l'accès
+
+Créez `check_rl_api.py` :
+
+```python
+import tinker
+
+
+client = tinker.ServiceClient()
+try:
+    capabilities = client.get_server_capabilities()
+    for model in capabilities.supported_models:
+        print(model.model_name)
+finally:
+    client.close("success").result()
+```
+
+Exécutez-le :
+
+```bash
+python check_rl_api.py
+```
+
+Une réponse réussie affiche les modèles actuellement disponibles pour votre
+équipe. Utilisez cette réponse de capacités comme source de vérité lors du choix
+d'un modèle.
+
+Si l'appel renvoie `404 Not Found`, vérifiez que l'URL de base se termine par
+`/tinker`. Si c'est le cas, demandez à Fastino d'activer l'accès à l'API RL pour
+votre équipe.
+
+## 4. Exécuter deux étapes RL
+
+Le livre de recettes Tinker comprend une boucle minimale de type GRPO. Elle
+échantillonne plusieurs réponses pour chaque problème GSM8K, évalue la réponse
+numérique encadrée, centre les récompenses au sein de chaque groupe et applique
+une mise à jour par échantillonnage d'importance.
+
+Commencez par une tâche volontairement petite :
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  batch_size=4 \
+  group_size=4 \
+  max_steps=2 \
+  save_every=1 \
+  log_path=./runs/first-fastino-rl
+```
+
+La première exécution télécharge le jeu de données GSM8K et le tokenizer.
+Pendant l'exécution, le livre de recettes affiche la progression de
+l'échantillonnage, les métriques de récompense et celles de l'optimiseur. À la
+fin, il enregistre un checkpoint final de l'état et les métadonnées locales de
+l'exécution sous le `log_path` choisi.
+
+<Note>
+  `Qwen/Qwen3.6-35B-A3B` est utilisé ici, car il est pris en charge par le
+  contrat actuel de l'API RL. Ne copiez pas le nom d'un modèle depuis un autre
+  environnement Tinker sans vérifier d'abord la réponse de capacités.
+</Note>
+
+## 5. Confirmer que l'apprentissage a bien été effectué
+
+Vérifiez que la sortie de la commande contient ces trois signaux :
+
+- Un lot d'échantillonnage s'est terminé.
+- L'exécution a journalisé une valeur `reward/total`.
+- Une étape d'optimisation a renvoyé des métriques.
+
+Une récompense constante sur deux étapes ne constitue pas un échec. Cette petite
+exécution vérifie le parcours de bout en bout, et non la convergence du modèle.
+
+## 6. Fermer les clients dans votre propre code
+
+Le livre de recettes gère le cycle de vie de son processus. Dans les applications
+de longue durée, fermez chaque `ServiceClient` une fois l'exécution terminée :
+
+```python
+service_client.close("success").result()
+```
+
+La fermeture du client met fin à sa session et libère les entraînements actifs.
+Les checkpoints enregistrés restent disponibles conformément à leurs paramètres
+de rétention.
+
+## Étapes suivantes
+
+<CardGroup cols={2}>
+  <Card
+    title="Comprendre la boucle"
+    icon="diagram-project"
+    href="/fr/rl-api/how-it-works"
+  >
+    Suivez les données depuis un prompt jusqu'à l'échantillonnage, la récompense,
+    l'avantage et la mise à jour.
+  </Card>
+  <Card
+    title="Adapter la récompense"
+    icon="function"
+    href="/fr/cookbooks/rl-verifiable-rewards"
+  >
+    Remplacez l'évaluateur GSM8K par une récompense déterministe adaptée à votre
+    tâche.
+  </Card>
+</CardGroup>

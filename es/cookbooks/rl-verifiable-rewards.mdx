@@ -1,0 +1,322 @@
+---
+title: "RL con recompensas verificables"
+description: "Adapta un bucle de estilo GRPO del recetario de Tinker para entrenar con recompensas deterministas de tareas mediante la API de RL de Fastino."
+---
+
+Esta receta muestra cómo convertir un evaluador determinista en una señal de
+aprendizaje. Úsala cuando una respuesta pueda comprobarse mediante código, como
+una respuesta matemática, el resultado de una prueba, una restricción de
+esquema, una extracción exacta o el resultado del uso de una herramienta.
+
+El patrón es:
+
+```text
+prompt -> sample a group -> grade -> center rewards -> build datums -> update
+```
+
+## Qué vas a construir
+
+Para cada problema, el bucle:
+
+1. Muestrea varias respuestas candidatas de la política actual.
+2. Asigna a cada respuesta una recompensa de `0.0` a `1.0`.
+3. Centra las recompensas dentro del grupo.
+4. Entrena con las respuestas que tengan ventajas distintas de cero.
+
+Esta es una actualización de estilo GRPO. No requiere un modelo de recompensa
+aprendido independiente.
+
+## Comienza con la receta mínima
+
+Instala el SDK y el recetario probados:
+
+```bash
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+Configura Fastino:
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+Ejecuta la receta sin modificaciones una vez antes de cambiarla:
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  batch_size=4 \
+  group_size=4 \
+  max_steps=2 \
+  log_path=./runs/reward-baseline
+```
+
+Esto demuestra que las credenciales, el acceso al modelo, el renderizado, el
+muestreo, el entrenamiento y los puntos de control funcionan antes de que tu
+evaluador forme parte de la ruta.
+
+## 1. Define el contrato del evaluador
+
+Un evaluador determinista útil tiene un contrato específico:
+
+```python
+def get_reward(response: str, expected: str) -> float:
+    """Return a finite reward where larger means better."""
+    actual = parse_answer(response)
+    if actual is None:
+        return 0.0
+    return 1.0 if actual == expected else 0.0
+```
+
+Mantén el análisis separado de la puntuación. Así, el resultado con formato
+incorrecto puede observarse en lugar de tratarse como una excepción en el bucle
+de entrenamiento.
+
+Para una tarea de resultados estructurados:
+
+```python
+import json
+
+
+def parse_label(response: str) -> str | None:
+    try:
+        value = json.loads(response)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(value, dict):
+        return None
+    label = value.get("label")
+    return label if isinstance(label, str) else None
+
+
+def get_reward(response: str, expected: str) -> float:
+    label = parse_label(response)
+    return 1.0 if label == expected else 0.0
+```
+
+<Tip>
+  Registra los errores de análisis por separado de las respuestas válidas
+  incorrectas. Requieren correcciones diferentes en el prompt o la recompensa.
+</Tip>
+
+## 2. Muestrea un grupo de la política actual
+
+Al principio de cada iteración de entrenamiento, crea un muestreador a partir
+de los pesos actuales:
+
+```python
+sampling_client = training_client.save_weights_and_get_sampling_client()
+
+future = sampling_client.sample(
+    prompt=model_input,
+    num_samples=group_size,
+    sampling_params=sampling_params,
+)
+sample_result = future.result()
+```
+
+Registra tanto los tokens generados como sus probabilidades logarítmicas de
+muestreo. La función de pérdida por muestreo de importancia necesita ambos.
+
+## 3. Convierte las recompensas en ventajas
+
+Evalúa cada respuesta y después resta la media del grupo:
+
+```python
+rewards = [
+    get_reward(render_response(sequence.tokens), expected)
+    for sequence in sample_result.sequences
+]
+
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
+```
+
+Omite los grupos en los que todas las ventajas sean cero:
+
+```python
+if all(advantage == 0.0 for advantage in advantages):
+    continue
+```
+
+Los grupos en los que todas las respuestas son correctas o todas son
+incorrectas no aportan ninguna señal relativa. Controla su frecuencia. Una
+frecuencia alta de grupos degenerados suele significar que la tarea es
+demasiado fácil o demasiado difícil, o que la recompensa no distingue entre
+los resultados.
+
+## 4. Construye un datum por respuesta
+
+El prompt es contexto, por lo que su ventaja es cero. La respuesta generada
+contiene la ventaja relativa al grupo:
+
+```python
+import tinker
+import torch
+from tinker import TensorData
+
+
+def build_datum(
+    prompt: tinker.ModelInput,
+    tokens: list[int],
+    logprobs: list[float],
+    advantage: float,
+) -> tinker.Datum:
+    prompt_loss_length = prompt.length - 1
+    model_input = prompt.append(
+        tinker.EncodedTextChunk(tokens=tokens[:-1])
+    )
+
+    target_tokens = [0] * prompt_loss_length + tokens
+    padded_logprobs = [0.0] * prompt_loss_length + logprobs
+    padded_advantages = (
+        [0.0] * prompt_loss_length
+        + [advantage] * (model_input.length - prompt_loss_length)
+    )
+
+    if not (
+        model_input.length
+        == len(target_tokens)
+        == len(padded_logprobs)
+        == len(padded_advantages)
+    ):
+        raise ValueError("RL datum arrays are not aligned")
+
+    return tinker.Datum(
+        model_input=model_input,
+        loss_fn_inputs={
+            "target_tokens": TensorData.from_torch(
+                torch.tensor(target_tokens)
+            ),
+            "logprobs": TensorData.from_torch(
+                torch.tensor(padded_logprobs)
+            ),
+            "advantages": TensorData.from_torch(
+                torch.tensor(padded_advantages)
+            ),
+        },
+    )
+```
+
+Usa el tokenizador y el renderizador asociados con el modelo base seleccionado.
+No decodifiques con un renderizador y reconstruyas las entradas con otro.
+
+## 5. Aplica la actualización
+
+Combina los grupos no degenerados en una sola lista de datums y envía la
+actualización:
+
+```python
+if datums:
+    train_future = training_client.forward_backward(
+        datums,
+        loss_fn="importance_sampling",
+    )
+    optim_future = training_client.optim_step(
+        tinker.AdamParams(
+            learning_rate=4e-5,
+            beta1=0.9,
+            beta2=0.95,
+        )
+    )
+
+    train_result = train_future.result()
+    optim_result = optim_future.result()
+```
+
+El SDK ordena estas operaciones para el cliente de entrenamiento. Resuelve
+ambos futures y registra sus métricas antes de avanzar el paso de tu aplicación.
+
+## 6. Guarda puntos de control en límites útiles
+
+Guarda el estado completo con una cadencia fija y cuando mejore la recompensa
+de evaluación:
+
+```python
+checkpoint = training_client.save_state(
+    f"step-{step:06d}"
+).result()
+print(checkpoint.path)
+```
+
+Almacena la ruta `tinker://` devuelta junto con:
+
+- Paso de la aplicación
+- Revisión del conjunto de datos
+- Revisión de la implementación de la recompensa
+- Modelo base
+- Rango de LoRA
+- Parámetros del optimizador
+- Métricas de evaluación
+
+Ese registro permite a un agente decidir qué punto de control reanudar sin
+tener que deducirlo solo a partir de los nombres.
+
+## Comprobaciones del diseño de la recompensa
+
+Antes de una ejecución larga, prueba la función de recompensa con un conjunto
+de fixtures fijo.
+
+| Comprobación | Por qué es importante |
+| --- | --- |
+| El resultado correcto recibe una recompensa mayor | Demuestra la dirección de la optimización |
+| El resultado con formato incorrecto no bloquea el bucle | Evita que un rollout haga perder un lote |
+| Los formatos válidos equivalentes se normalizan de igual forma | Evita entrenar accidentes de formato |
+| Las recompensas son finitas | Evita ventajas no válidas |
+| Un lote de muestras presenta varianza en las recompensas | Demuestra que existe una señal de aprendizaje relativa |
+| Los casos de evaluación ocultos no forman parte del entrenamiento | Evita que el sobreajuste a la recompensa se confunda con progreso |
+
+## Adapta el patrón
+
+### Generación de código
+
+Ejecuta el código generado en un sandbox con recursos limitados. Recompensa las
+pruebas superadas y añade después componentes pequeños y acotados para la
+cobertura parcial de pruebas o la eficiencia. Nunca ejecutes resultados no
+fiables del modelo en el proceso de entrenamiento.
+
+### Uso de herramientas
+
+Analiza la llamada a la herramienta, valida su esquema, ejecútala sobre un
+fixture aislado y recompensa el estado resultante. Evalúa el resultado, no solo
+la sintaxis de la llamada.
+
+### Extracción y resultados estructurados
+
+Valida contra un esquema y compara valores normalizados. Mantén una recompensa
+de formato independiente solo cuando la forma de la salida sea realmente parte
+de la tarea.
+
+### Entornos de varios pasos
+
+Acumula las recompensas de transición en una recompensa de trayectoria y
+después calcula las ventajas entre trayectorias para el mismo problema inicial.
+Mantén aislados el estado del entorno y los efectos secundarios entre los
+miembros del grupo.
+
+## Diagnostica una ejecución
+
+| Señal | Interpretación | Siguiente acción |
+| --- | --- | --- |
+| Casi todos los grupos contienen solo ceros | La tarea puede ser demasiado difícil o el analizador rechaza respuestas válidas | Inspecciona las muestras sin procesar y la frecuencia de errores de análisis |
+| Casi todos los grupos contienen solo unos | La tarea puede ser demasiado fácil | Aumenta la dificultad o usa una recompensa más estricta |
+| La recompensa aumenta, pero la calidad en el conjunto reservado no | Se está explotando la recompensa | Añade comprobaciones ocultas e inspecciona los errores con recompensa alta |
+| Error de alineación de datums | Discrepancia en el renderizador, los tokens, la probabilidad logarítmica o el relleno | Muestra las longitudes de una respuesta y compáralas con la receta |
+| La función de pérdida es inestable | El tamaño del paso o la escala de la recompensa pueden ser demasiado grandes | Reduce la tasa de aprendizaje y limita las recompensas |
+
+## Criterios de finalización
+
+Una adaptación correcta tiene:
+
+- Al menos un grupo no degenerado
+- Métricas finitas de recompensa, función de pérdida y optimizador
+- Una evaluación con datos reservados independiente del lote de recompensas de entrenamiento
+- Un punto de control de estado que se pueda restaurar
+- Suficientes metadatos registrados para reproducir la ejecución
+
+Para conocer el modelo de objetos y estados de esta receta, consulta
+[Cómo funciona la API de RL](/es/rl-api/how-it-works).

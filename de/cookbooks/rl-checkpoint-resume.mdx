@@ -1,0 +1,257 @@
+---
+title: "Checkpoint speichern und RL-Lauf fortsetzen"
+description: "Speichern Sie Modell- und Optimizer-Status sowie den Loop-Fortschritt und setzen Sie RL fort, ohne abgeschlossene Arbeit zu wiederholen."
+---
+
+Ein RL-Checkpoint schützt den Modellstatus. Ein vollständiger Datensatz zur
+Fortsetzung schützt außerdem den Anwendungsstatus, der Ihrem Loop vorgibt, was
+als Nächstes zu tun ist.
+
+Verwenden Sie dieses Muster für lange Jobs, unterbrechbare Orchestratoren und
+von Agenten verwaltete Experimente.
+
+## Was gespeichert werden muss
+
+Behandeln Sie einen fortsetzbaren Schritt als zwei koordinierte Datensätze:
+
+| Datensatz | Enthält | Gespeichert von |
+| --- | --- | --- |
+| Status-Checkpoint | LoRA-Gewichte und Optimizer-Status | RL API |
+| Loop-Datensatz | Schritt, Dataset-Cursor, Konfiguration und Checkpoint-Pfad | Ihre Anwendung |
+
+Wenn Sie nur den Modellstatus speichern, können Sie die Policy wiederherstellen,
+der Anwendung jedoch nicht mitteilen, welche Beispiele bereits verarbeitet
+wurden. Wenn Sie nur eine Schrittnummer speichern, können Sie die Policy, die
+sie erzeugt hat, nicht wiederherstellen.
+
+## 1. Client konfigurieren
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+Pinnen Sie das getestete SDK:
+
+```bash
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+## 2. Status und Loop-Fortschritt speichern
+
+Das Cookbook-Hilfsprogramm schreibt einen serverseitigen Status-Checkpoint und
+hängt dessen Pfad zusammen mit Ihren Loop-Feldern an `checkpoints.jsonl` an:
+
+```python
+from tinker_cookbook import checkpoint_utils
+
+
+paths = checkpoint_utils.save_checkpoint(
+    training_client=training_client,
+    name=f"step-{step:06d}",
+    log_path=log_path,
+    kind="state",
+    loop_state={
+        "step": step,
+        "dataset_cursor": dataset_cursor,
+        "reward_version": reward_version,
+    },
+    ttl_seconds=7 * 24 * 60 * 60,
+)
+
+print(paths["state_path"])
+```
+
+<Tip>
+  Verwenden Sie in einem asynchronen Trainingsloop `await
+  checkpoint_utils.save_checkpoint_async(...)` mit denselben Feldern. Rufen Sie
+  den synchronen Wrapper nicht aus einem laufenden Event-Loop auf.
+</Tip>
+
+Der zurückgegebene Pfad hat diese Form:
+
+```text
+tinker://<run-id>/weights/step-000100
+```
+
+Die Gültigkeitsdauer gilt für den serverseitigen Checkpoint. Bewahren Sie einen
+finalen Checkpoint ohne TTL auf, wenn es sich um ein Artefakt handelt, das Sie
+behalten möchten.
+
+<Warning>
+  Der Cookbook-Helper fordert kein Überschreiben an. Die Wiederverwendung eines
+  Checkpoint-Namens wird daher abgelehnt. Der Low-Level-Aufruf
+  `save_state(..., overwrite=True)` kann einen Status-Checkpoint ausdrücklich
+  ersetzen, aber eindeutige Namen sind sicherere Wiederherstellungsmarker.
+</Warning>
+
+## 3. Den neuesten gültigen Fortsetzungspunkt finden
+
+Lesen Sie beim Prozessstart den letzten lokalen Datensatz, der einen
+Statuspfad enthält:
+
+```python
+resume = checkpoint_utils.get_last_checkpoint(
+    log_path,
+    required_key="state_path",
+)
+```
+
+Behandeln Sie beide Pfade explizit:
+
+```python
+if resume is None:
+    training_client = service_client.create_lora_training_client(
+        base_model=model_name,
+        rank=lora_rank,
+    )
+    start_step = 0
+    dataset_cursor = 0
+else:
+    saved_step = resume.get("step")
+    saved_cursor = resume.get("dataset_cursor")
+    if not isinstance(saved_step, int) or not isinstance(saved_cursor, int):
+        raise ValueError("resume record has no valid step or dataset cursor")
+
+    training_client = (
+        service_client.create_training_client_from_state_with_optimizer(
+            resume.state_path
+        )
+    )
+    start_step = saved_step + 1
+    dataset_cursor = saved_cursor
+```
+
+`create_training_client_from_state_with_optimizer(...)` erstellt aus den
+gespeicherten Gewichten und dem Optimizer-Status einen neuen geordneten
+Trainingslauf.
+
+## 4. Datensatz zur Fortsetzung validieren
+
+Vergleichen Sie den gespeicherten Loop-Datensatz mit dem angeforderten Lauf,
+bevor das Training fortgesetzt wird:
+
+```python
+if resume is not None and resume.get("reward_version") != reward_version:
+    raise ValueError(
+        "reward implementation changed; start a new run or approve the change"
+    )
+```
+
+Validieren Sie mindestens:
+
+- Basismodell
+- LoRA-Rang und trainierbares Layout
+- Dataset-Revision und -Cursor
+- Revision der Reward-Implementierung
+- Optimizer-Familie und vorgesehener Zeitplan
+- Annahmen zu Renderer und Tokenizer
+
+Ein Agent sollte anhalten und um eine Entscheidung bitten, wenn diese Felder
+einander widersprechen. Er sollte einen Checkpoint nicht stillschweigend mit
+einem anderen Experiment kombinieren.
+
+## 5. Die Schrittgrenze atomar gestalten
+
+Verwenden Sie diese Reihenfolge:
+
+1. Trainings- und Optimizer-Futures auflösen.
+2. Den Status-Checkpoint speichern.
+3. Den Loop-Datensatz mit dem zurückgegebenen Pfad dauerhaft speichern.
+4. Den Anwendungsschritt als abgeschlossen markieren.
+5. Den nächsten Schritt beginnen.
+
+Wenn der Prozess nach Schritt 2, aber vor Schritt 3 beendet wird, kann der
+Server einen Checkpoint ohne Referenz enthalten. Dies verschwendet Speicher,
+beschädigt aber nicht den vorherigen Fortsetzungspunkt. Bei einer späteren
+Bereinigung kann er gelöscht werden.
+
+Markieren Sie einen Schritt nicht als abgeschlossen, bevor der Checkpoint-Pfad
+dauerhaft gespeichert ist.
+
+## 6. Sampler-Artefakte getrennt halten
+
+Verwenden Sie einen Status-Checkpoint, um das Training fortzusetzen:
+
+```python
+state = training_client.save_state("step-000100").result()
+```
+
+Verwenden Sie Sampler-Gewichte für Evaluierung oder Serving:
+
+```python
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
+
+Die beiden Pfade haben unterschiedliche Zwecke:
+
+```text
+tinker://<run-id>/weights/<name>
+tinker://<run-id>/sampler_weights/<name>
+```
+
+Wählen Sie keinen Sampler-Checkpoint als Fortsetzungspunkt für den Optimizer.
+
+## 7. Speicher begrenzen
+
+Eine praktische Aufbewahrungsrichtlinie verwendet:
+
+- Kurzlebige rollierende Status-Checkpoints zur Wiederherstellung nach Abstürzen
+- Längerlebige regelmäßige Status- und Sampler-Checkpoints für Vergleiche
+- Einen dauerhaften finalen Checkpoint
+
+Der `CheckpointManager` des Tinker-Cookbooks implementiert dieses Muster
+einschließlich der Löschung rollierender Checkpoints und TTLs:
+
+```python
+manager = checkpoint_utils.CheckpointManager(
+    training_client=training_client,
+    service_client=service_client,
+    log_path=log_path,
+    save_every=20,
+    rolling_save_every=1,
+    ttl_seconds=7 * 24 * 60 * 60,
+    rolling_ttl_seconds=2 * 60 * 60,
+)
+```
+
+Checkpoint-Speicher wird über die Zeit gemessen. Löschen Sie Checkpoints, die
+nicht mehr Teil Ihres Wiederherstellungs-, Evaluierungs- oder Release-Plans
+sind.
+
+## Wiederherstellungsentscheidungen für Agenten
+
+| Situation | Maßnahme |
+| --- | --- |
+| Kein lokaler Datensatz zur Fortsetzung | Einen neuen Lauf starten |
+| Datensatz zur Fortsetzung und Checkpoint sind vorhanden | Metadaten validieren und anschließend wiederherstellen |
+| Lokaler Datensatz ist vorhanden, aber Checkpoint fehlt | Auf einen früheren gültigen Datensatz zurückgreifen oder den Benutzer fragen |
+| Checkpoint ist ohne lokalen Datensatz vorhanden | Als nicht klassifiziert behandeln; Dataset-Cursor nicht erraten |
+| Reward- oder Dataset-Revision hat sich geändert | Neues Experiment starten, sofern der Benutzer die Fortsetzung nicht genehmigt |
+| Live-Lauf meldet nicht wiederherstellbaren Status | Vom neuesten expliziten Status-Checkpoint wiederherstellen |
+
+## Den fortgesetzten Lauf prüfen
+
+Vor einer umfangreichen Fortsetzung:
+
+1. Den Checkpoint wiederherstellen.
+2. Eine kleine zurückgehaltene Evaluierung ausführen.
+3. Sie mit der beim Speichern aufgezeichneten Metrik vergleichen.
+4. Einen Trainingsschritt übermitteln.
+5. Einen neuen Checkpoint unter einem neuen Namen speichern.
+
+Exakte Samples können variieren. Das wiederhergestellte Modell sollte die
+erwartete Qualität beibehalten, der Optimizer-Schritt sollte abgeschlossen
+werden und der neue Checkpoint sollte adressierbar sein.
+
+Schließen Sie den Service-Client immer in einem `finally`-Block:
+
+```python
+service_client.close("success").result()
+```
+
+Den vollständigen Lebenszyklus und die administrativen Operationen finden Sie
+in der [Kompatibilitätsreferenz](/de/rl-api/compatibility).

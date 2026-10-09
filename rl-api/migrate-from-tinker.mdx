@@ -1,0 +1,197 @@
+---
+title: "Migrate from Tinker"
+description: "Move an existing Tinker SDK or cookbook workload to Fastino's RL API."
+---
+
+Fastino's RL API implements the Tinker SDK contract. Most migrations keep the
+training loop unchanged and replace four integration points:
+
+1. Endpoint
+2. Credential
+3. Model name
+4. Operational assumptions
+
+This guide treats the existing program as the acceptance test. Change the
+connection first, run a short job, and only then tune the algorithm.
+
+## 1. Pin a tested SDK
+
+Fastino currently tests the contract with:
+
+```text
+tinker==0.32.0
+```
+
+The minimum supported client is `0.25.0`. Pin `0.32.0` during migration so an
+unrelated SDK upgrade cannot obscure a connection or compatibility issue.
+
+<CodeGroup>
+
+```bash uv
+uv add "tinker==0.32.0"
+```
+
+```bash pip
+pip install "tinker==0.32.0"
+```
+
+</CodeGroup>
+
+## 2. Replace the endpoint and key
+
+Existing code that constructs `tinker.ServiceClient()` without explicit
+arguments can move through environment variables alone:
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+The `tml-` portion is a compatibility prefix consumed by the Tinker SDK.
+Fastino authenticates the `fast_sk_...` key inside it.
+
+If your application passes values explicitly, make the equivalent change:
+
+```python
+import os
+
+import tinker
+
+
+service_client = tinker.ServiceClient(
+    base_url="https://api.fastino.ai/tinker",
+    api_key=f"tml-{os.environ['FASTINO_API_KEY']}",
+)
+```
+
+Do not append `/api/v1`. The SDK adds its own route path.
+
+## 3. Select a Fastino-supported model
+
+Do not assume that a model available in another Tinker environment is available
+on Fastino. Query capabilities during migration:
+
+```python
+capabilities = service_client.get_server_capabilities()
+for model in capabilities.supported_models:
+    print(model.model_name)
+```
+
+The current contract includes:
+
+| Model | Context window | Maximum LoRA rank |
+| --- | ---: | ---: |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 tokens | 32 |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 tokens | 32 |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 tokens | 32 |
+
+Use the live capability response for production decisions. This table describes
+the current limited-access contract and may lag a newly deployed model.
+
+## 4. Preserve the learning loop
+
+These core calls keep their Tinker SDK shapes:
+
+```python
+training_client = service_client.create_lora_training_client(
+    base_model=model_name,
+    rank=32,
+)
+
+sampling_client = training_client.save_weights_and_get_sampling_client()
+sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
+sample_result = sample_future.result()
+
+train_future = training_client.forward_backward(
+    datums,
+    loss_fn="importance_sampling",
+)
+optim_future = training_client.optim_step(adam_params)
+train_result = train_future.result()
+optim_result = optim_future.result()
+```
+
+Keep your renderer, prompt construction, reward function, advantage
+calculation, batching, and stopping criteria unchanged for the first migration
+test.
+
+## 5. Migrate a cookbook command
+
+If a cookbook recipe accepts `base_url`, pass Fastino's endpoint and select a
+supported model:
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  max_steps=2 \
+  batch_size=4 \
+  group_size=4 \
+  log_path=./runs/fastino-migration-check
+```
+
+Use the same pattern for other recipes that expose `base_url`. If a recipe
+constructs `ServiceClient()` without a base URL argument, the
+`TINKER_BASE_URL` environment variable supplies it.
+
+<Warning>
+  A current checkout of the upstream cookbook can name models that Fastino does
+  not serve. Change the model even when the rest of the recipe is compatible.
+</Warning>
+
+## 6. Verify a small run
+
+Use a low-cost acceptance run before restoring production batch sizes:
+
+- Fetch capabilities.
+- Create one LoRA training client.
+- Sample one small group.
+- Submit one forward-backward operation.
+- Apply one optimizer step.
+- Save one state checkpoint.
+- Create a new training client from that checkpoint.
+- Close the service client.
+
+Compare semantic results, not exact floating-point values. Different supported
+models and infrastructure can produce different samples and metrics.
+
+## 7. Review operational differences
+
+| Area | Migration action |
+| --- | --- |
+| Access | RL API access is enabled per Fastino team. A disabled team receives `404 Not Found`. |
+| Authentication | Use a Fastino API key wrapped with the `tml-` compatibility prefix. |
+| Models | Choose from the capability response. Do not retain an unsupported source model. |
+| Billing | Usage is billed to the Fastino team and project associated with the session. |
+| Session lifecycle | Close `ServiceClient` to release active runs. |
+| Recovery | Keep explicit checkpoints as your application-controlled recovery boundary. |
+| Future results | Resolve and persist completed results within one hour. |
+| Cancellation | Cancellation applies to sampling, not individual training operations. |
+| Published checkpoints | Publication does not enable another Fastino team to load a checkpoint. |
+| Trace export | Remove code that requires Tinker's trace export. It is not supported. |
+| Audit entries | Do not depend on audit history. Audit calls return no entries. |
+
+See the [compatibility reference](/rl-api/compatibility) for supported losses,
+checkpoint management, and known differences.
+
+## Migration checklist
+
+- [ ] Pin `tinker==0.32.0`.
+- [ ] Set `TINKER_BASE_URL` to `https://api.fastino.ai/tinker`.
+- [ ] Wrap the Fastino key as `tml-fast_sk_...`.
+- [ ] Confirm the team has RL API access.
+- [ ] Replace unsupported model names.
+- [ ] Run one sampling and training step.
+- [ ] Save and restore a state checkpoint.
+- [ ] Remove dependencies on unsupported trace or audit data.
+- [ ] Close the service client.
+- [ ] Increase workload size only after the acceptance run passes.
+
+<Card
+  title="Check the full compatibility matrix"
+  icon="list-check"
+  href="/rl-api/compatibility"
+>
+  Review SDK versions, methods, losses, models, limits, and failure behavior.
+</Card>

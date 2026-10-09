@@ -62,6 +62,12 @@ REQUIRED_DISCOVERY_LINKS = {
     "base models": "/api-reference/training/base-models.md",
     "dataset upload": "/api-reference/datasets/upload-url.md",
     "training creation": "/api-reference/training-jobs/create.md",
+    "RL API": "/rl-api.md",
+    "RL API quickstart": "/rl-api/quickstart.md",
+    "Tinker migration": "/rl-api/migrate-from-tinker.md",
+    "RL API compatibility": "/rl-api/compatibility.md",
+    "verifiable rewards": "/cookbooks/rl-verifiable-rewards.md",
+    "RL checkpoint resume": "/cookbooks/rl-checkpoint-resume.md",
     "errors": "/troubleshooting/errors.md",
     "retries": "/troubleshooting/retries.md",
 }
@@ -77,6 +83,11 @@ JOURNEY_PAGES = (
     "inference/systemone.mdx",
     "inference/chat-completions.mdx",
     "training.mdx",
+    "rl-api.mdx",
+    "rl-api/quickstart.mdx",
+    "rl-api/how-it-works.mdx",
+    "rl-api/migrate-from-tinker.mdx",
+    "rl-api/compatibility.mdx",
     "troubleshooting/errors.mdx",
     "troubleshooting/retries.mdx",
     "api-reference/inference/overview.mdx",
@@ -87,6 +98,48 @@ COOKBOOK_DIR = "cookbooks"
 COOKBOOK_ENDPOINTS = {
     "/v1/systemone": "X-API-Key: $FASTINO_API_KEY",
     "/v1/chat/completions": "Authorization: Bearer $FASTINO_API_KEY",
+}
+SDK_COOKBOOK_MARKERS = {
+    "rl-verifiable-rewards.mdx": (
+        "https://api.fastino.ai/tinker",
+        "TINKER_API_KEY",
+        "get_reward",
+        "importance_sampling",
+        "save_state",
+    ),
+    "rl-checkpoint-resume.mdx": (
+        "https://api.fastino.ai/tinker",
+        "TINKER_API_KEY",
+        "save_checkpoint",
+        "create_training_client_from_state_with_optimizer",
+        "CheckpointManager",
+    ),
+}
+RL_CONTRACT_MARKERS = {
+    "rl-api.mdx": (
+        "tinker==0.32.0",
+        "/rl-api/migrate-from-tinker",
+        "/rl-api/compatibility",
+    ),
+    "rl-api/quickstart.mdx": (
+        "https://api.fastino.ai/tinker",
+        "TINKER_API_KEY",
+        "get_server_capabilities",
+        'close("success").result()',
+    ),
+    "rl-api/migrate-from-tinker.mdx": (
+        "0.25.0",
+        "0.32.0",
+        "tml-${FASTINO_API_KEY}",
+        "get_server_capabilities",
+    ),
+    "rl-api/compatibility.mdx": (
+        "Qwen/Qwen3.6-35B-A3B",
+        "NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+        "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+        "importance_sampling",
+        "32 MiB",
+    ),
 }
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\((?P<target>/[^)\s]+)\)")
@@ -620,6 +673,22 @@ def _journey_discovery_findings() -> list[str]:
     return findings
 
 
+def _rl_contract_findings(root: Path = ROOT) -> list[str]:
+    findings: list[str] = []
+    for relative, markers in RL_CONTRACT_MARKERS.items():
+        path = root / relative
+        if not path.is_file():
+            findings.append(f"RL CONTRACT: page is missing: {relative}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        missing = [marker for marker in markers if marker not in text]
+        if missing:
+            findings.append(
+                f"RL CONTRACT: {relative} is missing required markers: {missing}"
+            )
+    return findings
+
+
 def _journey_findings(
     document: dict[str, object],
     operations: dict[tuple[str, str], dict[str, object]],
@@ -753,6 +822,12 @@ def _cookbook_findings(
         try:
             if FRONTMATTER.match(text) is None:
                 fail("COOKBOOK: page has invalid frontmatter")
+            if page.name in SDK_COOKBOOK_MARKERS:
+                required = SDK_COOKBOOK_MARKERS[page.name]
+                missing = [marker for marker in required if marker not in text]
+                if missing:
+                    fail(f"RL COOKBOOK: missing contract markers: {missing}")
+                continue
             request = _cookbook_request(text)
             _validate_value(
                 request.body,
@@ -773,6 +848,7 @@ def run_static() -> None:
     config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
     findings = local_docs_findings(ROOT, document)
     findings.extend(_journey_discovery_findings())
+    findings.extend(_rl_contract_findings())
     findings.extend(_local_link_findings())
     findings.extend(_redirect_findings(config))
     findings.extend(_locale_parity_findings(config, operations))

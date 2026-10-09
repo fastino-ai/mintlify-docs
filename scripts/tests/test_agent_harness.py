@@ -164,6 +164,9 @@ class AgentHarnessTests(unittest.TestCase):
     def test_agent_index_orders_guides_before_contracts(self) -> None:
         self.assertEqual(CHECKS._journey_order_findings(HARNESS.ROOT), [])
 
+    def test_rl_pages_keep_the_sdk_contract_markers(self) -> None:
+        self.assertEqual(HARNESS._rl_contract_findings(), [])
+
     def test_operation_matching_handles_path_parameters_and_queries(self) -> None:
         operations = {
             ("get", "/v1/training-jobs/{job_id}"): {"responses": {}},
@@ -183,6 +186,10 @@ class AgentHarnessTests(unittest.TestCase):
 
         self.assertEqual(training[0], "/v1/training-jobs/{job_id}")
         self.assertEqual(catalog[0], "/v1/base-models")
+
+    def test_tinker_sdk_base_is_an_allowed_non_openapi_url(self) -> None:
+        self.assertTrue(CHECKS._path_matches_route("/tinker", {}))
+        self.assertFalse(CHECKS._path_matches_route("/not-a-public-route", {}))
 
     def test_schema_validation_rejects_missing_required_field(self) -> None:
         document = {
@@ -311,6 +318,14 @@ curl https://api.fastino.ai/v1/systemone \\
             HARNESS._cookbook_findings({}, {}, []),
             [f"COOKBOOK: {HARNESS.COOKBOOK_DIR}/ exists but has no cookbook pages"],
         )
+
+    def test_rl_cookbook_uses_the_sdk_contract_checks(self) -> None:
+        pages = [
+            HARNESS.ROOT / "cookbooks/rl-verifiable-rewards.mdx",
+            HARNESS.ROOT / "cookbooks/rl-checkpoint-resume.mdx",
+        ]
+
+        self.assertEqual(HARNESS._cookbook_findings({}, {}, pages), [])
 
     GLIDE_DOCUMENTED = {
         "model": "fastino/GLiDE",

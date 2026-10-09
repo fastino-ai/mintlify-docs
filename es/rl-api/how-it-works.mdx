@@ -1,0 +1,163 @@
+---
+title: "Cómo funciona la API de RL"
+description: "Comprende el bucle de control, los objetos cliente y las transiciones de estado del entrenamiento de RL."
+---
+
+La API de RL separa el programa de aprendizaje del cómputo del modelo. Tu
+proceso decide qué muestrear, cómo puntuarlo y cuándo actualizar. Fastino
+ejecuta el muestreo, las pasadas hacia delante y hacia atrás, los pasos del
+optimizador y las operaciones de puntos de control.
+
+## El bucle de control
+
+<Steps>
+  <Step title="Crea un cliente de entrenamiento">
+    Elige un modelo base compatible y un rango de LoRA. El cliente representa
+    una ejecución de entrenamiento ordenada con sus propios pesos, estado del
+    optimizador y secuencia de operaciones.
+  </Step>
+  <Step title="Captura la política actual para el muestreo">
+    Llama a `save_weights_and_get_sampling_client()`. Los rollouts deben
+    proceder de la política que estás a punto de mejorar, no de pesos no
+    relacionados u obsoletos.
+  </Step>
+  <Step title="Recopila grupos de rollouts">
+    Envía un prompt varias veces o solicita varias muestras en una sola llamada.
+    Un grupo proporciona a la función de recompensa alternativas que comparar
+    para el mismo problema.
+  </Step>
+  <Step title="Calcula recompensas y ventajas">
+    Puntúa cada respuesta. Después, transforma las recompensas en ventajas. En
+    un bucle de estilo GRPO, resta la recompensa media del grupo a la recompensa
+    de cada respuesta.
+  </Step>
+  <Step title="Construye los datums de entrenamiento">
+    Combina los tokens del prompt, los tokens de la respuesta muestreada, las
+    probabilidades logarítmicas del muestreo y las ventajas por token. Los
+    tokens del prompt suelen recibir una ventaja de cero.
+  </Step>
+  <Step title="Actualiza la política">
+    Envía los datums con `forward_backward(...,
+    loss_fn="importance_sampling")` y después llama a `optim_step(...)`.
+  </Step>
+  <Step title="Guarda un punto de control y repite">
+    Guarda el estado duradero en límites útiles, crea un cliente de muestreo
+    nuevo a partir de los pesos actualizados e inicia la siguiente iteración.
+  </Step>
+</Steps>
+
+## Modelo de objetos cliente
+
+| Objeto | Responsabilidad | Duración habitual |
+| --- | --- | --- |
+| `ServiceClient` | Abre una sesión, informa de las capacidades, crea clientes de entrenamiento y muestreo, y expone el cliente REST | Una ejecución lógica de la aplicación |
+| `TrainingClient` | Controla una ejecución ordenada de entrenamiento LoRA y su estado del optimizador | Una política que se está entrenando |
+| `SamplingClient` | Muestrea o calcula probabilidades logarítmicas a partir de un modelo base o pesos guardados | Una captura de la política o un punto de control reutilizable |
+| `RestClient` | Enumera ejecuciones y puntos de control, gestiona la visibilidad y la retención, e informa del uso de almacenamiento | Operaciones administrativas |
+| Future | Realiza el seguimiento de una operación enviada y devuelve su resultado | Una operación |
+
+Cerrar un `ServiceClient` finaliza la sesión y libera sus ejecuciones de
+entrenamiento activas. No elimina los puntos de control.
+
+## Por qué funcionan las recompensas agrupadas
+
+Supongamos que cuatro respuestas a un prompt reciben estas recompensas:
+
+```text
+[1.0, 0.0, 1.0, 0.0]
+```
+
+La recompensa media es `0.5`, por lo que las ventajas relativas al grupo son:
+
+```text
+[0.5, -0.5, 0.5, -0.5]
+```
+
+Los valores positivos refuerzan los tokens de las respuestas que obtuvieron una
+puntuación superior a la media del grupo. Los valores negativos reducen la
+probabilidad de las respuestas por debajo de la media.
+
+Si todas las respuestas reciben la misma recompensa, todas las ventajas
+centradas son cero. Ese grupo no aporta ninguna señal de aprendizaje relativa y
+puede omitirse.
+
+## Qué contiene un datum
+
+Para el bucle habitual de muestreo por importancia, cada datum contiene:
+
+- El prompt seguido de la finalización muestreada
+- Tokens objetivo alineados con la entrada del modelo
+- Probabilidades logarítmicas registradas durante el muestreo
+- Ventajas aplicadas a los tokens de finalización
+
+El prefijo del prompt es contexto, no una acción seleccionada por la política.
+Asigna cero a sus valores de ventaja. Aplica la ventaja de la respuesta a las
+posiciones de los tokens generados.
+
+<Warning>
+  Los arrays de tokens deben tener las longitudes que esperan el renderizador y
+  el SDK. Reutiliza el renderizador que corresponda al modelo base seleccionado.
+  Un formateador de otro modelo puede producir secuencias de parada o una
+  alineación de tokens incorrectas.
+</Warning>
+
+## Actualizaciones ordenadas e idempotentes
+
+Una ejecución de entrenamiento es una máquina de estados ordenada. El SDK
+asigna IDs de secuencia a operaciones como las pasadas hacia delante y hacia
+atrás, los pasos del optimizador, los guardados y las cargas.
+
+Si se reintenta una solicitud con la misma ejecución, el mismo ID de secuencia y
+el mismo cuerpo, la API de RL devuelve la operación original en lugar de
+aplicarla dos veces. Si se reutiliza ese ID de secuencia con un cuerpo diferente,
+la solicitud se rechaza. Esto protege el estado del optimizador cuando un
+cliente reintenta una operación después de una interrupción de red.
+
+No envíes operaciones para un cliente de entrenamiento desde procesos
+independientes a menos que compartan un único mecanismo de ordenación.
+
+## Estado activo y estado duradero
+
+Los pesos de entrenamiento, los gradientes pendientes y el estado del
+optimizador son estado activo. La API de RL puede intentar reconstruir una
+ejecución después de una reducción por inactividad o una interrupción de la
+infraestructura. La recuperación automática comienza desde una base de
+reproducción y reproduce las mutaciones registradas de `forward_backward` y
+`optim_step`. No reproduce todas las operaciones de la API, y la recuperación
+puede fallar cuando se desconoce el resultado de una mutación o cuando los datos
+de reproducción necesarios ya no están disponibles.
+
+Tus puntos de control explícitos son el límite de recuperación que controlas:
+
+- `save_state(name)` almacena los pesos de entrenamiento y el estado del optimizador.
+- `save_weights_for_sampler(name)` almacena los pesos para el muestreo.
+- `create_training_client_from_state(path)` inicia una ejecución nueva desde un estado guardado.
+- `load_state(path)` restaura un punto de control compatible en una ejecución existente.
+
+Guarda el estado antes de un trabajo externo prolongado, antes de un cambio de
+código arriesgado y en los hitos que quizá quieras comparar o reanudar.
+
+## Límites de costes
+
+El muestreo se mide por tokens de entrada, entrada en caché y salida. Las
+operaciones hacia delante y hacia delante-atrás se miden por tokens de
+entrenamiento. El almacenamiento de puntos de control se mide a lo largo del
+tiempo.
+
+Crear un cliente de modelo, aplicar un paso del optimizador y guardar o cargar
+un punto de control no añaden por sí mismos uso de tokens. El trabajo con tokens
+y los bytes almacenados siguen determinando el uso asociado.
+
+## Un patrón fiable para producción
+
+1. Consulta las capacidades del servidor al iniciar.
+2. Fija una versión del SDK que tu aplicación haya probado.
+3. Mantén concurrente la generación de rollouts, pero ordenadas las actualizaciones de entrenamiento.
+4. Registra juntos la ruta del punto de control y el paso de la aplicación.
+5. Usa reintentos limitados al recuperar los resultados de los futures.
+6. Cierra el cliente de servicio en un bloque `finally`.
+7. Conserva solo los puntos de control que necesites.
+
+Para ver la construcción concreta de datums y un evaluador determinista,
+continúa con la [receta de recompensas
+verificables](/es/cookbooks/rl-verifiable-rewards).

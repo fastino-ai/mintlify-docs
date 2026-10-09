@@ -1,0 +1,164 @@
+---
+title: "Guía rápida de la API de RL"
+description: "Verifica el acceso a la API de RL y ejecuta un trabajo pequeño de aprendizaje por refuerzo con el recetario de Tinker."
+---
+
+Este tutorial conecta el SDK de Tinker con Fastino, verifica el acceso de tu
+equipo y ejecuta dos pasos pequeños de aprendizaje por refuerzo en GSM8K.
+
+<Warning>
+  La comprobación de capacidad es de solo lectura. El comando de entrenamiento
+  envía operaciones facturables de muestreo y entrenamiento, y almacena un
+  punto de control.
+</Warning>
+
+## Requisitos previos
+
+Necesitas Python 3.11 o posterior, una clave de API de Fastino y acceso a la API
+de RL habilitado para tu equipo.
+
+Crea una clave en
+[agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys). Las claves de
+Fastino comienzan por `fast_sk_`.
+
+## 1. Crea un entorno de Python
+
+<CodeGroup>
+
+```bash uv
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" tinker-cookbook
+```
+
+```bash pip
+mkdir fastino-rl && cd fastino-rl
+python -m venv .venv
+source .venv/bin/activate
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+</CodeGroup>
+
+## 2. Configura el cliente
+
+Configura el endpoint de la API de RL y encapsula tu clave de Fastino en el
+formato de credencial que espera el SDK de Tinker:
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+No confirmes ninguna de las claves en el control de versiones. El prefijo
+`tml-` es un prefijo de compatibilidad del SDK. Tu clave de Fastino sigue siendo
+la credencial que autentica la solicitud.
+
+## 3. Verifica el acceso
+
+Crea `check_rl_api.py`:
+
+```python
+import tinker
+
+
+client = tinker.ServiceClient()
+try:
+    capabilities = client.get_server_capabilities()
+    for model in capabilities.supported_models:
+        print(model.model_name)
+finally:
+    client.close("success").result()
+```
+
+Ejecútalo:
+
+```bash
+python check_rl_api.py
+```
+
+Una respuesta correcta muestra los modelos disponibles actualmente para tu
+equipo. Usa esta respuesta de capacidades como fuente de verdad al elegir un
+modelo.
+
+Si la llamada devuelve `404 Not Found`, confirma que la URL base termina en
+`/tinker`. Si es así, solicita a Fastino que habilite el acceso a la API de RL
+para tu equipo.
+
+## 4. Ejecuta dos pasos de RL
+
+El recetario de Tinker incluye un bucle mínimo de estilo GRPO. Muestrea varias
+respuestas para cada problema de GSM8K, evalúa la respuesta numérica enmarcada,
+centra las recompensas dentro de cada grupo y aplica una actualización de
+muestreo por importancia.
+
+Ejecuta primero un trabajo deliberadamente pequeño:
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  batch_size=4 \
+  group_size=4 \
+  max_steps=2 \
+  save_every=1 \
+  log_path=./runs/first-fastino-rl
+```
+
+La primera ejecución descarga el conjunto de datos GSM8K y el tokenizador.
+Durante la ejecución, el recetario informa del progreso del muestreo, las
+métricas de recompensa y las métricas del optimizador. Al final, guarda un punto
+de control del estado final y los metadatos locales de la ejecución en el
+`log_path` elegido.
+
+<Note>
+  Aquí se usa `Qwen/Qwen3.6-35B-A3B` porque es compatible con el contrato actual
+  de la API de RL. No copies el nombre de un modelo de otro entorno de Tinker
+  sin comprobar primero la respuesta de capacidades.
+</Note>
+
+## 5. Confirma que se realizó el trabajo de aprendizaje
+
+Comprueba que la salida del comando contenga estas tres señales:
+
+- Se completó un lote de muestreo.
+- La ejecución registró un valor `reward/total`.
+- Un paso del optimizador devolvió métricas.
+
+Una recompensa constante durante dos pasos no es un error. Esta ejecución
+pequeña verifica la ruta completa, no la convergencia del modelo.
+
+## 6. Cierra los clientes en tu propio código
+
+El recetario gestiona el ciclo de vida de su proceso. En aplicaciones de larga
+duración, cierra cada `ServiceClient` cuando finalice la ejecución:
+
+```python
+service_client.close("success").result()
+```
+
+Cerrar el cliente finaliza su sesión y libera las ejecuciones de entrenamiento
+activas. Los puntos de control guardados siguen disponibles de acuerdo con su
+configuración de retención.
+
+## Siguientes pasos
+
+<CardGroup cols={2}>
+  <Card
+    title="Comprende el bucle"
+    icon="diagram-project"
+    href="/es/rl-api/how-it-works"
+  >
+    Sigue los datos desde un prompt hasta el muestreo, la recompensa, la ventaja
+    y la actualización.
+  </Card>
+  <Card
+    title="Adapta la recompensa"
+    icon="function"
+    href="/es/cookbooks/rl-verifiable-rewards"
+  >
+    Sustituye el evaluador de GSM8K por una recompensa determinista para tu
+    tarea.
+  </Card>
+</CardGroup>

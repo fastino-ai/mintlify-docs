@@ -64,6 +64,7 @@ ACTIVE_LEGACY_INFERENCE = (
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
 METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[A-Za-z0-9_{}\-./:*?=&%]+)")
 LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
+SDK_BASE_PATHS = {"/tinker"}
 API_BINDING = re.compile(
     r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
     re.MULTILINE,
@@ -334,7 +335,7 @@ def _path_matches_route(
     method: str | None = None,
 ) -> bool:
     path = url_path.split("?", maxsplit=1)[0].rstrip(".,)")
-    if "$" in path or path in {"", "/v1"}:
+    if "$" in path or path in {"", "/v1"} | SDK_BASE_PATHS:
         return True
     concrete_path = re.sub(r"(\{[^}]+\}|YOUR_[A-Z_]+|[A-Z_]{2,}|:[a-z_]+)", "VALUE", path)
     candidates = patterns.get(method, []) if method is not None else [

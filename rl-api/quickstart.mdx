@@ -1,0 +1,155 @@
+---
+title: "RL API quickstart"
+description: "Verify RL API access and run a small reinforcement-learning job with the Tinker cookbook."
+---
+
+This tutorial connects the Tinker SDK to Fastino, verifies your team's access,
+and runs two small reinforcement-learning steps on GSM8K.
+
+<Warning>
+  The capability check is read-only. The training command submits billable
+  sampling and training operations and stores a checkpoint.
+</Warning>
+
+## Prerequisites
+
+You need Python 3.11 or later, a Fastino API key, and RL API access enabled for
+your team.
+
+Create a key at [agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys).
+Fastino keys begin with `fast_sk_`.
+
+## 1. Create a Python environment
+
+<CodeGroup>
+
+```bash uv
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" tinker-cookbook
+```
+
+```bash pip
+mkdir fastino-rl && cd fastino-rl
+python -m venv .venv
+source .venv/bin/activate
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+</CodeGroup>
+
+## 2. Configure the client
+
+Set the RL API endpoint and wrap your Fastino key in the credential format
+expected by the Tinker SDK:
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+Do not commit either key to source control. The `tml-` prefix is an SDK
+compatibility prefix. Your Fastino key remains the credential that authenticates
+the request.
+
+## 3. Verify access
+
+Create `check_rl_api.py`:
+
+```python
+import tinker
+
+
+client = tinker.ServiceClient()
+try:
+    capabilities = client.get_server_capabilities()
+    for model in capabilities.supported_models:
+        print(model.model_name)
+finally:
+    client.close("success").result()
+```
+
+Run it:
+
+```bash
+python check_rl_api.py
+```
+
+A successful response prints the models currently available to your team. Use
+this capability response as the source of truth when choosing a model.
+
+If the call returns `404 Not Found`, confirm that the base URL ends in
+`/tinker`. If it does, ask Fastino to enable RL API access for your team.
+
+## 4. Run two RL steps
+
+The Tinker cookbook includes a minimal GRPO-style loop. It samples several
+answers for each GSM8K problem, grades the boxed numeric answer, centers rewards
+within each group, and applies an importance-sampling update.
+
+Run a deliberately small job first:
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  batch_size=4 \
+  group_size=4 \
+  max_steps=2 \
+  save_every=1 \
+  log_path=./runs/first-fastino-rl
+```
+
+The first run downloads the GSM8K dataset and tokenizer. During execution, the
+cookbook reports sampling progress, reward metrics, and optimizer metrics. At
+the end, it saves a final state checkpoint and local run metadata under the
+chosen `log_path`.
+
+<Note>
+  `Qwen/Qwen3.6-35B-A3B` is used here because it is supported by the current RL
+  API contract. Do not copy a model name from a different Tinker environment
+  without checking the capability response first.
+</Note>
+
+## 5. Confirm that learning work happened
+
+Check the command output for all three signals:
+
+- A sampling batch completed.
+- The run logged a `reward/total` value.
+- An optimizer step returned metrics.
+
+A flat reward over two steps is not a failure. This small run verifies the
+end-to-end path, not model convergence.
+
+## 6. Close clients in your own code
+
+The cookbook handles its process lifecycle. In long-running applications, close
+each `ServiceClient` when the run is finished:
+
+```python
+service_client.close("success").result()
+```
+
+Closing the client ends its session and releases active training runs. Saved
+checkpoints remain available according to their retention settings.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Understand the loop"
+    icon="diagram-project"
+    href="/rl-api/how-it-works"
+  >
+    Trace data from a prompt through sampling, reward, advantage, and update.
+  </Card>
+  <Card
+    title="Adapt the reward"
+    icon="function"
+    href="/cookbooks/rl-verifiable-rewards"
+  >
+    Replace the GSM8K grader with a deterministic reward for your task.
+  </Card>
+</CardGroup>

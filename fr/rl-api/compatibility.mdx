@@ -1,0 +1,258 @@
+---
+title: "Référence de compatibilité de l'API RL"
+description: "Versions du SDK Tinker, modèles, opérations, fonctions de perte, limites et différences connues pris en charge."
+---
+
+Utilisez cette page pour déterminer si un programme Tinker existant peut
+s'exécuter sur l'API RL de Fastino sans modifier son algorithme.
+
+## Contrat client
+
+| Élément | Valeur |
+| --- | --- |
+| Package Python | `tinker` |
+| Version testée | `0.32.0` |
+| Version minimale prise en charge | `0.25.0` |
+| URL de base | `https://api.fastino.ai/tinker` |
+| Identifiant | `tml-` suivi d'une clé Fastino `fast_sk_...` |
+| Accès de l'équipe | Contrôlé par l'accès à l'API RL de l'équipe Fastino authentifiée |
+
+Épinglez la version testée pour la production :
+
+```bash
+pip install "tinker==0.32.0"
+```
+
+## Catalogue des modèles
+
+| Modèle de base | Fenêtre de contexte | Rang LoRA maximal | Comportement |
+| --- | ---: | ---: | --- |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 | Configuration d'entraînement par défaut |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 | L'ID du modèle sans suffixe correspond au niveau rapide |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 | Configuration LoRA entièrement compatible avec Tinker |
+
+Nemotron 3 Super accepte également le suffixe `:fast`. Une exécution limitée à
+l'attention est sélectionnée à l'aide de ses indicateurs d'entraînement LoRA
+lorsque l'attention est activée et que l'entraînement du MLP et de l'unembedding
+est désactivé.
+
+Interrogez toujours `get_server_capabilities()` lors de l'exécution. La réponse
+fait autorité pour la disponibilité des modèles et les fenêtres de contexte.
+
+## Opérations d'entraînement
+
+| Capacité | Prise en charge |
+| --- | --- |
+| Créer un client d'entraînement LoRA | Oui ; les autres configurations d'entraînement ne sont pas prises en charge |
+| `forward` | Oui |
+| `forward_backward` | Oui |
+| `optim_step` | Oui |
+| Enregistrer l'état de l'entraînement | Oui |
+| Charger l'état de l'entraînement | Oui |
+| Créer un nouveau client depuis un état enregistré | Oui |
+| Enregistrer les poids de l'échantillonneur | Oui |
+| Enregistrer les poids et obtenir un client d'échantillonnage éphémère | Oui |
+| Décharger ou libérer une exécution | Oui |
+
+La famille d'optimiseurs prise en charge est `adamw`. Les valeurs `AdamParams`
+du SDK fournissent les paramètres de l'étape.
+
+### Fonctions de perte
+
+Les noms de fonctions de perte acceptés sont :
+
+- `cross_entropy`
+- `importance_sampling`
+- `ppo`
+- `cispo`
+- `dro`
+
+Utilisez `importance_sampling` pour la boucle standard on-policy du livre de
+recettes qui s'entraîne à partir des log-probabilités échantillonnées et des
+avantages.
+
+## Opérations d'échantillonnage
+
+| Capacité | Prise en charge |
+| --- | --- |
+| Échantillonner depuis un modèle de base | Oui |
+| Échantillonner depuis des poids d'échantillonneur nommés | Oui |
+| Échantillonner depuis des poids d'entraînement éphémères | Oui |
+| Demander plusieurs échantillons | Oui |
+| Calculer les log-probabilités des tokens | Oui |
+| Annuler une future d'échantillonnage en file d'attente | Oui |
+| Fragments de prompt image ou multimodaux | Non pris en charge ; les modèles actuels traitent uniquement du texte |
+| `target_prompt_logprobs` | Non pris en charge |
+| `prompt_alt_tokens_k` | Non pris en charge |
+
+L'échantillonnage à partir de la politique d'entraînement actuelle commence
+généralement par `save_weights_and_get_sampling_client()`.
+
+Les prompts utilisent des fragments encodés de tokens de texte.
+L'échantillonnage direct sans état n'est pas pris en charge. Créez un
+`SamplingClient` à partir d'un modèle de base, d'un checkpoint d'échantillonneur
+nommé ou des poids d'entraînement actuels.
+
+## Futures et sessions
+
+Les opérations soumises renvoient des futures Tinker. L'API prend en charge la
+récupération des futures, l'attente, l'indication de l'état de la file d'attente
+et l'annulation de l'échantillonnage.
+
+Une opération acceptée peut signaler `paused_capacity` pendant que Fastino
+alloue ou restaure son exécution. Considérez qu'il s'agit d'une tâche en attente,
+et non d'une requête rejetée.
+
+Les résultats des futures terminées sont conservés pendant une heure. Récupérez
+et conservez rapidement le résultat. Les métadonnées de la requête restent
+disponibles plus longtemps, mais elles ne remplacent pas le corps du résultat
+expiré.
+
+L'annulation s'applique aux opérations d'échantillonnage. Les opérations
+d'entraînement individuelles ne peuvent pas être annulées après leur
+soumission.
+
+Le SDK envoie automatiquement les pulsations de session. Une session qui n'a
+émis aucune pulsation depuis cinq minutes est considérée comme obsolète et ses
+ressources actives peuvent être libérées. Fermez explicitement `ServiceClient`
+lorsque votre application a terminé.
+
+Les requêtes sont isolées par équipe Fastino. Une clé ne peut pas inspecter ni
+manipuler les sessions, les exécutions ou les checkpoints d'une autre équipe.
+
+## Administration des checkpoints et des exécutions
+
+Le client REST du SDK prend en charge les opérations suivantes :
+
+- Répertorier les exécutions d'entraînement
+- Obtenir une exécution d'entraînement
+- Répertorier les checkpoints d'une exécution ou d'une équipe
+- Inspecter les métadonnées des poids d'un checkpoint
+- Copier les poids dans une nouvelle exécution
+- Supprimer un checkpoint
+- Publier ou dépublier un checkpoint
+- Définir ou effacer la durée de vie d'un checkpoint
+- Indiquer l'utilisation actuelle du stockage des checkpoints
+
+La publication modifie les métadonnées du checkpoint. Elle ne permet pas
+actuellement à une autre équipe Fastino de charger le checkpoint. N'intégrez pas
+la distribution entre équipes dans un workflow automatisé.
+
+Les chemins d'état d'entraînement utilisent :
+
+```text
+tinker://<run-id>/weights/<name>
+```
+
+Les chemins des poids d'échantillonneur utilisent :
+
+```text
+tinker://<run-id>/sampler_weights/<name>
+```
+
+Un checkpoint d'état contient les informations nécessaires à la restauration de
+l'entraînement, notamment la configuration de l'optimiseur. Un checkpoint
+d'échantillonneur est destiné à l'inférence et à la génération de rollouts et ne
+peut pas restaurer l'état de l'optimiseur. Une reprise fiable nécessite également
+les métadonnées locales durables de votre boucle, telles que le curseur du jeu
+de données et l'étape terminée.
+
+## Limites
+
+La réponse de capacités indique la longueur de contexte maximale de chaque
+modèle, et le catalogue des modèles limite le rang LoRA à 32.
+
+Les appels d'échantillonnage, avant et avant-arrière ont des limites de séquence
+distinctes par appel. Chacune peut être inférieure à la fenêtre de contexte du
+modèle, et Fastino peut les ajuster indépendamment sans modifier le contrat du
+SDK. Considérez une réponse de longueur non valide comme une erreur de mise en
+forme de la requête :
+
+1. Réduisez la longueur du prompt ou de la complétion.
+2. Divisez les grands lots d'entraînement.
+3. Réessayez avec une requête valide, et non avec le même corps non valide.
+
+N'intégrez pas de limite par appel non documentée dans une logique d'agent
+réutilisable.
+
+Maintenez les corps des requêtes d'échantillonnage et avant-arrière à une taille
+inférieure ou égale à 32 MiB. Il s'agit de la valeur HTTP par défaut actuelle et
+de la limite après décompression pour les requêtes avant-arrière. Le paramètre
+de requête du service peut évoluer indépendamment. Si un code client
+personnalisé reçoit une erreur de taille de requête, divisez le lot avant de le
+soumettre. Le SDK Tinker effectue normalement ce découpage pour les lots
+d'entraînement.
+
+## Sémantique des nouvelles tentatives
+
+Les opérations d'une exécution d'entraînement sont ordonnées par identifiant de
+séquence.
+
+- Une nouvelle tentative avec la même exécution, le même identifiant de séquence
+  et le même corps de requête renvoie l'opération d'origine.
+- La réutilisation d'un identifiant de séquence avec un autre corps renvoie une
+  erreur.
+- Une future peut être récupérée après la perte de la réponse à la soumission
+  initiale.
+
+Ainsi, les nouvelles tentatives réseau sont sûres et n'appliquent pas deux fois
+la même mutation de l'optimiseur. Cela ne permet pas de réutiliser la même
+séquence en toute sécurité pour une requête modifiée.
+
+## Comportement de la facturation
+
+| Travail | Mesure |
+| --- | --- |
+| Échantillonnage | Tokens d'entrée, tokens d'entrée mis en cache et tokens de sortie |
+| `forward` et `forward_backward` | Tokens d'entraînement |
+| Checkpoints | Octets stockés dans le temps |
+| Création d'un client ou d'un modèle | Aucun décompte de tokens |
+| `optim_step` | Aucun décompte de tokens |
+| Requête d'enregistrement ou de chargement | Aucun décompte de tokens au-delà de l'utilisation du checkpoint stocké |
+
+L'utilisation est attribuée au projet Fastino de la session. Lorsqu'aucun projet
+n'est indiqué, le projet par défaut de l'équipe est utilisé.
+
+## Différences connues
+
+### Exportation des traces
+
+L'exportation des traces de session n'est pas prise en charge. Une requête
+signale l'échec de l'exportation au lieu de renvoyer les données de trace.
+
+### Journal d'audit
+
+Le point de terminaison d'audit du SDK ne renvoie aucune entrée. Utilisez les
+journaux de votre propre application et les relevés d'utilisation du projet
+Fastino pour l'attribution opérationnelle.
+
+### Disponibilité des modèles
+
+L'API RL ne reproduit pas tous les modèles disponibles dans les autres
+environnements Tinker. Utilisez la réponse de capacités et l'un des IDs de
+modèles pris en charge ci-dessus.
+
+### Découverte OpenAPI
+
+Les routes RL ne figurent pas dans le document OpenAPI public de Fastino. Ce
+choix est volontaire, car le contrat client public est le SDK Tinker. Les routes
+natives de Fastino restent décrites dans la
+[référence de l'API](/fr/api-reference/inference/overview).
+
+## Interprétation des erreurs courantes
+
+| Symptôme | Cause probable | Action |
+| --- | --- | --- |
+| `404 Not Found` lors de l'appel des capacités | Mauvaise URL de base ou accès à l'API RL non activé | Vérifiez le suffixe `/tinker`, puis contactez Fastino |
+| Erreur d'authentification | Encapsulation `tml-` manquante ou clé Fastino non valide | Recréez `TINKER_API_KEY` à partir d'une clé `fast_sk_...` actuelle |
+| `402 Payment Required` lors d'une opération facturable | La facturation Fastino ou le contrôle des dépenses a rejeté la requête | Résolvez le problème de facturation du compte avant de réessayer |
+| Le modèle n'est pas servi | Le modèle source ne figure pas dans le catalogue RL de Fastino | Sélectionnez un modèle depuis `get_server_capabilities()` |
+| Rang rejeté | Le rang LoRA demandé est supérieur à 32 | Utilisez un rang inférieur ou égal à 32 |
+| Fonction de perte rejetée | Le nom de la fonction de perte ne figure pas dans l'ensemble pris en charge | Utilisez l'une des cinq fonctions de perte documentées |
+| Même séquence, corps différent | Conflit d'ordonnancement du client | Créez une nouvelle opération dans la séquence ; ne réécrivez pas l'historique |
+| La future signale `paused_capacity` | L'exécution attend une allocation, un démarrage ou une restauration | Poursuivez l'interrogation avec le backoff du SDK |
+| Le résultat de la future renvoie `410` | Le corps du résultat a expiré ou son effet a été perdu | Laissez le SDK soumettre à nouveau l'opération ; si le résultat de la mutation reste inconnu, restaurez votre dernier checkpoint |
+| Impossible de restaurer l'état actif de l'exécution | Échec de la relecture durable ou de la récupération de l'infrastructure | Reprenez depuis votre dernier checkpoint d'état explicite |
+
+Pour suivre une procédure de portage axée sur les tâches, consultez
+[Migrer depuis Tinker](/fr/rl-api/migrate-from-tinker).

@@ -1,0 +1,166 @@
+---
+title: "Fonctionnement de l'API RL"
+description: "Comprenez la boucle de contrôle, les objets clients et les transitions d'état qui sous-tendent l'entraînement RL."
+---
+
+L'API RL sépare le programme d'apprentissage du calcul effectué sur le modèle.
+Votre processus décide quoi échantillonner, comment l'évaluer et quand effectuer
+une mise à jour. Fastino exécute l'échantillonnage, les passes avant et arrière,
+les étapes d'optimisation et les opérations de checkpoint.
+
+## La boucle de contrôle
+
+<Steps>
+  <Step title="Créer un client d'entraînement">
+    Choisissez un modèle de base pris en charge et un rang LoRA. Le client
+    représente une exécution d'entraînement ordonnée, avec ses propres poids,
+    son propre état d'optimiseur et sa propre séquence d'opérations.
+  </Step>
+  <Step title="Créer un instantané de la politique actuelle pour l'échantillonnage">
+    Appelez `save_weights_and_get_sampling_client()`. Les rollouts doivent
+    provenir de la politique que vous êtes sur le point d'améliorer, et non de
+    poids sans rapport ou obsolètes.
+  </Step>
+  <Step title="Collecter des groupes de rollouts">
+    Envoyez le même prompt plusieurs fois ou demandez plusieurs échantillons en
+    un seul appel. Un groupe fournit à la fonction de récompense plusieurs
+    réponses à comparer pour un même problème.
+  </Step>
+  <Step title="Calculer les récompenses et les avantages">
+    Évaluez chaque réponse, puis transformez les récompenses en avantages. Dans
+    une boucle de type GRPO, soustrayez la récompense moyenne du groupe à la
+    récompense de chaque réponse.
+  </Step>
+  <Step title="Construire les datums d'entraînement">
+    Combinez les tokens du prompt, les tokens des réponses échantillonnées, les
+    log-probabilités d'échantillonnage et les avantages au niveau des tokens. Les
+    tokens du prompt reçoivent normalement un avantage nul.
+  </Step>
+  <Step title="Mettre à jour la politique">
+    Soumettez les datums avec `forward_backward(...,
+    loss_fn="importance_sampling")`, puis appelez `optim_step(...)`.
+  </Step>
+  <Step title="Créer un checkpoint et recommencer">
+    Enregistrez un état durable aux étapes utiles, créez un nouveau client
+    d'échantillonnage à partir des poids mis à jour et commencez l'itération
+    suivante.
+  </Step>
+</Steps>
+
+## Modèle d'objets clients
+
+| Objet | Responsabilité | Durée de vie habituelle |
+| --- | --- | --- |
+| `ServiceClient` | Ouvre une session, indique les capacités, crée les clients d'entraînement et d'échantillonnage, et expose le client REST | Une exécution logique de l'application |
+| `TrainingClient` | Possède une exécution ordonnée d'entraînement LoRA et l'état de son optimiseur | Une politique en cours d'entraînement |
+| `SamplingClient` | Échantillonne ou calcule les log-probabilités à partir d'un modèle de base ou de poids enregistrés | Un instantané de politique ou un checkpoint réutilisable |
+| `RestClient` | Répertorie les exécutions et les checkpoints, gère la visibilité et la rétention, et indique l'utilisation du stockage | Opérations administratives |
+| Future | Suit une opération soumise et renvoie son résultat | Une opération |
+
+La fermeture d'un `ServiceClient` met fin à la session et libère ses
+entraînements actifs. Elle ne supprime pas les checkpoints.
+
+## Pourquoi les récompenses groupées fonctionnent
+
+Supposons que quatre réponses à un même prompt reçoivent ces récompenses :
+
+```text
+[1.0, 0.0, 1.0, 0.0]
+```
+
+La récompense moyenne est `0.5`. Les avantages relatifs au groupe sont donc :
+
+```text
+[0.5, -0.5, 0.5, -0.5]
+```
+
+Les valeurs positives renforcent les tokens des réponses dont le score est
+supérieur à la moyenne du groupe. Les valeurs négatives réduisent la probabilité
+des réponses inférieures à la moyenne.
+
+Si chaque réponse reçoit la même récompense, tous les avantages centrés sont
+nuls. Ce groupe ne porte aucun signal d'apprentissage relatif et peut être
+ignoré.
+
+## Contenu d'un datum
+
+Pour la boucle courante d'échantillonnage d'importance, chaque datum contient :
+
+- Le prompt suivi de la complétion échantillonnée
+- Les tokens cibles alignés avec l'entrée du modèle
+- Les log-probabilités enregistrées pendant l'échantillonnage
+- Les avantages appliqués aux tokens de la complétion
+
+Le préfixe du prompt est un contexte, et non une action sélectionnée par la
+politique. Affectez la valeur zéro à ses avantages. Appliquez l'avantage de la
+réponse aux positions des tokens générés.
+
+<Warning>
+  Les tableaux de tokens doivent avoir les longueurs attendues par le renderer
+  et le SDK. Réutilisez le renderer correspondant au modèle de base sélectionné.
+  Un formateur destiné à un autre modèle peut produire des séquences d'arrêt ou
+  un alignement de tokens incorrects.
+</Warning>
+
+## Mises à jour ordonnées et idempotentes
+
+Une exécution d'entraînement est une machine à états ordonnée. Le SDK attribue
+des identifiants de séquence aux opérations telles que les passes avant et
+arrière, les étapes d'optimisation, les sauvegardes et les chargements.
+
+Si une requête est relancée avec la même exécution, le même identifiant de
+séquence et le même corps, l'API RL renvoie l'opération d'origine au lieu de
+l'appliquer deux fois. La réutilisation de cet identifiant de séquence avec un
+corps différent est rejetée. Cela protège l'état de l'optimiseur lorsqu'un
+client réessaie après une interruption du réseau.
+
+Ne soumettez pas d'opérations destinées à un même client d'entraînement depuis
+des processus indépendants, sauf s'ils partagent un mécanisme d'ordonnancement
+unique.
+
+## État actif et état durable
+
+Les poids d'entraînement, les gradients en attente et l'état de l'optimiseur
+constituent l'état actif. L'API RL peut tenter de reconstruire une exécution
+après une réduction d'échelle due à l'inactivité ou une interruption de
+l'infrastructure. La récupération automatique part d'une base de relecture et
+rejoue les mutations `forward_backward` et `optim_step` journalisées. Elle ne
+rejoue pas toutes les opérations de l'API et peut échouer lorsque le résultat
+d'une mutation est inconnu ou lorsque les données requises pour la relecture ne
+sont plus disponibles.
+
+Vos checkpoints explicites constituent la limite de récupération que vous
+contrôlez :
+
+- `save_state(name)` stocke les poids d'entraînement et l'état de l'optimiseur.
+- `save_weights_for_sampler(name)` stocke les poids destinés à l'échantillonnage.
+- `create_training_client_from_state(path)` démarre une nouvelle exécution depuis un état enregistré.
+- `load_state(path)` restaure un checkpoint compatible dans une exécution existante.
+
+Enregistrez l'état avant une longue tâche externe, avant une modification de
+code risquée et aux étapes clés que vous pourriez vouloir comparer ou reprendre.
+
+## Limites de facturation
+
+L'échantillonnage est mesuré en tokens d'entrée, tokens d'entrée mis en cache et
+tokens de sortie. Les opérations avant et avant-arrière sont mesurées en tokens
+d'entraînement. Le stockage des checkpoints est mesuré dans le temps.
+
+La création d'un client de modèle, l'application d'une étape d'optimisation et
+l'enregistrement ou le chargement d'un checkpoint n'ajoutent pas à eux seuls
+d'utilisation de tokens. Le travail en tokens et les octets stockés déterminent
+toutefois l'utilisation associée.
+
+## Un modèle fiable pour la production
+
+1. Interrogez les capacités du serveur au démarrage.
+2. Épinglez une version du SDK testée par votre application.
+3. Générez les rollouts simultanément, mais conservez l'ordre des mises à jour d'entraînement.
+4. Enregistrez ensemble le chemin du checkpoint et l'étape de l'application.
+5. Utilisez un nombre limité de nouvelles tentatives lors de la récupération du résultat d'une future.
+6. Fermez le client de service dans un bloc `finally`.
+7. Ne conservez que les checkpoints nécessaires.
+
+Pour découvrir la construction concrète d'un datum et un évaluateur
+déterministe, consultez la
+[recette des récompenses vérifiables](/fr/cookbooks/rl-verifiable-rewards).

@@ -1,0 +1,205 @@
+---
+title: "Migrar desde Tinker"
+description: "Migra una carga de trabajo existente del SDK o el recetario de Tinker a la API de RL de Fastino."
+---
+
+La API de RL de Fastino implementa el contrato del SDK de Tinker. La mayoría de
+las migraciones mantienen sin cambios el bucle de entrenamiento y sustituyen
+cuatro puntos de integración:
+
+1. Endpoint
+2. Credencial
+3. Nombre del modelo
+4. Supuestos operativos
+
+Esta guía trata el programa existente como prueba de aceptación. Cambia primero
+la conexión, ejecuta un trabajo corto y solo entonces ajusta el algoritmo.
+
+## 1. Fija una versión probada del SDK
+
+Fastino prueba actualmente el contrato con:
+
+```text
+tinker==0.32.0
+```
+
+El cliente mínimo compatible es `0.25.0`. Fija `0.32.0` durante la migración
+para evitar que una actualización no relacionada del SDK oculte un problema de
+conexión o compatibilidad.
+
+<CodeGroup>
+
+```bash uv
+uv add "tinker==0.32.0"
+```
+
+```bash pip
+pip install "tinker==0.32.0"
+```
+
+</CodeGroup>
+
+## 2. Sustituye el endpoint y la clave
+
+El código existente que construye `tinker.ServiceClient()` sin argumentos
+explícitos puede migrarse únicamente mediante variables de entorno:
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+La parte `tml-` es un prefijo de compatibilidad que consume el SDK de Tinker.
+Fastino autentica la clave `fast_sk_...` que contiene.
+
+Si tu aplicación pasa los valores explícitamente, realiza el cambio
+equivalente:
+
+```python
+import os
+
+import tinker
+
+
+service_client = tinker.ServiceClient(
+    base_url="https://api.fastino.ai/tinker",
+    api_key=f"tml-{os.environ['FASTINO_API_KEY']}",
+)
+```
+
+No añadas `/api/v1`. El SDK añade su propia ruta.
+
+## 3. Selecciona un modelo compatible con Fastino
+
+No des por hecho que un modelo disponible en otro entorno de Tinker lo estará
+en Fastino. Consulta las capacidades durante la migración:
+
+```python
+capabilities = service_client.get_server_capabilities()
+for model in capabilities.supported_models:
+    print(model.model_name)
+```
+
+El contrato actual incluye:
+
+| Modelo | Ventana de contexto | Rango máximo de LoRA |
+| --- | ---: | ---: |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 tokens | 32 |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 tokens | 32 |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 tokens | 32 |
+
+Usa la respuesta de capacidades activa para tomar decisiones de producción.
+Esta tabla describe el contrato actual de acceso limitado y puede no reflejar
+un modelo recién desplegado.
+
+## 4. Conserva el bucle de aprendizaje
+
+Estas llamadas principales mantienen sus formas del SDK de Tinker:
+
+```python
+training_client = service_client.create_lora_training_client(
+    base_model=model_name,
+    rank=32,
+)
+
+sampling_client = training_client.save_weights_and_get_sampling_client()
+sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
+sample_result = sample_future.result()
+
+train_future = training_client.forward_backward(
+    datums,
+    loss_fn="importance_sampling",
+)
+optim_future = training_client.optim_step(adam_params)
+train_result = train_future.result()
+optim_result = optim_future.result()
+```
+
+Mantén sin cambios el renderizador, la construcción de prompts, la función de
+recompensa, el cálculo de ventajas, el procesamiento por lotes y los criterios
+de parada para la primera prueba de migración.
+
+## 5. Migra un comando del recetario
+
+Si una receta acepta `base_url`, pasa el endpoint de Fastino y selecciona un
+modelo compatible:
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  max_steps=2 \
+  batch_size=4 \
+  group_size=4 \
+  log_path=./runs/fastino-migration-check
+```
+
+Usa el mismo patrón para otras recetas que expongan `base_url`. Si una receta
+construye `ServiceClient()` sin un argumento de URL base, la variable de
+entorno `TINKER_BASE_URL` se la proporciona.
+
+<Warning>
+  Una versión actual del recetario upstream puede nombrar modelos que Fastino
+  no ofrece. Cambia el modelo aunque el resto de la receta sea compatible.
+</Warning>
+
+## 6. Verifica una ejecución pequeña
+
+Usa una ejecución de aceptación de bajo coste antes de restaurar los tamaños de
+lote de producción:
+
+- Obtén las capacidades.
+- Crea un cliente de entrenamiento LoRA.
+- Muestrea un grupo pequeño.
+- Envía una operación hacia delante-atrás.
+- Aplica un paso del optimizador.
+- Guarda un punto de control de estado.
+- Crea un cliente de entrenamiento nuevo a partir de ese punto de control.
+- Cierra el cliente de servicio.
+
+Compara los resultados semánticos, no valores de coma flotante exactos. Los
+distintos modelos e infraestructuras compatibles pueden producir muestras y
+métricas diferentes.
+
+## 7. Revisa las diferencias operativas
+
+| Área | Acción de migración |
+| --- | --- |
+| Acceso | El acceso a la API de RL se habilita por equipo de Fastino. Un equipo sin acceso recibe `404 Not Found`. |
+| Autenticación | Usa una clave de API de Fastino encapsulada con el prefijo de compatibilidad `tml-`. |
+| Modelos | Elige entre los modelos de la respuesta de capacidades. No conserves un modelo de origen no compatible. |
+| Facturación | El uso se factura al equipo y proyecto de Fastino asociados con la sesión. |
+| Ciclo de vida de la sesión | Cierra `ServiceClient` para liberar las ejecuciones activas. |
+| Recuperación | Mantén puntos de control explícitos como límite de recuperación controlado por tu aplicación. |
+| Resultados de futures | Resuelve y conserva los resultados completados en el plazo de una hora. |
+| Cancelación | La cancelación se aplica al muestreo, no a las operaciones de entrenamiento individuales. |
+| Puntos de control publicados | La publicación no permite que otro equipo de Fastino cargue un punto de control. |
+| Exportación de trazas | Elimina el código que requiera la exportación de trazas de Tinker. No es compatible. |
+| Entradas de auditoría | No dependas del historial de auditoría. Las llamadas de auditoría no devuelven entradas. |
+
+Consulta la [referencia de compatibilidad](/es/rl-api/compatibility) para conocer
+las funciones de pérdida compatibles, la gestión de puntos de control y las
+diferencias conocidas.
+
+## Lista de comprobación de la migración
+
+- [ ] Fija `tinker==0.32.0`.
+- [ ] Configura `TINKER_BASE_URL` como `https://api.fastino.ai/tinker`.
+- [ ] Encapsula la clave de Fastino como `tml-fast_sk_...`.
+- [ ] Confirma que el equipo tenga acceso a la API de RL.
+- [ ] Sustituye los nombres de modelo no compatibles.
+- [ ] Ejecuta un paso de muestreo y entrenamiento.
+- [ ] Guarda y restaura un punto de control de estado.
+- [ ] Elimina las dependencias de datos de trazas o auditoría no compatibles.
+- [ ] Cierra el cliente de servicio.
+- [ ] Aumenta el tamaño de la carga de trabajo solo después de superar la ejecución de aceptación.
+
+<Card
+  title="Consulta la matriz de compatibilidad completa"
+  icon="list-check"
+  href="/es/rl-api/compatibility"
+>
+  Consulta las versiones del SDK, los métodos, las funciones de pérdida, los
+  modelos, los límites y el comportamiento ante errores.
+</Card>

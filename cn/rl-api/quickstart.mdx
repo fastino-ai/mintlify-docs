@@ -1,0 +1,141 @@
+---
+title: "RL API 快速入门"
+description: "验证 RL API 访问权限，并使用 Tinker 实战示例运行一个小型强化学习任务。"
+---
+
+本教程将 Tinker SDK 连接到 Fastino，验证你所在团队的访问权限，并在 GSM8K
+上运行两个小型强化学习步骤。
+
+<Warning>
+  功能检查为只读操作。训练命令会提交计费的采样和训练操作，并存储检查点。
+</Warning>
+
+## 前提条件
+
+你需要 Python 3.11 或更高版本、Fastino API 密钥，并且你的团队已启用 RL API
+访问权限。
+
+在 [agent.fastino.ai/api-keys](https://agent.fastino.ai/api-keys)
+创建密钥。Fastino 密钥以 `fast_sk_` 开头。
+
+## 1. 创建 Python 环境
+
+<CodeGroup>
+
+```bash uv
+uv init fastino-rl
+cd fastino-rl
+uv add "tinker==0.32.0" tinker-cookbook
+```
+
+```bash pip
+mkdir fastino-rl && cd fastino-rl
+python -m venv .venv
+source .venv/bin/activate
+pip install "tinker==0.32.0" tinker-cookbook
+```
+
+</CodeGroup>
+
+## 2. 配置客户端
+
+设置 RL API 端点，并按 Tinker SDK 所需的凭据格式封装 Fastino 密钥：
+
+```bash
+export FASTINO_API_KEY="fast_sk_..."
+export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
+export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+```
+
+不要将任何一个密钥提交到源代码控制系统。`tml-` 前缀是 SDK 兼容性前缀。用于验证请求的凭据仍是你的 Fastino 密钥。
+
+## 3. 验证访问权限
+
+创建 `check_rl_api.py`：
+
+```python
+import tinker
+
+
+client = tinker.ServiceClient()
+try:
+    capabilities = client.get_server_capabilities()
+    for model in capabilities.supported_models:
+        print(model.model_name)
+finally:
+    client.close("success").result()
+```
+
+运行：
+
+```bash
+python check_rl_api.py
+```
+
+成功响应会输出你的团队当前可用的模型。选择模型时，请以此功能响应为准。
+
+如果调用返回 `404 Not Found`，请确认基础 URL 以 `/tinker` 结尾。如果确实如此，请联系 Fastino 为你的团队启用 RL API 访问权限。
+
+## 4. 运行两个 RL 步骤
+
+Tinker 实战示例包含一个最简 GRPO 风格循环。它会为每个 GSM8K
+问题采样多个答案，对方框中的数值答案评分，在每组内对奖励进行中心化处理，并执行重要性采样更新。
+
+先运行一个刻意缩小的任务：
+
+```bash
+python -m tinker_cookbook.recipes.rl_loop \
+  base_url=https://api.fastino.ai/tinker \
+  model_name=Qwen/Qwen3.6-35B-A3B \
+  batch_size=4 \
+  group_size=4 \
+  max_steps=2 \
+  save_every=1 \
+  log_path=./runs/first-fastino-rl
+```
+
+首次运行会下载 GSM8K 数据集和 tokenizer。执行期间，实战示例会报告采样进度、奖励指标和优化器指标。最后，它会保存最终状态检查点，并将本地运行元数据保存到所选的 `log_path` 下。
+
+<Note>
+  此处使用 `Qwen/Qwen3.6-35B-A3B`，因为当前 RL API
+  契约支持该模型。在未先检查功能响应的情况下，请勿复制其他 Tinker 环境中的模型名称。
+</Note>
+
+## 5. 确认学习工作确实发生
+
+检查命令输出中是否出现以下三个信号：
+
+- 采样批次已完成。
+- 运行记录了 `reward/total` 值。
+- 优化器步骤返回了指标。
+
+两个步骤的奖励没有变化并不代表失败。这个小型运行验证的是端到端链路，而不是模型收敛。
+
+## 6. 在自己的代码中关闭客户端
+
+实战示例会自行处理进程生命周期。在长时间运行的应用中，请在运行结束时关闭每个 `ServiceClient`：
+
+```python
+service_client.close("success").result()
+```
+
+关闭客户端会结束其会话并释放活跃的训练运行。已保存的检查点仍会按照其保留设置继续可用。
+
+## 后续步骤
+
+<CardGroup cols={2}>
+  <Card
+    title="了解循环"
+    icon="diagram-project"
+    href="/cn/rl-api/how-it-works"
+  >
+    跟踪数据从提示词经过采样、奖励和优势值，最终完成更新的全过程。
+  </Card>
+  <Card
+    title="调整奖励"
+    icon="function"
+    href="/cn/cookbooks/rl-verifiable-rewards"
+  >
+    将 GSM8K 评分器替换为适用于你任务的确定性奖励。
+  </Card>
+</CardGroup>

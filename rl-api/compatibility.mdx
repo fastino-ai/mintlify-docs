@@ -1,0 +1,239 @@
+---
+title: "RL API compatibility reference"
+description: "Supported Tinker SDK versions, models, operations, losses, limits, and known differences."
+---
+
+Use this page to decide whether an existing Tinker program can run on Fastino's
+RL API without algorithm changes.
+
+## Client contract
+
+| Item | Value |
+| --- | --- |
+| Python package | `tinker` |
+| Tested version | `0.32.0` |
+| Minimum supported version | `0.25.0` |
+| Base URL | `https://api.fastino.ai/tinker` |
+| Credential | `tml-` followed by a Fastino `fast_sk_...` key |
+| Team access | Controlled by RL API access for the authenticated Fastino team |
+
+Pin the tested version for production:
+
+```bash
+pip install "tinker==0.32.0"
+```
+
+## Model catalog
+
+| Base model | Context window | Maximum LoRA rank | Behavior |
+| --- | ---: | ---: | --- |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 | Default training layout |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 | Plain model ID resolves to the fast tier |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 | Full Tinker-compatible LoRA layout |
+
+Nemotron 3 Super also accepts a `:fast` suffix. An attention-only run is
+selected through its LoRA training flags when attention is enabled and MLP and
+unembedding training are disabled.
+
+Always query `get_server_capabilities()` at runtime. The response is
+authoritative for model availability and context windows.
+
+## Training operations
+
+| Capability | Support |
+| --- | --- |
+| Create a LoRA training client | Supported; other training layouts are not |
+| `forward` | Supported |
+| `forward_backward` | Supported |
+| `optim_step` | Supported |
+| Save training state | Supported |
+| Load training state | Supported |
+| Create a new client from saved state | Supported |
+| Save sampler weights | Supported |
+| Save weights and get an ephemeral sampling client | Supported |
+| Unload or release a run | Supported |
+
+The supported optimizer family is `adamw`. SDK `AdamParams` values provide the
+step parameters.
+
+### Loss functions
+
+The accepted loss names are:
+
+- `cross_entropy`
+- `importance_sampling`
+- `ppo`
+- `cispo`
+- `dro`
+
+Use `importance_sampling` for the standard on-policy cookbook loop that trains
+from sampled log probabilities and advantages.
+
+## Sampling operations
+
+| Capability | Support |
+| --- | --- |
+| Sample from a base model | Supported |
+| Sample from named sampler weights | Supported |
+| Sample from ephemeral training weights | Supported |
+| Request multiple samples | Supported |
+| Compute token log probabilities | Supported |
+| Cancel a queued sampling future | Supported |
+| Image or multimodal prompt chunks | Not supported; current models are text-only |
+| `target_prompt_logprobs` | Not supported |
+| `prompt_alt_tokens_k` | Not supported |
+
+Sampling from the current training policy normally starts with
+`save_weights_and_get_sampling_client()`.
+
+Prompts use encoded text-token chunks. Direct stateless sampling is not
+supported. Create a `SamplingClient` from a base model, named sampler
+checkpoint, or the current training weights.
+
+## Futures and sessions
+
+Submitted operations return Tinker futures. The API supports future retrieval,
+waiting, queue-state reporting, and sampling cancellation.
+
+An accepted operation can report `paused_capacity` while Fastino places or
+restores its run. Treat this as waiting work, not as a rejected request.
+
+Completed future results are retained for one hour. Resolve and persist the
+result promptly. Request metadata remains longer, but it is not a replacement
+for the expired result body.
+
+Cancellation applies to sampling operations. Individual training operations
+cannot be cancelled after submission.
+
+The SDK sends session heartbeats automatically. A session that has no heartbeat
+for five minutes is considered stale and its live resources can be released.
+Close `ServiceClient` explicitly when your application is done.
+
+Requests are isolated by Fastino team. A key cannot inspect or operate another
+team's sessions, runs, or checkpoints.
+
+## Checkpoints and run administration
+
+The SDK REST client supports:
+
+- List training runs
+- Get one training run
+- List checkpoints for a run or team
+- Inspect checkpoint weights metadata
+- Copy weights into a new run
+- Delete a checkpoint
+- Publish or unpublish a checkpoint
+- Set or clear checkpoint time-to-live
+- Report current checkpoint storage usage
+
+Publishing toggles checkpoint metadata. It does not currently make the
+checkpoint loadable by another Fastino team. Keep cross-team distribution out
+of an automated workflow.
+
+Training-state paths use:
+
+```text
+tinker://<run-id>/weights/<name>
+```
+
+Sampler-weight paths use:
+
+```text
+tinker://<run-id>/sampler_weights/<name>
+```
+
+A state checkpoint includes the information required to restore training,
+including the optimizer configuration. A sampler checkpoint is intended for
+inference and rollout generation and cannot restore optimizer state. Reliable
+resume also requires your durable local loop metadata, such as the dataset
+cursor and completed step.
+
+## Limits
+
+The capability response reports each model's maximum context length and the
+model catalog limits LoRA rank to 32.
+
+Sampling, forward, and forward-backward calls have separate per-call sequence
+limits. Each can be lower than the model's context window, and Fastino can tune
+them independently without changing the SDK contract. Treat an invalid-length
+response as a request-shaping error:
+
+1. Reduce prompt or completion length.
+2. Split large training batches.
+3. Retry with a valid request, not the same invalid body.
+
+Do not hard-code an undocumented per-call limit into reusable agent logic.
+
+Keep sampling and forward-backward request bodies at or below 32 MiB. That is
+the current HTTP default and the decompressed forward-backward ceiling. The
+service request setting can change independently. If custom client code
+receives a request-size error, split the batch before submission. The Tinker
+SDK normally performs this chunking for training batches.
+
+## Retry semantics
+
+Operations within one training run are ordered by sequence ID.
+
+- Retrying the same run, sequence ID, and request body returns the original
+  operation.
+- Reusing a sequence ID with a different body returns an error.
+- A future can be retrieved after the original submission response is lost.
+
+This makes network retries safe without applying the same optimizer mutation
+twice. It does not make a changed request safe to reuse at the same sequence.
+
+## Billing behavior
+
+| Work | Meter |
+| --- | --- |
+| Sampling | Input, cached input, and output tokens |
+| `forward` and `forward_backward` | Training tokens |
+| Checkpoints | Stored bytes over time |
+| Client or model creation | No token meter |
+| `optim_step` | No token meter |
+| Save or load request | No token meter beyond stored checkpoint usage |
+
+Usage is attributed to the session's Fastino project. When no project is
+specified, the team's default project is used.
+
+## Known differences
+
+### Trace export
+
+Session trace export is not supported. A request reports a failed export rather
+than returning trace data.
+
+### Audit log
+
+The SDK audit endpoint returns no entries. Use your own application logs and
+Fastino project usage records for operational attribution.
+
+### Model availability
+
+The RL API does not mirror every model available in other Tinker environments.
+Use the capability response and one of the supported model IDs above.
+
+### OpenAPI discovery
+
+RL routes are not included in Fastino's public OpenAPI document. This is
+intentional because the public client contract is the Tinker SDK. Native Fastino
+routes remain described by the
+[API reference](/api-reference/inference/overview).
+
+## Common failure interpretation
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| `404 Not Found` on the capability call | Wrong base URL or RL API access is not enabled | Confirm the `/tinker` suffix, then contact Fastino |
+| Authentication error | Missing `tml-` wrapper or invalid Fastino key | Rebuild `TINKER_API_KEY` from a current `fast_sk_...` key |
+| `402 Payment Required` on billable work | Fastino billing or spend admission rejected the request | Resolve the account billing condition before retrying |
+| Model is not served | Source model is not in Fastino's RL catalog | Select a model from `get_server_capabilities()` |
+| Rank rejected | Requested LoRA rank is greater than 32 | Use rank 32 or lower |
+| Loss rejected | Loss name is outside the supported set | Use one of the five documented losses |
+| Same sequence, different body | Client ordering conflict | Create a new operation in sequence; do not rewrite history |
+| Future reports `paused_capacity` | The run is waiting for placement, startup, or restore | Continue polling with SDK backoff |
+| Future result returns `410` | The result body expired or its effect was lost | Let the SDK resubmit; if the mutation outcome remains unknown, recover from your latest checkpoint |
+| Run cannot restore live state | Durable replay or infrastructure recovery failed | Resume from your latest explicit state checkpoint |
+
+For a task-oriented porting sequence, see
+[Migrate from Tinker](/rl-api/migrate-from-tinker).

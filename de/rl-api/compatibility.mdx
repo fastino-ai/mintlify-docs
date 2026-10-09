@@ -1,0 +1,253 @@
+---
+title: "RL API – Kompatibilitätsreferenz"
+description: "Unterstützte Versionen des Tinker SDK, Modelle, Operationen, Loss-Funktionen, Limits und bekannte Unterschiede."
+---
+
+Entscheiden Sie mithilfe dieser Seite, ob ein bestehendes Tinker-Programm ohne
+Änderungen am Algorithmus auf der RL API von Fastino ausgeführt werden kann.
+
+## Client-Vertrag
+
+| Element | Wert |
+| --- | --- |
+| Python-Paket | `tinker` |
+| Getestete Version | `0.32.0` |
+| Mindestens unterstützte Version | `0.25.0` |
+| Basis-URL | `https://api.fastino.ai/tinker` |
+| Anmeldedaten | `tml-`, gefolgt von einem Fastino-Schlüssel `fast_sk_...` |
+| Teamzugriff | Wird durch den RL-API-Zugriff für das authentifizierte Fastino-Team gesteuert |
+
+Pinnen Sie die getestete Version für die Produktion:
+
+```bash
+pip install "tinker==0.32.0"
+```
+
+## Modellkatalog
+
+| Basismodell | Kontextfenster | Maximaler LoRA-Rang | Verhalten |
+| --- | ---: | ---: | --- |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 | Standard-Trainingslayout |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 | Einfache Modell-ID wird der schnellen Stufe zugeordnet |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 | Vollständiges Tinker-kompatibles LoRA-Layout |
+
+Nemotron 3 Super akzeptiert außerdem das Suffix `:fast`. Ein
+Attention-only-Lauf wird über seine LoRA-Trainingsflags ausgewählt, wenn
+Attention aktiviert und das Training von MLP und Unembedding deaktiviert ist.
+
+Fragen Sie zur Laufzeit immer `get_server_capabilities()` ab. Die Antwort ist
+für Modellverfügbarkeit und Kontextfenster maßgeblich.
+
+## Trainingsoperationen
+
+| Funktion | Unterstützung |
+| --- | --- |
+| Einen LoRA-Trainingsclient erstellen | Unterstützt; andere Trainingslayouts werden nicht unterstützt |
+| `forward` | Unterstützt |
+| `forward_backward` | Unterstützt |
+| `optim_step` | Unterstützt |
+| Trainingsstatus speichern | Unterstützt |
+| Trainingsstatus laden | Unterstützt |
+| Einen neuen Client aus einem gespeicherten Status erstellen | Unterstützt |
+| Sampler-Gewichte speichern | Unterstützt |
+| Gewichte speichern und einen kurzlebigen Sampling-Client abrufen | Unterstützt |
+| Einen Lauf entladen oder freigeben | Unterstützt |
+
+Die unterstützte Optimizer-Familie ist `adamw`. SDK-Werte für `AdamParams`
+stellen die Schrittparameter bereit.
+
+### Loss-Funktionen
+
+Die akzeptierten Loss-Namen sind:
+
+- `cross_entropy`
+- `importance_sampling`
+- `ppo`
+- `cispo`
+- `dro`
+
+Verwenden Sie `importance_sampling` für den standardmäßigen
+On-Policy-Cookbook-Loop, der mit gesampelten Log-Wahrscheinlichkeiten und
+Advantages trainiert.
+
+## Sampling-Operationen
+
+| Funktion | Unterstützung |
+| --- | --- |
+| Aus einem Basismodell sampeln | Unterstützt |
+| Aus benannten Sampler-Gewichten sampeln | Unterstützt |
+| Aus kurzlebigen Trainingsgewichten sampeln | Unterstützt |
+| Mehrere Samples anfordern | Unterstützt |
+| Token-Log-Wahrscheinlichkeiten berechnen | Unterstützt |
+| Ein Future für Sampling in der Warteschlange abbrechen | Unterstützt |
+| Bild- oder multimodale Prompt-Chunks | Nicht unterstützt; aktuelle Modelle sind nur textbasiert |
+| `target_prompt_logprobs` | Nicht unterstützt |
+| `prompt_alt_tokens_k` | Nicht unterstützt |
+
+Sampling aus der aktuellen Trainings-Policy beginnt normalerweise mit
+`save_weights_and_get_sampling_client()`.
+
+Prompts verwenden codierte Text-Token-Chunks. Direktes zustandsloses Sampling
+wird nicht unterstützt. Erstellen Sie einen `SamplingClient` aus einem
+Basismodell, einem benannten Sampler-Checkpoint oder den aktuellen
+Trainingsgewichten.
+
+## Futures und Sitzungen
+
+Übermittelte Operationen geben Tinker-Futures zurück. Die API unterstützt das
+Abrufen von Futures, Warten, Meldungen zum Warteschlangenstatus und den Abbruch
+von Sampling.
+
+Eine akzeptierte Operation kann `paused_capacity` melden, während Fastino ihren
+Lauf platziert oder wiederherstellt. Behandeln Sie dies als wartende Arbeit,
+nicht als abgelehnte Anfrage.
+
+Ergebnisse abgeschlossener Futures werden eine Stunde lang aufbewahrt. Lösen
+Sie das Ergebnis zeitnah auf und speichern Sie es dauerhaft. Anfragemetadaten
+bleiben länger erhalten, ersetzen jedoch nicht den abgelaufenen Ergebnis-Body.
+
+Der Abbruch gilt für Sampling-Operationen. Einzelne Trainingsoperationen können
+nach der Übermittlung nicht abgebrochen werden.
+
+Das SDK sendet automatisch Heartbeats für Sitzungen. Eine Sitzung, die fünf
+Minuten lang keinen Heartbeat aufweist, gilt als veraltet und ihre
+Live-Ressourcen können freigegeben werden. Schließen Sie `ServiceClient`
+explizit, wenn Ihre Anwendung fertig ist.
+
+Anfragen sind nach Fastino-Team isoliert. Ein Schlüssel kann Sitzungen, Läufe
+oder Checkpoints eines anderen Teams weder einsehen noch bedienen.
+
+## Checkpoints und Laufverwaltung
+
+Der REST-Client des SDK unterstützt:
+
+- Trainingsläufe auflisten
+- Einen Trainingslauf abrufen
+- Checkpoints für einen Lauf oder ein Team auflisten
+- Metadaten der Checkpoint-Gewichte untersuchen
+- Gewichte in einen neuen Lauf kopieren
+- Einen Checkpoint löschen
+- Einen Checkpoint veröffentlichen oder seine Veröffentlichung aufheben
+- Die Lebensdauer eines Checkpoints setzen oder aufheben
+- Die aktuelle Nutzung des Checkpoint-Speichers melden
+
+Die Veröffentlichung schaltet Checkpoint-Metadaten um. Der Checkpoint kann
+dadurch derzeit nicht von einem anderen Fastino-Team geladen werden. Nehmen Sie
+die teamübergreifende Verteilung nicht in einen automatisierten Workflow auf.
+
+Pfade für Trainingsstatus verwenden:
+
+```text
+tinker://<run-id>/weights/<name>
+```
+
+Pfade für Sampler-Gewichte verwenden:
+
+```text
+tinker://<run-id>/sampler_weights/<name>
+```
+
+Ein Status-Checkpoint enthält die zur Wiederherstellung des Trainings
+erforderlichen Informationen einschließlich der Optimizer-Konfiguration. Ein
+Sampler-Checkpoint ist für Inferenz und Rollout-Generierung vorgesehen und kann
+den Optimizer-Status nicht wiederherstellen. Für eine zuverlässige Fortsetzung
+sind außerdem Ihre dauerhaften lokalen Loop-Metadaten erforderlich, etwa der
+Dataset-Cursor und der abgeschlossene Schritt.
+
+## Limits
+
+Die Funktionsantwort meldet die maximale Kontextlänge jedes Modells; der
+Modellkatalog begrenzt den LoRA-Rang auf 32.
+
+Für Sampling-, Forward- und Forward-Backward-Aufrufe gelten separate
+Sequenzlimits pro Aufruf. Jedes kann unter dem Kontextfenster des Modells
+liegen, und Fastino kann sie unabhängig voneinander anpassen, ohne den
+SDK-Vertrag zu ändern. Behandeln Sie eine Antwort aufgrund ungültiger Länge als
+Fehler bei der Formung der Anfrage:
+
+1. Verringern Sie die Länge des Prompts oder der Vervollständigung.
+2. Teilen Sie große Trainingsbatches auf.
+3. Wiederholen Sie den Versuch mit einer gültigen Anfrage, nicht mit demselben ungültigen Body.
+
+Codieren Sie kein undokumentiertes Limit pro Aufruf fest in
+wiederverwendbare Agentenlogik.
+
+Halten Sie Request-Bodys für Sampling und Forward-Backward bei höchstens
+32 MiB. Dies ist der aktuelle HTTP-Standardwert und die Obergrenze für
+dekomprimiertes Forward-Backward. Die Anfrageeinstellung des Dienstes kann sich
+unabhängig davon ändern. Wenn benutzerdefinierter Client-Code einen Fehler
+aufgrund der Anfragegröße erhält, teilen Sie den Batch vor der Übermittlung auf.
+Das Tinker SDK übernimmt dieses Chunking normalerweise für Trainingsbatches.
+
+## Semantik von Wiederholungsversuchen
+
+Operationen innerhalb eines Trainingslaufs werden nach Sequenz-ID geordnet.
+
+- Wird derselbe Lauf mit derselben Sequenz-ID und demselben Request-Body erneut
+  versucht, wird die ursprüngliche Operation zurückgegeben.
+- Die Wiederverwendung einer Sequenz-ID mit einem anderen Body gibt einen
+  Fehler zurück.
+- Ein Future kann abgerufen werden, nachdem die ursprüngliche Antwort auf die
+  Übermittlung verloren gegangen ist.
+
+Dadurch sind Wiederholungsversuche nach Netzwerkfehlern sicher, ohne dieselbe
+Optimizer-Mutation zweimal anzuwenden. Eine geänderte Anfrage kann dadurch
+nicht sicher dieselbe Sequenz wiederverwenden.
+
+## Abrechnungsverhalten
+
+| Arbeit | Messgröße |
+| --- | --- |
+| Sampling | Eingabe-, gecachte Eingabe- und Ausgabe-Tokens |
+| `forward` und `forward_backward` | Trainings-Tokens |
+| Checkpoints | Gespeicherte Bytes über die Zeit |
+| Client- oder Modellerstellung | Keine Token-Messung |
+| `optim_step` | Keine Token-Messung |
+| Anfrage zum Speichern oder Laden | Keine Token-Messung über die Nutzung des gespeicherten Checkpoints hinaus |
+
+Die Nutzung wird dem Fastino-Projekt der Sitzung zugeordnet. Wenn kein Projekt
+angegeben ist, wird das Standardprojekt des Teams verwendet.
+
+## Bekannte Unterschiede
+
+### Trace-Export
+
+Der Export von Sitzungstraces wird nicht unterstützt. Eine Anfrage meldet einen
+fehlgeschlagenen Export, statt Trace-Daten zurückzugeben.
+
+### Audit-Protokoll
+
+Der Audit-Endpunkt des SDK gibt keine Einträge zurück. Verwenden Sie Ihre
+eigenen Anwendungsprotokolle und Fastino-Projektnutzungsdaten für die
+betriebliche Zuordnung.
+
+### Modellverfügbarkeit
+
+Die RL API spiegelt nicht jedes Modell, das in anderen Tinker-Umgebungen
+verfügbar ist. Verwenden Sie die Funktionsantwort und eine der oben aufgeführten
+unterstützten Modell-IDs.
+
+### OpenAPI-Discovery
+
+RL-Routen sind nicht im öffentlichen OpenAPI-Dokument von Fastino enthalten.
+Dies ist beabsichtigt, da das Tinker SDK der öffentliche Client-Vertrag ist.
+Native Fastino-Routen werden weiterhin in der
+[API-Referenz](/de/api-reference/inference/overview) beschrieben.
+
+## Häufige Fehler interpretieren
+
+| Symptom | Wahrscheinliche Ursache | Maßnahme |
+| --- | --- | --- |
+| `404 Not Found` beim Funktionsaufruf | Falsche Basis-URL oder RL-API-Zugriff ist nicht aktiviert | Bestätigen Sie das Suffix `/tinker` und wenden Sie sich dann an Fastino |
+| Authentifizierungsfehler | Fehlende `tml-`-Verpackung oder ungültiger Fastino-Schlüssel | Erstellen Sie `TINKER_API_KEY` aus einem aktuellen Schlüssel `fast_sk_...` neu |
+| `402 Payment Required` bei kostenpflichtiger Arbeit | Fastino-Abrechnung oder Ausgabenzulassung hat die Anfrage abgelehnt | Beheben Sie die Abrechnungsbedingung des Kontos, bevor Sie den Versuch wiederholen |
+| Modell wird nicht bereitgestellt | Quellmodell ist nicht im RL-Katalog von Fastino enthalten | Wählen Sie ein Modell aus `get_server_capabilities()` |
+| Rang abgelehnt | Angeforderter LoRA-Rang ist größer als 32 | Verwenden Sie Rang 32 oder niedriger |
+| Loss abgelehnt | Loss-Name gehört nicht zur unterstützten Menge | Verwenden Sie eine der fünf dokumentierten Loss-Funktionen |
+| Gleiche Sequenz, anderer Body | Konflikt in der Client-Reihenfolge | Erstellen Sie eine neue Operation in der Sequenz; schreiben Sie den Verlauf nicht um |
+| Future meldet `paused_capacity` | Der Lauf wartet auf Platzierung, Start oder Wiederherstellung | Fragen Sie den Status weiterhin mit dem SDK-Backoff ab |
+| Future-Ergebnis gibt `410` zurück | Der Ergebnis-Body ist abgelaufen oder seine Auswirkung ging verloren | Lassen Sie das SDK die Anfrage erneut übermitteln; wenn das Ergebnis der Mutation weiterhin unbekannt ist, stellen Sie den Lauf von Ihrem neuesten Checkpoint wieder her |
+| Lauf kann Live-Status nicht wiederherstellen | Dauerhaftes Replay oder Infrastrukturwiederherstellung fehlgeschlagen | Setzen Sie den Lauf von Ihrem neuesten expliziten Status-Checkpoint fort |
+
+Eine aufgabenorientierte Portierungsabfolge finden Sie unter
+[Von Tinker migrieren](/de/rl-api/migrate-from-tinker).
