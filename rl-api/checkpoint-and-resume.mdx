@@ -24,39 +24,39 @@ the policy that produced it.
 
 ## Before you start
 
-Complete the [Quickstart](/rl-api/quickstart) first. This guide assumes that
-your client can create a training run and save a state checkpoint.
+Complete the [Quickstart](/rl-api/quickstart) first to verify authentication,
+model access, and sampling. The Quickstart does not create a training run.
+Continue only after your enabled Fastino environment can complete one small
+training update and save and restore a state checkpoint.
 
 ## 1. Save state and loop progress
 
-The `checkpoint_utils` module writes a server-side state checkpoint. It appends
-the checkpoint path and your loop fields to `checkpoints.jsonl`:
+Save server-side training state, then persist the returned path with the
+client-owned fields required to reconstruct the run:
 
 ```python
-from tinker_cookbook import checkpoint_utils
+import json
+from pathlib import Path
 
 
-paths = checkpoint_utils.save_checkpoint(
-    training_client=training_client,
-    name=f"step-{step:06d}",
-    log_path=log_path,
-    kind="state",
-    loop_state={
-        "step": step,
-        "dataset_cursor": dataset_cursor,
-        "reward_version": reward_version,
-    },
-    ttl_seconds=7 * 24 * 60 * 60,
-)
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "state_path": state.path,
+    "model": model_name,
+    "rank": lora_rank,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "renderer": renderer_name,
+    "tokenizer": tokenizer_name,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 
-print(paths["state_path"])
+print(state.path)
 ```
-
-<Tip>
-  In an async training loop, use `await
-  checkpoint_utils.save_checkpoint_async(...)` with the same fields. Do not call
-  the synchronous wrapper from a running event loop.
-</Tip>
 
 The returned path has this shape:
 
@@ -64,24 +64,39 @@ The returned path has this shape:
 tinker://<run-id>/weights/step-000100
 ```
 
-The time-to-live applies to the server-side checkpoint. Keep a final checkpoint
-without a TTL when it is an artifact you intend to retain.
+The snippet does not assign a time-to-live. Set retention explicitly through
+supported checkpoint administration operations for rolling recovery artifacts.
+Keep a final checkpoint without a TTL when it is an artifact you intend to
+retain.
 
 <Warning>
-  `save_checkpoint(...)` does not request overwrite. Reusing a checkpoint name is
-  rejected. The lower-level `save_state(..., overwrite=True)` call can replace
-  a state checkpoint explicitly, but unique names are safer recovery markers.
+  `save_state(...)` does not request overwrite. Reusing a checkpoint name is
+  rejected. `save_state(..., overwrite=True)` can replace a state checkpoint
+  explicitly, but unique names are safer recovery markers.
 </Warning>
 
-## 2. Find the newest valid resume point
+## 2. Find the newest recorded resume point
 
-At process startup, read the last local record that contains a state path:
+At process startup, scan backward for the newest parseable local record that
+contains a state path. A process can stop while writing the final JSONL line, so
+skip a malformed tail instead of losing the previous recovery point:
 
 ```python
-resume = checkpoint_utils.get_last_checkpoint(
-    log_path,
-    required_key="state_path",
-)
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+
+
+resume = get_last_checkpoint(log_path)
 ```
 
 Handle both paths explicitly:
@@ -102,7 +117,7 @@ else:
 
     training_client = (
         service_client.create_training_client_from_state_with_optimizer(
-            resume.state_path
+            str(resume["state_path"])
         )
     )
     start_step = saved_step + 1
@@ -160,7 +175,7 @@ Use a state checkpoint to resume training:
 state = training_client.save_state("step-000100").result()
 ```
 
-Use sampler weights for evaluation or serving:
+Use sampler weights for evaluation, rollouts, or SDK inference:
 
 ```python
 sampler = training_client.save_weights_for_sampler(
@@ -185,23 +200,10 @@ A practical retention policy uses:
 - Longer-lived periodic state and sampler checkpoints for comparison
 - One permanent final checkpoint
 
-`CheckpointManager` implements this pattern, including
-rolling-checkpoint deletion and TTLs:
-
-```python
-manager = checkpoint_utils.CheckpointManager(
-    training_client=training_client,
-    service_client=service_client,
-    log_path=log_path,
-    save_every=20,
-    rolling_save_every=1,
-    ttl_seconds=7 * 24 * 60 * 60,
-    rolling_ttl_seconds=2 * 60 * 60,
-)
-```
-
-Checkpoint storage is metered over time. Delete checkpoints that are no longer
-part of your recovery, evaluation, or release plan.
+Implement retention in your application by assigning unique checkpoint names,
+setting explicit TTLs through supported checkpoint operations, and deleting
+artifacts that leave your recovery or evaluation window. Checkpoint storage is
+metered over time.
 
 ## Recovery decisions for agents
 
@@ -209,7 +211,7 @@ part of your recovery, evaluation, or release plan.
 | --- | --- |
 | No local resume record | Start a new run |
 | Resume record and checkpoint both exist | Validate metadata, then restore |
-| Local record exists but checkpoint is gone | Fall back to an earlier valid record or ask the user |
+| Local record exists but checkpoint is gone | Stop and ask the user; do not assume an earlier record belongs to the intended run |
 | Checkpoint exists without a local record | Treat it as unclassified; do not guess its dataset cursor |
 | Reward or dataset revision changed | Start a new experiment unless the user approves continuation |
 | Live run reports unrecoverable state | Restore from the latest explicit state checkpoint |

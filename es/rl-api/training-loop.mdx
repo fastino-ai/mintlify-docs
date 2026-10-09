@@ -17,9 +17,14 @@ optimizador y las operaciones de puntos de control.
     optimizador y secuencia de operaciones.
   </Step>
   <Step title="Captura la política actual para el muestreo">
-    Llama a `save_weights_and_get_sampling_client()`. Los rollouts deben
-    proceder de la política que estás a punto de mejorar, no de pesos no
-    relacionados u obsoletos.
+    Para los rollouts inmediatos de la misma ejecución, llama a
+    `save_weights_and_get_sampling_client()`. Sus pesos son efímeros y pueden
+    desaparecer cuando la ejecución termina, queda en reposo, se mueve, se
+    reconstruye o reduce su escala. Para establecer un límite que permita
+    reintentos, llama a `save_weights_for_sampler(name)` y crea un cliente de
+    muestreo a partir de la ruta devuelta. Los rollouts deben proceder de la
+    política que estás a punto de mejorar, no de pesos no relacionados u
+    obsoletos.
   </Step>
   <Step title="Recopila grupos de rollouts">
     Envía un prompt varias veces o solicita varias muestras en una sola llamada.
@@ -53,7 +58,7 @@ optimizador y las operaciones de puntos de control.
 | `ServiceClient` | Abre una sesión, informa de las capacidades, crea clientes de entrenamiento y muestreo, y expone el cliente REST | Una ejecución lógica de la aplicación |
 | `TrainingClient` | Controla una ejecución ordenada de entrenamiento LoRA y su estado del optimizador | Una política que se está entrenando |
 | `SamplingClient` | Muestrea o calcula probabilidades logarítmicas a partir de un modelo base o pesos guardados | Una captura de la política o un punto de control reutilizable |
-| `RestClient` | Enumera ejecuciones y puntos de control, gestiona la visibilidad y la retención, e informa del uso de almacenamiento | Operaciones administrativas |
+| `RestClient` | Enumera ejecuciones y puntos de control, gestiona los metadatos y la retención de los puntos de control, e informa del uso de almacenamiento | Operaciones administrativas |
 | Future | Realiza el seguimiento de una operación enviada y devuelve su resultado | Una operación |
 
 Cerrar un `ServiceClient` finaliza la sesión y libera sus ejecuciones de
@@ -103,10 +108,11 @@ posiciones de los tokens generados.
 
 ## Mantén las actualizaciones secuenciales
 
-El muestreo puede ejecutarse de forma concurrente. Las actualizaciones de un
-`TrainingClient` deben permanecer secuenciales. Resuelve
-`forward_backward(...)` y `optim_step(...)` en orden. No modifiques un mismo
-cliente de entrenamiento desde procesos independientes.
+El SDK puede enviar varios futures de muestreo, pero evalúa la concurrencia y
+el rendimiento en el entorno de Fastino que tengas habilitado antes de depender
+de ellos. Las actualizaciones de un `TrainingClient` deben permanecer
+secuenciales. Resuelve `forward_backward(...)` y `optim_step(...)` en orden y
+no modifiques un mismo cliente de entrenamiento desde procesos independientes.
 
 ## Elige el punto de control correcto
 

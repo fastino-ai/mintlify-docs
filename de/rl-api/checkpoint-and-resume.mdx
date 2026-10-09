@@ -26,40 +26,41 @@ sie erzeugt hat, nicht wiederherstellen.
 
 ## Bevor Sie beginnen
 
-Schließen Sie zuerst den [Schnellstart](/de/rl-api/quickstart) ab. Dieser
-Leitfaden setzt voraus, dass Ihr Client einen Trainingslauf erstellen und einen
-Status-Checkpoint speichern kann.
+Schließen Sie zuerst den [Schnellstart](/de/rl-api/quickstart) ab, um
+Authentifizierung, Modellzugriff und Sampling zu prüfen. Der Schnellstart
+erstellt keinen Trainingslauf. Fahren Sie erst fort, wenn Ihre freigeschaltete
+Fastino-Umgebung ein kleines Trainingsupdate abschließen sowie einen
+Status-Checkpoint speichern und wiederherstellen kann.
 
 ## 1. Status und Loop-Fortschritt speichern
 
-Das Modul `checkpoint_utils` schreibt einen serverseitigen Status-Checkpoint und
-hängt dessen Pfad zusammen mit Ihren Loop-Feldern an `checkpoints.jsonl` an:
+Speichern Sie den serverseitigen Trainingsstatus und schreiben Sie anschließend
+den zurückgegebenen Pfad zusammen mit den clientseitigen Feldern, die zur
+Rekonstruktion des Laufs erforderlich sind, dauerhaft:
 
 ```python
-from tinker_cookbook import checkpoint_utils
+import json
+from pathlib import Path
 
 
-paths = checkpoint_utils.save_checkpoint(
-    training_client=training_client,
-    name=f"step-{step:06d}",
-    log_path=log_path,
-    kind="state",
-    loop_state={
-        "step": step,
-        "dataset_cursor": dataset_cursor,
-        "reward_version": reward_version,
-    },
-    ttl_seconds=7 * 24 * 60 * 60,
-)
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "state_path": state.path,
+    "model": model_name,
+    "rank": lora_rank,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "renderer": renderer_name,
+    "tokenizer": tokenizer_name,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 
-print(paths["state_path"])
+print(state.path)
 ```
-
-<Tip>
-  Verwenden Sie in einem asynchronen Trainingsloop `await
-  checkpoint_utils.save_checkpoint_async(...)` mit denselben Feldern. Rufen Sie
-  den synchronen Wrapper nicht aus einem laufenden Event-Loop auf.
-</Tip>
 
 Der zurückgegebene Pfad hat diese Form:
 
@@ -67,27 +68,43 @@ Der zurückgegebene Pfad hat diese Form:
 tinker://<run-id>/weights/step-000100
 ```
 
-Die Gültigkeitsdauer gilt für den serverseitigen Checkpoint. Bewahren Sie einen
-finalen Checkpoint ohne TTL auf, wenn es sich um ein Artefakt handelt, das Sie
-behalten möchten.
+Das Snippet weist keine Gültigkeitsdauer zu. Legen Sie die Aufbewahrung für
+rollierende Wiederherstellungsartefakte explizit über die unterstützten
+Operationen zur Checkpoint-Verwaltung fest. Bewahren Sie einen finalen
+Checkpoint ohne TTL auf, wenn es sich um ein Artefakt handelt, das Sie behalten
+möchten.
 
 <Warning>
-  `save_checkpoint(...)` fordert kein Überschreiben an. Die Wiederverwendung eines
-  Checkpoint-Namens wird daher abgelehnt. Der Low-Level-Aufruf
-  `save_state(..., overwrite=True)` kann einen Status-Checkpoint ausdrücklich
-  ersetzen, aber eindeutige Namen sind sicherere Wiederherstellungsmarker.
+  `save_state(...)` fordert kein Überschreiben an. Die Wiederverwendung eines
+  Checkpoint-Namens wird abgelehnt. `save_state(..., overwrite=True)` kann einen
+  Status-Checkpoint ausdrücklich ersetzen, aber eindeutige Namen sind sicherere
+  Wiederherstellungsmarker.
 </Warning>
 
-## 2. Den neuesten gültigen Fortsetzungspunkt finden
+## 2. Den neuesten aufgezeichneten Fortsetzungspunkt finden
 
-Lesen Sie beim Prozessstart den letzten lokalen Datensatz, der einen
-Statuspfad enthält:
+Durchsuchen Sie beim Prozessstart die lokalen Datensätze rückwärts nach dem
+neuesten lesbaren Datensatz, der einen Statuspfad enthält. Ein Prozess kann
+während des Schreibens der letzten JSONL-Zeile beendet werden. Überspringen Sie
+daher eine fehlerhafte letzte Zeile, statt den vorherigen
+Wiederherstellungspunkt zu verlieren:
 
 ```python
-resume = checkpoint_utils.get_last_checkpoint(
-    log_path,
-    required_key="state_path",
-)
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+
+
+resume = get_last_checkpoint(log_path)
 ```
 
 Behandeln Sie beide Pfade explizit:
@@ -108,7 +125,7 @@ else:
 
     training_client = (
         service_client.create_training_client_from_state_with_optimizer(
-            resume.state_path
+            str(resume["state_path"])
         )
     )
     start_step = saved_step + 1
@@ -170,7 +187,7 @@ Verwenden Sie einen Status-Checkpoint, um das Training fortzusetzen:
 state = training_client.save_state("step-000100").result()
 ```
 
-Verwenden Sie Sampler-Gewichte für Evaluierung oder Serving:
+Verwenden Sie Sampler-Gewichte für Evaluierung, Rollouts oder SDK-Inferenz:
 
 ```python
 sampler = training_client.save_weights_for_sampler(
@@ -195,24 +212,11 @@ Eine praktische Aufbewahrungsrichtlinie verwendet:
 - Längerlebige regelmäßige Status- und Sampler-Checkpoints für Vergleiche
 - Einen dauerhaften finalen Checkpoint
 
-`CheckpointManager` implementiert dieses Muster
-einschließlich der Löschung rollierender Checkpoints und TTLs:
-
-```python
-manager = checkpoint_utils.CheckpointManager(
-    training_client=training_client,
-    service_client=service_client,
-    log_path=log_path,
-    save_every=20,
-    rolling_save_every=1,
-    ttl_seconds=7 * 24 * 60 * 60,
-    rolling_ttl_seconds=2 * 60 * 60,
-)
-```
-
-Checkpoint-Speicher wird über die Zeit gemessen. Löschen Sie Checkpoints, die
-nicht mehr Teil Ihres Wiederherstellungs-, Evaluierungs- oder Release-Plans
-sind.
+Implementieren Sie die Aufbewahrung in Ihrer Anwendung, indem Sie eindeutige
+Checkpoint-Namen vergeben, über unterstützte Checkpoint-Operationen explizite
+TTLs festlegen und Artefakte löschen, die nicht mehr in Ihrem
+Wiederherstellungs- oder Evaluierungsfenster liegen. Checkpoint-Speicher wird
+über die Zeit gemessen.
 
 ## Wiederherstellungsentscheidungen für Agenten
 
@@ -220,7 +224,7 @@ sind.
 | --- | --- |
 | Kein lokaler Datensatz zur Fortsetzung | Einen neuen Lauf starten |
 | Datensatz zur Fortsetzung und Checkpoint sind vorhanden | Metadaten validieren und anschließend wiederherstellen |
-| Lokaler Datensatz ist vorhanden, aber Checkpoint fehlt | Auf einen früheren gültigen Datensatz zurückgreifen oder den Benutzer fragen |
+| Lokaler Datensatz ist vorhanden, aber Checkpoint fehlt | Anhalten und den Benutzer fragen; nicht annehmen, dass ein früherer Datensatz zum beabsichtigten Lauf gehört |
 | Checkpoint ist ohne lokalen Datensatz vorhanden | Als nicht klassifiziert behandeln; Dataset-Cursor nicht erraten |
 | Reward- oder Dataset-Revision hat sich geändert | Neues Experiment starten, sofern der Benutzer die Fortsetzung nicht genehmigt |
 | Live-Lauf meldet nicht wiederherstellbaren Status | Vom neuesten expliziten Status-Checkpoint wiederherstellen |

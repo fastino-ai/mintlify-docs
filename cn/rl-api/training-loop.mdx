@@ -13,7 +13,10 @@ RL API 将学习程序与模型计算分离。你的进程决定采样内容、�
     选择受支持的基础模型和 LoRA rank。客户端代表一次有序的训练运行，并拥有自己的权重、优化器状态和操作序列。
   </Step>
   <Step title="为采样创建当前策略的快照">
-    调用 `save_weights_and_get_sampling_client()`。Rollout
+    如需在同一次运行中立即执行 rollout，请调用
+    `save_weights_and_get_sampling_client()`。其权重是临时的，可能在运行结束、
+    暂停、迁移、重建或缩容时消失。如需可重试的边界，请调用
+    `save_weights_for_sampler(name)`，并使用返回的路径创建采样客户端。Rollout
     应来自你即将改进的策略，而不是无关或过时的权重。
   </Step>
   <Step title="收集 rollout 组">
@@ -41,7 +44,7 @@ RL API 将学习程序与模型计算分离。你的进程决定采样内容、�
 | `ServiceClient` | 打开会话、报告功能、创建训练和采样客户端，并提供 REST 客户端 | 一次逻辑应用运行 |
 | `TrainingClient` | 拥有一次有序的 LoRA 训练运行及其优化器状态 | 一个正在训练的策略 |
 | `SamplingClient` | 从基础模型或已保存权重进行采样或计算对数概率 | 一个策略快照或可复用检查点 |
-| `RestClient` | 列出运行和检查点、管理可见性和保留策略，并报告存储用量 | 管理操作 |
+| `RestClient` | 列出运行和检查点、管理检查点元数据和保留策略，并报告存储用量 | 管理操作 |
 | Future | 跟踪一个已提交的操作并返回其结果 | 一个操作 |
 
 关闭 `ServiceClient` 会结束会话并释放其活跃的训练运行，但不会删除检查点。
@@ -82,7 +85,8 @@ RL API 将学习程序与模型计算分离。你的进程决定采样内容、�
 
 ## 保持更新顺序
 
-采样可以并发运行。对同一个 `TrainingClient` 的更新必须按顺序执行。依次解析
+SDK 可以提交多个采样 future，但在依赖并发能力和吞吐量之前，请先针对你已启用的
+Fastino 环境进行验证。对同一个 `TrainingClient` 的更新必须按顺序执行。依次解析
 `forward_backward(...)` 和 `optim_step(...)`，不要让多个独立进程修改同一个
 训练客户端。
 

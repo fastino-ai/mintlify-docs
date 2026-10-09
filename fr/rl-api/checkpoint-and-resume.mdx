@@ -26,40 +26,41 @@ qui l'a produit.
 
 ## Avant de commencer
 
-Terminez d'abord le [démarrage rapide](/fr/rl-api/quickstart). Ce guide suppose
-que votre client peut créer une exécution d'entraînement et enregistrer un
-checkpoint d'état.
+Terminez d'abord le [démarrage rapide](/fr/rl-api/quickstart) pour vérifier
+l'authentification, l'accès au modèle et l'échantillonnage. Le démarrage rapide
+ne crée pas d'exécution d'entraînement. Ne poursuivez qu'après avoir vérifié que
+votre environnement Fastino activé peut effectuer une petite mise à jour
+d'entraînement, puis enregistrer et restaurer un checkpoint d'état.
 
 ## 1. Enregistrer l'état et la progression de la boucle
 
-Le module `checkpoint_utils` crée un checkpoint d'état côté serveur et
-ajoute son chemin ainsi que les champs de votre boucle à `checkpoints.jsonl` :
+Enregistrez l'état d'entraînement côté serveur, puis conservez le chemin renvoyé
+avec les champs gérés par le client qui sont nécessaires pour reconstruire
+l'exécution :
 
 ```python
-from tinker_cookbook import checkpoint_utils
+import json
+from pathlib import Path
 
 
-paths = checkpoint_utils.save_checkpoint(
-    training_client=training_client,
-    name=f"step-{step:06d}",
-    log_path=log_path,
-    kind="state",
-    loop_state={
-        "step": step,
-        "dataset_cursor": dataset_cursor,
-        "reward_version": reward_version,
-    },
-    ttl_seconds=7 * 24 * 60 * 60,
-)
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "state_path": state.path,
+    "model": model_name,
+    "rank": lora_rank,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "renderer": renderer_name,
+    "tokenizer": tokenizer_name,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 
-print(paths["state_path"])
+print(state.path)
 ```
-
-<Tip>
-  Dans une boucle d'entraînement asynchrone, utilisez `await
-  checkpoint_utils.save_checkpoint_async(...)` avec les mêmes champs. N'appelez
-  pas le wrapper synchrone depuis une boucle d'événements en cours d'exécution.
-</Tip>
 
 Le chemin renvoyé présente cette forme :
 
@@ -67,26 +68,42 @@ Le chemin renvoyé présente cette forme :
 tinker://<run-id>/weights/step-000100
 ```
 
-La durée de vie s'applique au checkpoint côté serveur. Conservez un checkpoint
-final sans TTL lorsqu'il s'agit d'un artefact que vous souhaitez garder.
+L'extrait n'attribue aucune durée de vie. Définissez explicitement la rétention
+avec les opérations d'administration de checkpoints prises en charge pour les
+artefacts glissants de récupération. Conservez un checkpoint final sans TTL
+lorsqu'il s'agit d'un artefact que vous souhaitez garder.
 
 <Warning>
-  `save_checkpoint(...)` ne demande pas l'écrasement. Réutiliser un
-  nom de checkpoint est donc rejeté. L'appel de bas niveau
-  `save_state(..., overwrite=True)` peut remplacer explicitement un checkpoint
-  d'état, mais des noms uniques constituent des marqueurs de reprise plus sûrs.
+  `save_state(...)` ne demande pas l'écrasement. Réutiliser un nom de checkpoint
+  est rejeté. `save_state(..., overwrite=True)` peut remplacer explicitement un
+  checkpoint d'état, mais des noms uniques constituent des marqueurs de reprise
+  plus sûrs.
 </Warning>
 
-## 2. Trouver le point de reprise valide le plus récent
+## 2. Trouver le point de reprise enregistré le plus récent
 
-Au démarrage du processus, lisez le dernier enregistrement local qui contient un
-chemin d'état :
+Au démarrage du processus, parcourez les enregistrements locaux à rebours afin
+de trouver le plus récent qui soit analysable et contienne un chemin d'état. Un
+processus peut s'arrêter pendant l'écriture de la dernière ligne JSONL :
+ignorez donc une fin mal formée au lieu de perdre le point de récupération
+précédent.
 
 ```python
-resume = checkpoint_utils.get_last_checkpoint(
-    log_path,
-    required_key="state_path",
-)
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+
+
+resume = get_last_checkpoint(log_path)
 ```
 
 Gérez explicitement les deux cas :
@@ -107,7 +124,7 @@ else:
 
     training_client = (
         service_client.create_training_client_from_state_with_optimizer(
-            resume.state_path
+            str(resume["state_path"])
         )
     )
     start_step = saved_step + 1
@@ -169,7 +186,8 @@ Utilisez un checkpoint d'état pour reprendre l'entraînement :
 state = training_client.save_state("step-000100").result()
 ```
 
-Utilisez les poids d'échantillonneur pour l'évaluation ou le service :
+Utilisez les poids d'échantillonneur pour l'évaluation, les rollouts ou
+l'inférence via le SDK :
 
 ```python
 sampler = training_client.save_weights_for_sampler(
@@ -197,24 +215,11 @@ Une politique de rétention pratique utilise :
   longtemps à des fins de comparaison
 - Un checkpoint final permanent
 
-`CheckpointManager` implémente ce modèle, y
-compris la suppression des checkpoints glissants et les TTL :
-
-```python
-manager = checkpoint_utils.CheckpointManager(
-    training_client=training_client,
-    service_client=service_client,
-    log_path=log_path,
-    save_every=20,
-    rolling_save_every=1,
-    ttl_seconds=7 * 24 * 60 * 60,
-    rolling_ttl_seconds=2 * 60 * 60,
-)
-```
-
-Le stockage des checkpoints est mesuré dans le temps. Supprimez les checkpoints
-qui ne font plus partie de votre plan de récupération, d'évaluation ou de mise
-en production.
+Implémentez la rétention dans votre application en attribuant des noms uniques
+aux checkpoints, en définissant explicitement les TTL avec les opérations de
+checkpoint prises en charge et en supprimant les artefacts qui sortent de votre
+fenêtre de récupération ou d'évaluation. Le stockage des checkpoints est mesuré
+dans le temps.
 
 ## Décisions de récupération pour les agents
 
@@ -222,7 +227,7 @@ en production.
 | --- | --- |
 | Aucun enregistrement local de reprise | Démarrer une nouvelle exécution |
 | L'enregistrement de reprise et le checkpoint existent tous les deux | Valider les métadonnées, puis restaurer |
-| L'enregistrement local existe, mais le checkpoint a disparu | Revenir à un enregistrement valide antérieur ou demander à l'utilisateur |
+| L'enregistrement local existe, mais le checkpoint a disparu | Arrêter et demander à l'utilisateur ; ne pas supposer qu'un enregistrement antérieur appartient à l'exécution prévue |
 | Le checkpoint existe sans enregistrement local | Le considérer comme non classé ; ne pas deviner son curseur de jeu de données |
 | La révision de la récompense ou du jeu de données a changé | Démarrer une nouvelle expérience, sauf si l'utilisateur approuve la poursuite |
 | L'exécution active signale un état irrécupérable | Restaurer depuis le dernier checkpoint d'état explicite |

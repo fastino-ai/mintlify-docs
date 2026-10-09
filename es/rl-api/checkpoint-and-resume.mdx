@@ -25,40 +25,41 @@ no permite restaurar la política que lo produjo.
 
 ## Antes de comenzar
 
-Completa primero la [Guía rápida](/es/rl-api/quickstart). Esta guía presupone
-que tu cliente puede crear una ejecución de entrenamiento y guardar un punto de
-control de estado.
+Completa primero la [Guía rápida](/es/rl-api/quickstart) para verificar la
+autenticación, el acceso al modelo y el muestreo. La Guía rápida no crea una
+ejecución de entrenamiento. Continúa solo después de que el entorno de Fastino
+que tengas habilitado pueda completar una actualización de entrenamiento
+pequeña, y guardar y restaurar un punto de control de estado.
 
 ## 1. Guarda el estado y el progreso del bucle
 
-La utilidad del recetario escribe un punto de control de estado en el servidor
-y añade su ruta junto con los campos de tu bucle a `checkpoints.jsonl`:
+Guarda el estado de entrenamiento en el servidor y después conserva la ruta
+devuelta junto con los campos controlados por el cliente que se necesitan para
+reconstruir la ejecución:
 
 ```python
-from tinker_cookbook import checkpoint_utils
+import json
+from pathlib import Path
 
 
-paths = checkpoint_utils.save_checkpoint(
-    training_client=training_client,
-    name=f"step-{step:06d}",
-    log_path=log_path,
-    kind="state",
-    loop_state={
-        "step": step,
-        "dataset_cursor": dataset_cursor,
-        "reward_version": reward_version,
-    },
-    ttl_seconds=7 * 24 * 60 * 60,
-)
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "state_path": state.path,
+    "model": model_name,
+    "rank": lora_rank,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "renderer": renderer_name,
+    "tokenizer": tokenizer_name,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 
-print(paths["state_path"])
+print(state.path)
 ```
-
-<Tip>
-  En un bucle de entrenamiento asíncrono, usa `await
-  checkpoint_utils.save_checkpoint_async(...)` con los mismos campos. No
-  llames al wrapper síncrono desde un bucle de eventos en ejecución.
-</Tip>
 
 La ruta devuelta tiene esta forma:
 
@@ -66,27 +67,42 @@ La ruta devuelta tiene esta forma:
 tinker://<run-id>/weights/step-000100
 ```
 
-El tiempo de vida se aplica al punto de control del servidor. Conserva un punto
-de control final sin TTL cuando sea un artefacto que quieras retener.
+El fragmento no asigna un tiempo de vida. Configura la retención explícitamente
+mediante las operaciones compatibles de administración de puntos de control
+para los artefactos de recuperación rotativos. Conserva un punto de control
+final sin TTL cuando sea un artefacto que quieras retener.
 
 <Warning>
-  `save_checkpoint(...)` no solicita sobrescritura. Reutilizar un nombre de
-  punto de control se rechaza. La llamada de bajo nivel
-  `save_state(..., overwrite=True)` puede reemplazar explícitamente un punto de
-  control de estado, pero los nombres únicos son marcadores de recuperación más
-  seguros.
+  `save_state(...)` no solicita sobrescritura. Reutilizar un nombre de punto de
+  control se rechaza. `save_state(..., overwrite=True)` puede reemplazar
+  explícitamente un punto de control de estado, pero los nombres únicos son
+  marcadores de recuperación más seguros.
 </Warning>
 
-## 2. Busca el punto de reanudación válido más reciente
+## 2. Busca el punto de reanudación registrado más reciente
 
-Al iniciar el proceso, lee el último registro local que contenga una ruta de
-estado:
+Al iniciar el proceso, recorre hacia atrás los registros locales hasta
+encontrar el registro válido más reciente que contenga una ruta de estado. Un
+proceso puede detenerse mientras escribe la última línea JSONL, así que omite
+una línea final con formato incorrecto en lugar de perder el punto de
+recuperación anterior:
 
 ```python
-resume = checkpoint_utils.get_last_checkpoint(
-    log_path,
-    required_key="state_path",
-)
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+
+
+resume = get_last_checkpoint(log_path)
 ```
 
 Gestiona ambas rutas explícitamente:
@@ -107,7 +123,7 @@ else:
 
     training_client = (
         service_client.create_training_client_from_state_with_optimizer(
-            resume.state_path
+            str(resume["state_path"])
         )
     )
     start_step = saved_step + 1
@@ -169,7 +185,8 @@ Usa un punto de control de estado para reanudar el entrenamiento:
 state = training_client.save_state("step-000100").result()
 ```
 
-Usa los pesos del muestreador para la evaluación o el servicio:
+Usa los pesos del muestreador para la evaluación, los rollouts o la inferencia
+mediante el SDK:
 
 ```python
 sampler = training_client.save_weights_for_sampler(
@@ -195,24 +212,11 @@ Una política práctica de retención usa:
 - Puntos de control periódicos de estado y del muestreador de mayor duración para comparaciones
 - Un punto de control final permanente
 
-El `CheckpointManager` del recetario de Tinker implementa este patrón, incluida
-la eliminación de puntos de control rotativos y los TTL:
-
-```python
-manager = checkpoint_utils.CheckpointManager(
-    training_client=training_client,
-    service_client=service_client,
-    log_path=log_path,
-    save_every=20,
-    rolling_save_every=1,
-    ttl_seconds=7 * 24 * 60 * 60,
-    rolling_ttl_seconds=2 * 60 * 60,
-)
-```
-
-El almacenamiento de puntos de control se mide a lo largo del tiempo. Elimina
-los puntos de control que ya no formen parte de tu plan de recuperación,
-evaluación o lanzamiento.
+Implementa la retención en tu aplicación asignando nombres únicos a los puntos
+de control, configurando TTL explícitos mediante las operaciones compatibles de
+puntos de control y eliminando los artefactos que salgan de tu ventana de
+recuperación o evaluación. El almacenamiento de puntos de control se mide a lo
+largo del tiempo.
 
 ## Decisiones de recuperación para agentes
 
@@ -220,7 +224,7 @@ evaluación o lanzamiento.
 | --- | --- |
 | No hay un registro local de reanudación | Inicia una ejecución nueva |
 | Existen tanto el registro de reanudación como el punto de control | Valida los metadatos y después restaura |
-| Existe el registro local, pero el punto de control ya no está | Vuelve a un registro válido anterior o pregunta al usuario |
+| Existe el registro local, pero el punto de control ya no está | Detente y pregunta al usuario; no supongas que un registro anterior pertenece a la ejecución prevista |
 | Existe un punto de control sin un registro local | Trátalo como no clasificado; no deduzcas su cursor del conjunto de datos |
 | Cambió la revisión de la recompensa o del conjunto de datos | Inicia un experimento nuevo, a menos que el usuario apruebe continuar |
 | La ejecución activa informa de un estado irrecuperable | Restaura desde el último punto de control de estado explícito |

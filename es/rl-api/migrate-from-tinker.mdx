@@ -3,9 +3,10 @@ title: "Migrar desde Tinker"
 description: "Migra una carga de trabajo existente del SDK de Tinker a la API de RL de Fastino."
 ---
 
-La API de RL de Fastino implementa el contrato del SDK de Tinker. La mayoría de
-las migraciones mantienen sin cambios el bucle de entrenamiento y sustituyen
-cuatro puntos de integración:
+La API de RL de Fastino implementa un subconjunto documentado del contrato del
+SDK de Tinker. Las formas de las llamadas del SDK pueden permanecer sin cambios
+cuando se cumplen todos los puntos de la lista de comprobación de
+compatibilidad. Una migración sustituye cuatro puntos de integración:
 
 1. Endpoint
 2. Credencial
@@ -82,10 +83,10 @@ for model in capabilities.supported_models:
 ```
 
 Usa la respuesta de capacidades activa para tomar decisiones de producción.
-Compara el resultado con [Compatibilidad con Tinker](/es/rl-api/compatibility)
+Compara el resultado con [Compatibilidad del cliente](/es/rl-api/compatibility)
 cuando necesites consultar las ventanas de contexto o los límites de LoRA.
 
-## 4. Conserva el bucle de aprendizaje
+## 4. Compara el bucle de aprendizaje
 
 Estas llamadas principales mantienen sus formas del SDK de Tinker:
 
@@ -95,7 +96,12 @@ training_client = service_client.create_lora_training_client(
     rank=32,
 )
 
-sampling_client = training_client.save_weights_and_get_sampling_client()
+sampler_path = training_client.save_weights_for_sampler(
+    "migration-smoke"
+).result().path
+sampling_client = service_client.create_sampling_client(
+    model_path=sampler_path
+)
 sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
 sample_result = sample_future.result()
 
@@ -108,9 +114,16 @@ train_result = train_future.result()
 optim_result = optim_future.result()
 ```
 
-Mantén sin cambios el renderizador, la construcción de prompts, la función de
-recompensa, el cálculo de ventajas, el procesamiento por lotes y los criterios
-de parada para la primera prueba de migración.
+Las formas de las llamadas anteriores son compatibles. Antes de reutilizar el
+bucle que las rodea, confirma que su modelo, rango de LoRA, nombre de función de
+pérdida, campos de datum, parámetros de muestreo, comportamiento de puntos de
+control y dependencias operativas figuren como compatibles en la [referencia de
+compatibilidad](/es/rl-api/compatibility).
+
+El renderizador, la construcción de prompts, las funciones de recompensa, los
+cálculos de ventajas, el procesamiento por lotes y los criterios de parada se
+ejecutan en tu aplicación. Consérvalos para la primera prueba de migración solo
+después de superar esa lista de comprobación.
 
 ## 5. Verifica una ejecución pequeña
 
@@ -145,7 +158,7 @@ métricas diferentes.
 | Exportación de trazas | Elimina el código que requiera la exportación de trazas de Tinker. No es compatible. |
 | Entradas de auditoría | No dependas del historial de auditoría. Las llamadas de auditoría no devuelven entradas. |
 
-Consulta [Compatibilidad con Tinker](/es/rl-api/compatibility) para conocer las
+Consulta [Compatibilidad del cliente](/es/rl-api/compatibility) para conocer las
 funciones de pérdida y los métodos compatibles. Consulta [Comportamiento en
 tiempo de ejecución y errores](/es/rl-api/runtime) para conocer los reintentos,
 la facturación, los puntos de control y los errores.
@@ -164,7 +177,7 @@ la facturación, los puntos de control y los errores.
 - [ ] Aumenta el tamaño de la carga de trabajo solo después de superar la ejecución de aceptación.
 
 <Card
-  title="Consulta la compatibilidad con Tinker"
+  title="Consulta la compatibilidad del cliente"
   icon="list-check"
   href="/es/rl-api/compatibility"
 >

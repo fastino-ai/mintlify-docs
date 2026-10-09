@@ -3,7 +3,8 @@ title: "从 Tinker 迁移"
 description: "将现有 Tinker SDK 工作负载迁移到 Fastino 的 RL API。"
 ---
 
-Fastino 的 RL API 实现了 Tinker SDK 契约。大多数迁移都可以保持训练循环不变，只需替换四个集成点：
+Fastino 的 RL API 实现了 Tinker SDK 契约中有文档说明的子集。只有当兼容性
+检查清单中的每一项都通过时，SDK 调用形式才可以保持不变。迁移需要替换四个集成点：
 
 1. 端点
 2. 凭据
@@ -74,9 +75,9 @@ for model in capabilities.supported_models:
 ```
 
 生产决策请以实时功能响应为准。如果需要查看上下文窗口或 LoRA 限制，请将结果与
-[Tinker 兼容性](/cn/rl-api/compatibility)对照。
+[客户端兼容性](/cn/rl-api/compatibility)对照。
 
-## 4. 保留学习循环
+## 4. 对照检查学习循环
 
 以下核心调用保持其 Tinker SDK 形式不变：
 
@@ -86,7 +87,12 @@ training_client = service_client.create_lora_training_client(
     rank=32,
 )
 
-sampling_client = training_client.save_weights_and_get_sampling_client()
+sampler_path = training_client.save_weights_for_sampler(
+    "migration-smoke"
+).result().path
+sampling_client = service_client.create_sampling_client(
+    model_path=sampler_path
+)
 sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
 sample_result = sample_future.result()
 
@@ -99,7 +105,12 @@ train_result = train_future.result()
 optim_result = optim_future.result()
 ```
 
-首次迁移测试时，请保持 renderer、提示词构建、奖励函数、优势值计算、批处理和停止条件不变。
+上述调用形式是兼容的。在复用外围循环之前，请确认其模型、LoRA rank、损失函数名称、
+datum 字段、采样参数、检查点行为和运维依赖都在
+[兼容性参考](/cn/rl-api/compatibility)中列为受支持。
+
+Renderer、提示词构建、奖励函数、优势值计算、批处理和停止条件都在你的应用中运行。
+只有在上述检查清单通过后，才应在首次迁移测试中保持这些部分不变。
 
 ## 5. 验证小型运行
 
@@ -131,7 +142,7 @@ optim_result = optim_future.result()
 | Trace 导出 | 删除依赖 Tinker trace 导出的代码。此功能不受支持。 |
 | 审计条目 | 不要依赖审计历史记录。审计调用不返回任何条目。 |
 
-支持的损失函数和方法请参阅 [Tinker 兼容性](/cn/rl-api/compatibility)。
+支持的损失函数和方法请参阅[客户端兼容性](/cn/rl-api/compatibility)。
 重试、计费、检查点和失败行为请参阅
 [运行时行为和错误](/cn/rl-api/runtime)。
 
@@ -149,7 +160,7 @@ optim_result = optim_future.result()
 - [ ] 仅在验收运行通过后增加工作负载规模。
 
 <Card
-  title="查看 Tinker 兼容性"
+  title="查看客户端兼容性"
   icon="list-check"
   href="/cn/rl-api/compatibility"
 >

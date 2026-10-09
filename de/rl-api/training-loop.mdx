@@ -17,9 +17,15 @@ Checkpoint-Operationen aus.
     Optimizer-Status und eigener Operationssequenz.
   </Step>
   <Step title="Aktuelle Policy für das Sampling speichern">
-    Rufen Sie `save_weights_and_get_sampling_client()` auf. Rollouts sollten von
-    der Policy stammen, die Sie verbessern möchten, nicht von unabhängigen oder
-    veralteten Gewichten.
+    Rufen Sie für unmittelbare Rollouts im selben Lauf
+    `save_weights_and_get_sampling_client()` auf. Dessen Gewichte sind
+    kurzlebig und können verschwinden, wenn der Lauf beendet, geparkt,
+    verschoben, neu aufgebaut oder herunterskaliert wird. Rufen Sie für eine
+    Grenze, an der Wiederholungsversuche möglich sein sollen,
+    `save_weights_for_sampler(name)` auf und erstellen Sie aus dem
+    zurückgegebenen Pfad einen Sampling-Client. Rollouts sollten von der Policy
+    stammen, die Sie verbessern möchten, nicht von unabhängigen oder veralteten
+    Gewichten.
   </Step>
   <Step title="Rollout-Gruppen sammeln">
     Senden Sie denselben Prompt mehrfach oder fordern Sie mehrere Samples in
@@ -54,7 +60,7 @@ Checkpoint-Operationen aus.
 | `ServiceClient` | Öffnet eine Sitzung, meldet Fähigkeiten, erstellt Trainings- und Sampling-Clients und stellt den REST-Client bereit | Ein logischer Anwendungslauf |
 | `TrainingClient` | Verwaltet einen geordneten LoRA-Trainingslauf und dessen Optimizer-Status | Eine Policy, die trainiert wird |
 | `SamplingClient` | Sampelt oder berechnet Log-Wahrscheinlichkeiten aus einem Basismodell oder gespeicherten Gewichten | Ein Policy-Snapshot oder wiederverwendbarer Checkpoint |
-| `RestClient` | Listet Läufe und Checkpoints auf, verwaltet Sichtbarkeit und Aufbewahrung und meldet die Speichernutzung | Administrative Operationen |
+| `RestClient` | Listet Läufe und Checkpoints auf, verwaltet Checkpoint-Metadaten und Aufbewahrung und meldet die Speichernutzung | Administrative Operationen |
 | Future | Verfolgt eine gesendete Operation und gibt ihr Ergebnis zurück | Eine Operation |
 
 Das Schließen eines `ServiceClient` beendet die Sitzung und gibt aktive
@@ -104,10 +110,11 @@ die generierten Tokenpositionen an.
 
 ## Updates geordnet halten
 
-Sampling kann parallel erfolgen. Updates eines `TrainingClient` müssen
-nacheinander bleiben. Lösen Sie `forward_backward(...)` und `optim_step(...)`
-in dieser Reihenfolge auf. Verändern Sie einen Trainingsclient nicht aus
-unabhängigen Prozessen.
+Das SDK kann mehrere Sampling-Futures senden, aber testen Sie Nebenläufigkeit
+und Durchsatz in Ihrer freigeschalteten Fastino-Umgebung, bevor Sie sich darauf
+verlassen. Updates eines `TrainingClient` müssen nacheinander bleiben. Lösen Sie
+`forward_backward(...)` und `optim_step(...)` in dieser Reihenfolge auf und
+verändern Sie einen Trainingsclient nicht aus unabhängigen Prozessen.
 
 ## Den richtigen Checkpoint wählen
 

@@ -3,9 +3,10 @@ title: "Von Tinker migrieren"
 description: "Verschieben Sie einen bestehenden Workload des Tinker SDK zur RL API von Fastino."
 ---
 
-Die RL API von Fastino implementiert den Vertrag des Tinker SDK. Bei den meisten
-Migrationen bleibt der Trainingsloop unverändert. Vier Integrationspunkte ändern
-sich:
+Die RL API von Fastino implementiert eine dokumentierte Teilmenge des Vertrags
+des Tinker SDK. Die Aufrufformen des SDK können unverändert bleiben, wenn alle
+Punkte der Kompatibilitätscheckliste erfüllt sind. Bei einer Migration werden
+vier Integrationspunkte ersetzt:
 
 1. Endpunkt
 2. Anmeldedaten
@@ -82,10 +83,10 @@ for model in capabilities.supported_models:
 ```
 
 Verwenden Sie die aktuelle Antwort für Produktionsentscheidungen. Unter
-[Tinker-Kompatibilität](/de/rl-api/compatibility) finden Sie Kontextfenster und
+[Client-Kompatibilität](/de/rl-api/compatibility) finden Sie Kontextfenster und
 LoRA-Limits.
 
-## 4. Den Lernloop beibehalten
+## 4. Den Lernloop vergleichen
 
 Diese Kernaufrufe behalten ihre Formen aus dem Tinker SDK:
 
@@ -95,7 +96,12 @@ training_client = service_client.create_lora_training_client(
     rank=32,
 )
 
-sampling_client = training_client.save_weights_and_get_sampling_client()
+sampler_path = training_client.save_weights_for_sampler(
+    "migration-smoke"
+).result().path
+sampling_client = service_client.create_sampling_client(
+    model_path=sampler_path
+)
 sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
 sample_result = sample_future.result()
 
@@ -108,9 +114,17 @@ train_result = train_future.result()
 optim_result = optim_future.result()
 ```
 
-Lassen Sie Renderer, Prompt-Erstellung, Reward-Funktion,
-Advantage-Berechnung, Batching und Abbruchkriterien für den ersten
-Migrationstest unverändert.
+Die obigen Aufrufformen sind kompatibel. Bevor Sie den umgebenden Loop
+wiederverwenden, prüfen Sie, ob dessen Modell, LoRA-Rang, Loss-Name,
+Datum-Felder, Sampling-Parameter, Checkpoint-Verhalten und betriebliche
+Abhängigkeiten in der
+[Kompatibilitätsreferenz](/de/rl-api/compatibility) als unterstützt aufgeführt
+sind.
+
+Renderer, Prompt-Erstellung, Reward-Funktionen, Advantage-Berechnungen,
+Batching und Abbruchkriterien werden in Ihrer Anwendung ausgeführt. Behalten
+Sie sie für den ersten Migrationstest nur dann bei, wenn diese Checkliste
+erfüllt ist.
 
 ## 5. Einen kleinen Lauf prüfen
 
@@ -145,7 +159,7 @@ Samples und Metriken erzeugen.
 | Trace-Export | Entfernen Sie Code, der Tinkers Trace-Export benötigt. Er wird nicht unterstützt. |
 | Audit-Einträge | Verlassen Sie sich nicht auf den Audit-Verlauf. Audit-Aufrufe geben keine Einträge zurück. |
 
-Unter [Tinker-Kompatibilität](/de/rl-api/compatibility) finden Sie unterstützte
+Unter [Client-Kompatibilität](/de/rl-api/compatibility) finden Sie unterstützte
 Loss-Funktionen und Methoden. Unter
 [Laufzeitverhalten und Fehler](/de/rl-api/runtime) finden Sie
 Wiederholungsversuche, Abrechnung, Checkpoints und Fehler.
@@ -164,7 +178,7 @@ Wiederholungsversuche, Abrechnung, Checkpoints und Fehler.
 - [ ] Die Workload-Größe erst nach einem erfolgreichen Akzeptanzlauf erhöhen.
 
 <Card
-  title="Tinker-Kompatibilität prüfen"
+  title="Client-Kompatibilität prüfen"
   icon="list-check"
   href="/de/rl-api/compatibility"
 >

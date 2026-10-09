@@ -108,9 +108,9 @@ RL_PAGE_ORDER = (
     "rl-api",
     "rl-api/quickstart",
     "rl-api/migrate-from-tinker",
+    "rl-api/training-loop",
     "rl-api/verifiable-rewards",
     "rl-api/checkpoint-and-resume",
-    "rl-api/training-loop",
     "rl-api/compatibility",
     "rl-api/runtime",
 )

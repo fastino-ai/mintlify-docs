@@ -1,16 +1,17 @@
 ---
 title: "Démarrage rapide avec l'API RL"
 sidebarTitle: "Démarrage rapide"
-description: "Vérifiez l'accès à l'API RL et exécutez une petite tâche d'apprentissage par renforcement."
+description: "Authentifiez-vous, vérifiez l'accès à l'API RL et échantillonnez un modèle pris en charge."
 ---
 
 Ce tutoriel connecte le SDK Tinker à Fastino, vérifie l'accès de votre équipe et
-exécute deux petites étapes d'apprentissage par renforcement sur GSM8K.
+échantillonne un modèle pris en charge. Il valide la connexion avant la création
+d'une boucle d'entraînement.
 
 <Warning>
-  La vérification des capacités est en lecture seule. La commande d'entraînement
-  soumet des opérations d'échantillonnage et d'entraînement facturables, puis
-  stocke un checkpoint.
+  La vérification des capacités est en lecture seule. La requête
+  d'échantillonnage est une inférence facturable. Ce guide de démarrage
+  n'entraîne aucun modèle et ne crée aucun checkpoint.
 </Warning>
 
 ## 1. Configurer votre clé d'API
@@ -46,14 +47,14 @@ Vous avez besoin de Python 3.11 ou d'une version ultérieure.
 ```bash uv · macOS/Linux
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+uv add "tinker==0.32.0"
 source .venv/bin/activate
 ```
 
 ```powershell uv · Windows
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+uv add "tinker==0.32.0"
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -61,7 +62,7 @@ uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+pip install "tinker==0.32.0"
 ```
 
 ```powershell pip · Windows
@@ -69,7 +70,7 @@ mkdir fastino-rl
 cd fastino-rl
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -142,46 +143,56 @@ Si l'appel renvoie `404 Not Found`, vérifiez que l'URL de base se termine par
 `/tinker`. Si c'est le cas, demandez à Fastino d'activer l'accès à l'API RL pour
 votre équipe.
 
-## 5. Exécuter deux étapes RL
+## 5. Exécuter votre premier échantillonnage
 
-Le package installé comprend une boucle minimale de type GRPO. Elle
-échantillonne plusieurs réponses pour chaque problème GSM8K, évalue la réponse
-numérique encadrée, centre les récompenses au sein de chaque groupe et applique
-une mise à jour par échantillonnage d'importance.
+Créez `sample_rl_api.py` :
 
-Commencez par une tâche volontairement petite :
+```python
+import tinker
 
-<CodeGroup>
 
-```bash macOS/Linux
-python -m tinker_cookbook.recipes.rl_loop \
-  base_url=https://api.fastino.ai/tinker \
-  model_name=Qwen/Qwen3.6-35B-A3B \
-  batch_size=4 \
-  group_size=4 \
-  max_steps=2 \
-  save_every=1 \
-  log_path=./runs/first-fastino-rl
+TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
+service_client = tinker.ServiceClient()
+try:
+    sampling_client = service_client.create_sampling_client(
+        base_model=TUTORIAL_MODEL
+    )
+    tokenizer = sampling_client.get_tokenizer()
+    prompt_tokens = tokenizer.apply_chat_template(
+        conversation=[
+            {"role": "user", "content": "Explain what a reward function does in RL."}
+        ],
+        add_generation_prompt=True,
+        return_dict=False,
+    )
+    result = sampling_client.sample(
+        prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
+        num_samples=1,
+        sampling_params=tinker.types.SamplingParams(
+            max_tokens=128,
+            temperature=0.7,
+        ),
+    ).result()
+    print(tokenizer.decode(result.sequences[0].tokens))
+except KeyboardInterrupt:
+    service_client.close("interrupted").result()
+    raise
+except Exception:
+    service_client.close("errored").result()
+    raise
+else:
+    service_client.close("success").result()
 ```
 
-```powershell Windows
-python -m tinker_cookbook.recipes.rl_loop `
-  base_url=https://api.fastino.ai/tinker `
-  model_name=Qwen/Qwen3.6-35B-A3B `
-  batch_size=4 `
-  group_size=4 `
-  max_steps=2 `
-  save_every=1 `
-  log_path=./runs/first-fastino-rl
+Exécutez-le :
+
+```bash
+python sample_rl_api.py
 ```
 
-</CodeGroup>
-
-La première exécution télécharge le jeu de données GSM8K et le tokenizer.
-Pendant l'exécution, la recette affiche la progression de
-l'échantillonnage, les métriques de récompense et celles de l'optimiseur. À la
-fin, il enregistre un checkpoint final de l'état et les métadonnées locales de
-l'exécution sous le `log_path` choisi.
+Une exécution réussie affiche une réponse du modèle. Votre application a envoyé
+un prompt texte via le SDK, Fastino a effectué l'inférence et le client a décodé
+les tokens renvoyés.
 
 <Note>
   `Qwen/Qwen3.6-35B-A3B` est utilisé ici, car il est pris en charge par le
@@ -189,25 +200,10 @@ l'exécution sous le `log_path` choisi.
   environnement Tinker sans vérifier d'abord la réponse de capacités.
 </Note>
 
-## 6. Confirmer que l'apprentissage a bien été effectué
+## 6. Fermer les clients dans votre propre code
 
-Vérifiez que la sortie de la commande contient ces trois signaux :
-
-- Un lot d'échantillonnage s'est terminé.
-- L'exécution a journalisé une valeur `reward/total`.
-- Une étape d'optimisation a renvoyé des métriques.
-
-Une récompense constante sur deux étapes ne constitue pas un échec. Cette petite
-exécution vérifie le parcours de bout en bout, et non la convergence du modèle.
-
-## 7. Fermer les clients dans votre propre code
-
-La recette gère le cycle de vie de son processus. Dans les applications
-de longue durée, fermez chaque `ServiceClient` une fois l'exécution terminée :
-
-```python
-service_client.close("success").result()
-```
+L'exemple ferme son `ServiceClient` en cas de réussite, d'interruption ou
+d'erreur. Reprenez ce modèle dans les applications de longue durée.
 
 La fermeture du client met fin à sa session et libère les entraînements actifs.
 Les checkpoints enregistrés restent disponibles conformément à leurs paramètres
@@ -221,19 +217,19 @@ annulation ou un arrêt.
 
 <CardGroup cols={2}>
   <Card
-    title="Comprendre la boucle"
+    title="Migrer une application existante"
+    icon="arrow-right-arrow-left"
+    href="/fr/rl-api/migrate-from-tinker"
+  >
+    Vérifiez si un workload client `tinker` existant respecte le contrat pris en
+    charge par Fastino.
+  </Card>
+  <Card
+    title="Comprendre l'entraînement"
     icon="diagram-project"
     href="/fr/rl-api/training-loop"
   >
     Suivez les données depuis un prompt jusqu'à l'échantillonnage, la récompense,
-    l'avantage et la mise à jour.
-  </Card>
-  <Card
-    title="Adapter la récompense"
-    icon="function"
-    href="/fr/rl-api/verifiable-rewards"
-  >
-    Remplacez l'évaluateur GSM8K par une récompense déterministe adaptée à votre
-    tâche.
+    l'avantage et la mise à jour avant d'écrire une boucle d'entraînement.
   </Card>
 </CardGroup>

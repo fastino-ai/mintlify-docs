@@ -17,8 +17,12 @@ operations.
     sequence.
   </Step>
   <Step title="Snapshot the current policy for sampling">
-    Call `save_weights_and_get_sampling_client()`. Rollouts should come from the
-    policy you are about to improve, not from unrelated or stale weights.
+    For immediate same-run rollouts, call
+    `save_weights_and_get_sampling_client()`. Its weights are ephemeral and can
+    disappear when the run ends, parks, moves, rebuilds, or scales down. For a
+    retryable boundary, call `save_weights_for_sampler(name)` and create a
+    sampling client from the returned path. Rollouts should come from the policy
+    you are about to improve, not from unrelated or stale weights.
   </Step>
   <Step title="Collect rollout groups">
     Send one prompt several times or request several samples in one call. A
@@ -51,7 +55,7 @@ operations.
 | `ServiceClient` | Opens a session, reports capabilities, creates training and sampling clients, and exposes the REST client | One logical application run |
 | `TrainingClient` | Owns an ordered LoRA training run and its optimizer state | One policy being trained |
 | `SamplingClient` | Samples or computes log probabilities from a base model or saved weights | One policy snapshot or reusable checkpoint |
-| `RestClient` | Lists runs and checkpoints, manages visibility and retention, and reports storage usage | Administrative operations |
+| `RestClient` | Lists runs and checkpoints, manages checkpoint metadata and retention, and reports storage usage | Administrative operations |
 | Future | Tracks one submitted operation and returns its result | One operation |
 
 Closing a `ServiceClient` ends the session and releases its active training
@@ -98,9 +102,11 @@ positions.
 
 ## Keep updates sequential
 
-Sampling can run concurrently. Updates to one `TrainingClient` must remain
-sequential. Resolve `forward_backward(...)` and `optim_step(...)` in order, and
-do not mutate one training client from independent processes.
+The SDK can submit multiple sampling futures, but qualify concurrency and
+throughput against your enabled Fastino environment before depending on them.
+Updates to one `TrainingClient` must remain sequential. Resolve
+`forward_backward(...)` and `optim_step(...)` in order, and do not mutate one
+training client from independent processes.
 
 ## Choose the right checkpoint
 

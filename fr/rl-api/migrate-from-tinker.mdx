@@ -3,9 +3,10 @@ title: "Migrer depuis Tinker"
 description: "Migrez un workload existant utilisant le SDK Tinker vers l'API RL de Fastino."
 ---
 
-L'API RL de Fastino implémente le contrat du SDK Tinker. La plupart des
-migrations conservent la boucle d'entraînement et remplacent quatre points
-d'intégration :
+L'API RL de Fastino implémente un sous-ensemble documenté du contrat du SDK
+Tinker. La forme des appels du SDK peut rester inchangée lorsque tous les
+éléments de la checklist de compatibilité sont satisfaits. Une migration
+remplace quatre points d'intégration :
 
 1. Point de terminaison
 2. Identifiant
@@ -83,10 +84,10 @@ for model in capabilities.supported_models:
 
 Utilisez la réponse de capacités active pour prendre vos décisions en
 production. Comparez le résultat avec la
-[compatibilité avec Tinker](/fr/rl-api/compatibility) pour connaître les fenêtres de
+[compatibilité du client](/fr/rl-api/compatibility) pour connaître les fenêtres de
 contexte et les limites LoRA.
 
-## 4. Conserver la boucle d'apprentissage
+## 4. Comparer la boucle d'apprentissage
 
 Ces appels principaux conservent leur forme dans le SDK Tinker :
 
@@ -96,7 +97,12 @@ training_client = service_client.create_lora_training_client(
     rank=32,
 )
 
-sampling_client = training_client.save_weights_and_get_sampling_client()
+sampler_path = training_client.save_weights_for_sampler(
+    "migration-smoke"
+).result().path
+sampling_client = service_client.create_sampling_client(
+    model_path=sampler_path
+)
 sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
 sample_result = sample_future.result()
 
@@ -109,9 +115,17 @@ train_result = train_future.result()
 optim_result = optim_future.result()
 ```
 
-Pour le premier test de migration, conservez sans modification votre renderer,
-la construction du prompt, la fonction de récompense, le calcul des avantages,
-la mise en lots et les critères d'arrêt.
+La forme des appels ci-dessus est compatible. Avant de réutiliser la boucle qui
+les entoure, vérifiez que son modèle, son rang LoRA, le nom de sa fonction de
+perte, les champs de ses datums, ses paramètres d'échantillonnage, son
+comportement de checkpoint et ses dépendances opérationnelles sont tous
+indiqués comme pris en charge dans la
+[référence de compatibilité](/fr/rl-api/compatibility).
+
+Le renderer, la construction du prompt, les fonctions de récompense, le calcul
+des avantages, la mise en lots et les critères d'arrêt s'exécutent dans votre
+application. Ne les conservez pour le premier test de migration qu'une fois
+cette checklist satisfaite.
 
 ## 5. Vérifier une petite exécution
 
@@ -146,7 +160,7 @@ produire des échantillons et des métriques différents.
 | Exportation des traces | Supprimez le code qui dépend de l'exportation des traces Tinker. Elle n'est pas prise en charge. |
 | Entrées d'audit | Ne dépendez pas de l'historique d'audit. Les appels d'audit ne renvoient aucune entrée. |
 
-Consultez la [compatibilité avec Tinker](/fr/rl-api/compatibility) pour les fonctions
+Consultez la [compatibilité du client](/fr/rl-api/compatibility) pour les fonctions
 de perte et les méthodes prises en charge. Consultez le
 [comportement à l'exécution et les erreurs](/fr/rl-api/runtime) pour les
 nouvelles tentatives, la facturation, les checkpoints et les échecs.
@@ -165,7 +179,7 @@ nouvelles tentatives, la facturation, les checkpoints et les échecs.
 - [ ] Augmenter la taille du workload uniquement après la réussite de l'exécution d'acceptation.
 
 <Card
-  title="Vérifier la compatibilité avec Tinker"
+  title="Vérifier la compatibilité du client"
   icon="list-check"
   href="/fr/rl-api/compatibility"
 >

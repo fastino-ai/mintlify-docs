@@ -1,14 +1,14 @@
 ---
 title: "RL API 快速入门"
 sidebarTitle: "快速入门"
-description: "验证 RL API 访问权限，并运行一个小型强化学习任务。"
+description: "完成身份验证，验证 RL API 访问权限，并从受支持的模型采样。"
 ---
 
-本教程将 Tinker SDK 连接到 Fastino，验证你所在团队的访问权限，并在 GSM8K
-上运行两个小型强化学习步骤。
+本教程将 Tinker SDK 连接到 Fastino，验证你所在团队的访问权限，并从受支持的
+模型采样。你可以先验证连接，再构建训练循环。
 
 <Warning>
-  功能检查为只读操作。训练命令会提交计费的采样和训练操作，并存储检查点。
+  功能检查为只读操作。采样请求属于计费推理。本快速入门不会训练模型，也不会创建检查点。
 </Warning>
 
 ## 1. 设置 API 密钥
@@ -42,14 +42,14 @@ Tinker SDK 并不代表你已获得访问权限。
 ```bash uv · macOS/Linux
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+uv add "tinker==0.32.0"
 source .venv/bin/activate
 ```
 
 ```powershell uv · Windows
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+uv add "tinker==0.32.0"
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -57,7 +57,7 @@ uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+pip install "tinker==0.32.0"
 ```
 
 ```powershell pip · Windows
@@ -65,7 +65,7 @@ mkdir fastino-rl
 cd fastino-rl
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -132,66 +132,64 @@ python check_rl_api.py
 
 如果调用返回 `404 Not Found`，请确认基础 URL 以 `/tinker` 结尾。如果确实如此，请联系 Fastino 为你的团队启用 RL API 访问权限。
 
-## 5. 运行两个 RL 步骤
+## 5. 运行第一次采样
 
-安装的软件包包含一个最简 GRPO 风格循环。它会为每个 GSM8K
-问题采样多个答案，对方框中的数值答案评分，在每组内对奖励进行中心化处理，并执行重要性采样更新。
+创建 `sample_rl_api.py`：
 
-先运行一个刻意缩小的任务：
+```python
+import tinker
 
-<CodeGroup>
 
-```bash macOS/Linux
-python -m tinker_cookbook.recipes.rl_loop \
-  base_url=https://api.fastino.ai/tinker \
-  model_name=Qwen/Qwen3.6-35B-A3B \
-  batch_size=4 \
-  group_size=4 \
-  max_steps=2 \
-  save_every=1 \
-  log_path=./runs/first-fastino-rl
+TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
+service_client = tinker.ServiceClient()
+try:
+    sampling_client = service_client.create_sampling_client(
+        base_model=TUTORIAL_MODEL
+    )
+    tokenizer = sampling_client.get_tokenizer()
+    prompt_tokens = tokenizer.apply_chat_template(
+        conversation=[
+            {"role": "user", "content": "Explain what a reward function does in RL."}
+        ],
+        add_generation_prompt=True,
+        return_dict=False,
+    )
+    result = sampling_client.sample(
+        prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
+        num_samples=1,
+        sampling_params=tinker.types.SamplingParams(
+            max_tokens=128,
+            temperature=0.7,
+        ),
+    ).result()
+    print(tokenizer.decode(result.sequences[0].tokens))
+except KeyboardInterrupt:
+    service_client.close("interrupted").result()
+    raise
+except Exception:
+    service_client.close("errored").result()
+    raise
+else:
+    service_client.close("success").result()
 ```
 
-```powershell Windows
-python -m tinker_cookbook.recipes.rl_loop `
-  base_url=https://api.fastino.ai/tinker `
-  model_name=Qwen/Qwen3.6-35B-A3B `
-  batch_size=4 `
-  group_size=4 `
-  max_steps=2 `
-  save_every=1 `
-  log_path=./runs/first-fastino-rl
+运行该文件：
+
+```bash
+python sample_rl_api.py
 ```
 
-</CodeGroup>
-
-首次运行会下载 GSM8K 数据集和 tokenizer。执行期间，该示例会报告采样进度、
-奖励指标和优化器指标。最后，它会保存最终状态检查点，并将本地运行元数据保存到
-所选的 `log_path` 下。
+成功运行后会输出一条模型响应。你的应用通过 SDK 发送文本提示词，Fastino
+执行推理，客户端对返回的 token 进行解码。
 
 <Note>
   此处使用 `Qwen/Qwen3.6-35B-A3B`，因为当前 RL API
   契约支持该模型。在未先检查功能响应的情况下，请勿复制其他 Tinker 环境中的模型名称。
 </Note>
 
-## 6. 确认学习工作确实发生
+## 6. 在自己的代码中关闭客户端
 
-检查命令输出中是否出现以下三个信号：
-
-- 采样批次已完成。
-- 运行记录了 `reward/total` 值。
-- 优化器步骤返回了指标。
-
-两个步骤的奖励没有变化并不代表失败。这个小型运行验证的是端到端链路，而不是模型收敛。
-
-## 7. 在自己的代码中关闭客户端
-
-该示例会自行处理进程生命周期。在长时间运行的应用中，请在运行结束时关闭每个
-`ServiceClient`：
-
-```python
-service_client.close("success").result()
-```
+该示例会在成功、中断和出错时关闭 `ServiceClient`。在长时间运行的应用中使用同样的模式。
 
 关闭客户端会结束其会话并释放活跃的训练运行。已保存的检查点仍会按照其保留设置继续可用。
 
@@ -202,17 +200,17 @@ service_client.close("success").result()
 
 <CardGroup cols={2}>
   <Card
-    title="了解循环"
+    title="迁移现有应用"
+    icon="arrow-right-arrow-left"
+    href="/cn/rl-api/migrate-from-tinker"
+  >
+    检查现有 `tinker` 客户端工作负载是否符合 Fastino 支持的契约。
+  </Card>
+  <Card
+    title="了解训练"
     icon="diagram-project"
     href="/cn/rl-api/training-loop"
   >
-    跟踪数据从提示词经过采样、奖励和优势值，最终完成更新的全过程。
-  </Card>
-  <Card
-    title="调整奖励"
-    icon="function"
-    href="/cn/rl-api/verifiable-rewards"
-  >
-    将 GSM8K 评分器替换为适用于你任务的确定性奖励。
+    在编写训练循环前，了解数据从提示词经过采样、奖励和优势值，最终完成更新的全过程。
   </Card>
 </CardGroup>

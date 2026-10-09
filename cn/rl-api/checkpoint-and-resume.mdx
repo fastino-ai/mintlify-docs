@@ -20,38 +20,38 @@ RL 检查点用于保护模型状态。完整的恢复记录还会保护应用�
 
 ## 开始之前
 
-请先完成[快速入门](/cn/rl-api/quickstart)。本指南假设客户端可以创建训练运行并保存
-状态检查点。
+请先完成[快速入门](/cn/rl-api/quickstart)，以验证身份验证、模型访问权限和采样。
+快速入门不会创建训练运行。只有在你已启用的 Fastino 环境中成功完成一次小型训练更新，
+并能保存和恢复状态检查点后，才能继续。
 
 ## 1. 保存状态和循环进度
 
-`checkpoint_utils` 模块会写入服务器端状态检查点，并将检查点路径和循环字段追加到
-`checkpoints.jsonl`：
+保存服务器端训练状态，然后将返回的路径与重建运行所需、由客户端负责的字段一起
+持久化：
 
 ```python
-from tinker_cookbook import checkpoint_utils
+import json
+from pathlib import Path
 
 
-paths = checkpoint_utils.save_checkpoint(
-    training_client=training_client,
-    name=f"step-{step:06d}",
-    log_path=log_path,
-    kind="state",
-    loop_state={
-        "step": step,
-        "dataset_cursor": dataset_cursor,
-        "reward_version": reward_version,
-    },
-    ttl_seconds=7 * 24 * 60 * 60,
-)
+state = training_client.save_state(f"step-{step:06d}").result()
+record = {
+    "state_path": state.path,
+    "model": model_name,
+    "rank": lora_rank,
+    "dataset_revision": dataset_revision,
+    "optimizer": optimizer_config,
+    "renderer": renderer_name,
+    "tokenizer": tokenizer_name,
+    "step": step,
+    "dataset_cursor": dataset_cursor,
+    "reward_version": reward_version,
+}
+with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
+    checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 
-print(paths["state_path"])
+print(state.path)
 ```
-
-<Tip>
-  在异步训练循环中，请使用 `await
-  checkpoint_utils.save_checkpoint_async(...)` 并传入相同字段。不要在正在运行的事件循环中调用同步封装器。
-</Tip>
 
 返回路径的格式如下：
 
@@ -59,22 +59,35 @@ print(paths["state_path"])
 tinker://<run-id>/weights/step-000100
 ```
 
-生存时间适用于服务器端检查点。如果最终检查点是你打算保留的产物，请不要为它设置 TTL。
+上述代码片段没有设置生存时间。对于滚动恢复产物，请通过受支持的检查点管理操作显式
+设置保留时间。如果最终检查点是你打算保留的产物，请不要为它设置 TTL。
 
 <Warning>
-  `save_checkpoint(...)` 不会请求覆盖，因此重复使用检查点名称会被拒绝。底层
-  `save_state(..., overwrite=True)` 调用可以显式替换状态检查点，但唯一名称是更安全的恢复标记。
+  `save_state(...)` 不会请求覆盖，因此重复使用检查点名称会被拒绝。
+  `save_state(..., overwrite=True)` 可以显式替换状态检查点，但唯一名称是更安全的恢复标记。
 </Warning>
 
-## 2. 查找最新的有效恢复点
+## 2. 查找最新记录的恢复点
 
-进程启动时，读取最后一条包含状态路径的本地记录：
+进程启动时，从后向前扫描，查找最新一条可解析且包含状态路径的本地记录。进程可能会在
+写入最后一行 JSONL 时停止，因此应跳过格式错误的末尾记录，而不是丢失之前的恢复点：
 
 ```python
-resume = checkpoint_utils.get_last_checkpoint(
-    log_path,
-    required_key="state_path",
-)
+def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
+    path = Path(log_path)
+    if not path.exists():
+        return None
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("state_path"), str):
+            return record
+    return None
+
+
+resume = get_last_checkpoint(log_path)
 ```
 
 显式处理两种情况：
@@ -95,7 +108,7 @@ else:
 
     training_client = (
         service_client.create_training_client_from_state_with_optimizer(
-            resume.state_path
+            str(resume["state_path"])
         )
     )
     start_step = saved_step + 1
@@ -149,7 +162,7 @@ if resume is not None and resume.get("reward_version") != reward_version:
 state = training_client.save_state("step-000100").result()
 ```
 
-使用采样器权重进行评估或服务：
+使用采样器权重进行评估、rollout 或 SDK 推理：
 
 ```python
 sampler = training_client.save_weights_for_sampler(
@@ -174,21 +187,8 @@ tinker://<run-id>/sampler_weights/<name>
 - 用于比较的长期定期状态检查点和采样器检查点
 - 一个永久最终检查点
 
-`CheckpointManager` 实现了此模式，包括删除滚动检查点和设置 TTL：
-
-```python
-manager = checkpoint_utils.CheckpointManager(
-    training_client=training_client,
-    service_client=service_client,
-    log_path=log_path,
-    save_every=20,
-    rolling_save_every=1,
-    ttl_seconds=7 * 24 * 60 * 60,
-    rolling_ttl_seconds=2 * 60 * 60,
-)
-```
-
-检查点存储按时间计量。请删除不再属于恢复、评估或发布计划的检查点。
+请在应用中实现保留策略：为检查点分配唯一名称，通过受支持的检查点操作显式设置
+TTL，并删除不再处于恢复或评估窗口内的产物。检查点存储按时间计量。
 
 ## 智能体的恢复决策
 
@@ -196,7 +196,7 @@ manager = checkpoint_utils.CheckpointManager(
 | --- | --- |
 | 没有本地恢复记录 | 开始新的运行 |
 | 恢复记录和检查点均存在 | 验证元数据，然后恢复 |
-| 本地记录存在，但检查点已不存在 | 回退到更早的有效记录，或询问用户 |
+| 本地记录存在，但检查点已不存在 | 停止并询问用户；不要假设更早的记录属于预期运行 |
 | 检查点存在，但没有本地记录 | 将其视为未分类；不要猜测其数据集游标 |
 | 奖励或数据集修订版本发生变化 | 除非用户批准继续，否则开始新的实验 |
 | 实时运行报告状态无法恢复 | 从最新的显式状态检查点恢复 |

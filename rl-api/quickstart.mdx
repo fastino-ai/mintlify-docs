@@ -1,15 +1,16 @@
 ---
 title: "RL API quickstart"
 sidebarTitle: "Quickstart"
-description: "Verify RL API access and run a small reinforcement-learning job."
+description: "Authenticate, verify RL API access, and sample from a supported model."
 ---
 
 This tutorial connects the Tinker SDK to Fastino, verifies your team's access,
-and runs two small reinforcement-learning steps on GSM8K.
+and samples from a supported model. It proves the connection before you build a
+training loop.
 
 <Warning>
-  The capability check is read-only. The training command submits billable
-  sampling and training operations and stores a checkpoint.
+  The capability check is read-only. The sample request is billable inference.
+  This quickstart does not train a model or create a checkpoint.
 </Warning>
 
 ## 1. Set up your API key
@@ -43,14 +44,14 @@ You need Python 3.11 or later.
 ```bash uv · macOS/Linux
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+uv add "tinker==0.32.0"
 source .venv/bin/activate
 ```
 
 ```powershell uv · Windows
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
+uv add "tinker==0.32.0"
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -58,7 +59,7 @@ uv add "tinker==0.32.0" "tinker-cookbook[math-rl]"
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+pip install "tinker==0.32.0"
 ```
 
 ```powershell pip · Windows
@@ -66,7 +67,7 @@ mkdir fastino-rl
 cd fastino-rl
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0" "tinker-cookbook[math-rl]"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -137,44 +138,56 @@ a model.
 If the call returns `404 Not Found`, confirm that the base URL ends in
 `/tinker`. If it does, ask Fastino to enable RL API access for your team.
 
-## 5. Run two RL steps
+## 5. Run your first sample
 
-The installed package includes a minimal GRPO-style loop. It samples several
-answers for each GSM8K problem, grades the boxed numeric answer, centers rewards
-within each group, and applies an importance-sampling update.
+Create `sample_rl_api.py`:
 
-Run a deliberately small job first:
+```python
+import tinker
 
-<CodeGroup>
 
-```bash macOS/Linux
-python -m tinker_cookbook.recipes.rl_loop \
-  base_url=https://api.fastino.ai/tinker \
-  model_name=Qwen/Qwen3.6-35B-A3B \
-  batch_size=4 \
-  group_size=4 \
-  max_steps=2 \
-  save_every=1 \
-  log_path=./runs/first-fastino-rl
+TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
+service_client = tinker.ServiceClient()
+try:
+    sampling_client = service_client.create_sampling_client(
+        base_model=TUTORIAL_MODEL
+    )
+    tokenizer = sampling_client.get_tokenizer()
+    prompt_tokens = tokenizer.apply_chat_template(
+        conversation=[
+            {"role": "user", "content": "Explain what a reward function does in RL."}
+        ],
+        add_generation_prompt=True,
+        return_dict=False,
+    )
+    result = sampling_client.sample(
+        prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
+        num_samples=1,
+        sampling_params=tinker.types.SamplingParams(
+            max_tokens=128,
+            temperature=0.7,
+        ),
+    ).result()
+    print(tokenizer.decode(result.sequences[0].tokens))
+except KeyboardInterrupt:
+    service_client.close("interrupted").result()
+    raise
+except Exception:
+    service_client.close("errored").result()
+    raise
+else:
+    service_client.close("success").result()
 ```
 
-```powershell Windows
-python -m tinker_cookbook.recipes.rl_loop `
-  base_url=https://api.fastino.ai/tinker `
-  model_name=Qwen/Qwen3.6-35B-A3B `
-  batch_size=4 `
-  group_size=4 `
-  max_steps=2 `
-  save_every=1 `
-  log_path=./runs/first-fastino-rl
+Run it:
+
+```bash
+python sample_rl_api.py
 ```
 
-</CodeGroup>
-
-The first run downloads the GSM8K dataset and tokenizer. During execution, the
-recipe reports sampling progress, reward metrics, and optimizer metrics. At
-the end, it saves a final state checkpoint and local run metadata under the
-chosen `log_path`.
+A successful run prints one model response. Your application sent a text
+prompt through the SDK, Fastino performed inference, and the client decoded the
+returned tokens.
 
 <Note>
   `Qwen/Qwen3.6-35B-A3B` is used here because it is supported by the current RL
@@ -182,25 +195,10 @@ chosen `log_path`.
   without checking the capability response first.
 </Note>
 
-## 6. Confirm that learning work happened
+## 6. Close clients in your own code
 
-Check the command output for all three signals:
-
-- A sampling batch completed.
-- The run logged a `reward/total` value.
-- An optimizer step returned metrics.
-
-A flat reward over two steps is not a failure. This small run verifies the
-end-to-end path, not model convergence.
-
-## 7. Close clients in your own code
-
-The recipe handles its process lifecycle. In long-running applications, close
-each `ServiceClient` when the run is finished:
-
-```python
-service_client.close("success").result()
-```
+The example closes its `ServiceClient` on success, interruption, and error. Use
+the same pattern in long-running applications.
 
 Closing the client ends its session and releases active training runs. Saved
 checkpoints remain available according to their retention settings.
@@ -212,17 +210,19 @@ escapes, and with `interrupted` after cancellation or shutdown.
 
 <CardGroup cols={2}>
   <Card
-    title="Understand the loop"
+    title="Migrate an existing application"
+    icon="arrow-right-arrow-left"
+    href="/rl-api/migrate-from-tinker"
+  >
+    Check whether an existing `tinker` client workload fits Fastino's supported
+    contract.
+  </Card>
+  <Card
+    title="Understand training"
     icon="diagram-project"
     href="/rl-api/training-loop"
   >
-    Trace data from a prompt through sampling, reward, advantage, and update.
-  </Card>
-  <Card
-    title="Adapt the reward"
-    icon="function"
-    href="/rl-api/verifiable-rewards"
-  >
-    Replace the GSM8K grader with a deterministic reward for your task.
+    Trace data from a prompt through sampling, reward, advantage, and update
+    before writing a training loop.
   </Card>
 </CardGroup>

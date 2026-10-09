@@ -3,8 +3,9 @@ title: "Migrate from Tinker"
 description: "Move an existing Tinker SDK workload to Fastino's RL API."
 ---
 
-Fastino's RL API implements the Tinker SDK contract. Most migrations keep the
-training loop unchanged and replace four integration points:
+Fastino's RL API implements a documented subset of the Tinker SDK contract.
+SDK call shapes may remain unchanged when every item in the compatibility
+checklist passes. A migration replaces four integration points:
 
 1. Endpoint
 2. Credential
@@ -79,10 +80,10 @@ for model in capabilities.supported_models:
 ```
 
 Use the live capability response for production decisions. Compare the result
-with [Tinker compatibility](/rl-api/compatibility) when you need context windows
+with [Client compatibility](/rl-api/compatibility) when you need context windows
 or LoRA limits.
 
-## 4. Preserve the learning loop
+## 4. Compare the learning loop
 
 These core calls keep their Tinker SDK shapes:
 
@@ -92,7 +93,12 @@ training_client = service_client.create_lora_training_client(
     rank=32,
 )
 
-sampling_client = training_client.save_weights_and_get_sampling_client()
+sampler_path = training_client.save_weights_for_sampler(
+    "migration-smoke"
+).result().path
+sampling_client = service_client.create_sampling_client(
+    model_path=sampler_path
+)
 sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
 sample_result = sample_future.result()
 
@@ -105,9 +111,14 @@ train_result = train_future.result()
 optim_result = optim_future.result()
 ```
 
-Keep your renderer, prompt construction, reward function, advantage
-calculation, batching, and stopping criteria unchanged for the first migration
-test.
+The call shapes above are compatible. Before reusing the surrounding loop,
+confirm that its model, LoRA rank, loss name, datum fields, sampling parameters,
+checkpoint behavior, and operational dependencies all appear as supported in
+the [compatibility reference](/rl-api/compatibility).
+
+Renderer, prompt construction, reward functions, advantage calculations,
+batching, and stopping criteria run in your application. Preserve them for the
+first migration test only after that checklist passes.
 
 ## 5. Verify a small run
 
@@ -140,7 +151,7 @@ models and infrastructure can produce different samples and metrics.
 | Trace export | Remove code that requires Tinker's trace export. It is not supported. |
 | Audit entries | Do not depend on audit history. Audit calls return no entries. |
 
-See [Tinker compatibility](/rl-api/compatibility) for supported losses and methods.
+See [Client compatibility](/rl-api/compatibility) for supported losses and methods.
 See [Runtime behavior and errors](/rl-api/runtime) for retries, billing,
 checkpoints, and failures.
 
@@ -158,9 +169,9 @@ checkpoints, and failures.
 - [ ] Increase workload size only after the acceptance run passes.
 
 <Card
-  title="Check Tinker compatibility"
+  title="Check client compatibility"
   icon="list-check"
   href="/rl-api/compatibility"
 >
-  Review supported Tinker versions, methods, losses, models, and limits.
+  Review supported client versions, methods, losses, models, and limits.
 </Card>

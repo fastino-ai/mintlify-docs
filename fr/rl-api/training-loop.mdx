@@ -17,7 +17,13 @@ les étapes d'optimisation et les opérations de checkpoint.
     son propre état d'optimiseur et sa propre séquence d'opérations.
   </Step>
   <Step title="Créer un instantané de la politique actuelle pour l'échantillonnage">
-    Appelez `save_weights_and_get_sampling_client()`. Les rollouts doivent
+    Pour des rollouts immédiats dans la même exécution, appelez
+    `save_weights_and_get_sampling_client()`. Ses poids sont éphémères et peuvent
+    disparaître lorsque l'exécution se termine, est mise en veille, déplacée,
+    reconstruite ou réduite en capacité. Pour une limite à partir de laquelle
+    une nouvelle tentative est possible, appelez
+    `save_weights_for_sampler(name)` et créez un
+    client d'échantillonnage à partir du chemin renvoyé. Les rollouts doivent
     provenir de la politique que vous êtes sur le point d'améliorer, et non de
     poids sans rapport ou obsolètes.
   </Step>
@@ -54,7 +60,7 @@ les étapes d'optimisation et les opérations de checkpoint.
 | `ServiceClient` | Ouvre une session, indique les capacités, crée les clients d'entraînement et d'échantillonnage, et expose le client REST | Une exécution logique de l'application |
 | `TrainingClient` | Possède une exécution ordonnée d'entraînement LoRA et l'état de son optimiseur | Une politique en cours d'entraînement |
 | `SamplingClient` | Échantillonne ou calcule les log-probabilités à partir d'un modèle de base ou de poids enregistrés | Un instantané de politique ou un checkpoint réutilisable |
-| `RestClient` | Répertorie les exécutions et les checkpoints, gère la visibilité et la rétention, et indique l'utilisation du stockage | Opérations administratives |
+| `RestClient` | Répertorie les exécutions et les checkpoints, gère les métadonnées et la rétention des checkpoints, et indique l'utilisation du stockage | Opérations administratives |
 | Future | Suit une opération soumise et renvoie son résultat | Une opération |
 
 La fermeture d'un `ServiceClient` met fin à la session et libère ses
@@ -104,10 +110,12 @@ réponse aux positions des tokens générés.
 
 ## Garder les mises à jour séquentielles
 
-L'échantillonnage peut être concurrent. Les mises à jour d'un même
-`TrainingClient` doivent rester séquentielles. Récupérez les résultats de
-`forward_backward(...)` et `optim_step(...)` dans l'ordre. Ne modifiez pas le
-même client d'entraînement depuis des processus indépendants.
+Le SDK peut soumettre plusieurs futures d'échantillonnage, mais qualifiez la
+concurrence et le débit dans votre environnement Fastino activé avant d'en
+dépendre. Les mises à jour d'un même `TrainingClient` doivent rester
+séquentielles. Récupérez les résultats de `forward_backward(...)` et
+`optim_step(...)` dans l'ordre, et ne modifiez pas le même client d'entraînement
+depuis des processus indépendants.
 
 ## Choisir le bon checkpoint
 
