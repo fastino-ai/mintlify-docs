@@ -1,99 +1,66 @@
 ---
-title: "Checkpoint speichern und RL-Lauf fortsetzen"
-description: "Speichern Sie Modell- und Optimizer-Status sowie den Loop-Fortschritt und setzen Sie RL fort, ohne abgeschlossene Arbeit zu wiederholen."
+title: "Checkpoint speichern und RL-Job fortsetzen"
+description: "Speichern Sie den Status eines interaktiven Jobs und den Anwendungsfortschritt und setzen Sie ihn fort, ohne abgeschlossene Arbeit zu wiederholen."
 ---
 
-Ein RL-Checkpoint schützt den Modellstatus. Ein vollständiger Datensatz zur
-Fortsetzung schützt außerdem den Anwendungsstatus, der Ihrem Loop vorgibt, was
-als Nächstes zu tun ist.
-
-Verwenden Sie dieses Muster für lange Jobs, unterbrechbare Orchestratoren und
-von Agenten verwaltete Experimente.
+Ein Status-Checkpoint schützt den serverseitigen Trainingsstatus. Ein
+vollständiger Wiederherstellungsdatensatz schützt außerdem den benutzereigenen
+Status, der Ihrem Controller vorgibt, was als Nächstes zu tun ist.
 
 ## Was gespeichert werden muss
 
-Behandeln Sie einen fortsetzbaren Schritt als zwei koordinierte Datensätze:
-
 | Datensatz | Enthält | Gespeichert von |
 | --- | --- | --- |
-| Status-Checkpoint | LoRA-Gewichte und Optimizer-Status | RL API |
-| Loop-Datensatz | Schritt, Dataset-Cursor, Konfiguration und Checkpoint-Pfad | Ihre Anwendung |
+| Status-Checkpoint | Durch den SDK-Checkpoint repräsentierte Trainingsgewichte und Optimizer-Status | Fastino |
+| Loop-Datensatz | Job-ID, Checkpoint-ID, Schritt, Datensatz-Cursor und Konfiguration | Ihre Anwendung |
 
-Wenn Sie nur den Modellstatus speichern, können Sie die Policy wiederherstellen,
-der Anwendung jedoch nicht mitteilen, welche Beispiele bereits verarbeitet
-wurden. Wenn Sie nur eine Schrittnummer speichern, können Sie die Policy, die
-sie erzeugt hat, nicht wiederherstellen.
-
-## Bevor Sie beginnen
-
-Schließen Sie zuerst den [Schnellstart](/de/rl-api/quickstart) ab, um
-Authentifizierung, Modellzugriff und Sampling zu prüfen. Der Schnellstart
-erstellt keinen Trainingslauf. Fahren Sie erst fort, wenn Ihre freigeschaltete
-Fastino-Umgebung ein kleines Trainingsupdate abschließen sowie einen
-Status-Checkpoint speichern und wiederherstellen kann.
+Der SDK-Trainingsclient repräsentiert einen interaktiven Fastino-Job. Lesen Sie
+seine kanonische ID aus
+`training_client.get_info().model_data.model_id`.
 
 ## 1. Status und Loop-Fortschritt speichern
 
-Speichern Sie den serverseitigen Trainingsstatus und schreiben Sie anschließend
-den zurückgegebenen Pfad zusammen mit den clientseitigen Feldern, die zur
-Rekonstruktion des Laufs erforderlich sind, dauerhaft:
+Speichern Sie den Status über das SDK und persistieren Sie anschließend den
+zurückgegebenen Checkpoint mit den clientseitigen Feldern, die zum Fortfahren
+benötigt werden:
 
 ```python
 import json
 from pathlib import Path
 
 
+job_id = training_client.get_info().model_data.model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
+    "job_id": job_id,
     "state_path": state.path,
     "model": model_name,
-    "rank": lora_rank,
     "dataset_revision": dataset_revision,
     "optimizer": optimizer_config,
-    "renderer": renderer_name,
-    "tokenizer": tokenizer_name,
     "step": step,
     "dataset_cursor": dataset_cursor,
     "reward_version": reward_version,
 }
+
 with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
-
-print(state.path)
 ```
 
-Der zurückgegebene Pfad hat diese Form:
+Verwenden Sie eindeutige Checkpoint-Namen, damit jeder Loop-Datensatz eine
+eindeutige Wiederherstellungsgrenze identifiziert. Gehen Sie nicht von einer
+undokumentierten Lebensdauer eines Checkpoints aus.
 
-```text
-tinker://<run-id>/weights/step-000100
-```
+## 2. Neuesten vollständigen Datensatz lesen
 
-Das Snippet weist keine Gültigkeitsdauer zu. Legen Sie die Aufbewahrung für
-rollierende Wiederherstellungsartefakte explizit über die unterstützten
-Operationen zur Checkpoint-Verwaltung fest. Bewahren Sie einen finalen
-Checkpoint ohne TTL auf, wenn es sich um ein Artefakt handelt, das Sie behalten
-möchten.
-
-<Warning>
-  `save_state(...)` fordert kein Überschreiben an. Die Wiederverwendung eines
-  Checkpoint-Namens wird abgelehnt. `save_state(..., overwrite=True)` kann einen
-  Status-Checkpoint ausdrücklich ersetzen, aber eindeutige Namen sind sicherere
-  Wiederherstellungsmarker.
-</Warning>
-
-## 2. Den neuesten aufgezeichneten Fortsetzungspunkt finden
-
-Durchsuchen Sie beim Prozessstart die lokalen Datensätze rückwärts nach dem
-neuesten lesbaren Datensatz, der einen Statuspfad enthält. Ein Prozess kann
-während des Schreibens der letzten JSONL-Zeile beendet werden. Überspringen Sie
-daher eine fehlerhafte letzte Zeile, statt den vorherigen
-Wiederherstellungspunkt zu verlieren:
+Ein Prozess kann beim Schreiben der letzten Zeile beendet werden. Durchsuchen
+Sie die Datei rückwärts und überspringen Sie ein fehlerhaftes Ende:
 
 ```python
 def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
     path = Path(log_path)
     if not path.exists():
         return None
+
     for line in reversed(path.read_text(encoding="utf-8").splitlines()):
         try:
             record = json.loads(line)
@@ -102,156 +69,84 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
         if isinstance(record, dict) and isinstance(record.get("state_path"), str):
             return record
     return None
-
-
-resume = get_last_checkpoint(log_path)
 ```
 
-Behandeln Sie beide Pfade explizit:
+## 3. Vor dem Laden validieren
+
+Vergleichen Sie den Datensatz mit der gewünschten Fortsetzung:
+
+- kanonische Job-ID,
+- Basismodell und trainierbare Konfiguration,
+- Datensatzrevision und -Cursor,
+- Revision der Reward-Implementierung,
+- Optimizer-Konfiguration,
+- Annahmen zu Renderer und Tokenizer.
+
+Halten Sie an und fordern Sie eine ausdrückliche Entscheidung an, wenn diese
+Felder im Konflikt stehen. Kombinieren Sie einen Checkpoint nicht
+stillschweigend mit einem anderen Experiment.
+
+Verwenden Sie anschließend den unterstützten Ablauf des SDK zum Laden des
+Status:
 
 ```python
-if resume is None:
-    training_client = service_client.create_lora_training_client(
-        base_model=model_name,
-        rank=lora_rank,
+training_client = (
+    service_client.create_training_client_from_state_with_optimizer(
+        str(resume["state_path"])
     )
-    start_step = 0
-    dataset_cursor = 0
-else:
-    saved_step = resume.get("step")
-    saved_cursor = resume.get("dataset_cursor")
-    if not isinstance(saved_step, int) or not isinstance(saved_cursor, int):
-        raise ValueError("resume record has no valid step or dataset cursor")
-
-    training_client = (
-        service_client.create_training_client_from_state_with_optimizer(
-            str(resume["state_path"])
-        )
-    )
-    start_step = saved_step + 1
-    dataset_cursor = saved_cursor
+)
 ```
 
-`create_training_client_from_state_with_optimizer(...)` erstellt aus den
-gespeicherten Gewichten und dem Optimizer-Status einen neuen geordneten
-Trainingslauf.
+Diese SDK-Operation wird dem Laden eines Fastino-Checkpoints zugeordnet.
+Konstruieren Sie den Adapter-Request nicht direkt und leiten Sie aus der
+Operation keine zusätzliche Laufabstammung ab.
 
-## 3. Datensatz zur Fortsetzung validieren
-
-Vergleichen Sie den gespeicherten Loop-Datensatz mit dem angeforderten Lauf,
-bevor das Training fortgesetzt wird:
-
-```python
-if resume is not None and resume.get("reward_version") != reward_version:
-    raise ValueError(
-        "reward implementation changed; start a new run or approve the change"
-    )
-```
-
-Validieren Sie mindestens:
-
-- Basismodell
-- LoRA-Rang und trainierbares Layout
-- Dataset-Revision und -Cursor
-- Revision der Reward-Implementierung
-- Optimizer-Familie und vorgesehener Zeitplan
-- Annahmen zu Renderer und Tokenizer
-
-Ein Agent sollte anhalten und um eine Entscheidung bitten, wenn diese Felder
-einander widersprechen. Er sollte einen Checkpoint nicht stillschweigend mit
-einem anderen Experiment kombinieren.
-
-## 4. Die Schrittgrenze atomar gestalten
+## 4. Grenze wiederherstellbar gestalten
 
 Verwenden Sie diese Reihenfolge:
 
-1. Trainings- und Optimizer-Futures auflösen.
-2. Den Status-Checkpoint speichern.
-3. Den Loop-Datensatz mit dem zurückgegebenen Pfad dauerhaft speichern.
-4. Den Anwendungsschritt als abgeschlossen markieren.
-5. Den nächsten Schritt beginnen.
+1. Lösen Sie die Forward-/Backward- und Optimizer-Futures auf.
+2. Speichern Sie den Status-Checkpoint.
+3. Persistieren Sie den Loop-Datensatz mit seiner ID.
+4. Markieren Sie den Anwendungsschritt als abgeschlossen.
+5. Beginnen Sie den nächsten Schritt.
 
-Wenn der Prozess nach Schritt 2, aber vor Schritt 3 beendet wird, kann der
-Server einen Checkpoint ohne Referenz enthalten. Dies verschwendet Speicher,
-beschädigt aber nicht den vorherigen Fortsetzungspunkt. Bei einer späteren
-Bereinigung kann er gelöscht werden.
+Wenn der Prozess nach dem Speichern des Checkpoints, aber vor dem Persistieren
+des Loop-Datensatzes beendet wird, behalten Sie den vorherigen vollständigen
+Datensatz als vertrauenswürdigen Wiederherstellungspunkt. Markieren Sie einen
+Schritt nicht als abgeschlossen, bevor sein Datensatz dauerhaft gespeichert ist.
 
-Markieren Sie einen Schritt nicht als abgeschlossen, bevor der Checkpoint-Pfad
-dauerhaft gespeichert ist.
-
-## 5. Sampler-Artefakte getrennt halten
-
-Verwenden Sie einen Status-Checkpoint, um das Training fortzusetzen:
+## 5. Checkpoint-Arten getrennt halten
 
 ```python
 state = training_client.save_state("step-000100").result()
-```
-
-Verwenden Sie Sampler-Gewichte für Evaluierung, Rollouts oder SDK-Inferenz:
-
-```python
 sampler = training_client.save_weights_for_sampler(
     "step-000100"
 ).result()
 ```
 
-Die beiden Pfade haben unterschiedliche Zwecke:
+Verwenden Sie einen Status-Checkpoint zur Wiederherstellung des Trainings.
+Verwenden Sie einen Sampler-Checkpoint für Rollouts oder Evaluierung. Verwenden
+Sie einen Sampler-Checkpoint nicht als Wiederherstellungspunkt für den
+Optimizer-Status.
 
-```text
-tinker://<run-id>/weights/<name>
-tinker://<run-id>/sampler_weights/<name>
-```
+Die kanonische Checkpoint-Verwaltung unterstützt Auflisten, Abrufen,
+Herunterladen, Löschen, Veröffentlichen, Aufheben der Veröffentlichung,
+TTL-Aktualisierungen und das Abrufen der Speichernutzung. Ihre Anwendung ist
+für Aufbewahrungsrichtlinie und Bereinigung verantwortlich; dieser Leitfaden
+verspricht keine TTL oder Aufbewahrungsdauer.
 
-Wählen Sie keinen Sampler-Checkpoint als Fortsetzungspunkt für den Optimizer.
+## 6. Fortsetzung prüfen
 
-## 6. Speicher begrenzen
+Vor dem Skalieren des fortgesetzten Workloads:
 
-Eine praktische Aufbewahrungsrichtlinie verwendet:
+1. Laden Sie den ausgewählten Status-Checkpoint.
+2. Bestätigen Sie die kanonische Job-ID des SDK-Clients über `GET /v1/training/jobs/{job_id}`.
+3. Führen Sie eine kleine zurückgehaltene Evaluierung aus.
+4. Senden Sie ein unterstütztes Trainingsupdate.
+5. Speichern Sie einen neuen Status-Checkpoint unter einem neuen Namen.
+6. Persistieren Sie den nächsten Loop-Datensatz.
 
-- Kurzlebige rollierende Status-Checkpoints zur Wiederherstellung nach Abstürzen
-- Längerlebige regelmäßige Status- und Sampler-Checkpoints für Vergleiche
-- Einen dauerhaften finalen Checkpoint
-
-Implementieren Sie die Aufbewahrung in Ihrer Anwendung, indem Sie eindeutige
-Checkpoint-Namen vergeben, über unterstützte Checkpoint-Operationen explizite
-TTLs festlegen und Artefakte löschen, die nicht mehr in Ihrem
-Wiederherstellungs- oder Evaluierungsfenster liegen. Checkpoint-Speicher wird
-über die Zeit gemessen.
-
-## Wiederherstellungsentscheidungen für Agenten
-
-| Situation | Maßnahme |
-| --- | --- |
-| Kein lokaler Datensatz zur Fortsetzung | Einen neuen Lauf starten |
-| Datensatz zur Fortsetzung und Checkpoint sind vorhanden | Metadaten validieren und anschließend wiederherstellen |
-| Lokaler Datensatz ist vorhanden, aber Checkpoint fehlt | Anhalten und den Benutzer fragen; nicht annehmen, dass ein früherer Datensatz zum beabsichtigten Lauf gehört |
-| Checkpoint ist ohne lokalen Datensatz vorhanden | Als nicht klassifiziert behandeln; Dataset-Cursor nicht erraten |
-| Reward- oder Dataset-Revision hat sich geändert | Neues Experiment starten, sofern der Benutzer die Fortsetzung nicht genehmigt |
-| Live-Lauf meldet nicht wiederherstellbaren Status | Vom neuesten expliziten Status-Checkpoint wiederherstellen |
-
-## Den fortgesetzten Lauf prüfen
-
-Vor einer umfangreichen Fortsetzung:
-
-1. Den Checkpoint wiederherstellen.
-2. Eine kleine zurückgehaltene Evaluierung ausführen.
-3. Sie mit der beim Speichern aufgezeichneten Metrik vergleichen.
-4. Einen Trainingsschritt übermitteln.
-5. Einen neuen Checkpoint unter einem neuen Namen speichern.
-
-Exakte Samples können variieren. Das wiederhergestellte Modell sollte die
-erwartete Qualität beibehalten, der Optimizer-Schritt sollte abgeschlossen
-werden und der neue Checkpoint sollte adressierbar sein.
-
-Schließen Sie den Service-Client immer. Erfassen Sie das Ergebnis korrekt:
-
-```python
-service_client.close("success").result()  # completed run
-```
-
-Verwenden Sie `errored`, wenn eine Ausnahme weitergegeben wird, und
-`interrupted` nach einem Abbruch oder Herunterfahren. Kennzeichnen Sie eine
-fehlgeschlagene Wiederherstellung nicht als erfolgreich.
-
-Den vollständigen Lebenszyklus und die administrativen Operationen finden Sie
-in der [Referenz zu Laufzeitverhalten und Fehlern](/de/rl-api/runtime).
+Verwenden Sie das SDK für alle interaktiven Operationen. Die Semantik von Jobs,
+Futures und Checkpoints finden Sie unter
+[Laufzeitverhalten und Fehler](/de/rl-api/runtime).

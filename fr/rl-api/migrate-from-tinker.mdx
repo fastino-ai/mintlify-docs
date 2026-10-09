@@ -1,188 +1,102 @@
 ---
-title: "Migrer depuis Tinker"
-description: "Migrez un workload existant utilisant le SDK Tinker vers l'API RL de Fastino."
+title: "Migrer un workload SDK"
+description: "Migrez un workload compatible utilisant le SDK Tinker vers les jobs d'entraînement interactifs Fastino."
 ---
 
-L'API RL de Fastino implémente un sous-ensemble documenté du contrat du SDK
-Tinker. La forme des appels du SDK peut rester inchangée lorsque tous les
-éléments de la checklist de compatibilité sont satisfaits. Une migration
-remplace quatre points d'intégration :
+Fastino prend en charge un sous-ensemble défini du SDK `tinker` comme interface
+client pour les jobs d'entraînement interactifs. Un client d'entraînement migré
+est un job Fastino dans `/v1/training/jobs` ; son ID de modèle SDK et son ID de
+job Fastino canonique sont identiques.
 
-1. Point de terminaison
-2. Identifiant
-3. Nom du modèle
-4. Hypothèses opérationnelles
+Considérez votre programme existant comme le test d'acceptation. Modifiez la
+connexion, vérifiez chaque opération et exécutez un petit test de fumée avant de
+rétablir les tailles de workload de production.
 
-Ce guide considère le programme existant comme le test d'acceptation. Modifiez
-d'abord la connexion, exécutez une petite tâche, puis ajustez l'algorithme.
-
-## 1. Épingler une version testée du SDK
-
-Fastino teste actuellement le contrat avec :
-
-```text
-tinker==0.32.0
-```
-
-La version minimale du client prise en charge est `0.25.0`. Épinglez `0.32.0`
-pendant la migration afin qu'une mise à niveau sans rapport du SDK ne masque pas
-un problème de connexion ou de compatibilité.
+## 1. Épingler le paquet testé
 
 <CodeGroup>
 
 ```bash uv
-uv add "tinker==0.32.0"
+uv add "tinker==0.33.1"
 ```
 
 ```bash pip
-pip install "tinker==0.32.0"
+pip install "tinker==0.33.1"
 ```
 
 </CodeGroup>
 
-## 2. Remplacer le point de terminaison et la clé
+## 2. Remplacer le point de terminaison et l'authentification
 
-Le code existant qui construit `tinker.ServiceClient()` sans arguments
-explicites peut être migré uniquement à l'aide de variables d'environnement :
+<CodeGroup>
 
-```bash
+```bash macOS/Linux
 export FASTINO_API_KEY="fast_sk_..."
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
-La partie `tml-` est un préfixe de compatibilité utilisé par le SDK Tinker.
-Fastino authentifie la clé `fast_sk_...` qu'il contient.
-
-Si votre application transmet explicitement les valeurs, effectuez la
-modification équivalente :
-
-```python
-import os
-
-import tinker
-
-
-service_client = tinker.ServiceClient(
-    base_url="https://api.fastino.ai/tinker",
-    api_key=f"tml-{os.environ['FASTINO_API_KEY']}",
-)
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
 
-N'ajoutez pas `/api/v1`. Le SDK ajoute son propre chemin de route.
+</CodeGroup>
 
-## 3. Sélectionner un modèle pris en charge par Fastino
+Le SDK ajoute `/api/v1/<operation>` à `TINKER_BASE_URL`.
+`TINKER_CREDENTIAL_CMD` est exécuté à chaque demande de token et doit afficher
+un identifiant non vide. Utilisez une clé Fastino `fast_sk_` normale ; les
+identifiants `tml-` sont rejetés. Ne définissez pas `TINKER_API_KEY`.
 
-Ne supposez pas qu'un modèle disponible dans un autre environnement Tinker est
-disponible sur Fastino. Interrogez les capacités pendant la migration :
+## 3. Vérifier le workload
 
-```python
-capabilities = service_client.get_server_capabilities()
-for model in capabilities.supported_models:
-    print(model.model_name)
-```
+1. Interrogez `ServiceClient.get_server_capabilities()` et choisissez un modèle
+   de base disponible. Conservez le nom de paramètre SDK `base_model`.
+2. Comparez chaque méthode de votre code avec le
+   [tableau de compatibilité du SDK](/fr/rl-api/compatibility).
+3. Supprimez les dépendances à la récupération par lots des futures, à
+   l'exportation de poids externes, aux URL de poids externes, aux méthodes
+   d'authentification/token du SDK ou aux méthodes de facturation,
+   d'utilisation et d'événement du SDK qui ne sont pas prises en charge.
+4. Conservez dans votre application le rendu des prompts, la logique de
+   récompense, la mise en lots, l'évaluation et les critères d'arrêt.
 
-Utilisez la réponse de capacités active pour prendre vos décisions en
-production. Comparez le résultat avec la
-[compatibilité du client](/fr/rl-api/compatibility) pour connaître les fenêtres de
-contexte et les limites LoRA.
+Les capacités constituent la source de vérité pour la prise en charge propre à
+l'environnement. Ne conservez pas les hypothèses relatives au modèle, au rang,
+au contexte, à la fonction de perte ou aux limites de requête provenant d'un
+autre déploiement.
 
-## 4. Comparer la boucle d'apprentissage
+## 4. Exécuter un test de fumée
 
-Ces appels principaux conservent leur forme dans le SDK Tinker :
+Utilisez les plus petits datums valides et les paramètres d'optimisation de
+votre workload existant pour un test peu coûteux qui :
 
-```python
-training_client = service_client.create_lora_training_client(
-    base_model=model_name,
-    rank=32,
-)
+- Crée un client avec `create_lora_training_client(base_model=...)`
+- Lit `training_client.get_info().model_data.model_id`
+- Enregistre les poids d'échantillonneur et effectue un échantillonnage
+- Exécute une opération avant/arrière prise en charge et une étape d'optimisation
+- Enregistre et recharge un checkpoint d'état
+- Récupère le même ID depuis `GET /v1/training/jobs/{job_id}`
 
-sampler_path = training_client.save_weights_for_sampler(
-    "migration-smoke"
-).result().path
-sampling_client = service_client.create_sampling_client(
-    model_path=sampler_path
-)
-sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
-sample_result = sample_future.result()
-
-train_future = training_client.forward_backward(
-    datums,
-    loss_fn="importance_sampling",
-)
-optim_future = training_client.optim_step(adam_params)
-train_result = train_future.result()
-optim_result = optim_future.result()
-```
-
-La forme des appels ci-dessus est compatible. Avant de réutiliser la boucle qui
-les entoure, vérifiez que son modèle, son rang LoRA, le nom de sa fonction de
-perte, les champs de ses datums, ses paramètres d'échantillonnage, son
-comportement de checkpoint et ses dépendances opérationnelles sont tous
-indiqués comme pris en charge dans la
-[référence de compatibilité](/fr/rl-api/compatibility).
-
-Le renderer, la construction du prompt, les fonctions de récompense, le calcul
-des avantages, la mise en lots et les critères d'arrêt s'exécutent dans votre
-application. Ne les conservez pour le premier test de migration qu'une fois
-cette checklist satisfaite.
-
-## 5. Vérifier une petite exécution
-
-Effectuez une exécution d'acceptation peu coûteuse avant de rétablir la taille
-des lots de production :
-
-- Récupérez les capacités.
-- Créez un client d'entraînement LoRA.
-- Échantillonnez un petit groupe.
-- Soumettez une opération avant-arrière.
-- Appliquez une étape d'optimisation.
-- Enregistrez un checkpoint d'état.
-- Créez un nouveau client d'entraînement depuis ce checkpoint.
-- Fermez le client de service.
-
-Comparez les résultats sémantiques, et non les valeurs exactes en virgule
-flottante. Des modèles et infrastructures pris en charge différents peuvent
-produire des échantillons et des métriques différents.
-
-## 6. Examiner les différences opérationnelles
-
-| Domaine | Action de migration |
-| --- | --- |
-| Accès | L'accès à l'API RL est activé par équipe Fastino. Une équipe pour laquelle il est désactivé reçoit `404 Not Found`. |
-| Authentification | Utilisez une clé d'API Fastino encapsulée avec le préfixe de compatibilité `tml-`. |
-| Modèles | Choisissez un modèle dans la réponse de capacités. Ne conservez pas un modèle source non pris en charge. |
-| Cycle de vie de la session | Fermez `ServiceClient` pour libérer les exécutions actives. |
-| Récupération | Conservez des checkpoints explicites comme limite de récupération contrôlée par votre application. |
-| Résultats des futures | Récupérez et conservez les résultats terminés dans un délai d'une heure. |
-| Annulation | L'annulation s'applique à l'échantillonnage, et non aux opérations d'entraînement individuelles. |
-| Checkpoints publiés | La publication ne permet pas à une autre équipe Fastino de charger un checkpoint. |
-| Exportation des traces | Supprimez le code qui dépend de l'exportation des traces Tinker. Elle n'est pas prise en charge. |
-| Entrées d'audit | Ne dépendez pas de l'historique d'audit. Les appels d'audit ne renvoient aucune entrée. |
-
-Consultez la [compatibilité du client](/fr/rl-api/compatibility) pour les fonctions
-de perte et les méthodes prises en charge. Consultez le
-[comportement à l'exécution et les erreurs](/fr/rl-api/runtime) pour les
-nouvelles tentatives, la facturation, les checkpoints et les échecs.
+Utilisez le SDK pour les opérations interactives. L'adaptateur est
+volontairement absent de l'OpenAPI et de la référence API de Fastino ; ne
+construisez donc pas d'appels HTTP vers l'adaptateur.
 
 ## Checklist de migration
 
-- [ ] Épingler `tinker==0.32.0`.
-- [ ] Définir `TINKER_BASE_URL` sur `https://api.fastino.ai/tinker`.
-- [ ] Encapsuler la clé Fastino sous la forme `tml-fast_sk_...`.
-- [ ] Confirmer que l'équipe a accès à l'API RL.
-- [ ] Remplacer les noms de modèles non pris en charge.
-- [ ] Exécuter une étape d'échantillonnage et d'entraînement.
-- [ ] Enregistrer et restaurer un checkpoint d'état.
-- [ ] Supprimer les dépendances aux traces ou aux données d'audit non prises en charge.
-- [ ] Fermer le client de service.
-- [ ] Augmenter la taille du workload uniquement après la réussite de l'exécution d'acceptation.
+- [ ] Épingler `tinker==0.33.1`.
+- [ ] Définir l'URL de base de l'adaptateur Fastino.
+- [ ] Fournir une clé `fast_sk_` via `TINKER_CREDENTIAL_CMD`.
+- [ ] Confirmer que l'entraînement interactif est activé pour l'équipe Fastino.
+- [ ] Vérifier chaque méthode SDK dans le tableau de compatibilité.
+- [ ] Sélectionner le modèle et les fonctionnalités facultatives à partir des capacités.
+- [ ] Effectuer un échantillonnage et une mise à jour d'entraînement.
+- [ ] Enregistrer et recharger un checkpoint d'état.
+- [ ] Vérifier l'ID de modèle SDK via le point de terminaison canonique du job.
+- [ ] Augmenter la taille du workload uniquement après la réussite du test de fumée.
 
-<Card
-  title="Vérifier la compatibilité du client"
-  icon="list-check"
-  href="/fr/rl-api/compatibility"
->
-  Consultez les versions de Tinker, les méthodes, les fonctions de perte, les
-  modèles et les limites pris en charge.
+<Card title="Vérifier la compatibilité du SDK" icon="list-check" href="/fr/rl-api/compatibility">
+  Consultez les correspondances exactes entre le SDK et Fastino ainsi que les
+  méthodes non prises en charge.
 </Card>

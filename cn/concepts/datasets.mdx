@@ -5,7 +5,7 @@ description: "在启动 Fastino 训练任务之前，格式化、上传、验证
 ---
 
 训练任务通过名称引用已就绪的数据集。请准备一个 JSONL 文件，通过两步式数据集 API 上传，
-并在调用 `POST /v1/training-jobs` 之前确认已处理的版本存在。
+并在调用 `POST /v1/training/jobs` 之前确认已处理的版本存在。
 
 ## 选择数据集格式
 
@@ -43,39 +43,41 @@ description: "在启动 Fastino 训练任务之前，格式化、上传、验证
 ### 1. 预留上传 URL
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/url \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/url \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "dataset_name": "docs-example-ner",
     "filename": "training.jsonl",
     "dataset_type": "ner"
-  }'
+  }' | tee dataset-upload.json
+
+export PRESIGNED_URL="$(jq -r '.presigned_url' dataset-upload.json)"
+export DATASET_ID="$(jq -r '.dataset_id' dataset-upload.json)"
+export DATASET_VERSION="$(jq -r '.version_number' dataset-upload.json)"
 ```
 
 响应包含一个短时有效的 `presigned_url`、一个 `dataset_id` 和一个 `version_number`。
-请使用 HTTP `PUT` 将文件的原始字节上传到 `presigned_url`。请同时保留数据集 ID 和版本号。
+上述命令会保留这三个值。将文件的原始字节上传到预签名 URL：
 
 ```bash
-curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+curl --fail-with-body -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
 ```
 
 ### 2. 处理已上传的文件
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/process \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "dataset_id": "DATASET_ID_FROM_STEP_1"
-  }'
+  -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
 处理请求返回 `202`。按名称轮询数据集，找到 `version_number` 与上传响应一致的条目，
 并等待该条目的 `status` 变为 `ready`：
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -88,7 +90,7 @@ curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
   "model_name": "my-ner-model",
   "base_model": "fastino/gliner2-base-v1",
   "datasets": [
-    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
   "training_type": "lora"
 }

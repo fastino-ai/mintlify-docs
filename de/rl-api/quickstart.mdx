@@ -1,68 +1,55 @@
 ---
 title: "RL API – Schnellstart"
 sidebarTitle: "Schnellstart"
-description: "Authentifizieren Sie sich, prüfen Sie den RL-API-Zugriff und sampeln Sie ein unterstütztes Modell."
+description: "Erstellen Sie einen interaktiven Fastino-Trainingsjob, sampeln Sie daraus und prüfen Sie ihn."
 ---
 
-In diesem Tutorial verbinden Sie das Tinker SDK mit Fastino, prüfen den Zugriff
-Ihres Teams und sampeln ein unterstütztes Modell. Damit testen Sie die Verbindung,
-bevor Sie einen Trainingsloop erstellen.
+Dieser Schnellstart erstellt über das unterstützte SDK einen interaktiven
+Fastino-Trainingsjob, speichert Sampler-Gewichte, generiert eine Antwort und
+prüft denselben Job über Fastinos kanonische Training API.
 
-<Warning>
-  Die Funktionsprüfung ist schreibgeschützt. Die Sampling-Anfrage ist
-  kostenpflichtige Inferenz. Dieser Schnellstart trainiert kein Modell und
-  erstellt keinen Checkpoint.
-</Warning>
+## Voraussetzungen
 
-## 1. API-Schlüssel einrichten
+- Python 3.11 oder höher
+- Ein Fastino-Account mit aktiviertem interaktivem Training
+- Ein Fastino-API-Schlüssel von [API Keys](https://agent.fastino.ai/api-keys)
+- Ein Basismodell und LoRA-Rang, die in Ihrer Antwort zu den Fähigkeiten verfügbar sind
 
-1. **Erstellen Sie ein [Fastino](https://agent.fastino.ai/)-Konto**
-2. **Rufen Sie Ihren API-Schlüssel** in den [Einstellungen](https://agent.fastino.ai/api-keys) ab
+Fastino-Schlüssel beginnen mit `fast_sk_`. Anmeldedaten, die mit `tml-`
+beginnen, werden abgelehnt.
 
-Legen Sie Ihren Schlüssel als Umgebungsvariable fest, damit die folgenden
-Beispiele unverändert funktionieren:
+## 1. Fastino-Schlüssel festlegen
 
 <CodeGroup>
 
 ```bash macOS/Linux
-export FASTINO_API_KEY="your_api_key_here"
+export FASTINO_API_KEY="fast_sk_..."
 ```
 
 ```powershell Windows
-$env:FASTINO_API_KEY = "your_api_key_here"
+$env:FASTINO_API_KEY = "fast_sk_..."
 ```
 
 </CodeGroup>
 
-Fastino-Schlüssel beginnen mit `fast_sk_`. Für Ihr Team muss außerdem der
-Zugriff auf die RL API aktiviert sein. Durch die Installation des Tinker SDK
-erhalten Sie keinen Zugriff.
+Committen Sie den Schlüssel nicht und schreiben Sie ihn nicht direkt in den
+Quellcode.
 
-## 2. Python-Umgebung erstellen
-
-Sie benötigen Python 3.11 oder höher.
+## 2. Getestetes SDK installieren
 
 <CodeGroup>
 
-```bash uv · macOS/Linux
+```bash uv
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0"
-source .venv/bin/activate
+uv add "tinker==0.33.1"
 ```
 
-```powershell uv · Windows
-uv init fastino-rl
-cd fastino-rl
-uv add "tinker==0.32.0"
-.\.venv\Scripts\Activate.ps1
-```
-
-```bash pip · macOS/Linux
+```bash pip
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install "tinker==0.33.1"
 ```
 
 ```powershell pip · Windows
@@ -70,98 +57,95 @@ mkdir fastino-rl
 cd fastino-rl
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install "tinker==0.33.1"
 ```
 
 </CodeGroup>
 
-## 3. Tinker-Client konfigurieren
+## 3. SDK-Authentifizierung konfigurieren
 
-Verweisen Sie das Tinker SDK auf Fastino und leiten Sie die von ihm erwartete
-Umgebungsvariable ab:
+Legen Sie die unterstützte Adapter-Basis-URL fest. Das SDK hängt
+`/api/v1/<operation>` an.
+
+`TINKER_CREDENTIAL_CMD` wird bei jedem Token-Request ausgeführt und muss nicht
+leere Anmeldedaten auf der Standardausgabe ausgeben.
 
 <CodeGroup>
 
 ```bash macOS/Linux
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
 ```powershell Windows
-$env:TINKER_API_KEY = "tml-$env:FASTINO_API_KEY"
-$env:TINKER_BASE_URL = "https://api.fastino.ai/tinker"
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
 
 </CodeGroup>
 
-Erstellen Sie keinen zweiten Schlüssel. `TINKER_API_KEY` ist der Name der
-Umgebungsvariable des Tinker SDK, und `tml-` ist das erwartete
-Kompatibilitätspräfix. Ihr Fastino-Schlüssel bleibt der Berechtigungsnachweis,
-der die Anfrage authentifiziert. Committen Sie ihn nicht in die
-Versionsverwaltung.
+Der PowerShell-Wert referenziert `$env:FASTINO_API_KEY`, wenn der
+Anmeldedatenbefehl ausgeführt wird; beim Festlegen des Befehls wird das Secret
+nicht eingebettet. Setzen Sie `TINKER_API_KEY` nicht.
 
-## 4. Zugriff prüfen
+## 4. Aktiviertes Modell auswählen
 
-Erstellen Sie `check_rl_api.py`:
+Verwenden Sie `ServiceClient.get_server_capabilities()` als verbindliche
+Quelle. Legen Sie ein von dieser Antwort unterstütztes Modell und einen
+unterstützten Rang fest:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_RL_BASE_MODEL="<model from capabilities>"
+export FASTINO_RL_LORA_RANK="<supported rank>"
+```
+
+```powershell Windows
+$env:FASTINO_RL_BASE_MODEL = "<model from capabilities>"
+$env:FASTINO_RL_LORA_RANK = "<supported rank>"
+```
+
+</CodeGroup>
+
+## 5. Job erstellen und sampeln
+
+Erstellen Sie `quickstart.py`:
 
 ```python
+import os
+
 import tinker
 
 
-TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
-client = tinker.ServiceClient()
-try:
-    capabilities = client.get_server_capabilities()
-    model_names = {model.model_name for model in capabilities.supported_models}
-    if TUTORIAL_MODEL not in model_names:
-        available = ", ".join(sorted(model_names)) or "none"
-        raise RuntimeError(
-            f"{TUTORIAL_MODEL} is not available; available models: {available}. "
-            "Stop before billable work and ask Fastino about tutorial-model access."
-        )
-    print(f"Ready to use {TUTORIAL_MODEL}")
-except KeyboardInterrupt:
-    client.close("interrupted").result()
-    raise
-except Exception:
-    client.close("errored").result()
-    raise
-else:
-    client.close("success").result()
-```
-
-Führen Sie die Datei aus:
-
-```bash
-python check_rl_api.py
-```
-
-Eine erfolgreiche Antwort bestätigt, dass das unten verwendete Modell derzeit
-für Ihr Team verfügbar ist. Verwenden Sie die Funktionsantwort als maßgebliche
-Quelle bei der Modellauswahl.
-
-Wenn der Aufruf `404 Not Found` zurückgibt, prüfen Sie, ob die Basis-URL auf
-`/tinker` endet. Ist dies der Fall, bitten Sie Fastino, den RL-API-Zugriff für
-Ihr Team zu aktivieren.
-
-## 5. Das erste Sample ausführen
-
-Erstellen Sie `sample_rl_api.py`:
-
-```python
-import tinker
-
-
-TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
 service_client = tinker.ServiceClient()
+outcome = "errored"
 try:
-    sampling_client = service_client.create_sampling_client(
-        base_model=TUTORIAL_MODEL
+    capabilities = service_client.get_server_capabilities()
+    print(capabilities)
+
+    training_client = service_client.create_lora_training_client(
+        base_model=os.environ["FASTINO_RL_BASE_MODEL"],
+        rank=int(os.environ["FASTINO_RL_LORA_RANK"]),
     )
+
+    job_id = training_client.get_info().model_data.model_id
+    print(f"TRAINING_JOB_ID={job_id}")
+
+    checkpoint = training_client.save_weights_for_sampler(
+        "quickstart-sampler"
+    ).result()
+    sampling_client = service_client.create_sampling_client(
+        model_path=checkpoint.path
+    )
+
     tokenizer = sampling_client.get_tokenizer()
     prompt_tokens = tokenizer.apply_chat_template(
         conversation=[
-            {"role": "user", "content": "Explain what a reward function does in RL."}
+            {
+                "role": "user",
+                "content": "Explain the purpose of a reward function in one sentence.",
+            }
         ],
         add_generation_prompt=True,
         return_dict=False,
@@ -169,68 +153,61 @@ try:
     result = sampling_client.sample(
         prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
         num_samples=1,
-        sampling_params=tinker.types.SamplingParams(
-            max_tokens=128,
-            temperature=0.7,
-        ),
+        sampling_params=tinker.types.SamplingParams(max_tokens=64),
     ).result()
+
     print(tokenizer.decode(result.sequences[0].tokens))
 except KeyboardInterrupt:
-    service_client.close("interrupted").result()
-    raise
-except Exception:
-    service_client.close("errored").result()
+    outcome = "interrupted"
     raise
 else:
-    service_client.close("success").result()
+    outcome = "success"
+finally:
+    service_client.close(outcome).result()
 ```
 
 Führen Sie die Datei aus:
 
 ```bash
-python sample_rl_api.py
+python quickstart.py
 ```
 
-Ein erfolgreicher Lauf gibt eine Modellantwort aus. Ihre Anwendung hat einen
-Text-Prompt über das SDK gesendet, Fastino hat die Inferenz ausgeführt und der
-Client hat die zurückgegebenen Tokens decodiert.
+Kopieren Sie den nach `TRAINING_JOB_ID=` ausgegebenen Wert. Der
+Sampler-Checkpoint und die Sampling-Operation gehören zu demselben
+interaktiven Job.
 
-<Note>
-  `Qwen/Qwen3.6-35B-A3B` wird hier verwendet, weil es vom aktuellen
-  RL-API-Vertrag unterstützt wird. Übernehmen Sie keinen Modellnamen aus einer
-  anderen Tinker-Umgebung, ohne zuvor die Funktionsantwort zu prüfen.
-</Note>
+## 6. Kanonischen Job prüfen
 
-## 6. Clients im eigenen Code schließen
+<CodeGroup>
 
-Das Beispiel schließt seinen `ServiceClient` bei Erfolg, Unterbrechung und
-Fehler. Verwenden Sie dasselbe Muster in langlebigen Anwendungen.
+```bash macOS/Linux
+export TRAINING_JOB_ID="<ID printed by quickstart.py>"
+curl --fail-with-body \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
 
-Durch das Schließen des Clients wird seine Sitzung beendet und aktive
-Trainingsläufe werden freigegeben. Gespeicherte Checkpoints bleiben gemäß ihren
-Aufbewahrungseinstellungen verfügbar.
+```powershell Windows
+$env:TRAINING_JOB_ID = "<ID printed by quickstart.py>"
+Invoke-RestMethod `
+  -Headers @{ "X-API-Key" = "$env:FASTINO_API_KEY" } `
+  -Uri "https://api.fastino.ai/v1/training/jobs/$env:TRAINING_JOB_ID"
+```
 
-Verwenden Sie `success` nur nach einem abgeschlossenen Lauf. Schließen Sie mit
-`errored`, wenn eine Ausnahme weitergegeben wird, und mit `interrupted` nach
-einem Abbruch oder Herunterfahren.
+</CodeGroup>
+
+Die Antwort identifiziert denselben Job, der von
+`create_lora_training_client(...)` erstellt wurde. Verwenden Sie das SDK für
+interaktive Modelloperationen; konstruieren Sie keine Adapter-HTTP-Aufrufe.
 
 ## Nächste Schritte
 
 <CardGroup cols={2}>
-  <Card
-    title="Bestehende Anwendung migrieren"
-    icon="arrow-right-arrow-left"
-    href="/de/rl-api/migrate-from-tinker"
-  >
-    Prüfen Sie, ob ein bestehender Workload des `tinker`-Clients zum
-    unterstützten Vertrag von Fastino passt.
+  <Card title="Trainingsloop erstellen" icon="diagram-project" href="/de/rl-api/training-loop">
+    Ergänzen Sie den interaktiven Job um Rewards, Forward-/Backward-Operationen,
+    Optimierungsschritte und Checkpoints.
   </Card>
-  <Card
-    title="Das Training verstehen"
-    icon="diagram-project"
-    href="/de/rl-api/training-loop"
-  >
-    Verfolgen Sie die Daten vom Prompt über Sampling, Reward und Advantage bis
-    zum Update, bevor Sie einen Trainingsloop schreiben.
+  <Card title="Kompatibilität prüfen" icon="list-check" href="/de/rl-api/compatibility">
+    Bestätigen Sie jede SDK-Operation, die Ihr Workload benötigt.
   </Card>
 </CardGroup>

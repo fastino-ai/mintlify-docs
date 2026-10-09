@@ -1,104 +1,85 @@
 ---
-title: "Client-Kompatibilität"
-description: "Unterstützte Client-Versionen, Modelle, Trainings- und Sampling-Operationen sowie Loss-Funktionen."
+title: "SDK-Kompatibilität"
+description: "Genaue Unterstützung und Zuordnungen des Tinker SDK für interaktive Fastino-Trainingsjobs."
 ---
 
-Prüfen Sie mit dieser Referenz, welche Teile des Tinker-Client-Vertrags von
-Fastinos RL API unterstützt werden. Das gepinnte Paket `tinker==0.32.0`
-definiert die Methodensignaturen. Diese Seite definiert die
-Fastino-spezifischen Unterstützungsgrenzen. Ein hier ausdrücklich als nicht
-unterstützt gekennzeichneter Eintrag hat Vorrang vor seiner Verfügbarkeit im
-Client-Paket.
+Fastino testet den Kompatibilitätsvertrag mit `tinker==0.33.1`. Das Paket
+definiert die SDK-Signaturen; diese Seite legt fest, welche Methoden Fastino
+unterstützt und wie sie der Fastino-Trainingsdomäne zugeordnet werden.
 
-## Client-Vertrag
-
-| Element | Wert |
+| Element | Unterstützter Wert |
 | --- | --- |
-| Python-Paket | `tinker` |
-| Getestete Version | `0.32.0` |
-| Mindestens unterstützte Version | `0.25.0` |
-| Basis-URL | `https://api.fastino.ai/tinker` |
-| Anmeldedaten | `tml-`, gefolgt von einem Fastino-Schlüssel `fast_sk_...` |
-| Teamzugriff | Eingeschränkter Zugang für das authentifizierte Fastino-Team |
+| Paket | `tinker==0.33.1` |
+| Basis-URL | `https://api.fastino.ai/v1/training/compat/tinker` |
+| Authentifizierung | Ein von `TINKER_CREDENTIAL_CMD` ausgegebener `fast_sk_`-Schlüssel |
+| Ressourcenidentität | Ein Trainingsclient ist ein interaktiver Fastino-Job mit derselben ID |
 
-Pinnen Sie für diese Vorschau `tinker==0.32.0`.
+Das SDK ergänzt die Basis-URL um `/api/v1/<operation>`. Adapter-Routen sind in
+OpenAPI und API-Referenz nicht sichtbar. Benutzer dürfen Adapter-Requests nicht
+selbst konstruieren.
 
-## Modelle
+## Training und Sampling
 
-| Basismodell | Kontextfenster | Maximaler LoRA-Rang |
-| --- | ---: | ---: |
-| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 |
+| SDK-Methode oder -Operation | Fastino-Zuordnung | Unterstützung |
+| --- | --- | --- |
+| `create_lora_training_client` | `POST /v1/training/jobs` mit interaktivem Jobtyp | Unterstützt |
+| `copy_weights` | Interaktiven Job aus dem Checkpoint erstellen | Unterstützt |
+| `TrainingClient.get_info` | Kanonischen Fastino-Job mit `GET` abrufen | Unterstützt |
+| `forward` | `/forward` auf dem interaktiven Job | Unterstützt |
+| `forward_backward` | `/forward-backward` auf dem interaktiven Job | Unterstützt |
+| Benutzerdefinierte Forward-/Backward-Operation | `/forward-backward` auf dem interaktiven Job | Unterstützt |
+| `optim_step` | `/optim-step` auf dem interaktiven Job | Unterstützt |
+| `save_state` | Checkpoint der Art `state` mit `POST` erstellen | Unterstützt |
+| `save_weights_for_sampler` | Checkpoint der Art `sampler` mit `POST` erstellen | Unterstützt |
+| Trainingsstatus laden | Checkpoint auf dem interaktiven Job laden | Unterstützt |
+| Sampling-Client erstellen oder abrufen | Ausgewählten Checkpoint auflösen | Unterstützt |
+| `SamplingClient.sample` | Aus Checkpoint sampeln | Unterstützt |
 
-Rufen Sie vor der Modellauswahl `get_server_capabilities()` auf. Die Antwort ist
-für aktuelle Verfügbarkeit und Kontextfenster maßgeblich.
+Behalten Sie den SDK-Methodenparameter `base_model` unverändert bei. Fragen Sie
+`ServiceClient.get_server_capabilities()` ab, bevor Sie ein Basismodell
+auswählen oder sich auf eine optionale Operation verlassen. Die Fähigkeiten
+sind die verbindliche Quelle; diese Referenz legt keinen festen Modellkatalog,
+Loss-Katalog, Rang, kein Kontextfenster und kein Limit pro Aufruf fest.
 
-## Trainingsoperationen
+## Futures
 
-| Fähigkeit | Unterstützung |
-| --- | --- |
-| Einen LoRA-Trainingsclient erstellen | Unterstützt |
-| `forward` | Unterstützt |
-| `forward_backward` | Unterstützt |
-| `optim_step` | Unterstützt |
-| Trainingsstatus speichern oder laden | Unterstützt |
-| Einen neuen Client aus gespeichertem Status erstellen | Unterstützt |
-| Sampler-Gewichte speichern | Unterstützt |
-| Einen Sampling-Client aus Trainingsgewichten erstellen | Unterstützt |
-| Einen Lauf entladen oder freigeben | Unterstützt |
-| Andere Trainingslayouts als LoRA | Nicht unterstützt |
+| SDK-Methode oder -Operation | Fastino-Zuordnung | Unterstützung |
+| --- | --- | --- |
+| Future result/get | Operationen abrufen | Unterstützt |
+| Future cancel | Operationen abbrechen | Unterstützt |
+| Batch-Abruf mit `retrieve_futures` | Keine | Nicht unterstützt |
 
-Die unterstützte Optimizer-Familie ist AdamW über `AdamParams` des SDK.
+## Verwaltung
 
-### Loss-Funktionen
+| SDK-Methode oder -Operation | Fastino-Zuordnung | Unterstützung |
+| --- | --- | --- |
+| Trainingsläufe mit `RestClient` auflisten | Kanonische Fastino-Jobs auflisten | Unterstützt |
+| Trainingslauf mit `RestClient` abrufen | Kanonischen Fastino-Job abrufen | Unterstützt |
+| Checkpoints auflisten oder abrufen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint herunterladen oder löschen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint veröffentlichen oder Veröffentlichung aufheben | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint-TTL festlegen oder löschen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
+| Checkpoint-Speichernutzung abrufen | Kanonische Job-/Checkpoint-Routen | Unterstützt |
 
-Das Gateway akzeptiert diese integrierten Loss-Namen:
+## Reine Adapter-Infrastruktur
 
-- `cross_entropy`
-- `importance_sampling`
-- `ppo`
-- `cispo`
-- `dro`
+Das SDK kann Adapter-Infrastruktur für Fähigkeiten, Sitzungen, Heartbeat,
+Telemetrie, Authentifizierung und Audit-Integration verwenden. Dies sind
+Implementierungsdetails ohne öffentliche Fastino-Route. Behandeln Sie sie nicht
+als kundenorientierte HTTP-APIs.
 
-Die Annahme bestätigt den Client-Vertrag und die Form der Anfrage. Sie
-bescheinigt nicht, dass jedes externe Rezept auf jedem Modell ein identisches
-numerisches Verhalten aufweist. Qualifizieren Sie Loss-Funktion, Datum-Felder
-und Modell gemeinsam mit einem kleinen Testlauf mit zurückgehaltenen Daten,
-bevor Sie die Workload vergrößern.
+## Ausdrücklich nicht unterstützt
 
-[Mit verifizierbaren Rewards trainieren](/de/rl-api/verifiable-rewards) zeigt
-die Datum-Form für `importance_sampling`.
+- Batch-Abruf von Futures über `retrieve_futures`
+- `save_weights_external`
+- `external_weights_urls`
+- SDK-Authentifizierungs- oder Token-Operationen
+- SDK-Operationen für Abrechnung, Nutzung oder Events
 
-## Sampling-Operationen
+Die Authentifizierung erfolgt ausschließlich über einen normalen Fastino-
+`fast_sk_`-Schlüssel durch `TINKER_CREDENTIAL_CMD`. Anmeldedaten, die mit
+`tml-` beginnen, werden abgelehnt, und aktive Beispiele dürfen
+`TINKER_API_KEY` nicht setzen.
 
-| Fähigkeit | Unterstützung |
-| --- | --- |
-| Aus einem Basismodell sampeln | Unterstützt |
-| Aus benannten Sampler-Gewichten sampeln | Unterstützt |
-| Aus aktuellen Trainingsgewichten sampeln | Unterstützt |
-| Mehrere Samples anfordern | Unterstützt |
-| Token-Log-Wahrscheinlichkeiten berechnen | Unterstützt |
-| Ein wartendes Sampling-Future abbrechen | Unterstützt |
-| Bild- oder multimodale Prompt-Chunks | Nicht unterstützt |
-| `target_prompt_logprobs` | Nicht unterstützt |
-| `prompt_alt_tokens_k` | Nicht unterstützt |
-
-Aktuelle Modelle akzeptieren codierte Text-Token-Chunks. Sampling benötigt
-einen `SamplingClient`.
-
-## Weitere Unterschiede
-
-| Fähigkeit | Verhalten |
-| --- | --- |
-| Export von Sitzungstraces | Nicht unterstützt |
-| Audit-Endpunkt des SDK | Gibt keine Einträge zurück |
-| Teamübergreifendes Laden von Checkpoints | Nicht unterstützt |
-| OpenAPI-Discovery | RL-Routen fehlen absichtlich |
-
-Verwenden Sie Ihre Anwendungsprotokolle und die Fastino-Projektnutzung für die
-betriebliche Zuordnung.
-
-Informationen zu Futures, Checkpoints, Wiederholungsversuchen, Abrechnung,
-Limits und Fehlern finden Sie unter
+Hinweise zu Lebenszyklus und Wiederherstellung finden Sie unter
 [Laufzeitverhalten und Fehler](/de/rl-api/runtime).

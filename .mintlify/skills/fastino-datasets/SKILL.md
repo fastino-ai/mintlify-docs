@@ -114,7 +114,7 @@ X-API-Key: YOUR_API_KEY
 
 ## Use a Dataset for Training
 
-Pass the dataset name directly to `POST /v1/training-jobs`:
+Pass the dataset name directly to `POST /v1/training/jobs`:
 
 ```json
 {

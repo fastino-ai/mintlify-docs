@@ -41,16 +41,21 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
 - For RL workloads, start with the [RL API overview](https://docs.fastino.ai/rl-api)
   and [quickstart](https://docs.fastino.ai/rl-api/quickstart). Use the focused
-  guides for Tinker migration, verifiable rewards, and checkpointing.
+  guides for SDK migration, verifiable rewards, and checkpointing.
+- Treat every workload as a job under `GET /v1/training/jobs`. Config jobs let
+  Fastino run the loop; interactive jobs let the application direct each step.
 - Query `ServiceClient.get_server_capabilities()` before selecting an RL model.
 - Do not construct RL API HTTP routes directly. Configure the `tinker` SDK with
-  `TINKER_BASE_URL=https://api.fastino.ai/tinker` and a
-  `TINKER_API_KEY=tml-fast_sk_...` credential.
+  `TINKER_BASE_URL=https://api.fastino.ai/v1/training/compat/tinker` and
+  `TINKER_CREDENTIAL_CMD` that prints the normal `fast_sk_...` credential.
+- Never wrap a Fastino key with `tml-`; `tml-` credentials are rejected.
+- The SDK training run ID is the interactive Fastino job ID. Use that same ID
+  with the canonical job and checkpoint administration routes.
 - Do not invent routes, model IDs, request fields, or response fields.
 - For RL workloads, use Fastino's
-  [Tinker compatibility](https://docs.fastino.ai/rl-api/compatibility) page
-  for Fastino-specific support boundaries. The pinned `tinker==0.32.0` package
+  [SDK compatibility](https://docs.fastino.ai/rl-api/compatibility) page
+  for Fastino-specific support boundaries. The pinned `tinker==0.33.1` package
   defines method signatures; an explicitly unsupported item on Fastino's page
   overrides its availability in the client package. Use
   [runtime behavior and errors](https://docs.fastino.ai/rl-api/runtime) for
-  lifecycle, retry, limit, billing, and error behavior.
+  operation, checkpoint, recovery, and error behavior.

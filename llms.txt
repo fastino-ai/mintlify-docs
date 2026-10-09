@@ -3,7 +3,7 @@
 > Build structured decisions with GLiDE, run schema-based extraction with GLiNER, and fine-tune specialized models with Fastino.
 
 > ## Agent instructions
-> Use https://docs.fastino.ai/openapi.json as the source of truth for customer-facing routes. For GLiDE decision inference, call `POST https://api.fastino.ai/v1/systemone` with model `fastino/GLiDE`. Do not infer undocumented routes. Read API keys from `FASTINO_API_KEY` and never embed credentials in code, logs, or reports.
+> Use https://docs.fastino.ai/openapi.json as the source of truth for customer-facing routes. For GLiDE decision inference, call `POST https://api.fastino.ai/v1/systemone` with model `fastino/GLiDE`. Training jobs use `/v1/training/jobs`. For interactive RL operations, follow the RL API pages and use the supported SDK; its compatibility adapter is intentionally absent from OpenAPI and must not be called directly. Do not infer undocumented routes. Read API keys from `FASTINO_API_KEY` and never embed credentials in code, logs, or reports.
 
 ## Agent resources
 
@@ -66,20 +66,21 @@
 
 ### Training API
 
-- [Training jobs API](https://docs.fastino.ai/training.md): Create and manage Fastino training jobs from submission through artifact delivery.
+- [Training API](https://docs.fastino.ai/training.md): Choose a managed or interactive training job, then create, monitor, and manage it through the canonical Training API.
+- [Fine-tune GLiNER](https://docs.fastino.ai/guides/fine-tune-gliner.md): Prepare a GLiNER dataset, create a managed config job, and monitor it through checkpoints and completion.
 - [Training Agent Skill](https://docs.fastino.ai/concepts/gliner-agent-skill.md): Install Fastino's hosted GLiNER skill for Cursor, Claude Code, and Codex.
 - [Prepare and upload training datasets](https://docs.fastino.ai/concepts/datasets.md): Format, upload, validate, and inspect NER, classification, or decoder datasets before starting a Fastino training job.
 
 ### RL API
 
-- [RL API](https://docs.fastino.ai/rl-api.md): Preview Fastino's limited-access reinforcement-learning and post-training API through the Tinker SDK.
-- [RL API quickstart](https://docs.fastino.ai/rl-api/quickstart.md): Authenticate, verify RL API access, and sample from a supported model.
-- [Migrate from Tinker](https://docs.fastino.ai/rl-api/migrate-from-tinker.md): Move an existing Tinker SDK workload to Fastino's RL API.
-- [The RL training loop](https://docs.fastino.ai/rl-api/training-loop.md): Understand how sampling, rewards, advantages, updates, and checkpoints fit together.
-- [Train with verifiable rewards](https://docs.fastino.ai/rl-api/verifiable-rewards.md): Turn a deterministic grader into a learning signal for an RL training loop.
-- [Checkpoint and resume an RL run](https://docs.fastino.ai/rl-api/checkpoint-and-resume.md): Save model and optimizer state, persist loop progress, and resume RL without replaying completed work.
-- [Client compatibility](https://docs.fastino.ai/rl-api/compatibility.md): Supported client versions, models, training operations, sampling operations, and losses.
-- [Runtime behavior and errors](https://docs.fastino.ai/rl-api/runtime.md): Futures, sessions, checkpoints, retries, billing, limits, and errors for RL API workloads.
+- [RL API](https://docs.fastino.ai/rl-api.md): Run reinforcement-learning and custom post-training workloads as Fastino interactive training jobs.
+- [RL API quickstart](https://docs.fastino.ai/rl-api/quickstart.md): Create, sample from, and verify a Fastino interactive training job.
+- [Migrate an SDK workload](https://docs.fastino.ai/rl-api/migrate-from-tinker.md): Move a compatible Tinker SDK workload onto Fastino interactive training jobs.
+- [The RL training loop](https://docs.fastino.ai/rl-api/training-loop.md): Connect sampling, rewards, updates, and checkpoints inside one interactive Fastino job.
+- [Train with verifiable rewards](https://docs.fastino.ai/rl-api/verifiable-rewards.md): Turn a deterministic grader into a learning signal for one interactive Fastino job.
+- [Checkpoint and resume an RL job](https://docs.fastino.ai/rl-api/checkpoint-and-resume.md): Save interactive-job state and application progress, then resume without replaying completed work.
+- [SDK compatibility](https://docs.fastino.ai/rl-api/compatibility.md): Exact Tinker SDK support and mappings for Fastino interactive training jobs.
+- [Runtime behavior and errors](https://docs.fastino.ai/rl-api/runtime.md): Reason about operations, checkpoints, recovery, and errors for an interactive Fastino job.
 
 ### Troubleshooting
 
@@ -128,19 +129,16 @@
 - [Process an uploaded dataset](https://docs.fastino.ai/api-reference/datasets/process-upload.md): Register and process a dataset after its file upload completes by calling POST /v1/datasets/upload/process with the dataset_id of the upload.
 - [List dataset versions](https://docs.fastino.ai/api-reference/datasets/versions.md): List processed versions and metadata for one dataset with GET /v1/datasets/{name}, passing the dataset name as the name path parameter.
 - [Delete a dataset](https://docs.fastino.ai/api-reference/datasets/delete.md): Delete a dataset and all of its stored versions by name with DELETE /v1/datasets/{name}. Pass the dataset name as the name path parameter.
-- [Create a training job](https://docs.fastino.ai/api-reference/training-jobs/create.md): Call POST /v1/training-jobs to start an asynchronous Fastino fine-tuning job from a base model and datasets, with LoRA or full training and an epoch limit.
-- [List training jobs](https://docs.fastino.ai/api-reference/training-jobs/list.md): Call GET /v1/training-jobs to list the training jobs visible to your account, filter them by status or project ID, and paginate with limit and offset.
-- [Get a training job](https://docs.fastino.ai/api-reference/training-jobs/get.md): Get a training job's status, configuration, metrics, and artifact readiness.
-- [Update a training job's project](https://docs.fastino.ai/api-reference/training-jobs/update-project.md): Call PATCH /v1/training-jobs/{job_id} to assign a training job to a project, or send null to unassign it. Related deployments and inferences stay put.
-- [Rename a trained model](https://docs.fastino.ai/api-reference/training-jobs/update-model-name.md): Call PATCH /v1/training-jobs/{job_id}/model-name to rename a trained model. New names use 1-64 letters, numbers, hyphens, or underscores.
+- [Create a config training job](https://docs.fastino.ai/api-reference/training-jobs/create.md): Call POST /v1/training/jobs to start an asynchronous Fastino-managed training job from a base model and datasets.
+- [List training jobs](https://docs.fastino.ai/api-reference/training-jobs/list.md): Call GET /v1/training/jobs to list config and interactive jobs visible to your account.
+- [Get a training job](https://docs.fastino.ai/api-reference/training-jobs/get.md): Get a config or interactive training job by its canonical Fastino job ID.
+- [Rename a trained model](https://docs.fastino.ai/api-reference/training-jobs/update-model-name.md): Call PATCH /v1/training/jobs/{job_id}/model-name to rename a trained model. New names use 1-64 letters, numbers, hyphens, or underscores.
 - [Get training logs](https://docs.fastino.ai/api-reference/training-jobs/logs.md): Retrieve a point-in-time snapshot of a Fastino training job's output logs.
-- [Get training-job billing](https://docs.fastino.ai/api-reference/training-jobs/billing.md): Call GET /v1/training-jobs/{job_id}/billing to check whether a Fastino training job was billed, plus its charge in USD, GPU minutes, and timestamps.
-- [List training-job deployments](https://docs.fastino.ai/api-reference/training-jobs/deployments.md): List deployments created from or associated with a training job by calling GET /v1/training-jobs/{job_id}/deployments with the job ID.
+- [Get training-job billing](https://docs.fastino.ai/api-reference/training-jobs/billing.md): Call GET /v1/training/jobs/{job_id}/billing to check whether a Fastino training job was billed, plus its charge in USD, GPU minutes, and timestamps.
+- [List training-job deployments](https://docs.fastino.ai/api-reference/training-jobs/deployments.md): List deployments created from or associated with a training job by calling GET /v1/training/jobs/{job_id}/deployments with the job ID.
 - [Stop a training job](https://docs.fastino.ai/api-reference/training-jobs/stop.md): Stop a running Fastino training job while preserving existing checkpoints.
-- [Terminate a training job](https://docs.fastino.ai/api-reference/training-jobs/terminate.md): Call POST /v1/training-jobs/{job_id}/terminate to stop a training job, delete every checkpoint, and mark it terminated. Use stop to keep checkpoints.
-- [Synchronize a training job](https://docs.fastino.ai/api-reference/training-jobs/sync.md): Refresh the training-job status from its training provider by calling POST /v1/training-jobs/{job_id}/sync with the ID of the training job.
-- [Push a trained model to Hugging Face Hub](https://docs.fastino.ai/api-reference/training-jobs/push-to-hub.md): Publish a completed training artifact to Hugging Face Hub with POST /v1/training-jobs/{job_id}/push-to-hub, giving the target repo_id and hf_token.
-- [List training checkpoints](https://docs.fastino.ai/api-reference/training-jobs/checkpoints.md): Call GET /v1/training-jobs/{job_id}/checkpoints to list a training job's saved checkpoints with epoch, step, loss, accuracy, and deployability flags.
-- [Deploy a training checkpoint](https://docs.fastino.ai/api-reference/training-jobs/deploy-checkpoint.md): Deploy one deployable checkpoint from a Fastino training job to the hosted multi-model inference endpoint, using the checkpoint ID from the list endpoint.
-- [Download trained weights](https://docs.fastino.ai/api-reference/training-jobs/download.md): Call GET /v1/training-jobs/{job_id}/download to get a temporary presigned URL for a trained artifact, with its expiry time and a suggested file name.
-- [Delete a training job](https://docs.fastino.ai/api-reference/training-jobs/delete.md): Call DELETE /v1/training-jobs/{job_id} to permanently delete a training job with its checkpoints and stored artifacts, stopping the job first if active.
+- [Terminate a training job](https://docs.fastino.ai/api-reference/training-jobs/terminate.md): Call POST /v1/training/jobs/{job_id}/terminate to stop a training job, delete every checkpoint, and mark it terminated. Use stop to keep checkpoints.
+- [Synchronize a training job](https://docs.fastino.ai/api-reference/training-jobs/sync.md): Refresh the training-job status from its training provider by calling POST /v1/training/jobs/{job_id}/sync with the ID of the training job.
+- [Push a trained model to Hugging Face Hub](https://docs.fastino.ai/api-reference/training-jobs/push-to-hub.md): Publish a completed training artifact to Hugging Face Hub with POST /v1/training/jobs/{job_id}/push-to-hub, giving the target repo_id and hf_token.
+- [List training checkpoints](https://docs.fastino.ai/api-reference/training-jobs/checkpoints.md): Call GET /v1/training/jobs/{job_id}/checkpoints to list a training job's saved checkpoints with epoch, step, loss, accuracy, and deployability flags.
+- [Download trained weights](https://docs.fastino.ai/api-reference/training-jobs/download.md): Call GET /v1/training/jobs/{job_id}/download to get a temporary presigned URL for a trained artifact, with its expiry time and a suggested file name.

@@ -1,94 +1,83 @@
 ---
 title: "API de RL"
 sidebarTitle: "Descripción general"
-description: "Previsualiza la API de acceso limitado de Fastino para aprendizaje por refuerzo y postentrenamiento mediante el SDK de Tinker."
+description: "Ejecuta cargas de trabajo de aprendizaje por refuerzo y postentrenamiento personalizado como trabajos de entrenamiento interactivos de Fastino."
 ---
 
-La API de RL de Fastino es un servicio alojado de entrenamiento y muestreo.
-El cliente de Python compatible es el paquete `tinker` configurado para usar
-Fastino. Tu código controla el conjunto de datos, la función de recompensa, la
-estrategia de generación de respuestas y los criterios de parada. Fastino
-ejecuta el muestreo y el entrenamiento del modelo.
+La API de RL de Fastino ejecuta cargas de trabajo de aprendizaje por refuerzo y
+postentrenamiento personalizado como **trabajos de entrenamiento interactivos**.
+Los trabajos interactivos usan el mismo recurso de trabajo de entrenamiento y
+los mismos IDs que las demás cargas de entrenamiento de Fastino:
+`/v1/training/jobs`.
+
+Tu aplicación controla el bucle: prompts, datasets, recompensas, ventajas,
+evaluación y criterios de parada. Fastino controla las operaciones del modelo
+solicitadas por ese bucle, incluidos el muestreo, las pasadas hacia delante y
+hacia atrás, los pasos del optimizador y los checkpoints.
 
 <Note>
-  La API de RL tiene acceso limitado. Confirma que Fastino la haya habilitado
-  para tu equipo antes de planificar una migración a producción.
+  La API de RL tiene acceso limitado. Confirma que Fastino haya habilitado el
+  entrenamiento interactivo para tu equipo antes de planificar una carga de
+  trabajo de producción.
 </Note>
 
-Instalar el paquete `tinker` no concede acceso a la API de RL de Fastino.
-Una aplicación existente que use el SDK puede conservar las formas de sus
-llamadas solo cuando cumpla todos los puntos de la [lista de comprobación de
-compatibilidad](/es/rl-api/compatibility).
+## Un trabajo, dos vistas
 
-Usa esta API cuando tu aplicación deba generar respuestas, puntuarlas y
-actualizar el modelo de forma reiterada. Para el ajuste fino gestionado a partir
-de un conjunto de datos preparado, usa la [API de entrenamiento](/es/training).
+Un cliente de entrenamiento creado mediante el SDK compatible representa un
+trabajo interactivo de Fastino. El valor devuelto por
+`training_client.get_info().model_data.model_id` es el ID canónico del trabajo
+de entrenamiento. Usa ese mismo ID con `GET /v1/training/jobs/{job_id}` y otras
+rutas documentadas de administración de trabajos o checkpoints.
 
-## Cómo funciona
+No hay una ejecución de Tinker independiente detrás del trabajo ni enrutamiento
+saliente hacia otro servicio de entrenamiento. El paquete de Python `tinker` es
+una capa de compatibilidad del cliente para aplicaciones que ya usan sus formas
+de objetos y métodos.
 
-Tu aplicación:
+## Cliente compatible
 
-1. Muestrea respuestas de la política actual.
-2. Puntúa cada respuesta con tu función de recompensa.
-3. Convierte las recompensas en ventajas.
-4. Envía el lote de entrenamiento a la API de RL.
-5. Aplica un paso del optimizador y guarda los puntos de control útiles.
+Fastino prueba `tinker==0.33.1`. Configúralo con:
 
-Esta separación te permite controlar la lógica de aprendizaje sin gestionar la
-infraestructura del modelo. Usa únicamente las operaciones y los nombres de
-funciones de pérdida integradas que se documentan en la referencia de
-compatibilidad.
+- URL base: `https://api.fastino.ai/v1/training/compat/tinker`
+- Origen de credenciales: `TINKER_CREDENTIAL_CMD`
+- Credencial: una clave de API normal de Fastino que comience por `fast_sk_`
+
+El SDK añade `/api/v1/<operation>` a la URL base configurada. Las rutas del
+adaptador se omiten intencionadamente del OpenAPI y de la referencia de la API
+de Fastino. No construyas solicitudes HTTP al adaptador; usa el SDK para las
+operaciones interactivas y las rutas canónicas de Fastino para administrar
+trabajos y checkpoints.
+
+## Cómo funciona el bucle
+
+1. Crea un cliente de entrenamiento interactivo.
+2. Captura sus pesos para el muestreo.
+3. Genera y puntúa respuestas candidatas en tu aplicación.
+4. Convierte las recompensas en datos de entrenamiento.
+5. Pide al SDK que ejecute operaciones hacia delante/hacia atrás y del optimizador en el mismo trabajo.
+6. Guarda checkpoints de estado o de muestreador y continúa.
+
+Consulta `ServiceClient.get_server_capabilities()` antes de elegir un modelo o
+depender de una función opcional del SDK. La respuesta de capacidades es la
+fuente de verdad del entorno que puede usar tu equipo.
 
 ## Empieza aquí
 
 <CardGroup cols={2}>
-  <Card
-    title="Conecta y muestrea"
-    icon="play"
-    href="/es/rl-api/quickstart"
-  >
-    Autentícate, verifica el acceso y realiza una solicitud de muestreo.
+  <Card title="Conecta y verifica" icon="play" href="/es/rl-api/quickstart">
+    Crea un trabajo interactivo, muestrea desde un checkpoint y verifica su ID
+    canónico de trabajo de Fastino.
   </Card>
-  <Card
-    title="Migra desde Tinker"
-    icon="arrow-right-arrow-left"
-    href="/es/rl-api/migrate-from-tinker"
-  >
-    Migra un programa de Tinker existente a Fastino con una lista de
-    comprobación de compatibilidad específica.
+  <Card title="Migra una carga del SDK" icon="arrow-right-arrow-left" href="/es/rl-api/migrate-from-tinker">
+    Sustituye el endpoint y la autenticación conservando las formas de llamadas
+    compatibles del SDK.
   </Card>
-  <Card
-    title="Entrena con recompensas verificables"
-    icon="function"
-    href="/es/rl-api/verifiable-rewards"
-  >
-    Convierte un evaluador determinista en una señal de aprendizaje.
+  <Card title="El bucle de entrenamiento" icon="diagram-project" href="/es/rl-api/training-loop">
+    Comprende el muestreo, las recompensas, las actualizaciones y los
+    checkpoints dentro de un trabajo.
   </Card>
-  <Card
-    title="Guarda puntos de control y reanuda"
-    icon="rotate-ccw"
-    href="/es/rl-api/checkpoint-and-resume"
-  >
-    Reanuda el modelo, el optimizador y el progreso de la aplicación después de
-    una interrupción.
+  <Card title="Compatibilidad del SDK" icon="list-check" href="/es/rl-api/compatibility">
+    Consulta las asignaciones exactas de métodos compatibles y las operaciones
+    no compatibles.
   </Card>
 </CardGroup>
-
-## Explora los detalles
-
-<CardGroup cols={3}>
-  <Card title="El bucle de entrenamiento de RL" icon="diagram-project" href="/es/rl-api/training-loop">
-    Comprende el muestreo, las recompensas, las actualizaciones y los puntos de control.
-  </Card>
-  <Card title="Compatibilidad del cliente" icon="list-check" href="/es/rl-api/compatibility">
-    Consulta las versiones del cliente, los modelos, las operaciones y las funciones de pérdida compatibles.
-  </Card>
-  <Card title="Comportamiento en tiempo de ejecución" icon="gauge" href="/es/rl-api/runtime">
-    Consulta los futures, los reintentos, los puntos de control, la facturación y los errores.
-  </Card>
-</CardGroup>
-
-<Note>
-  La API de RL usa el contrato del SDK de Tinker y no aparece en el documento
-  OpenAPI público de Fastino. No construyas sus rutas HTTP directamente.
-</Note>

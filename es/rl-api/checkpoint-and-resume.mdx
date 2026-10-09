@@ -1,97 +1,64 @@
 ---
-title: "Guardar un punto de control y reanudar una ejecución de RL"
-description: "Guarda el estado del modelo y del optimizador, conserva el progreso del bucle y reanuda RL sin repetir el trabajo completado."
+title: "Guardar un checkpoint y reanudar un trabajo de RL"
+description: "Guarda el estado del trabajo interactivo y el progreso de la aplicación y reanuda sin repetir el trabajo completado."
 ---
 
-Un punto de control de RL protege el estado del modelo. Un registro de
-reanudación completo también protege el estado de la aplicación que indica a tu
-bucle qué debe hacer a continuación.
+Un checkpoint de estado protege el estado de entrenamiento del servidor. Un
+registro de recuperación completo también protege el estado controlado por el
+usuario que indica al controlador qué debe hacer después.
 
-Usa este patrón para trabajos largos, orquestadores interrumpibles y
-experimentos gestionados por agentes.
-
-## Qué debe guardarse
-
-Trata un paso reanudable como dos registros coordinados:
+## Qué guardar
 
 | Registro | Contiene | Almacenado por |
 | --- | --- | --- |
-| Punto de control de estado | Pesos de LoRA y estado del optimizador | API de RL |
-| Registro del bucle | Paso, cursor del conjunto de datos, configuración y ruta del punto de control | Tu aplicación |
+| Checkpoint de estado | Pesos de entrenamiento y estado del optimizador representados por el checkpoint del SDK | Fastino |
+| Registro del bucle | ID del trabajo, identificador del checkpoint, paso, cursor del dataset y configuración | Tu aplicación |
 
-Guardar solo el estado del modelo permite restaurar la política, pero no indica
-a la aplicación qué ejemplos ya se procesaron. Guardar solo un número de paso
-no permite restaurar la política que lo produjo.
-
-## Antes de comenzar
-
-Completa primero la [Guía rápida](/es/rl-api/quickstart) para verificar la
-autenticación, el acceso al modelo y el muestreo. La Guía rápida no crea una
-ejecución de entrenamiento. Continúa solo después de que el entorno de Fastino
-que tengas habilitado pueda completar una actualización de entrenamiento
-pequeña, y guardar y restaurar un punto de control de estado.
+El cliente de entrenamiento del SDK representa un trabajo interactivo de
+Fastino. Lee su ID canónico de
+`training_client.get_info().model_data.model_id`.
 
 ## 1. Guarda el estado y el progreso del bucle
 
-Guarda el estado de entrenamiento en el servidor y después conserva la ruta
-devuelta junto con los campos controlados por el cliente que se necesitan para
-reconstruir la ejecución:
+Guarda el estado mediante el SDK y conserva después el checkpoint devuelto con
+los campos del cliente necesarios para continuar:
 
 ```python
 import json
 from pathlib import Path
 
 
+job_id = training_client.get_info().model_data.model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
+    "job_id": job_id,
     "state_path": state.path,
     "model": model_name,
-    "rank": lora_rank,
     "dataset_revision": dataset_revision,
     "optimizer": optimizer_config,
-    "renderer": renderer_name,
-    "tokenizer": tokenizer_name,
     "step": step,
     "dataset_cursor": dataset_cursor,
     "reward_version": reward_version,
 }
+
 with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
-
-print(state.path)
 ```
 
-La ruta devuelta tiene esta forma:
+Usa nombres de checkpoint únicos para que cada registro identifique un límite
+de recuperación inequívoco. No supongas una duración no documentada.
 
-```text
-tinker://<run-id>/weights/step-000100
-```
+## 2. Lee el registro completo más reciente
 
-El fragmento no asigna un tiempo de vida. Configura la retención explícitamente
-mediante las operaciones compatibles de administración de puntos de control
-para los artefactos de recuperación rotativos. Conserva un punto de control
-final sin TTL cuando sea un artefacto que quieras retener.
-
-<Warning>
-  `save_state(...)` no solicita sobrescritura. Reutilizar un nombre de punto de
-  control se rechaza. `save_state(..., overwrite=True)` puede reemplazar
-  explícitamente un punto de control de estado, pero los nombres únicos son
-  marcadores de recuperación más seguros.
-</Warning>
-
-## 2. Busca el punto de reanudación registrado más reciente
-
-Al iniciar el proceso, recorre hacia atrás los registros locales hasta
-encontrar el registro válido más reciente que contenga una ruta de estado. Un
-proceso puede detenerse mientras escribe la última línea JSONL, así que omite
-una línea final con formato incorrecto en lugar de perder el punto de
-recuperación anterior:
+Un proceso puede detenerse mientras escribe la última línea. Recorre el archivo
+hacia atrás y omite una cola con formato incorrecto:
 
 ```python
 def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
     path = Path(log_path)
     if not path.exists():
         return None
+
     for line in reversed(path.read_text(encoding="utf-8").splitlines()):
         try:
             record = json.loads(line)
@@ -100,158 +67,79 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
         if isinstance(record, dict) and isinstance(record.get("state_path"), str):
             return record
     return None
-
-
-resume = get_last_checkpoint(log_path)
 ```
 
-Gestiona ambas rutas explícitamente:
+## 3. Valida antes de cargar
 
-```python
-if resume is None:
-    training_client = service_client.create_lora_training_client(
-        base_model=model_name,
-        rank=lora_rank,
-    )
-    start_step = 0
-    dataset_cursor = 0
-else:
-    saved_step = resume.get("step")
-    saved_cursor = resume.get("dataset_cursor")
-    if not isinstance(saved_step, int) or not isinstance(saved_cursor, int):
-        raise ValueError("resume record has no valid step or dataset cursor")
+Compara el registro con la continuación solicitada:
 
-    training_client = (
-        service_client.create_training_client_from_state_with_optimizer(
-            str(resume["state_path"])
-        )
-    )
-    start_step = saved_step + 1
-    dataset_cursor = saved_cursor
-```
-
-`create_training_client_from_state_with_optimizer(...)` crea una ejecución de
-entrenamiento ordenada nueva a partir de los pesos guardados y el estado del
-optimizador.
-
-## 3. Valida el registro de reanudación
-
-Antes de continuar el entrenamiento, compara el registro del bucle almacenado
-con la ejecución solicitada:
-
-```python
-if resume is not None and resume.get("reward_version") != reward_version:
-    raise ValueError(
-        "reward implementation changed; start a new run or approve the change"
-    )
-```
-
-Valida al menos:
-
-- Modelo base
-- Rango de LoRA y configuración entrenable
-- Revisión y cursor del conjunto de datos
-- Revisión de la implementación de la recompensa
-- Familia del optimizador y programación prevista
+- ID canónico del trabajo
+- Modelo base y configuración entrenable
+- Revisión y cursor del dataset
+- Revisión de la implementación de recompensas
+- Configuración del optimizador
 - Supuestos del renderizador y del tokenizador
 
-Un agente debe detenerse y pedir una decisión cuando estos campos entren en
-conflicto. No debe combinar silenciosamente un punto de control con un
-experimento diferente.
+Detente para solicitar una decisión explícita si estos campos entran en
+conflicto. No combines silenciosamente un checkpoint con otro experimento.
 
-## 4. Haz que el límite del paso sea atómico
+Después usa el flujo compatible del SDK para cargar el estado:
+
+```python
+training_client = (
+    service_client.create_training_client_from_state_with_optimizer(
+        str(resume["state_path"])
+    )
+)
+```
+
+Esta operación del SDK se asigna a la carga de checkpoints de Fastino. No
+construyas directamente la solicitud al adaptador ni deduzcas un linaje de
+ejecuciones adicional de la operación.
+
+## 4. Haz recuperable el límite
 
 Usa este orden:
 
-1. Resuelve los futures de entrenamiento y del optimizador.
-2. Guarda el punto de control de estado.
-3. Conserva el registro del bucle que contiene la ruta devuelta.
-4. Marca el paso de la aplicación como completado.
+1. Resuelve los futures hacia delante/hacia atrás y del optimizador.
+2. Guarda el checkpoint de estado.
+3. Conserva el registro del bucle que contiene su identificador.
+4. Marca como completado el paso de la aplicación.
 5. Inicia el siguiente paso.
 
-Si el proceso finaliza después del paso 2, pero antes del paso 3, el servidor
-puede conservar un punto de control sin referencia. Esto desperdicia
-almacenamiento, pero no daña el punto de reanudación anterior. Una limpieza
-posterior puede eliminarlo.
+Si el proceso termina después de guardar el checkpoint, pero antes de conservar
+el registro, mantén el registro completo anterior como punto de recuperación de
+confianza. No marques un paso como completado antes de que su registro sea duradero.
 
-No marques un paso como completado antes de que la ruta del punto de control sea
-duradera.
-
-## 5. Mantén separados los artefactos del muestreador
-
-Usa un punto de control de estado para reanudar el entrenamiento:
+## 5. Mantén separados los tipos de checkpoint
 
 ```python
 state = training_client.save_state("step-000100").result()
-```
-
-Usa los pesos del muestreador para la evaluación, los rollouts o la inferencia
-mediante el SDK:
-
-```python
 sampler = training_client.save_weights_for_sampler(
     "step-000100"
 ).result()
 ```
 
-Las dos rutas tienen propósitos diferentes:
+Usa un checkpoint de estado para recuperar el entrenamiento y uno de muestreador
+para rollouts o evaluación. No uses un checkpoint de muestreador como punto de
+recuperación del estado del optimizador.
 
-```text
-tinker://<run-id>/weights/<name>
-tinker://<run-id>/sampler_weights/<name>
-```
+La administración canónica de checkpoints permite listar, obtener, descargar,
+eliminar, publicar, retirar la publicación, actualizar el TTL y consultar el
+uso de almacenamiento. Tu aplicación controla la política de retención y la
+limpieza; esta guía no promete un TTL ni una duración de retención.
 
-No selecciones un punto de control del muestreador como punto de reanudación del
-optimizador.
+## 6. Verifica la continuación
 
-## 6. Limita el almacenamiento
+Antes de aumentar la carga reanudada:
 
-Una política práctica de retención usa:
+1. Carga el checkpoint de estado seleccionado.
+2. Confirma el ID canónico del cliente del SDK mediante `GET /v1/training/jobs/{job_id}`.
+3. Ejecuta una pequeña evaluación con datos reservados.
+4. Envía una actualización de entrenamiento compatible.
+5. Guarda un checkpoint de estado nuevo con otro nombre.
+6. Conserva el siguiente registro del bucle.
 
-- Puntos de control de estado rotativos de corta duración para la recuperación ante fallos
-- Puntos de control periódicos de estado y del muestreador de mayor duración para comparaciones
-- Un punto de control final permanente
-
-Implementa la retención en tu aplicación asignando nombres únicos a los puntos
-de control, configurando TTL explícitos mediante las operaciones compatibles de
-puntos de control y eliminando los artefactos que salgan de tu ventana de
-recuperación o evaluación. El almacenamiento de puntos de control se mide a lo
-largo del tiempo.
-
-## Decisiones de recuperación para agentes
-
-| Situación | Acción |
-| --- | --- |
-| No hay un registro local de reanudación | Inicia una ejecución nueva |
-| Existen tanto el registro de reanudación como el punto de control | Valida los metadatos y después restaura |
-| Existe el registro local, pero el punto de control ya no está | Detente y pregunta al usuario; no supongas que un registro anterior pertenece a la ejecución prevista |
-| Existe un punto de control sin un registro local | Trátalo como no clasificado; no deduzcas su cursor del conjunto de datos |
-| Cambió la revisión de la recompensa o del conjunto de datos | Inicia un experimento nuevo, a menos que el usuario apruebe continuar |
-| La ejecución activa informa de un estado irrecuperable | Restaura desde el último punto de control de estado explícito |
-
-## Verifica la ejecución reanudada
-
-Antes de una continuación grande:
-
-1. Restaura el punto de control.
-2. Ejecuta una evaluación pequeña con datos reservados.
-3. Compárala con la métrica registrada al guardar.
-4. Envía un paso de entrenamiento.
-5. Guarda un punto de control nuevo con un nombre nuevo.
-
-Las muestras exactas pueden variar. El modelo restaurado debe conservar la
-calidad esperada, el paso del optimizador debe completarse y el nuevo punto de
-control debe ser direccionable.
-
-Cierra siempre el cliente de servicio. Registra el resultado con precisión:
-
-```python
-service_client.close("success").result()  # completed run
-```
-
-Usa `errored` cuando una excepción se propague e `interrupted` después de una
-cancelación o un cierre. No registres como correcta una recuperación fallida.
-
-Para consultar el ciclo de vida completo y las operaciones administrativas,
-consulta la [referencia de comportamiento en tiempo de ejecución y
-errores](/es/rl-api/runtime).
+Usa el SDK para todas las operaciones interactivas. Para consultar la semántica
+de trabajos, futures y checkpoints, consulta
+[Comportamiento en tiempo de ejecución y errores](/es/rl-api/runtime).

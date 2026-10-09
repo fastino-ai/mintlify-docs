@@ -1,63 +1,52 @@
 ---
 title: "RL API 快速入门"
 sidebarTitle: "快速入门"
-description: "完成身份验证，验证 RL API 访问权限，并从受支持的模型采样。"
+description: "创建 Fastino 交互式训练任务、从中采样并验证该任务。"
 ---
 
-本教程将 Tinker SDK 连接到 Fastino，验证你所在团队的访问权限，并从受支持的
-模型采样。你可以先验证连接，再构建训练循环。
+本快速入门将通过受支持的 SDK 创建一个 Fastino 交互式训练任务，保存采样器权重，
+生成一个响应，并通过 Fastino 的规范训练 API 验证同一个任务。
 
-<Warning>
-  功能检查为只读操作。采样请求属于计费推理。本快速入门不会训练模型，也不会创建检查点。
-</Warning>
+## 前提条件
 
-## 1. 设置 API 密钥
+- Python 3.11 或更高版本
+- 已启用交互式训练的 Fastino 账户
+- 来自 [API 密钥](https://agent.fastino.ai/api-keys)的 Fastino API 密钥
+- 功能响应中可用的基础模型和 LoRA 秩
 
-1. **创建 [Fastino](https://agent.fastino.ai/) 账户**
-2. 从[设置](https://agent.fastino.ai/api-keys)中**获取 API 密钥**
+Fastino 密钥以 `fast_sk_` 开头。以 `tml-` 开头的凭据会被拒绝。
 
-将密钥设为环境变量，以便直接运行下面的示例：
+## 1. 设置 Fastino 密钥
 
 <CodeGroup>
 
 ```bash macOS/Linux
-export FASTINO_API_KEY="your_api_key_here"
+export FASTINO_API_KEY="fast_sk_..."
 ```
 
 ```powershell Windows
-$env:FASTINO_API_KEY = "your_api_key_here"
+$env:FASTINO_API_KEY = "fast_sk_..."
 ```
 
 </CodeGroup>
 
-Fastino 密钥以 `fast_sk_` 开头。你的团队还必须已启用 RL API 访问权限。安装
-Tinker SDK 并不代表你已获得访问权限。
+不要提交密钥，也不要将其直接放入源代码。
 
-## 2. 创建 Python 环境
-
-你需要 Python 3.11 或更高版本。
+## 2. 安装经过测试的 SDK
 
 <CodeGroup>
 
-```bash uv · macOS/Linux
+```bash uv
 uv init fastino-rl
 cd fastino-rl
-uv add "tinker==0.32.0"
-source .venv/bin/activate
+uv add "tinker==0.33.1"
 ```
 
-```powershell uv · Windows
-uv init fastino-rl
-cd fastino-rl
-uv add "tinker==0.32.0"
-.\.venv\Scripts\Activate.ps1
-```
-
-```bash pip · macOS/Linux
+```bash pip
 mkdir fastino-rl && cd fastino-rl
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install "tinker==0.33.1"
 ```
 
 ```powershell pip · Windows
@@ -65,91 +54,90 @@ mkdir fastino-rl
 cd fastino-rl
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install "tinker==0.33.1"
 ```
 
 </CodeGroup>
 
-## 3. 配置 Tinker 客户端
+## 3. 配置 SDK 身份验证
 
-将 Tinker SDK 指向 Fastino，并派生出该 SDK 所需的环境变量：
+设置受支持的适配器基础 URL。SDK 会追加 `/api/v1/<operation>`。
+
+每次请求令牌时都会执行 `TINKER_CREDENTIAL_CMD`，该命令必须向标准输出打印非空凭据。
 
 <CodeGroup>
 
 ```bash macOS/Linux
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
 ```powershell Windows
-$env:TINKER_API_KEY = "tml-$env:FASTINO_API_KEY"
-$env:TINKER_BASE_URL = "https://api.fastino.ai/tinker"
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
 
 </CodeGroup>
 
-不要创建第二个密钥。`TINKER_API_KEY` 是 Tinker SDK 使用的环境变量名，`tml-`
-则是该 SDK 所需的兼容性前缀。真正用于验证请求的凭据仍是你的 Fastino 密钥。
-不要将其提交到源代码控制系统。
+PowerShell 值会在凭据命令运行时引用 `$env:FASTINO_API_KEY`；设置命令时不会嵌入密钥。
+不要设置 `TINKER_API_KEY`。
 
-## 4. 验证访问权限
+## 4. 选择已启用的模型
 
-创建 `check_rl_api.py`：
+以 `ServiceClient.get_server_capabilities()` 为权威来源。设置该响应支持的模型和秩：
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_RL_BASE_MODEL="<model from capabilities>"
+export FASTINO_RL_LORA_RANK="<supported rank>"
+```
+
+```powershell Windows
+$env:FASTINO_RL_BASE_MODEL = "<model from capabilities>"
+$env:FASTINO_RL_LORA_RANK = "<supported rank>"
+```
+
+</CodeGroup>
+
+## 5. 创建任务并采样
+
+创建 `quickstart.py`：
 
 ```python
+import os
+
 import tinker
 
 
-TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
-client = tinker.ServiceClient()
-try:
-    capabilities = client.get_server_capabilities()
-    model_names = {model.model_name for model in capabilities.supported_models}
-    if TUTORIAL_MODEL not in model_names:
-        available = ", ".join(sorted(model_names)) or "none"
-        raise RuntimeError(
-            f"{TUTORIAL_MODEL} is not available; available models: {available}. "
-            "Stop before billable work and ask Fastino about tutorial-model access."
-        )
-    print(f"Ready to use {TUTORIAL_MODEL}")
-except KeyboardInterrupt:
-    client.close("interrupted").result()
-    raise
-except Exception:
-    client.close("errored").result()
-    raise
-else:
-    client.close("success").result()
-```
-
-运行：
-
-```bash
-python check_rl_api.py
-```
-
-成功响应会确认下文所用模型目前可供你的团队使用。选择模型时，请以功能响应为准。
-
-如果调用返回 `404 Not Found`，请确认基础 URL 以 `/tinker` 结尾。如果确实如此，请联系 Fastino 为你的团队启用 RL API 访问权限。
-
-## 5. 运行第一次采样
-
-创建 `sample_rl_api.py`：
-
-```python
-import tinker
-
-
-TUTORIAL_MODEL = "Qwen/Qwen3.6-35B-A3B"
 service_client = tinker.ServiceClient()
+outcome = "errored"
 try:
-    sampling_client = service_client.create_sampling_client(
-        base_model=TUTORIAL_MODEL
+    capabilities = service_client.get_server_capabilities()
+    print(capabilities)
+
+    training_client = service_client.create_lora_training_client(
+        base_model=os.environ["FASTINO_RL_BASE_MODEL"],
+        rank=int(os.environ["FASTINO_RL_LORA_RANK"]),
     )
+
+    job_id = training_client.get_info().model_data.model_id
+    print(f"TRAINING_JOB_ID={job_id}")
+
+    checkpoint = training_client.save_weights_for_sampler(
+        "quickstart-sampler"
+    ).result()
+    sampling_client = service_client.create_sampling_client(
+        model_path=checkpoint.path
+    )
+
     tokenizer = sampling_client.get_tokenizer()
     prompt_tokens = tokenizer.apply_chat_template(
         conversation=[
-            {"role": "user", "content": "Explain what a reward function does in RL."}
+            {
+                "role": "user",
+                "content": "Explain the purpose of a reward function in one sentence.",
+            }
         ],
         add_generation_prompt=True,
         return_dict=False,
@@ -157,60 +145,57 @@ try:
     result = sampling_client.sample(
         prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
         num_samples=1,
-        sampling_params=tinker.types.SamplingParams(
-            max_tokens=128,
-            temperature=0.7,
-        ),
+        sampling_params=tinker.types.SamplingParams(max_tokens=64),
     ).result()
+
     print(tokenizer.decode(result.sequences[0].tokens))
 except KeyboardInterrupt:
-    service_client.close("interrupted").result()
-    raise
-except Exception:
-    service_client.close("errored").result()
+    outcome = "interrupted"
     raise
 else:
-    service_client.close("success").result()
+    outcome = "success"
+finally:
+    service_client.close(outcome).result()
 ```
 
-运行该文件：
+运行：
 
 ```bash
-python sample_rl_api.py
+python quickstart.py
 ```
 
-成功运行后会输出一条模型响应。你的应用通过 SDK 发送文本提示词，Fastino
-执行推理，客户端对返回的 token 进行解码。
+复制 `TRAINING_JOB_ID=` 后打印的值。采样器检查点和采样操作属于同一个交互式任务。
 
-<Note>
-  此处使用 `Qwen/Qwen3.6-35B-A3B`，因为当前 RL API
-  契约支持该模型。在未先检查功能响应的情况下，请勿复制其他 Tinker 环境中的模型名称。
-</Note>
+## 6. 验证规范任务
 
-## 6. 在自己的代码中关闭客户端
+<CodeGroup>
 
-该示例会在成功、中断和出错时关闭 `ServiceClient`。在长时间运行的应用中使用同样的模式。
+```bash macOS/Linux
+export TRAINING_JOB_ID="<ID printed by quickstart.py>"
+curl --fail-with-body \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
 
-关闭客户端会结束其会话并释放活跃的训练运行。已保存的检查点仍会按照其保留设置继续可用。
+```powershell Windows
+$env:TRAINING_JOB_ID = "<ID printed by quickstart.py>"
+Invoke-RestMethod `
+  -Headers @{ "X-API-Key" = "$env:FASTINO_API_KEY" } `
+  -Uri "https://api.fastino.ai/v1/training/jobs/$env:TRAINING_JOB_ID"
+```
 
-仅在运行完成后使用 `success`。如果异常继续向外抛出，请使用 `errored`；如果运行被取消
-或关闭，请使用 `interrupted`。
+</CodeGroup>
+
+响应标识的任务与 `create_lora_training_client(...)` 创建的任务相同。使用 SDK
+执行交互式模型操作；请勿构造适配器 HTTP 调用。
 
 ## 后续步骤
 
 <CardGroup cols={2}>
-  <Card
-    title="迁移现有应用"
-    icon="arrow-right-arrow-left"
-    href="/cn/rl-api/migrate-from-tinker"
-  >
-    检查现有 `tinker` 客户端工作负载是否符合 Fastino 支持的契约。
+  <Card title="构建训练循环" icon="diagram-project" href="/cn/rl-api/training-loop">
+    为交互式任务添加奖励、前向/反向传播操作、优化器步骤和检查点。
   </Card>
-  <Card
-    title="了解训练"
-    icon="diagram-project"
-    href="/cn/rl-api/training-loop"
-  >
-    在编写训练循环前，了解数据从提示词经过采样、奖励和优势值，最终完成更新的全过程。
+  <Card title="检查兼容性" icon="list-check" href="/cn/rl-api/compatibility">
+    确认工作负载所需的每项 SDK 操作。
   </Card>
 </CardGroup>

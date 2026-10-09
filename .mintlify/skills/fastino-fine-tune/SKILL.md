@@ -31,7 +31,7 @@ Authorization: Bearer YOUR_API_KEY
 `datasets` is an array — supports multi-dataset training.
 
 ```http
-POST https://api.fastino.ai/v1/training-jobs
+POST https://api.fastino.ai/v1/training/jobs
 X-API-Key: YOUR_API_KEY
 Content-Type: application/json
 
@@ -47,14 +47,14 @@ Content-Type: application/json
 
 ## Key Response Fields
 
-`POST /v1/training-jobs` returns:
+`POST /v1/training/jobs` returns:
 - `id` — the training job ID; this is your `model_id` for inference
 - `status` — current job status (see values below)
 
 ## Poll Training Status
 
 ```http
-GET https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID
+GET https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID
 X-API-Key: YOUR_API_KEY
 ```
 
@@ -74,7 +74,7 @@ Poll until `deployed` before running inference.
 ## Stream Training Logs
 
 ```http
-GET https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/logs
+GET https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/logs
 X-API-Key: YOUR_API_KEY
 ```
 
@@ -82,13 +82,13 @@ X-API-Key: YOUR_API_KEY
 
 ```http
 # List all jobs
-GET https://api.fastino.ai/v1/training-jobs
+GET https://api.fastino.ai/v1/training/jobs
 
 # List checkpoints
-GET https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/checkpoints
+GET https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/checkpoints
 
 # Download trained model
-GET https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/download
+GET https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/download
 ```
 
 ## Stopping vs Terminating a Job
@@ -97,22 +97,22 @@ These are two distinct operations with different consequences:
 
 | Action | Endpoint | Effect | Reversible? |
 |--------|----------|--------|-------------|
-| Stop | `POST /v1/training-jobs/{id}/stop` | Graceful stop; all checkpoints preserved; status → `stopped` | Yes — checkpoints remain usable |
-| Terminate | `POST /v1/training-jobs/{id}/terminate` | Force-stops the job **and deletes all checkpoints and artifacts**; status → `terminated` | **No — irreversible** |
+| Stop | `POST /v1/training/jobs/{id}/stop` | Graceful stop; all checkpoints preserved; status → `stopped` | Yes — checkpoints remain usable |
+| Terminate | `POST /v1/training/jobs/{id}/terminate` | Force-stops the job **and deletes all checkpoints and artifacts**; status → `terminated` | **No — irreversible** |
 
 ```http
 # Stop gracefully (checkpoints preserved)
-POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/stop
+POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop
 X-API-Key: YOUR_API_KEY
 
 # Terminate and delete all artifacts (irreversible)
-POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate
+POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/terminate
 X-API-Key: YOUR_API_KEY
 ```
 
 Prefer `stop` unless you explicitly want to destroy all artifacts.
 
-Either call may return **202** while the provider confirms the cancel: `stop` returns `status: "stopping"` and the job stays `running` until it flips to `stopped`; `terminate` flips to `terminated` and deletes checkpoints on confirmation. Poll `GET /v1/training-jobs/{id}` instead of calling again. A **409** with `error.code` `training_job_already_finished` means the job completed or failed first.
+Either call may return **202** while the provider confirms the cancel: `stop` returns `status: "stopping"` and the job stays `running` until it flips to `stopped`; `terminate` flips to `terminated` and deletes checkpoints on confirmation. Poll `GET /v1/training/jobs/{id}` instead of calling again. A **409** with `error.code` `training_job_already_finished` means the job completed or failed first.
 
 ## After Training
 
@@ -128,8 +128,8 @@ or `POST /v1/gliner-2` for encoder tasks. See the `fastino-inference` skill.
 | 404 | Resource not found |
 | 409 | `duplicate_training_submission` — an identical job was created moments ago and is still active; poll the `job_id` in the error instead of resubmitting. `idempotency_key_job_deleted` — the job this `Idempotency-Key` created was deleted; send a new key to launch it again |
 | 422 | Validation error — check request body fields; `idempotency_key_reused` means the `Idempotency-Key` was already used for a different body |
-| 500 | Server error — retry `POST /v1/training-jobs` with the same `Idempotency-Key` |
+| 500 | Server error — retry `POST /v1/training/jobs` with the same `Idempotency-Key` |
 
 Send an `Idempotency-Key` header (a fresh UUID per job you mean to create) on
-`POST /v1/training-jobs` and reuse it on every retry of that create: a repeat
+`POST /v1/training/jobs` and reuse it on every retry of that create: a repeat
 returns the original job instead of launching, and billing, a second run.

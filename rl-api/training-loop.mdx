@@ -1,122 +1,113 @@
 ---
 title: "The RL training loop"
-description: "Understand how sampling, rewards, advantages, updates, and checkpoints fit together."
+description: "Connect sampling, rewards, updates, and checkpoints inside one interactive Fastino job."
 ---
 
-The RL API separates the learning program from the model compute. Your process
-decides what to sample, how to score it, and when to update. Fastino executes
-sampling, forward and backward passes, optimizer steps, and checkpoint
-operations.
+Your application decides what to sample, how to score it, and when to update.
+Fastino executes the interactive model operations. A `TrainingClient`
+represents one interactive Fastino job throughout the loop.
 
 ## The control loop
 
 <Steps>
-  <Step title="Create a training client">
-    Choose a supported base model and LoRA rank. The client represents one
-    ordered training run with its own weights, optimizer state, and operation
-    sequence.
+  <Step title="Create the interactive job">
+    Choose a `base_model` and other options from the capability response, then
+    call `create_lora_training_client(...)`. Read the canonical job ID from
+    `training_client.get_info().model_data.model_id`.
   </Step>
-  <Step title="Snapshot the current policy for sampling">
-    For immediate same-run rollouts, call
-    `save_weights_and_get_sampling_client()`. Its weights are ephemeral and can
-    disappear when the run ends, parks, moves, rebuilds, or scales down. For a
-    retryable boundary, call `save_weights_for_sampler(name)` and create a
-    sampling client from the returned path. Rollouts should come from the policy
-    you are about to improve, not from unrelated or stale weights.
+  <Step title="Checkpoint weights for sampling">
+    Call `save_weights_for_sampler(name)`, then create a sampling client from
+    the returned checkpoint path. This ties the rollout policy to an explicit
+    artifact of the same job.
   </Step>
   <Step title="Collect rollout groups">
-    Send one prompt several times or request several samples in one call. A
-    group gives the reward function alternatives to compare for the same
-    problem.
+    Sample several candidate responses for each prompt. Your application owns
+    prompt construction, response rendering, and grouping.
   </Step>
   <Step title="Compute rewards and advantages">
-    Score every response. Then transform rewards into advantages. In a
-    GRPO-style loop, subtract the group's mean reward from each response's
-    reward.
+    Score each response, then transform rewards into the advantages required by
+    your selected, capability-supported training operation.
   </Step>
   <Step title="Build training datums">
-    Combine prompt tokens, sampled response tokens, sampling log probabilities,
-    and token-level advantages. Prompt tokens normally receive zero advantage.
+    Combine model inputs, sampled response tokens, sampling metadata, and
+    token-level training signals in the SDK's expected shape.
   </Step>
-  <Step title="Update the policy">
-    Submit the datums with `forward_backward(...,
-    loss_fn="importance_sampling")`, then call `optim_step(...)`.
+  <Step title="Update the same job">
+    Submit supported forward/backward work, then an optimizer step, through the
+    existing `TrainingClient`.
   </Step>
-  <Step title="Checkpoint and repeat">
-    Save durable state at useful boundaries, create a fresh sampling client from
-    the updated weights, and start the next iteration.
+  <Step title="Save a recovery boundary">
+    Save a state checkpoint and persist its identifier with the application
+    step and dataset cursor before beginning the next iteration.
   </Step>
 </Steps>
 
-## Client object model
+## Object model
 
-| Object | Responsibility | Typical lifetime |
-| --- | --- | --- |
-| `ServiceClient` | Opens a session, reports capabilities, creates training and sampling clients, and exposes the REST client | One logical application run |
-| `TrainingClient` | Owns an ordered LoRA training run and its optimizer state | One policy being trained |
-| `SamplingClient` | Samples or computes log probabilities from a base model or saved weights | One policy snapshot or reusable checkpoint |
-| `RestClient` | Lists runs and checkpoints, manages checkpoint metadata and retention, and reports storage usage | Administrative operations |
-| Future | Tracks one submitted operation and returns its result | One operation |
+| Object | Role |
+| --- | --- |
+| `ServiceClient` | Queries capabilities and creates SDK clients |
+| `TrainingClient` | Represents one interactive Fastino job and submits its model operations |
+| `SamplingClient` | Samples from a resolved checkpoint |
+| `RestClient` | Lists or gets canonical jobs and administers checkpoints |
+| Future | Tracks one operation submitted to the job |
 
-Closing a `ServiceClient` ends the session and releases its active training
-runs. It does not delete checkpoints.
+The SDK model ID is the canonical Fastino job ID. Futures and sampling clients
+do not create independent runs.
 
-## Why grouped rewards work
+## Group-relative rewards
 
-Suppose four responses to one prompt receive these rewards:
+For a group of responses, a common application-owned transformation subtracts
+the group's mean reward:
 
-```text
-[1.0, 0.0, 1.0, 0.0]
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
 ```
 
-The mean reward is `0.5`, so the group-relative advantages are:
+If every centered advantage is zero, the group has no relative signal. Your
+application can log and skip it.
 
-```text
-[0.5, -0.5, 0.5, -0.5]
-```
+## Build aligned datums
 
-Positive values reinforce tokens from responses that scored above the group
-average. Negative values reduce the probability of below-average responses.
+For an importance-sampling-style loop, the prompt is context and the sampled
+completion is the action. Keep token arrays aligned with the SDK and renderer
+used by the selected model:
 
-If every response receives the same reward, every centered advantage is zero.
-That group carries no relative learning signal and can be skipped.
-
-## What belongs in a datum
-
-For the common importance-sampling loop, each datum contains:
-
-- The prompt followed by the sampled completion
-- Target tokens aligned with the model input
-- Log probabilities recorded during sampling
-- Advantages applied to completion tokens
-
-The prompt prefix is context, not an action selected by the policy. Set its
-advantage values to zero. Apply the response advantage to the generated token
-positions.
+- Model input containing prompt and completion tokens
+- Target tokens aligned to the model input
+- Sampling log probabilities aligned to generated tokens
+- Advantages applied to completion positions
 
 <Warning>
-  Token arrays must have the lengths expected by the renderer and SDK. Reuse
-  the renderer that corresponds to the selected base model. A formatter from a
-  different model can produce incorrect stop sequences or token alignment.
+  Prompt rendering, tokenization, datum construction, and reward execution are
+  client-owned. Validate their shapes against `tinker==0.33.1` and the live
+  capability response before a larger workload.
 </Warning>
 
-## Keep updates sequential
+## Keep dependent work ordered
 
-The SDK can submit multiple sampling futures, but qualify concurrency and
-throughput against your enabled Fastino environment before depending on them.
-Updates to one `TrainingClient` must remain sequential. Resolve
-`forward_backward(...)` and `optim_step(...)` in order, and do not mutate one
-training client from independent processes.
+Resolve a forward/backward future before treating that stage as complete, and
+resolve the optimizer future before checkpointing the updated state. Do not let
+independent controllers mutate the same job without application-level
+coordination.
 
-## Choose the right checkpoint
+The SDK performs these interactive operations. Do not reproduce them as direct
+HTTP calls.
 
-`save_state(name)` stores training weights and optimizer state for training
-resume. `save_weights_for_sampler(name)` stores weights for evaluation or more
-rollouts. A sampler checkpoint cannot restore optimizer state.
+## Choose the checkpoint kind
 
-To build a complete recovery boundary, store the state-checkpoint path with
-your application step and dataset position. Follow
-[Checkpoint and resume](/rl-api/checkpoint-and-resume) for the full pattern.
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
 
-To implement the loop with a deterministic grader, follow
-[Train with verifiable rewards](/rl-api/verifiable-rewards).
+Use the state checkpoint as a training recovery boundary. Use the sampler
+checkpoint for rollouts or evaluation. Store the chosen checkpoint identifier
+with your application metadata instead of inferring state from a name.
+
+To implement this loop with a deterministic grader, continue to
+[Train with verifiable rewards](/rl-api/verifiable-rewards). For recovery,
+follow [Checkpoint and resume](/rl-api/checkpoint-and-resume).

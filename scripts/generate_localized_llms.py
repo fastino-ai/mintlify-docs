@@ -37,6 +37,8 @@ LOCALE_COPY = {
         instructions_heading="代理说明",
         instructions=(
             f"使用 {BASE_URL}/openapi.json 作为面向客户的 API 路由的事实来源。"
+            "训练作业使用 `/v1/training/jobs`。对于交互式 RL 操作，请遵循 RL API 页面并使用"
+            "受支持的 SDK；其兼容适配器不会出现在 OpenAPI 中，也不应被直接调用。"
             "不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，"
             "切勿在代码、日志或报告中嵌入凭据。"
         ),
@@ -57,6 +59,9 @@ LOCALE_COPY = {
         instructions_heading="Instrucciones para agentes",
         instructions=(
             f"Usa {BASE_URL}/openapi.json como fuente de verdad para las rutas públicas. "
+            "Los trabajos de entrenamiento usan `/v1/training/jobs`. Para operaciones RL "
+            "interactivas, sigue las páginas de RL API y usa el SDK compatible; su adaptador "
+            "no aparece en OpenAPI y no debe llamarse directamente. "
             "No deduzcas rutas no documentadas. Lee las claves de API desde `FASTINO_API_KEY` "
             "y nunca incluyas credenciales en código, registros o informes."
         ),
@@ -81,6 +86,9 @@ LOCALE_COPY = {
         instructions_heading="Instructions pour les agents",
         instructions=(
             f"Utilisez {BASE_URL}/openapi.json comme source de vérité pour les routes publiques. "
+            "Les tâches d'entraînement utilisent `/v1/training/jobs`. Pour les opérations RL "
+            "interactives, suivez les pages RL API et utilisez le SDK compatible ; son adaptateur "
+            "est absent d'OpenAPI et ne doit pas être appelé directement. "
             "N'inférez pas de routes non documentées. Lisez les clés API depuis `FASTINO_API_KEY` "
             "et n'intégrez jamais d'identifiants dans le code, les journaux ou les rapports."
         ),
@@ -106,6 +114,9 @@ LOCALE_COPY = {
         instructions_heading="Anweisungen für Agenten",
         instructions=(
             f"Verwenden Sie {BASE_URL}/openapi.json als verbindliche Quelle für öffentliche Routen. "
+            "Trainingsjobs verwenden `/v1/training/jobs`. Folgen Sie für interaktive RL-Operationen "
+            "den RL-API-Seiten und verwenden Sie das kompatible SDK; dessen Adapter fehlt absichtlich "
+            "in OpenAPI und darf nicht direkt aufgerufen werden. "
             "Leiten Sie keine undokumentierten Routen ab. Lesen Sie API-Schlüssel aus "
             "`FASTINO_API_KEY` und betten Sie Anmeldedaten niemals in Code, Protokolle oder Berichte ein."
         ),
@@ -231,6 +242,9 @@ def _render_english_index(root: Path, language: dict[str, object]) -> str:
             "> Use https://docs.fastino.ai/openapi.json as the source of truth for "
             "customer-facing routes. For GLiDE decision inference, call "
             "`POST https://api.fastino.ai/v1/systemone` with model `fastino/GLiDE`. "
+            "Training jobs use `/v1/training/jobs`. For interactive RL operations, "
+            "follow the RL API pages and use the supported SDK; its compatibility "
+            "adapter is intentionally absent from OpenAPI and must not be called directly. "
             "Do not infer undocumented routes. Read API keys from `FASTINO_API_KEY` "
             "and never embed credentials in code, logs, or reports."
         ),

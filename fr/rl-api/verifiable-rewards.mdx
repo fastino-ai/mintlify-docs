@@ -1,123 +1,81 @@
 ---
 title: "S'entraîner avec des récompenses vérifiables"
-description: "Transformez un évaluateur déterministe en signal d'apprentissage pour une boucle d'entraînement RL."
+description: "Transformez un évaluateur déterministe en signal d'apprentissage pour un job interactif Fastino."
 ---
 
-Cette recette montre comment transformer un évaluateur déterministe en signal
-d'apprentissage. Utilisez-la lorsqu'une réponse peut être vérifiée par du code,
-par exemple une réponse mathématique, un résultat de test, une contrainte de
-schéma, une extraction exacte ou le résultat de l'utilisation d'un outil.
-
-Le modèle est le suivant :
+Utilisez une récompense vérifiable lorsqu'un code peut vérifier une réponse,
+comme une réponse mathématique, un résultat de test, une contrainte de schéma,
+une extraction exacte ou le résultat d'un outil.
 
 ```text
 prompt -> sample a group -> grade -> center rewards -> build datums -> update
 ```
 
-## Ce que vous allez construire
-
-Pour chaque problème, la boucle :
-
-1. Échantillonne plusieurs réponses candidates depuis la politique actuelle.
-2. Attribue à chaque réponse une récompense comprise entre `0.0` et `1.0`.
-3. Centre les récompenses au sein du groupe.
-4. Entraîne le modèle sur les réponses dont les avantages sont non nuls.
-
-Il s'agit d'une mise à jour de type GRPO. Elle ne nécessite pas de modèle de
-récompense appris distinct.
+L'échantillonnage, les opérations avant/arrière, les étapes d'optimisation et
+les checkpoints appartiennent tous au même job interactif Fastino. L'exécution
+des récompenses et l'état de l'application restent dans votre code.
 
 ## Avant de commencer
 
-Terminez d'abord le [démarrage rapide](/fr/rl-api/quickstart) pour vérifier
-l'authentification, l'accès au modèle et l'échantillonnage. Le démarrage rapide
-ne qualifie pas l'entraînement. Ne poursuivez qu'après avoir également effectué,
-dans votre environnement Fastino activé, une petite opération
-`forward_backward(...)` et une opération `optim_step(...)` avec le modèle, la
-forme de datum et la fonction de perte que vous comptez utiliser.
+Terminez le [démarrage rapide](/fr/rl-api/quickstart), puis confirmez via les
+capacités que le modèle et les opérations d'entraînement choisis sont activés.
+Les extraits ci-dessous se concentrent sur le flux de récompense contrôlé par
+l'utilisateur ; adaptez la construction des datums à `tinker==0.33.1` et au
+modèle sélectionné.
 
 <Note>
-  Les extraits ci-dessous isolent les modifications apportées à la boucle de
-  récompense et ne constituent pas un programme autonome. Votre application
-  doit fournir la sélection du tokenizer, le rendu des prompts et des réponses,
-  les paramètres d'échantillonnage, la mise en lots et le cycle de vie du
-  client. Construisez et validez ces éléments autour du flux SDK direct du
-  [démarrage rapide](/fr/rl-api/quickstart).
+  Ce guide n'est pas un programme d'entraînement autonome prêt à être copié-collé.
+  Partez d'un workload SDK validé, dont le renderer et la construction des datums
+  correspondent au modèle sélectionné, puis ajoutez le flux de récompense ci-dessous.
 </Note>
 
 <Warning>
-  Fastino fournit les opérations d'échantillonnage et d'entraînement du modèle.
-  L'exécution des récompenses, les outils, les sandboxes, les environnements
-  externes et l'isolation des effets de bord restent une infrastructure gérée
-  par le client.
+  Exécutez le code généré ou les outils uniquement dans un environnement isolé
+  et aux ressources limitées. Fastino n'exécute pas votre fonction de
+  récompense et ne gère pas ses effets de bord.
 </Warning>
 
-## 1. Définir le contrat de l'évaluateur
+## 1. Définir un évaluateur restreint
 
-Un évaluateur déterministe utile possède un contrat restreint :
+Séparez l'analyse de la notation afin que les sorties mal formées restent
+observables :
 
 ```python
 def get_reward(response: str, expected: str) -> float:
-    """Return a finite reward where larger means better."""
     actual = parse_answer(response)
     if actual is None:
         return 0.0
     return 1.0 if actual == expected else 0.0
 ```
 
-Séparez l'analyse de la notation. Ainsi, une sortie mal formée reste observable
-au lieu d'être traitée comme une exception dans la boucle d'entraînement.
+Conservez un ensemble figé de fixtures comprenant des réponses correctes,
+incorrectes, mal formées et mises en forme de manière équivalente. Journalisez
+les échecs d'analyse séparément des réponses valides mais incorrectes.
 
-Pour une tâche à sortie structurée :
+## 2. Créer un instantané du job pour l'échantillonnage
 
-```python
-import json
-
-
-def parse_label(response: str) -> str | None:
-    try:
-        value = json.loads(response)
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(value, dict):
-        return None
-    label = value.get("label")
-    return label if isinstance(label, str) else None
-
-
-def get_reward(response: str, expected: str) -> float:
-    label = parse_label(response)
-    return 1.0 if label == expected else 0.0
-```
-
-<Tip>
-  Journalisez les échecs d'analyse séparément des réponses valides incorrectes.
-  Ils nécessitent des corrections différentes du prompt ou de la récompense.
-</Tip>
-
-## 2. Échantillonner un groupe depuis la politique actuelle
-
-Au début de chaque itération d'entraînement, créez un échantillonneur depuis les
-poids actuels :
+Créez un checkpoint d'échantillonneur à partir des poids actuels, puis
+résolvez-le via le SDK :
 
 ```python
-sampling_client = training_client.save_weights_and_get_sampling_client()
+checkpoint = training_client.save_weights_for_sampler(
+    f"rollout-{step:06d}"
+).result()
+sampling_client = service_client.create_sampling_client(
+    model_path=checkpoint.path
+)
 
-future = sampling_client.sample(
+sample_result = sampling_client.sample(
     prompt=model_input,
     num_samples=group_size,
     sampling_params=sampling_params,
-)
-sample_result = future.result()
+).result()
 ```
 
-Enregistrez à la fois les tokens générés et leurs log-probabilités
-d'échantillonnage. La fonction de perte par échantillonnage d'importance a
-besoin des deux.
+Cela ne crée pas une autre exécution d'entraînement. Le checkpoint et le
+travail d'échantillonnage sont associés au même job interactif.
 
 ## 3. Convertir les récompenses en avantages
-
-Évaluez chaque réponse, puis soustrayez la moyenne du groupe :
 
 ```python
 rewards = [
@@ -127,190 +85,82 @@ rewards = [
 
 mean_reward = sum(rewards) / len(rewards)
 advantages = [reward - mean_reward for reward in rewards]
-```
 
-Ignorez les groupes dont tous les avantages sont nuls :
-
-```python
 if all(advantage == 0.0 for advantage in advantages):
     continue
 ```
 
-Les groupes où toutes les réponses sont correctes ou incorrectes ne portent
-aucun signal relatif. Suivez leur taux. Un taux élevé de groupes dégénérés
-signifie généralement que la tâche est trop facile ou trop difficile, ou que la
-récompense ne distingue pas les sorties.
+Suivez les groupes sans variance de récompense. Ils peuvent indiquer que la
+tâche est trop facile, trop difficile ou mal analysée.
 
-## 4. Construire un datum par réponse
+## 4. Construire des datums alignés
 
-Le prompt est un contexte : son avantage est donc nul. La réponse générée porte
-l'avantage relatif au groupe :
-
-```python
-import tinker
-import torch
-from tinker import TensorData
-
-
-def build_datum(
-    prompt: tinker.ModelInput,
-    tokens: list[int],
-    logprobs: list[float],
-    advantage: float,
-) -> tinker.Datum:
-    prompt_loss_length = prompt.length - 1
-    model_input = prompt.append(
-        tinker.EncodedTextChunk(tokens=tokens[:-1])
-    )
-
-    target_tokens = [0] * prompt_loss_length + tokens
-    padded_logprobs = [0.0] * prompt_loss_length + logprobs
-    padded_advantages = (
-        [0.0] * prompt_loss_length
-        + [advantage] * (model_input.length - prompt_loss_length)
-    )
-
-    if not (
-        model_input.length
-        == len(target_tokens)
-        == len(padded_logprobs)
-        == len(padded_advantages)
-    ):
-        raise ValueError("RL datum arrays are not aligned")
-
-    return tinker.Datum(
-        model_input=model_input,
-        loss_fn_inputs={
-            "target_tokens": TensorData.from_torch(
-                torch.tensor(target_tokens)
-            ),
-            "logprobs": TensorData.from_torch(
-                torch.tensor(padded_logprobs)
-            ),
-            "advantages": TensorData.from_torch(
-                torch.tensor(padded_advantages)
-            ),
-        },
-    )
-```
-
-Utilisez le tokenizer et le renderer associés au modèle de base sélectionné. Ne
-décodez pas avec un renderer pour ensuite reconstruire les entrées avec un
-autre.
-
-## 5. Appliquer la mise à jour
-
-Regroupez les groupes non dégénérés dans une même liste de datums, puis soumettez
-la mise à jour :
+Le prompt constitue le contexte ; ses positions reçoivent donc normalement un
+avantage nul. Les positions de la complétion reçoivent l'avantage relatif au
+groupe de la réponse. Un constructeur de datum doit échouer avant la soumission
+si les longueurs de l'entrée du modèle, des cibles, des log-probabilités et des
+avantages diffèrent :
 
 ```python
-if datums:
-    train_future = training_client.forward_backward(
-        datums,
-        loss_fn="importance_sampling",
-    )
-    optim_future = training_client.optim_step(
-        tinker.AdamParams(
-            learning_rate=4e-5,
-            beta1=0.9,
-            beta2=0.95,
-        )
-    )
-
-    train_result = train_future.result()
-    optim_result = optim_future.result()
+if not (
+    model_input.length
+    == len(target_tokens)
+    == len(padded_logprobs)
+    == len(padded_advantages)
+):
+    raise ValueError("RL datum arrays are not aligned")
 ```
 
-Le SDK ordonne ces opérations pour le client d'entraînement. Récupérez le
-résultat des deux futures et enregistrez leurs métriques avant de passer à
-l'étape suivante de votre application.
+Utilisez le renderer et le tokenizer associés au `base_model` sélectionné.
+Conservez les tokens échantillonnés et les log-probabilités nécessaires à
+l'opération SDK sélectionnée à partir des capacités.
 
-## 6. Créer des checkpoints aux étapes utiles
+## 5. Mettre à jour le job interactif
 
-Enregistrez l'état complet à intervalles fixes et lorsque la récompense
-d'évaluation s'améliore :
+Pour un workflow activé fondé sur l'échantillonnage d'importance, le schéma
+d'appels du SDK est le suivant :
 
 ```python
-checkpoint = training_client.save_state(
-    f"step-{step:06d}"
-).result()
-print(checkpoint.path)
+train_future = training_client.forward_backward(
+    datums,
+    loss_fn="importance_sampling",
+)
+train_result = train_future.result()
+
+optim_future = training_client.optim_step(optimizer_params)
+optim_result = optim_future.result()
 ```
 
-Stockez le chemin `tinker://` renvoyé avec :
+Les deux opérations modifient le job interactif existant. Résolvez et
+enregistrez chaque résultat avant de faire avancer l'étape de l'application. Ne
+construisez pas de requêtes HTTP équivalentes vers l'adaptateur.
 
-- L'étape de l'application
-- La révision du jeu de données
-- La révision de l'implémentation de la récompense
-- Le modèle de base
-- Le rang LoRA
-- Les paramètres de l'optimiseur
+## 6. Enregistrer une limite de récupération
+
+```python
+state = training_client.save_state(f"step-{step:06d}").result()
+```
+
+Conservez l'identifiant de checkpoint renvoyé avec :
+
+- L'ID canonique du job provenant de `training_client.get_info().model_data.model_id`
+- L'étape de l'application et le curseur du dataset
+- Les révisions du dataset et de l'implémentation de la récompense
+- Le modèle de base et la configuration d'entraînement
 - Les métriques d'évaluation
 
-Cet enregistrement permet à un agent de choisir le checkpoint à reprendre sans
-devoir l'inférer à partir de son nom.
+Ces métadonnées permettent à un contrôleur de choisir un checkpoint sans le
+déduire de son nom.
 
-## Vérifications de la conception de la récompense
+## Vérifier avant d'augmenter la taille
 
-Avant une longue exécution, testez la fonction de récompense sur un ensemble
-figé de fixtures.
+- L'évaluateur distingue les fixtures correctes et incorrectes connues.
+- Les réponses mal formées ne font pas échouer la boucle de l'application.
+- Au moins un groupe d'échantillons présente une variance de récompense.
+- Les tableaux de datums respectent les formes attendues par le SDK installé.
+- Les futures avant/arrière et d'optimisation se terminent sur le même job.
+- Un checkpoint d'état peut être chargé avec ses métadonnées de reprise contrôlées par le client.
+- L'évaluation sur un ensemble de validation reste distincte du lot de récompense d'entraînement.
 
-| Vérification | Importance |
-| --- | --- |
-| Une sortie correcte reçoit une récompense supérieure | Confirme le sens de l'optimisation |
-| Une sortie mal formée ne fait pas échouer la boucle | Empêche un rollout de faire perdre un lot |
-| Les formats valides équivalents sont normalisés de la même manière | Évite d'entraîner involontairement le formatage |
-| Les récompenses sont finies | Évite les avantages non valides |
-| Un lot d'échantillons présente une variance de récompense | Confirme l'existence d'un signal d'apprentissage relatif |
-| Les cas d'évaluation cachés restent hors de l'entraînement | Empêche de confondre surapprentissage de la récompense et progrès |
-
-## Adapter le modèle
-
-### Génération de code
-
-Exécutez le code généré dans une sandbox aux ressources limitées. Récompensez
-les tests réussis, puis ajoutez de petits composants bornés pour la couverture
-partielle des tests ou l'efficacité. N'exécutez jamais une sortie de modèle non
-fiable dans le processus d'entraînement.
-
-### Utilisation d'outils
-
-Analysez l'appel d'outil, validez son schéma, exécutez-le sur une fixture isolée
-et récompensez l'état obtenu. Évaluez le résultat, et pas seulement la syntaxe
-de l'appel.
-
-### Extraction et sortie structurée
-
-Validez par rapport à un schéma et comparez les valeurs normalisées. Conservez
-une récompense distincte pour le format uniquement lorsque la forme de la sortie
-fait réellement partie de la tâche.
-
-### Environnements en plusieurs étapes
-
-Cumulez les récompenses de transition dans une récompense de trajectoire, puis
-calculez les avantages entre les trajectoires d'un même problème initial. Isolez
-l'état de l'environnement et les effets de bord entre les membres du groupe.
-
-## Diagnostiquer une exécution
-
-| Signal | Interprétation | Action suivante |
-| --- | --- | --- |
-| Presque tous les groupes sont entièrement à zéro | La tâche est peut-être trop difficile ou l'analyseur rejette des réponses valides | Inspectez les échantillons bruts et le taux d'échecs d'analyse |
-| Presque tous les groupes sont entièrement à un | La tâche est peut-être trop facile | Augmentez la difficulté ou utilisez une récompense plus stricte |
-| La récompense augmente, mais pas la qualité sur l'ensemble de validation | La récompense est exploitée | Ajoutez des vérifications cachées et inspectez les échecs fortement récompensés |
-| Erreur d'alignement du datum | Incohérence du renderer, des tokens, des log-probabilités ou du remplissage | Affichez les longueurs pour une réponse et comparez-les à la base installée |
-| La fonction de perte est instable | La taille de l'étape ou l'échelle de récompense est peut-être trop grande | Réduisez le taux d'apprentissage et bornez les récompenses |
-
-## Critères d'achèvement
-
-Une adaptation réussie comprend :
-
-- Au moins un groupe non dégénéré
-- Des métriques finies pour la récompense, la fonction de perte et l'optimiseur
-- Une évaluation sur un ensemble de validation indépendant du lot utilisé pour la récompense d'entraînement
-- Un checkpoint d'état restaurable
-- Suffisamment de métadonnées journalisées pour reproduire l'exécution
-
-Pour comprendre le modèle d'objets et d'états qui sous-tend cette recette,
-consultez la
-[boucle d'entraînement RL](/fr/rl-api/training-loop).
+Pour le cycle de vie global, consultez
+[La boucle d'entraînement RL](/fr/rl-api/training-loop).

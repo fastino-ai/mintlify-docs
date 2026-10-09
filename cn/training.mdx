@@ -1,61 +1,116 @@
 ---
-title: "训练任务 API"
+title: "训练 API"
 sidebarTitle: "概览"
-description: "训练任务 API 管理微调任务的完整生命周期，涵盖 /v1/training-jobs 端点、X-API-Key 身份验证和任务状态。"
+description: "选择托管式或交互式训练任务，然后通过规范的训练 API 创建、监控和管理任务。"
 ---
 
-训练任务 API 管理微调任务的完整生命周期。所有端点都使用 `/v1/training-jobs` 路由族，并要求在 `X-API-Key` 头中提供 API 密钥。
+Fastino 为训练提供统一的路由族：
 
-所有训练操作都使用与推理相同的 [API 身份验证](/cn/authentication)。
-
-**API 基础 URL：** `https://api.fastino.ai`
-
-```bash
-export FASTINO_API_KEY="fast_sk_..."
+```text
+/v1/training/jobs
 ```
 
-在每个训练请求中发送该密钥：
-
-```http
-X-API-Key: $FASTINO_API_KEY
-```
-
-在创建任务之前，请立即调用 `GET /v1/base-models?supports_training=true`。它是可训练模型 ID 的实时权威来源。
-提交任务之前，请先[准备并上传训练数据集](/cn/concepts/datasets)，并等待其处理后的版本变为就绪。
-
-<Warning>
-  旧版 `/felix/training-jobs` 路由族已停用。新的集成和迁移后的集成请使用 `/v1/training-jobs`。
-</Warning>
-
-## 训练工作流
+每个任务都有一个 `type`：
 
 <CardGroup cols={2}>
-  <Card title="选择基础模型" icon="boxes-stacked" href="/cn/api-reference/training/base-models">
-    列出当前可用于训练的模型。
+  <Card title="配置任务" icon="sliders">
+    发送准备好的数据集和训练配置。Fastino 负责运行训练循环。请从
+    [GLiNER 微调指南](/cn/guides/fine-tune-gliner)开始。
   </Card>
-  <Card title="上传数据集" icon="upload" href="/cn/concepts/datasets">
-    获取上传 URL、上传 JSONL 并处理数据。
-  </Card>
-  <Card title="创建任务" icon="play" href="/cn/api-reference/training-jobs/create">
-    提交数据集和训练配置。
-  </Card>
-  <Card title="监控和管理" icon="chart-line" href="/cn/api-reference/training-jobs/get">
-    轮询状态、查看日志和计费，然后处理产物。
+  <Card title="交互式任务" icon="code">
+    从你的应用逐步运行训练循环。请从 [RL API 概览](/cn/rl-api)和
+    [RL API 快速入门](/cn/rl-api/quickstart)开始。
   </Card>
 </CardGroup>
 
-## 状态生命周期
+使用 `config` 任务进行托管式微调。当你的应用需要控制前向传播、反向传播、
+优化器步骤和检查点时机时，请使用 `interactive` 任务。
 
-训练任务响应包含：
+## 设置 API 密钥
+
+1. **创建 [Fastino](https://agent.fastino.ai/) 账户**
+2. 从[设置](https://agent.fastino.ai/api-keys)中**获取 API 密钥**
+
+将密钥设为环境变量，以便直接运行下面的示例：
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "your_api_key_here"
+```
+
+</CodeGroup>
+
+API 基础 URL 为 `https://api.fastino.ai`。在每个请求中发送
+`X-API-Key: $FASTINO_API_KEY`。所有支持的身份验证方式请参阅
+[API 身份验证](/cn/authentication)。
+
+## 配置任务快速入门
+
+### 1. 准备数据集
+
+[准备、上传并处理训练数据集](/cn/concepts/datasets)。等待数据集版本变为 `ready`。
+
+### 2. 选择实时基础模型
+
+提交前立即查询模型目录。它是可训练模型 ID 的权威来源。
+
+```bash
+curl "https://api.fastino.ai/v1/base-models?supports_training=true" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+### 3. 创建任务
+
+保留字段名 `base_model`，并将 `type` 设为 `config`：
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "config",
+    "model_name": "my-gliner-model",
+    "base_model": "BASE_MODEL_ID_FROM_CATALOG",
+    "datasets": [
+      {"name": "my-ready-dataset", "version": "VERSION_NUMBER"}
+    ],
+    "training_type": "lora"
+  }'
+```
+
+保存返回的 `id`；它就是每个任务专属路由所使用的 `job_id`。
+
+### 4. 轮询并检查
+
+```bash
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+对于配置任务，响应包含：
 
 - `status`：持久化的任务状态。
 - `normalized_status`：用于客户端轮询的稳定状态。
 - `is_terminal_status`：是否可以停止轮询。
 - `error_message`：可用时的失败信息。
-- `is_deployable`：训练完成的工件是否通过部署校验。
+- `is_deployable`：已完成的工件是否通过部署验证。
 - `deployability_reason`：工件不可部署的原因。
 
-在轮询客户端中优先使用 `normalized_status` 和 `is_terminal_status`。
+轮询配置任务时，优先使用 `normalized_status` 和 `is_terminal_status`。
+你还可以查看
+[`GET /v1/training/jobs/{job_id}/logs`](/cn/api-reference/training-jobs/logs)、
+[`GET /v1/training/jobs/{job_id}/billing`](/cn/api-reference/training-jobs/billing)
+和
+[`GET /v1/training/jobs/{job_id}/checkpoints`](/cn/api-reference/training-jobs/checkpoints)。
+
+## 配置任务状态生命周期
+
+以下持久化状态描述托管式配置任务。交互式任务的行为由调用方控制；不要根据此表推断其生命周期。
 
 | 持久化状态 | 说明 |
 | --- | --- |
@@ -63,30 +118,55 @@ X-API-Key: $FASTINO_API_KEY
 | `running` | 训练正在进行中。 |
 | `complete` | 训练已成功完成。工件准备可能仍在继续。 |
 | `normalizing` | Fastino 正在准备训练好的工件。 |
-| `artifact_ready` | 训练工件已就绪。 |
-| `deployed` | 工件已完成部署。 |
-| `paused` | 任务或其流水线已暂停。 |
+| `artifact_ready` | 训练好的工件已就绪。 |
+| `deployed` | 工件已部署。 |
+| `paused` | 托管式任务已暂停。 |
 | `errored` | 训练、调度或工件准备失败。 |
 | `stopped` | 任务已停止，同时保留现有检查点。 |
 | `terminated` | 任务已终止，其检查点已被删除。 |
 
-## 端点
+## 两种任务类型均可用的路由
 
-| 方法 | 端点 | 用途 |
+| 方法 | 路由 | 用途 |
 | --- | --- | --- |
-| `POST` | [`/v1/training-jobs`](/cn/api-reference/training-jobs/create) | 创建训练任务 |
-| `GET` | [`/v1/training-jobs`](/cn/api-reference/training-jobs/list) | 列出训练任务 |
-| `GET` | [`/v1/training-jobs/{job_id}`](/cn/api-reference/training-jobs/get) | 获取状态、配置和指标 |
-| `PATCH` | [`/v1/training-jobs/{job_id}`](/cn/api-reference/training-jobs/update-project) | 分配或取消分配项目 |
-| `PATCH` | [`/v1/training-jobs/{job_id}/model-name`](/cn/api-reference/training-jobs/update-model-name) | 重命名训练后的模型 |
-| `GET` | [`/v1/training-jobs/{job_id}/logs`](/cn/api-reference/training-jobs/logs) | 获取训练日志快照 |
-| `GET` | [`/v1/training-jobs/{job_id}/billing`](/cn/api-reference/training-jobs/billing) | 获取计费结果 |
-| `GET` | [`/v1/training-jobs/{job_id}/deployments`](/cn/api-reference/training-jobs/deployments) | 列出从该任务创建的部署 |
-| `POST` | [`/v1/training-jobs/{job_id}/stop`](/cn/api-reference/training-jobs/stop) | 停止任务并保留检查点 |
-| `POST` | [`/v1/training-jobs/{job_id}/terminate`](/cn/api-reference/training-jobs/terminate) | 停止任务并删除检查点 |
-| `POST` | [`/v1/training-jobs/{job_id}/sync`](/cn/api-reference/training-jobs/sync) | 从训练提供方刷新状态 |
-| `POST` | [`/v1/training-jobs/{job_id}/push-to-hub`](/cn/api-reference/training-jobs/push-to-hub) | 将已完成的工件推送到 Hugging Face Hub |
-| `GET` | [`/v1/training-jobs/{job_id}/checkpoints`](/cn/api-reference/training-jobs/checkpoints) | 列出检查点 |
-| `POST` | [`/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy`](/cn/api-reference/training-jobs/deploy-checkpoint) | 部署检查点 |
-| `GET` | [`/v1/training-jobs/{job_id}/download`](/cn/api-reference/training-jobs/download) | 获取临时的权重下载 URL |
-| `DELETE` | [`/v1/training-jobs/{job_id}`](/cn/api-reference/training-jobs/delete) | 删除任务及其检查点 |
+| `POST` | [`/v1/training/jobs`](/cn/api-reference/training-jobs/create) | 直接创建配置任务；受支持的 SDK 通过兼容适配器创建交互式任务 |
+| `GET` | [`/v1/training/jobs`](/cn/api-reference/training-jobs/list) | 列出任务 |
+| `GET` | [`/v1/training/jobs/{job_id}`](/cn/api-reference/training-jobs/get) | 获取任务 |
+| `POST` | [`/v1/training/jobs/{job_id}/stop`](/cn/api-reference/training-jobs/stop) | 停止任务并释放训练资源 |
+| `GET` | [`/v1/training/jobs/{job_id}/logs`](/cn/api-reference/training-jobs/logs) | 读取日志 |
+| `GET` | [`/v1/training/jobs/{job_id}/billing`](/cn/api-reference/training-jobs/billing) | 读取计费详情 |
+| `POST` | `/v1/training/jobs/{job_id}/deploy` | 部署任务工件 |
+| `GET` | [`/v1/training/jobs/{job_id}/deployments`](/cn/api-reference/training-jobs/deployments) | 列出部署 |
+| `GET` | [`/v1/training/jobs/{job_id}/checkpoints`](/cn/api-reference/training-jobs/checkpoints) | 列出检查点 |
+| `GET` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}` | 获取检查点 |
+| `GET` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` | 下载检查点 |
+| `POST` / `DELETE` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/publish` | 发布或取消发布检查点 |
+| `PUT` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/ttl` | 设置检查点保留期限 |
+| `DELETE` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}` | 删除检查点 |
+
+## 仅配置任务可用的路由
+
+| 方法 | 路由 | 用途 |
+| --- | --- | --- |
+| `POST` | [`/v1/training/jobs/{job_id}/terminate`](/cn/api-reference/training-jobs/terminate) | 终止任务并删除其检查点 |
+| `POST` | [`/v1/training/jobs/{job_id}/sync`](/cn/api-reference/training-jobs/sync) | 刷新提供方状态 |
+| `GET` | [`/v1/training/jobs/{job_id}/download`](/cn/api-reference/training-jobs/download) | 下载最终模型 |
+| `PATCH` | [`/v1/training/jobs/{job_id}/model-name`](/cn/api-reference/training-jobs/update-model-name) | 更改模型名称 |
+| `POST` | [`/v1/training/jobs/{job_id}/push-to-hub`](/cn/api-reference/training-jobs/push-to-hub) | 将最终模型推送到 Hugging Face Hub |
+
+## 仅交互式任务可用的路由
+
+交互式任务公开各个训练操作：
+
+| 方法 | 路由 | 用途 |
+| --- | --- | --- |
+| `POST` | `/v1/training/jobs/{job_id}/forward` | 运行前向传播 |
+| `POST` | `/v1/training/jobs/{job_id}/forward-backward` | 运行前向和反向传播 |
+| `POST` | `/v1/training/jobs/{job_id}/optim-step` | 应用优化器步骤 |
+| `GET` | `/v1/training/jobs/{job_id}/operations/{operation_id}` | 获取异步操作 |
+| `POST` | `/v1/training/jobs/{job_id}/operations/{operation_id}/cancel` | 取消操作 |
+| `POST` | `/v1/training/jobs/{job_id}/checkpoints` | 保存状态或采样器检查点 |
+| `POST` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/load` | 加载检查点 |
+| `POST` | `/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/sample` | 从检查点采样 |
+
+对 `config` 任务调用交互式步骤路由会返回 `400`。

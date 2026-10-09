@@ -1,126 +1,86 @@
 ---
 title: "Comportamiento en tiempo de ejecución y errores"
-description: "Futures, sesiones, puntos de control, reintentos, facturación, límites y errores para las cargas de trabajo de la API de RL."
+description: "Comprende las operaciones, los checkpoints, la recuperación y los errores de un trabajo interactivo de Fastino."
 ---
 
-Usa esta referencia cuando una carga de trabajo ya esté conectada y necesites
-entender su ciclo de vida o un error.
+Un cliente de entrenamiento del SDK es un trabajo interactivo de Fastino. Las
+operaciones interactivas, los futures, los clientes de muestreo y los
+checkpoints son vistas diferentes del trabajo o de los artefactos propiedad de
+ese trabajo, no ejecuciones de entrenamiento independientes.
 
-## Futures y sesiones
+## Identifica el trabajo
 
-Las operaciones enviadas devuelven futures de Tinker. La API permite recuperar
-futures, esperar, informar del estado de la cola y cancelar muestreos.
+Lee el ID del trabajo desde el SDK:
 
-Una operación aceptada puede informar de `paused_capacity`. Trátala como trabajo
-en espera, no como una solicitud rechazada.
-
-Los resultados de futures completados se conservan durante una hora. Resuelve y
-conserva el resultado cuanto antes.
-
-La cancelación se aplica a las operaciones de muestreo. Las operaciones de
-entrenamiento individuales no se pueden cancelar después de enviarlas.
-
-Cierra `ServiceClient` cuando finalice tu aplicación. Cerrar el cliente libera
-las ejecuciones activas, pero no elimina los puntos de control conservados.
-
-Las solicitudes están aisladas por equipo de Fastino. Una clave no puede
-inspeccionar ni operar sobre las sesiones, ejecuciones o puntos de control de
-otro equipo.
-
-## Puntos de control y administración de ejecuciones
-
-El cliente REST del SDK permite:
-
-- Enumerar ejecuciones de entrenamiento
-- Obtener una ejecución de entrenamiento
-- Enumerar los puntos de control de una ejecución o un equipo
-- Inspeccionar los metadatos de pesos de un punto de control
-- Copiar pesos en una ejecución nueva
-- Eliminar un punto de control
-- Publicar o anular la publicación de un punto de control
-- Establecer o borrar el tiempo de vida de un punto de control
-- Informar del uso actual de almacenamiento de puntos de control
-
-La publicación solo modifica los metadatos del punto de control dentro del
-equipo. No crea un listado público, no permite que otro equipo de Fastino
-cargue el punto de control, no cambia el comportamiento de servicio ni concede
-acceso. No incluyas la distribución entre equipos en un flujo de trabajo
-automatizado.
-
-Las rutas de estado de entrenamiento usan:
-
-```text
-tinker://<run-id>/weights/<name>
+```python
+job_id = training_client.get_info().model_data.model_id
 ```
 
-Las rutas de pesos del muestreador usan:
+El mismo valor identifica el recurso devuelto por:
 
-```text
-tinker://<run-id>/sampler_weights/<name>
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
 ```
 
-Un punto de control de estado incluye la información necesaria para restaurar
-el entrenamiento, incluida la configuración del optimizador. Un punto de
-control del muestreador está destinado a la inferencia y la generación de
-rollouts y no puede restaurar el estado del optimizador. Una reanudación fiable
-también requiere los metadatos locales duraderos de tu bucle, como el cursor del
-conjunto de datos y el paso completado.
+Usa las rutas canónicas de trabajos y checkpoints para la administración. Usa
+el SDK para las operaciones interactivas del modelo; nunca construyas
+solicitudes HTTP al adaptador.
 
-## Límites
+## Los futures son operaciones del trabajo
 
-Las llamadas de muestreo, hacia delante y hacia delante-atrás tienen límites de
-secuencia por llamada independientes. Cada límite puede ser inferior a la
-ventana de contexto del modelo y puede cambiar sin una actualización del SDK.
-Trata una respuesta por longitud no válida como un error de configuración de la
-solicitud:
+Los métodos del SDK pueden devolver futures de operaciones enviadas al trabajo
+interactivo. Obtener o resolver el resultado de un future resuelve la operación
+correspondiente. Cancelar un future se asigna a la cancelación de esa operación.
 
-1. Reduce la longitud del prompt o la finalización.
-2. Divide los lotes de entrenamiento grandes.
-3. Reintenta con una solicitud válida, no con el mismo cuerpo no válido.
+Resuelve los futures antes de que tu aplicación avance a un paso dependiente.
+Conserva el paso de la aplicación, el cursor del dataset y los identificadores
+de operaciones o checkpoints pertinentes para que un controlador reiniciado
+pueda determinar qué se completó.
 
-No fijes en la lógica reutilizable de un agente un límite por llamada que no
-esté documentado. El SDK de Tinker divide los lotes de entrenamiento. Si una
-solicitud es demasiado grande, divide el lote y reintenta con una solicitud
-válida.
+La recuperación por lotes mediante `retrieve_futures` no es compatible. Realiza
+el seguimiento y resuelve los futures individuales devueltos por las llamadas
+compatibles.
 
-## Semántica de los reintentos
+## Los checkpoints pertenecen al trabajo
 
-El SDK mantiene en orden las operaciones de una ejecución de entrenamiento.
-Reintentar la misma operación devuelve el future original en lugar de aplicar
-la actualización dos veces. Un future puede recuperarse después de perderse la
-respuesta del envío original.
+Dos tipos de checkpoint tienen propósitos diferentes:
 
-No modifiques una solicitud mientras la reintentas. No modifiques un mismo
-`TrainingClient` desde procesos independientes.
+- `save_state(...)` crea un checkpoint de estado para recuperar el entrenamiento.
+- `save_weights_for_sampler(...)` crea un checkpoint de muestreador para rollouts o evaluación.
 
-## Comportamiento de facturación
+La carga de estado se asigna a la operación de carga del checkpoint en el
+trabajo interactivo. Crear u obtener un muestreador resuelve un checkpoint; el
+muestreo se ejecuta después contra ese checkpoint.
 
-| Trabajo | Medidor |
+Las rutas canónicas de checkpoints permiten listar, obtener, descargar,
+eliminar, publicar, retirar la publicación, administrar el TTL y administrar
+el uso de almacenamiento. La política de retención pertenece a la aplicación:
+no supongas una duración ni una garantía de almacenamiento no documentadas.
+
+Guarda los identificadores de checkpoints junto con el estado controlado por el
+cliente necesario para continuar, incluidos el paso de la aplicación, la
+revisión del dataset, la revisión de la recompensa y el cursor del dataset.
+
+## Autenticación
+
+El SDK obtiene una clave normal de Fastino ejecutando `TINKER_CREDENTIAL_CMD`
+con cada solicitud de token. El comando debe imprimir una credencial no vacía
+en la salida estándar. Las claves comienzan por `fast_sk_`; las credenciales que
+comienzan por `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
+
+## Diagnostica errores
+
+| Síntoma | Comprobación |
 | --- | --- |
-| Muestreo | Tokens de entrada, entrada en caché y salida |
-| `forward` y `forward_backward` | Tokens de entrenamiento |
-| Puntos de control | Bytes almacenados a lo largo del tiempo |
-| Creación de cliente o modelo | Sin medidor de tokens |
-| `optim_step` | Sin medidor de tokens |
-| Solicitud de guardado o carga | Sin medidor de tokens más allá del uso del punto de control almacenado |
+| La autenticación falla | Confirma que el comando de credenciales imprima una clave `fast_sk_` actual y ninguna salida adicional |
+| El SDK no puede conectarse | Confirma que `TINKER_BASE_URL` sea exactamente `https://api.fastino.ai/v1/training/compat/tinker` |
+| Se rechaza el modelo o la operación | Vuelve a consultar las capacidades y compara la llamada con la tabla de compatibilidad |
+| Falla un future | Registra el ID del trabajo y el resultado de la operación; no avances el estado dependiente de la aplicación |
+| No se puede cargar un checkpoint | Verifica su trabajo, tipo de checkpoint y metadatos de reanudación controlados por el cliente |
+| Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_data.model_id` y que esté autenticado el mismo equipo de Fastino |
 
-El uso se atribuye al proyecto de Fastino de la sesión. Cuando no se especifica
-ningún proyecto, se usa el proyecto predeterminado del equipo.
-
-## Errores
-
-| Síntoma | Causa probable | Acción |
-| --- | --- | --- |
-| `404 Not Found` en la llamada de capacidades | URL base incorrecta o acceso a la API de RL no habilitado | Confirma el sufijo `/tinker` y después contacta con Fastino |
-| Error de autenticación | Falta el contenedor `tml-` o la clave de Fastino no es válida | Vuelve a crear `TINKER_API_KEY` a partir de una clave `fast_sk_...` actual |
-| `402 Payment Required` en un trabajo facturable | La facturación o el control de gastos de Fastino rechazaron la solicitud | Resuelve la situación de facturación de la cuenta antes de reintentar |
-| El modelo no se ofrece | El modelo de origen no está en el catálogo de RL de Fastino | Selecciona un modelo de `get_server_capabilities()` |
-| Rango rechazado | El rango de LoRA solicitado es superior a 32 | Usa un rango de 32 o inferior |
-| Función de pérdida rechazada | El nombre no pertenece al conjunto compatible | Usa una de las cinco funciones de pérdida documentadas |
-| El future informa de `paused_capacity` | La ejecución está esperando capacidad | Sigue consultando con el backoff del SDK |
-| El resultado del future devuelve `410` | El resultado caducó o no está disponible | No vuelvas a enviar una mutación de entrenamiento cuyo resultado se desconoce; recupérate desde tu último punto de control de estado explícito |
-| La ejecución no puede restaurar el estado activo | La ejecución activa no puede continuar | Reanuda desde tu último punto de control de estado explícito |
-
-Para consultar los modelos, los métodos, las funciones de pérdida y las
-funciones no compatibles, consulta [Compatibilidad con
-Tinker](/es/rl-api/compatibility).
+No deduzcas la compatibilidad porque un método exista en el paquete instalado.
+Consulta la [compatibilidad del SDK](/es/rl-api/compatibility) y la respuesta de
+capacidades activa.

@@ -1,123 +1,88 @@
 ---
 title: "Comportement à l'exécution et erreurs"
-description: "Futures, sessions, checkpoints, nouvelles tentatives, facturation, limites et erreurs des workloads de l'API RL."
+description: "Comprenez les opérations, les checkpoints, la récupération et les erreurs d'un job interactif Fastino."
 ---
 
-Utilisez cette référence lorsqu'un workload est connecté et que vous devez
-comprendre son cycle de vie ou un échec.
+Un client d'entraînement SDK correspond à un job interactif Fastino. Les
+opérations interactives, les futures, les clients d'échantillonnage et les
+checkpoints sont différentes vues du travail ou des artefacts appartenant à ce
+job, et non des exécutions d'entraînement distinctes.
 
-## Futures et sessions
+## Identifier le job
 
-Les opérations soumises renvoient des futures Tinker. L'API permet de récupérer
-une future, d'attendre son résultat, de connaître son état dans la file et
-d'annuler un échantillonnage.
+Lisez l'ID du job depuis le SDK :
 
-Une opération acceptée peut signaler `paused_capacity`. Il s'agit d'un travail
-en attente, pas d'une requête rejetée.
-
-Les résultats terminés sont conservés pendant une heure. Récupérez-les et
-conservez-les rapidement.
-
-L'annulation s'applique aux opérations d'échantillonnage. Une opération
-d'entraînement individuelle ne peut plus être annulée après sa soumission.
-
-Fermez `ServiceClient` lorsque votre application a terminé. Sa fermeture libère
-les exécutions actives, mais ne supprime pas les checkpoints conservés.
-
-Les requêtes sont isolées par équipe Fastino. Une clé ne peut ni inspecter ni
-manipuler les sessions, les exécutions ou les checkpoints d'une autre équipe.
-
-## Checkpoints et administration des exécutions
-
-Le client REST du SDK permet de :
-
-- Répertorier les exécutions d'entraînement
-- Obtenir une exécution
-- Répertorier les checkpoints d'une exécution ou d'une équipe
-- Inspecter les métadonnées des poids d'un checkpoint
-- Copier les poids dans une nouvelle exécution
-- Supprimer un checkpoint
-- Publier ou dépublier un checkpoint
-- Définir ou effacer la durée de vie d'un checkpoint
-- Indiquer l'utilisation actuelle du stockage des checkpoints
-
-La publication modifie uniquement les métadonnées du checkpoint au sein de
-l'équipe. Elle ne crée pas de liste publique, ne permet pas à une autre équipe
-Fastino de charger le checkpoint, ne modifie pas le comportement de service et
-n'accorde aucun accès. N'intégrez pas la distribution entre équipes à un
-workflow automatisé.
-
-Les chemins d'état d'entraînement utilisent :
-
-```text
-tinker://<run-id>/weights/<name>
+```python
+job_id = training_client.get_info().model_data.model_id
 ```
 
-Les chemins des poids d'échantillonneur utilisent :
+La même valeur identifie la ressource renvoyée par :
 
-```text
-tinker://<run-id>/sampler_weights/<name>
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
 ```
 
-Un checkpoint d'état contient les informations nécessaires pour restaurer
-l'entraînement, y compris la configuration de l'optimiseur. Un checkpoint
-d'échantillonneur sert à l'inférence et aux rollouts. Il ne restaure pas l'état
-de l'optimiseur. Une reprise fiable exige aussi les métadonnées durables de
-votre boucle, comme le curseur du jeu de données et l'étape terminée.
+Utilisez les routes canoniques des jobs et des checkpoints pour
+l'administration. Utilisez le SDK pour les opérations interactives du modèle ;
+ne construisez jamais de requêtes HTTP vers l'adaptateur.
 
-## Limites
+## Les futures sont des opérations du job
 
-Les appels d'échantillonnage, `forward` et `forward_backward` ont des limites de
-séquences distinctes. Chaque limite peut être inférieure à la fenêtre de
-contexte du modèle et évoluer sans mise à jour du SDK. Traitez une erreur de
-longueur comme une erreur de forme de la requête :
+Les méthodes du SDK peuvent renvoyer des futures pour les opérations soumises
+au job interactif. Le résultat ou l'obtention d'une future résout l'opération
+correspondante. L'annulation d'une future correspond à l'annulation de cette
+opération.
 
-1. Réduisez la longueur du prompt ou de la complétion.
-2. Divisez les grands lots d'entraînement.
-3. Réessayez avec une requête valide, pas avec le même corps non valide.
+Résolvez les futures avant que votre application ne passe à une étape qui en
+dépend. Conservez l'étape de l'application, le curseur du dataset et les
+identifiants d'opération ou de checkpoint pertinents afin qu'un contrôleur
+redémarré puisse déterminer ce qui a été terminé.
 
-N'intégrez pas une limite par appel non documentée à une logique d'agent
-réutilisable. Le SDK Tinker découpe les lots d'entraînement. Si une requête est
-trop grande, divisez le lot et réessayez avec une nouvelle requête valide.
+La récupération par lots via `retrieve_futures` n'est pas prise en charge.
+Suivez et résolvez individuellement les futures renvoyées par les appels pris
+en charge.
 
-## Sémantique des nouvelles tentatives
+## Les checkpoints appartiennent au job
 
-Le SDK maintient l'ordre des opérations d'une même exécution. Réessayer la même
-opération renvoie la future d'origine au lieu d'appliquer deux fois la mise à
-jour. Une future reste récupérable si la réponse initiale de soumission est
-perdue.
+Deux types de checkpoints répondent à des objectifs différents :
 
-Ne modifiez pas une requête pendant une nouvelle tentative. Ne modifiez pas le
-même `TrainingClient` depuis des processus indépendants.
+- `save_state(...)` crée un checkpoint d'état pour la récupération de l'entraînement.
+- `save_weights_for_sampler(...)` crée un checkpoint d'échantillonneur pour les rollouts ou l'évaluation.
 
-## Comportement de la facturation
+Le chargement d'un état correspond à l'opération de chargement d'un checkpoint
+sur le job interactif. La création ou l'obtention d'un échantillonneur résout un
+checkpoint ; l'échantillonnage s'exécute ensuite sur ce checkpoint.
 
-| Travail | Mesure |
+Les routes canoniques des checkpoints permettent de les lister, les obtenir,
+les télécharger, les supprimer, les publier, les dépublier, administrer leur
+TTL et administrer l'utilisation du stockage. La politique de rétention est
+contrôlée par l'application : ne supposez pas une durée de vie ou une garantie
+de stockage non documentée.
+
+Conservez les identifiants de checkpoint avec l'état contrôlé par le client
+nécessaire à la poursuite, notamment l'étape de l'application, la révision du
+dataset, la révision de la récompense et le curseur du dataset.
+
+## Authentification
+
+Le SDK obtient une clé Fastino normale en exécutant `TINKER_CREDENTIAL_CMD` à
+chaque demande de token. La commande doit afficher un identifiant non vide sur
+la sortie standard. Les clés commencent par `fast_sk_` ; les identifiants
+commençant par `tml-` sont rejetés. Ne définissez pas `TINKER_API_KEY`.
+
+## Diagnostiquer les erreurs
+
+| Symptôme | Vérification |
 | --- | --- |
-| Échantillonnage | Tokens d'entrée, tokens d'entrée mis en cache et tokens de sortie |
-| `forward` et `forward_backward` | Tokens d'entraînement |
-| Checkpoints | Octets stockés dans le temps |
-| Création d'un client ou d'un modèle | Aucun décompte de tokens |
-| `optim_step` | Aucun décompte de tokens |
-| Requête d'enregistrement ou de chargement | Aucun décompte de tokens au-delà du stockage du checkpoint |
+| Échec de l'authentification | Vérifiez que la commande d'identification affiche une clé `fast_sk_` actuelle sans sortie supplémentaire |
+| Le SDK ne parvient pas à se connecter | Vérifiez que `TINKER_BASE_URL` correspond exactement à `https://api.fastino.ai/v1/training/compat/tinker` |
+| Un modèle ou une opération est rejeté | Interrogez de nouveau les capacités et comparez l'appel avec le tableau de compatibilité |
+| Une future échoue | Enregistrez l'ID du job et le résultat de l'opération ; ne faites pas avancer l'état dépendant de l'application |
+| Un checkpoint ne peut pas être chargé | Vérifiez son job, son type de checkpoint et les métadonnées de reprise contrôlées par le client |
+| La recherche du job canonique échoue | Vérifiez que l'ID provient de `get_info().model_data.model_id` et que la même équipe Fastino est authentifiée |
 
-L'utilisation est attribuée au projet Fastino de la session. Sans projet
-précisé, elle est attribuée au projet par défaut de l'équipe.
-
-## Erreurs
-
-| Symptôme | Cause probable | Action |
-| --- | --- | --- |
-| `404 Not Found` lors de l'appel des capacités | URL de base incorrecte ou accès à l'API RL non activé | Vérifiez le suffixe `/tinker`, puis contactez Fastino |
-| Erreur d'authentification | Préfixe `tml-` absent ou clé Fastino non valide | Recréez `TINKER_API_KEY` avec une clé `fast_sk_...` actuelle |
-| `402 Payment Required` lors d'une opération facturable | La facturation ou le contrôle des dépenses a rejeté la requête | Résolvez le problème de facturation avant de réessayer |
-| Modèle non servi | Le modèle source ne figure pas dans le catalogue RL de Fastino | Choisissez un modèle renvoyé par `get_server_capabilities()` |
-| Rang rejeté | Le rang LoRA demandé dépasse 32 | Utilisez un rang inférieur ou égal à 32 |
-| Fonction de perte rejetée | Son nom ne figure pas dans l'ensemble pris en charge | Utilisez l'une des cinq fonctions documentées |
-| La future signale `paused_capacity` | L'exécution attend de la capacité | Continuez l'interrogation avec le backoff du SDK |
-| Le résultat de la future renvoie `410` | Le résultat a expiré ou son effet est inconnu | Ne resoumettez pas une opération d'entraînement dont l'effet est inconnu ; reprenez depuis votre dernier checkpoint d'état explicite |
-| L'état actif ne peut pas être restauré | L'exécution active ne peut pas continuer | Reprenez depuis votre dernier checkpoint d'état explicite |
-
-Pour les modèles, méthodes, fonctions de perte et fonctionnalités non prises en
-charge, consultez la
-[compatibilité avec Tinker](/fr/rl-api/compatibility).
+Ne déduisez pas la prise en charge d'une méthode uniquement parce qu'elle
+existe dans le paquet installé. Consultez la
+[compatibilité du SDK](/fr/rl-api/compatibility) et la réponse de capacités active.

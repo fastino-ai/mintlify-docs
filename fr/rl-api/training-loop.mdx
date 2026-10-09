@@ -1,132 +1,122 @@
 ---
 title: "La boucle d'entraînement RL"
-description: "Comprenez comment s'articulent l'échantillonnage, les récompenses, les avantages, les mises à jour et les checkpoints."
+description: "Reliez l'échantillonnage, les récompenses, les mises à jour et les checkpoints au sein d'un même job interactif Fastino."
 ---
 
-L'API RL sépare le programme d'apprentissage du calcul effectué sur le modèle.
-Votre processus décide quoi échantillonner, comment l'évaluer et quand effectuer
-une mise à jour. Fastino exécute l'échantillonnage, les passes avant et arrière,
-les étapes d'optimisation et les opérations de checkpoint.
+Votre application décide quoi échantillonner, comment l'évaluer et quand
+effectuer une mise à jour. Fastino exécute les opérations interactives du
+modèle. Un `TrainingClient` représente un job interactif Fastino pendant toute
+la boucle.
 
 ## La boucle de contrôle
 
 <Steps>
-  <Step title="Créer un client d'entraînement">
-    Choisissez un modèle de base pris en charge et un rang LoRA. Le client
-    représente une exécution d'entraînement ordonnée, avec ses propres poids,
-    son propre état d'optimiseur et sa propre séquence d'opérations.
+  <Step title="Créer le job interactif">
+    Choisissez un `base_model` et d'autres options à partir de la réponse de
+    capacités, puis appelez `create_lora_training_client(...)`. Lisez l'ID
+    canonique du job dans `training_client.get_info().model_data.model_id`.
   </Step>
-  <Step title="Créer un instantané de la politique actuelle pour l'échantillonnage">
-    Pour des rollouts immédiats dans la même exécution, appelez
-    `save_weights_and_get_sampling_client()`. Ses poids sont éphémères et peuvent
-    disparaître lorsque l'exécution se termine, est mise en veille, déplacée,
-    reconstruite ou réduite en capacité. Pour une limite à partir de laquelle
-    une nouvelle tentative est possible, appelez
-    `save_weights_for_sampler(name)` et créez un
-    client d'échantillonnage à partir du chemin renvoyé. Les rollouts doivent
-    provenir de la politique que vous êtes sur le point d'améliorer, et non de
-    poids sans rapport ou obsolètes.
+  <Step title="Créer un checkpoint des poids pour l'échantillonnage">
+    Appelez `save_weights_for_sampler(name)`, puis créez un client
+    d'échantillonnage à partir du chemin de checkpoint renvoyé. Cela associe la
+    politique de rollout à un artefact explicite du même job.
   </Step>
   <Step title="Collecter des groupes de rollouts">
-    Envoyez le même prompt plusieurs fois ou demandez plusieurs échantillons en
-    un seul appel. Un groupe fournit à la fonction de récompense plusieurs
-    réponses à comparer pour un même problème.
+    Échantillonnez plusieurs réponses candidates pour chaque prompt. Votre
+    application contrôle la construction des prompts, le rendu des réponses et
+    le regroupement.
   </Step>
   <Step title="Calculer les récompenses et les avantages">
-    Évaluez chaque réponse, puis transformez les récompenses en avantages. Dans
-    une boucle de type GRPO, soustrayez la récompense moyenne du groupe à la
-    récompense de chaque réponse.
+    Évaluez chaque réponse, puis transformez les récompenses en avantages requis
+    par l'opération d'entraînement sélectionnée et prise en charge par les
+    capacités.
   </Step>
   <Step title="Construire les datums d'entraînement">
-    Combinez les tokens du prompt, les tokens des réponses échantillonnées, les
-    log-probabilités d'échantillonnage et les avantages au niveau des tokens. Les
-    tokens du prompt reçoivent normalement un avantage nul.
+    Combinez les entrées du modèle, les tokens des réponses échantillonnées, les
+    métadonnées d'échantillonnage et les signaux d'entraînement au niveau des
+    tokens dans la forme attendue par le SDK.
   </Step>
-  <Step title="Mettre à jour la politique">
-    Soumettez les datums avec `forward_backward(...,
-    loss_fn="importance_sampling")`, puis appelez `optim_step(...)`.
+  <Step title="Mettre à jour le même job">
+    Soumettez les opérations avant/arrière prises en charge, puis une étape
+    d'optimisation, via le `TrainingClient` existant.
   </Step>
-  <Step title="Créer un checkpoint et recommencer">
-    Enregistrez un état durable aux étapes utiles, créez un nouveau client
-    d'échantillonnage à partir des poids mis à jour et commencez l'itération
+  <Step title="Enregistrer une limite de récupération">
+    Enregistrez un checkpoint d'état et conservez son identifiant avec l'étape
+    de l'application et le curseur du dataset avant de commencer l'itération
     suivante.
   </Step>
 </Steps>
 
-## Modèle d'objets clients
+## Modèle d'objets
 
-| Objet | Responsabilité | Durée de vie habituelle |
-| --- | --- | --- |
-| `ServiceClient` | Ouvre une session, indique les capacités, crée les clients d'entraînement et d'échantillonnage, et expose le client REST | Une exécution logique de l'application |
-| `TrainingClient` | Possède une exécution ordonnée d'entraînement LoRA et l'état de son optimiseur | Une politique en cours d'entraînement |
-| `SamplingClient` | Échantillonne ou calcule les log-probabilités à partir d'un modèle de base ou de poids enregistrés | Un instantané de politique ou un checkpoint réutilisable |
-| `RestClient` | Répertorie les exécutions et les checkpoints, gère les métadonnées et la rétention des checkpoints, et indique l'utilisation du stockage | Opérations administratives |
-| Future | Suit une opération soumise et renvoie son résultat | Une opération |
+| Objet | Rôle |
+| --- | --- |
+| `ServiceClient` | Interroge les capacités et crée les clients SDK |
+| `TrainingClient` | Représente un job interactif Fastino et soumet ses opérations de modèle |
+| `SamplingClient` | Échantillonne depuis un checkpoint résolu |
+| `RestClient` | Liste ou obtient les jobs canoniques et administre les checkpoints |
+| Future | Suit une opération soumise au job |
 
-La fermeture d'un `ServiceClient` met fin à la session et libère ses
-entraînements actifs. Elle ne supprime pas les checkpoints.
+L'ID de modèle du SDK est l'ID de job Fastino canonique. Les futures et les
+clients d'échantillonnage ne créent pas d'exécutions indépendantes.
 
-## Pourquoi les récompenses groupées fonctionnent
+## Récompenses relatives au groupe
 
-Supposons que quatre réponses à un même prompt reçoivent ces récompenses :
+Pour un groupe de réponses, une transformation courante contrôlée par
+l'application soustrait la récompense moyenne du groupe :
 
-```text
-[1.0, 0.0, 1.0, 0.0]
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
 ```
 
-La récompense moyenne est `0.5`. Les avantages relatifs au groupe sont donc :
+Si tous les avantages centrés sont nuls, le groupe ne contient aucun signal
+relatif. Votre application peut le journaliser et l'ignorer.
 
-```text
-[0.5, -0.5, 0.5, -0.5]
-```
+## Construire des datums alignés
 
-Les valeurs positives renforcent les tokens des réponses dont le score est
-supérieur à la moyenne du groupe. Les valeurs négatives réduisent la probabilité
-des réponses inférieures à la moyenne.
+Pour une boucle fondée sur l'échantillonnage d'importance, le prompt constitue
+le contexte et la complétion échantillonnée constitue l'action. Conservez les
+tableaux de tokens alignés avec le SDK et le renderer utilisés par le modèle
+sélectionné :
 
-Si chaque réponse reçoit la même récompense, tous les avantages centrés sont
-nuls. Ce groupe ne porte aucun signal d'apprentissage relatif et peut être
-ignoré.
-
-## Contenu d'un datum
-
-Pour la boucle courante d'échantillonnage d'importance, chaque datum contient :
-
-- Le prompt suivi de la complétion échantillonnée
-- Les tokens cibles alignés avec l'entrée du modèle
-- Les log-probabilités enregistrées pendant l'échantillonnage
-- Les avantages appliqués aux tokens de la complétion
-
-Le préfixe du prompt est un contexte, et non une action sélectionnée par la
-politique. Affectez la valeur zéro à ses avantages. Appliquez l'avantage de la
-réponse aux positions des tokens générés.
+- Entrée du modèle contenant les tokens du prompt et de la complétion
+- Tokens cibles alignés avec l'entrée du modèle
+- Log-probabilités d'échantillonnage alignées avec les tokens générés
+- Avantages appliqués aux positions de la complétion
 
 <Warning>
-  Les tableaux de tokens doivent avoir les longueurs attendues par le renderer
-  et le SDK. Réutilisez le renderer correspondant au modèle de base sélectionné.
-  Un formateur destiné à un autre modèle peut produire des séquences d'arrêt ou
-  un alignement de tokens incorrects.
+  Le rendu des prompts, la tokenisation, la construction des datums et
+  l'exécution des récompenses sont contrôlés par le client. Validez leurs formes
+  par rapport à `tinker==0.33.1` et à la réponse de capacités active avant
+  d'exécuter un workload plus important.
 </Warning>
 
-## Garder les mises à jour séquentielles
+## Maintenir l'ordre du travail dépendant
 
-Le SDK peut soumettre plusieurs futures d'échantillonnage, mais qualifiez la
-concurrence et le débit dans votre environnement Fastino activé avant d'en
-dépendre. Les mises à jour d'un même `TrainingClient` doivent rester
-séquentielles. Récupérez les résultats de `forward_backward(...)` et
-`optim_step(...)` dans l'ordre, et ne modifiez pas le même client d'entraînement
-depuis des processus indépendants.
+Résolvez une future avant/arrière avant de considérer cette étape comme
+terminée, et résolvez la future de l'optimiseur avant de créer un checkpoint de
+l'état mis à jour. Ne laissez pas des contrôleurs indépendants modifier le même
+job sans coordination au niveau de l'application.
 
-## Choisir le bon checkpoint
+Le SDK exécute ces opérations interactives. Ne les reproduisez pas sous forme
+d'appels HTTP directs.
 
-`save_state(name)` enregistre les poids d'entraînement et l'état de l'optimiseur
-pour reprendre l'entraînement. `save_weights_for_sampler(name)` enregistre les
-poids pour l'évaluation ou de nouveaux rollouts. Un checkpoint d'échantillonneur
-ne peut pas restaurer l'état de l'optimiseur.
+## Choisir le type de checkpoint
 
-Pour créer une limite de récupération complète, stockez le chemin du checkpoint
-d'état avec l'étape de votre application et la position dans le jeu de données.
-Suivez [Créer un checkpoint et reprendre](/fr/rl-api/checkpoint-and-resume).
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
 
-Pour implémenter la boucle avec un évaluateur déterministe, suivez
+Utilisez le checkpoint d'état comme limite de récupération de l'entraînement.
+Utilisez le checkpoint d'échantillonneur pour les rollouts ou l'évaluation.
+Conservez l'identifiant du checkpoint sélectionné avec les métadonnées de votre
+application plutôt que de déduire l'état à partir d'un nom.
+
+Pour implémenter cette boucle avec un évaluateur déterministe, poursuivez avec
 [S'entraîner avec des récompenses vérifiables](/fr/rl-api/verifiable-rewards).
+Pour la récupération, consultez
+[Créer un checkpoint et reprendre](/fr/rl-api/checkpoint-and-resume).

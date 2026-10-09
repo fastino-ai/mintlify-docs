@@ -1,104 +1,85 @@
 ---
-title: "Compatibilidad del cliente"
-description: "Versiones del cliente, modelos, operaciones de entrenamiento, operaciones de muestreo y funciones de pérdida compatibles."
+title: "Compatibilidad del SDK"
+description: "Compatibilidad y asignaciones exactas del SDK de Tinker para los trabajos de entrenamiento interactivos de Fastino."
 ---
 
-Usa esta referencia para comprobar qué partes del contrato del cliente Tinker
-admite la API de RL de Fastino. El paquete fijado `tinker==0.32.0` define las
-firmas de los métodos. Esta página define los límites de compatibilidad
-específicos de Fastino, y cualquier elemento que aquí se indique explícitamente
-como no compatible prevalece sobre su disponibilidad en el paquete cliente.
+Fastino prueba el contrato de compatibilidad con `tinker==0.33.1`. El paquete
+define las firmas del SDK; esta página define qué métodos admite Fastino y cómo
+se asignan al dominio de entrenamiento de Fastino.
 
-## Contrato del cliente
-
-| Elemento | Valor |
+| Elemento | Valor compatible |
 | --- | --- |
-| Paquete de Python | `tinker` |
-| Versión probada | `0.32.0` |
-| Versión mínima compatible | `0.25.0` |
-| URL base | `https://api.fastino.ai/tinker` |
-| Credencial | `tml-` seguido de una clave de Fastino `fast_sk_...` |
-| Acceso del equipo | Acceso limitado para el equipo de Fastino autenticado |
+| Paquete | `tinker==0.33.1` |
+| URL base | `https://api.fastino.ai/v1/training/compat/tinker` |
+| Autenticación | Una clave `fast_sk_` impresa por `TINKER_CREDENTIAL_CMD` |
+| Identidad del recurso | Un cliente de entrenamiento es un trabajo interactivo de Fastino con el mismo ID |
 
-Fija `tinker==0.32.0` cuando desarrolles con esta versión preliminar.
+El SDK añade `/api/v1/<operation>` a la URL base. Las rutas del adaptador se
+ocultan del OpenAPI y de la referencia de la API. Los usuarios no deben
+construir solicitudes al adaptador.
 
-## Modelos
+## Entrenamiento y muestreo
 
-| Modelo base | Ventana de contexto | Rango máximo de LoRA |
-| --- | ---: | ---: |
-| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 |
+| Método u operación del SDK | Asignación de Fastino | Compatibilidad |
+| --- | --- | --- |
+| `create_lora_training_client` | `POST /v1/training/jobs` con tipo de trabajo interactivo | Compatible |
+| `copy_weights` | Crear un trabajo interactivo desde el checkpoint | Compatible |
+| `TrainingClient.get_info` | `GET` del trabajo canónico de Fastino | Compatible |
+| `forward` | `/forward` en el trabajo interactivo | Compatible |
+| `forward_backward` | `/forward-backward` en el trabajo interactivo | Compatible |
+| Operación personalizada hacia delante/hacia atrás | `/forward-backward` en el trabajo interactivo | Compatible |
+| `optim_step` | `/optim-step` en el trabajo interactivo | Compatible |
+| `save_state` | `POST` de un checkpoint de tipo `state` | Compatible |
+| `save_weights_for_sampler` | `POST` de un checkpoint de tipo `sampler` | Compatible |
+| Cargar el estado de entrenamiento | Carga del checkpoint en el trabajo interactivo | Compatible |
+| Crear u obtener un cliente de muestreo | Resolver el checkpoint seleccionado | Compatible |
+| `SamplingClient.sample` | Muestreo del checkpoint | Compatible |
 
-Llama a `get_server_capabilities()` antes de elegir un modelo. La respuesta de
-capacidades es la fuente de verdad para la disponibilidad y las ventanas de
-contexto actuales.
+Conserva sin cambios el parámetro `base_model` del método del SDK. Consulta
+`ServiceClient.get_server_capabilities()` antes de seleccionar un modelo base o
+depender de una operación opcional. Las capacidades son la fuente de verdad;
+esta referencia no establece un catálogo fijo de modelos, pérdidas, rangos,
+ventanas de contexto ni límites por llamada.
 
-## Operaciones de entrenamiento
+## Futures
 
-| Capacidad | Compatibilidad |
-| --- | --- |
-| Crear un cliente de entrenamiento LoRA | Compatible |
-| `forward` | Compatible |
-| `forward_backward` | Compatible |
-| `optim_step` | Compatible |
-| Guardar o cargar el estado de entrenamiento | Compatible |
-| Crear un cliente nuevo desde un estado guardado | Compatible |
-| Guardar pesos del muestreador | Compatible |
-| Crear un cliente de muestreo desde los pesos de entrenamiento | Compatible |
-| Descargar o liberar una ejecución | Compatible |
-| Configuraciones de entrenamiento distintas de LoRA | No compatibles |
+| Método u operación del SDK | Asignación de Fastino | Compatibilidad |
+| --- | --- | --- |
+| Resultado/obtención de future | Obtener operaciones | Compatible |
+| Cancelación de future | Cancelar operaciones | Compatible |
+| Recuperación por lotes con `retrieve_futures` | Ninguna | No compatible |
 
-La familia de optimizadores compatible es AdamW mediante `AdamParams` del SDK.
+## Administración
 
-### Funciones de pérdida
+| Método u operación del SDK | Asignación de Fastino | Compatibilidad |
+| --- | --- | --- |
+| Listar ejecuciones de entrenamiento con `RestClient` | Listar trabajos canónicos de Fastino | Compatible |
+| Obtener una ejecución de entrenamiento con `RestClient` | Obtener un trabajo canónico de Fastino | Compatible |
+| Listar u obtener checkpoints | Rutas canónicas de trabajos/checkpoints | Compatible |
+| Descargar o eliminar un checkpoint | Rutas canónicas de trabajos/checkpoints | Compatible |
+| Publicar o retirar la publicación de un checkpoint | Rutas canónicas de trabajos/checkpoints | Compatible |
+| Establecer o borrar el TTL de un checkpoint | Rutas canónicas de trabajos/checkpoints | Compatible |
+| Obtener el uso de almacenamiento de checkpoints | Rutas canónicas de trabajos/checkpoints | Compatible |
 
-El gateway acepta estos nombres de funciones de pérdida integradas:
+## Infraestructura exclusiva del adaptador
 
-- `cross_entropy`
-- `importance_sampling`
-- `ppo`
-- `cispo`
-- `dro`
+El SDK puede usar la infraestructura del adaptador para capacidades, sesiones,
+heartbeat, telemetría, autenticación e integración de auditoría. Son detalles
+de implementación y no tienen una ruta pública de Fastino. No los trates como
+API HTTP orientadas al cliente.
 
-La aceptación confirma el contrato del cliente y la forma de la solicitud. No
-certifica que todas las recetas externas tengan un comportamiento numérico
-idéntico con todos los modelos. Evalúa conjuntamente la función de pérdida, los
-campos de datum y el modelo con una pequeña ejecución sobre datos reservados
-antes de aumentar el tamaño de la carga de trabajo.
+## Explícitamente no compatible
 
-[Entrenar con recompensas verificables](/es/rl-api/verifiable-rewards) muestra
-la forma del datum de `importance_sampling`.
+- Recuperación de futures por lotes mediante `retrieve_futures`
+- `save_weights_external`
+- `external_weights_urls`
+- Operaciones de autenticación o tokens del SDK
+- Operaciones de facturación, uso o eventos del SDK
 
-## Operaciones de muestreo
+La autenticación solo se proporciona mediante una clave normal de Fastino
+`fast_sk_` a través de `TINKER_CREDENTIAL_CMD`. Las credenciales que comienzan
+por `tml-` se rechazan y los ejemplos activos no deben establecer
+`TINKER_API_KEY`.
 
-| Capacidad | Compatibilidad |
-| --- | --- |
-| Muestrear desde un modelo base | Compatible |
-| Muestrear desde pesos del muestreador con nombre | Compatible |
-| Muestrear desde los pesos de entrenamiento actuales | Compatible |
-| Solicitar varias muestras | Compatible |
-| Calcular probabilidades logarítmicas de tokens | Compatible |
-| Cancelar un future de muestreo en cola | Compatible |
-| Fragmentos de prompts de imagen o multimodales | No compatibles |
-| `target_prompt_logprobs` | No compatible |
-| `prompt_alt_tokens_k` | No compatible |
-
-Los modelos actuales aceptan fragmentos codificados de tokens de texto. El
-muestreo requiere un `SamplingClient`.
-
-## Otras diferencias
-
-| Capacidad | Comportamiento |
-| --- | --- |
-| Exportación de trazas de sesión | No compatible |
-| Endpoint de auditoría del SDK | No devuelve entradas |
-| Carga de puntos de control entre equipos | No compatible |
-| Descubrimiento mediante OpenAPI | Las rutas de RL se omiten intencionadamente |
-
-Usa los registros de tu aplicación y los registros de uso de proyectos de
-Fastino para la atribución operativa.
-
-Para consultar los futures, los puntos de control, los reintentos, la
-facturación, los límites y los errores, consulta [Comportamiento en tiempo de
-ejecución y errores](/es/rl-api/runtime).
+Para obtener orientación sobre el ciclo de vida y la recuperación, consulta
+[Comportamiento en tiempo de ejecución y errores](/es/rl-api/runtime).

@@ -1,168 +1,87 @@
 ---
-title: "从 Tinker 迁移"
-description: "将现有 Tinker SDK 工作负载迁移到 Fastino 的 RL API。"
+title: "迁移 SDK 工作负载"
+description: "将兼容的 Tinker SDK 工作负载迁移到 Fastino 交互式训练任务。"
 ---
 
-Fastino 的 RL API 实现了 Tinker SDK 契约中有文档说明的子集。只有当兼容性
-检查清单中的每一项都通过时，SDK 调用形式才可以保持不变。迁移需要替换四个集成点：
+Fastino 支持将 `tinker` SDK 的一个明确子集用作交互式训练任务的客户端接口。
+迁移后的训练客户端是 `/v1/training/jobs` 中的一个 Fastino 任务；其 SDK 模型 ID
+与规范的 Fastino 任务 ID 相同。
 
-1. 端点
-2. 凭据
-3. 模型名称
-4. 运维假设
+将现有程序作为验收测试。更改连接、检查每项操作，并在恢复生产工作负载规模之前运行小型冒烟测试。
 
-本指南将现有程序视为验收测试。先更改连接，运行一个短任务，然后再调整算法。
-
-## 1. 固定经过测试的 SDK
-
-Fastino 当前使用以下版本测试契约：
-
-```text
-tinker==0.32.0
-```
-
-支持的最低客户端版本为 `0.25.0`。迁移期间请固定使用 `0.32.0`，避免无关的 SDK
-升级掩盖连接或兼容性问题。
+## 1. 锁定经过测试的软件包
 
 <CodeGroup>
 
 ```bash uv
-uv add "tinker==0.32.0"
+uv add "tinker==0.33.1"
 ```
 
 ```bash pip
-pip install "tinker==0.32.0"
+pip install "tinker==0.33.1"
 ```
 
 </CodeGroup>
 
-## 2. 替换端点和密钥
+## 2. 替换端点和身份验证
 
-如果现有代码构造 `tinker.ServiceClient()` 时没有传入显式参数，只需通过环境变量即可迁移：
+<CodeGroup>
 
-```bash
+```bash macOS/Linux
 export FASTINO_API_KEY="fast_sk_..."
-export TINKER_API_KEY="tml-${FASTINO_API_KEY}"
-export TINKER_BASE_URL="https://api.fastino.ai/tinker"
+export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
+export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
-`tml-` 部分是供 Tinker SDK 使用的兼容性前缀。Fastino 会验证其中的 `fast_sk_...` 密钥。
-
-如果应用显式传值，请进行等效更改：
-
-```python
-import os
-
-import tinker
-
-
-service_client = tinker.ServiceClient(
-    base_url="https://api.fastino.ai/tinker",
-    api_key=f"tml-{os.environ['FASTINO_API_KEY']}",
-)
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
+$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
 
-不要追加 `/api/v1`。SDK 会自行添加路由路径。
+</CodeGroup>
 
-## 3. 选择 Fastino 支持的模型
+SDK 会将 `/api/v1/<operation>` 追加到 `TINKER_BASE_URL`。每次请求令牌时都会运行
+`TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
+密钥；`tml-` 凭据会被拒绝。不要设置 `TINKER_API_KEY`。
 
-不要假设其他 Tinker 环境中可用的模型也能在 Fastino 上使用。迁移期间请查询功能：
+## 3. 检查工作负载
 
-```python
-capabilities = service_client.get_server_capabilities()
-for model in capabilities.supported_models:
-    print(model.model_name)
-```
+1. 查询 `ServiceClient.get_server_capabilities()` 并选择可用的基础模型。保持 SDK 参数名 `base_model` 不变。
+2. 将代码中的每个方法与 [SDK 兼容性表](/cn/rl-api/compatibility)进行比较。
+3. 移除对不受支持的批量 future 检索、外部权重导出、外部权重 URL、SDK 身份验证/令牌方法，
+   或 SDK 计费、用量和事件方法的依赖。
+4. 将提示词渲染、奖励逻辑、批处理、评估和停止条件保留在你的应用中。
 
-生产决策请以实时功能响应为准。如果需要查看上下文窗口或 LoRA 限制，请将结果与
-[客户端兼容性](/cn/rl-api/compatibility)对照。
+功能是环境相关支持的权威来源。不要沿用其他部署中的模型、秩、上下文、损失或请求限制假设。
 
-## 4. 对照检查学习循环
+## 4. 运行冒烟测试
 
-以下核心调用保持其 Tinker SDK 形式不变：
+使用现有工作负载中最小的有效 datum 和优化器设置，执行一项低成本测试，以：
 
-```python
-training_client = service_client.create_lora_training_client(
-    base_model=model_name,
-    rank=32,
-)
+- 使用 `create_lora_training_client(base_model=...)` 创建一个客户端
+- 读取 `training_client.get_info().model_data.model_id`
+- 保存采样器权重并采样一次
+- 运行一次受支持的前向/反向操作和一次优化器步骤
+- 保存并重新加载状态检查点
+- 从 `GET /v1/training/jobs/{job_id}` 获取相同的 ID
 
-sampler_path = training_client.save_weights_for_sampler(
-    "migration-smoke"
-).result().path
-sampling_client = service_client.create_sampling_client(
-    model_path=sampler_path
-)
-sample_future = sampling_client.sample(prompt, num_samples, sampling_params)
-sample_result = sample_future.result()
-
-train_future = training_client.forward_backward(
-    datums,
-    loss_fn="importance_sampling",
-)
-optim_future = training_client.optim_step(adam_params)
-train_result = train_future.result()
-optim_result = optim_future.result()
-```
-
-上述调用形式是兼容的。在复用外围循环之前，请确认其模型、LoRA rank、损失函数名称、
-datum 字段、采样参数、检查点行为和运维依赖都在
-[兼容性参考](/cn/rl-api/compatibility)中列为受支持。
-
-Renderer、提示词构建、奖励函数、优势值计算、批处理和停止条件都在你的应用中运行。
-只有在上述检查清单通过后，才应在首次迁移测试中保持这些部分不变。
-
-## 5. 验证小型运行
-
-恢复生产批次大小之前，先进行低成本验收运行：
-
-- 获取功能。
-- 创建一个 LoRA 训练客户端。
-- 采样一个小组。
-- 提交一次前向-反向操作。
-- 执行一次优化器步骤。
-- 保存一个状态检查点。
-- 从该检查点创建新的训练客户端。
-- 关闭服务客户端。
-
-比较语义结果，而非精确的浮点值。不同的受支持模型和基础设施可能产生不同的样本和指标。
-
-## 6. 查看运维差异
-
-| 领域 | 迁移操作 |
-| --- | --- |
-| 访问权限 | RL API 访问权限按 Fastino 团队启用。未启用的团队会收到 `404 Not Found`。 |
-| 身份验证 | 使用由 `tml-` 兼容性前缀封装的 Fastino API 密钥。 |
-| 模型 | 从功能响应中选择。不要保留不受支持的源模型。 |
-| 会话生命周期 | 关闭 `ServiceClient` 以释放活跃运行。 |
-| 恢复 | 使用显式检查点作为由应用掌控的恢复边界。 |
-| Future 结果 | 在一小时内解析并持久化已完成的结果。 |
-| 取消 | 取消操作适用于采样，但不适用于单个训练操作。 |
-| 已发布的检查点 | 发布检查点不会让其他 Fastino 团队加载该检查点。 |
-| Trace 导出 | 删除依赖 Tinker trace 导出的代码。此功能不受支持。 |
-| 审计条目 | 不要依赖审计历史记录。审计调用不返回任何条目。 |
-
-支持的损失函数和方法请参阅[客户端兼容性](/cn/rl-api/compatibility)。
-重试、计费、检查点和失败行为请参阅
-[运行时行为和错误](/cn/rl-api/runtime)。
+使用 SDK 执行交互式操作。适配器有意不出现在 Fastino 的 OpenAPI 和 API 参考中，
+因此请勿构造适配器 HTTP 调用。
 
 ## 迁移检查清单
 
-- [ ] 固定 `tinker==0.32.0`。
-- [ ] 将 `TINKER_BASE_URL` 设为 `https://api.fastino.ai/tinker`。
-- [ ] 将 Fastino 密钥封装为 `tml-fast_sk_...`。
-- [ ] 确认团队已启用 RL API 访问权限。
-- [ ] 替换不受支持的模型名称。
-- [ ] 运行一个采样和训练步骤。
-- [ ] 保存并恢复一个状态检查点。
-- [ ] 删除对不受支持的 trace 或审计数据的依赖。
-- [ ] 关闭服务客户端。
-- [ ] 仅在验收运行通过后增加工作负载规模。
+- [ ] 锁定 `tinker==0.33.1`。
+- [ ] 设置 Fastino 适配器基础 URL。
+- [ ] 通过 `TINKER_CREDENTIAL_CMD` 提供 `fast_sk_` 密钥。
+- [ ] 确认已为 Fastino 团队启用交互式训练。
+- [ ] 对照兼容性表检查每个 SDK 方法。
+- [ ] 从功能中选择模型和可选功能。
+- [ ] 完成一次采样和训练更新。
+- [ ] 保存并重新加载一个状态检查点。
+- [ ] 通过规范任务端点验证 SDK 模型 ID。
+- [ ] 仅在冒烟测试通过后增加工作负载规模。
 
-<Card
-  title="查看客户端兼容性"
-  icon="list-check"
-  href="/cn/rl-api/compatibility"
->
-  查看支持的 Tinker 版本、方法、损失函数、模型和限制。
+<Card title="检查 SDK 兼容性" icon="list-check" href="/cn/rl-api/compatibility">
+  查看确切的 SDK 到 Fastino 映射和不受支持的方法。
 </Card>

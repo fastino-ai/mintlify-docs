@@ -1,103 +1,97 @@
 ---
 title: "RL 训练循环"
-description: "了解采样、奖励、优势值、更新和检查点如何协同工作。"
+description: "在一个 Fastino 交互式任务中连接采样、奖励、更新和检查点。"
 ---
 
-RL API 将学习程序与模型计算分离。你的进程决定采样内容、评分方式和更新时机。Fastino
-负责执行采样、前向和反向传播、优化器步骤及检查点操作。
+你的应用决定采样内容、评分方式和更新时机。Fastino 执行交互式模型操作。
+一个 `TrainingClient` 在整个循环中代表一个 Fastino 交互式任务。
 
 ## 控制循环
 
 <Steps>
-  <Step title="创建训练客户端">
-    选择受支持的基础模型和 LoRA rank。客户端代表一次有序的训练运行，并拥有自己的权重、优化器状态和操作序列。
+  <Step title="创建交互式任务">
+    从功能响应中选择 `base_model` 和其他选项，然后调用
+    `create_lora_training_client(...)`。从
+    `training_client.get_info().model_data.model_id` 读取规范任务 ID。
   </Step>
-  <Step title="为采样创建当前策略的快照">
-    如需在同一次运行中立即执行 rollout，请调用
-    `save_weights_and_get_sampling_client()`。其权重是临时的，可能在运行结束、
-    暂停、迁移、重建或缩容时消失。如需可重试的边界，请调用
-    `save_weights_for_sampler(name)`，并使用返回的路径创建采样客户端。Rollout
-    应来自你即将改进的策略，而不是无关或过时的权重。
+  <Step title="为采样创建权重检查点">
+    调用 `save_weights_for_sampler(name)`，然后使用返回的检查点路径创建采样客户端。
+    这会将 rollout 策略绑定到同一个任务的明确工件。
   </Step>
   <Step title="收集 rollout 组">
-    多次发送同一个提示词，或在一次调用中请求多个样本。同一问题的一组候选结果可供奖励函数进行比较。
+    为每个提示词采样多个候选响应。你的应用负责提示词构建、响应渲染和分组。
   </Step>
   <Step title="计算奖励和优势值">
-    为每个响应评分，然后将奖励转换为优势值。在 GRPO 风格的循环中，用每个响应的奖励减去该组的平均奖励。
+    为每个响应评分，然后将奖励转换为所选且功能支持的训练操作所需的优势值。
   </Step>
   <Step title="构建训练 datum">
-    组合提示词 token、采样响应 token、采样对数概率和 token 级优势值。提示词 token 的优势值通常设为零。
+    按 SDK 预期的形式组合模型输入、采样响应 token、采样元数据和 token 级训练信号。
   </Step>
-  <Step title="更新策略">
-    使用 `forward_backward(...,
-    loss_fn="importance_sampling")` 提交 datum，然后调用 `optim_step(...)`。
+  <Step title="更新同一个任务">
+    通过现有 `TrainingClient` 提交受支持的前向/反向传播工作，然后执行优化器步骤。
   </Step>
-  <Step title="创建检查点并重复">
-    在合适的边界保存持久状态，根据更新后的权重创建新的采样客户端，然后开始下一次迭代。
+  <Step title="保存恢复边界">
+    在开始下一次迭代前，保存状态检查点，并将其标识符与应用步骤及数据集游标一起持久化。
   </Step>
 </Steps>
 
-## 客户端对象模型
+## 对象模型
 
-| 对象 | 职责 | 典型生命周期 |
-| --- | --- | --- |
-| `ServiceClient` | 打开会话、报告功能、创建训练和采样客户端，并提供 REST 客户端 | 一次逻辑应用运行 |
-| `TrainingClient` | 拥有一次有序的 LoRA 训练运行及其优化器状态 | 一个正在训练的策略 |
-| `SamplingClient` | 从基础模型或已保存权重进行采样或计算对数概率 | 一个策略快照或可复用检查点 |
-| `RestClient` | 列出运行和检查点、管理检查点元数据和保留策略，并报告存储用量 | 管理操作 |
-| Future | 跟踪一个已提交的操作并返回其结果 | 一个操作 |
+| 对象 | 作用 |
+| --- | --- |
+| `ServiceClient` | 查询功能并创建 SDK 客户端 |
+| `TrainingClient` | 代表一个 Fastino 交互式任务并提交其模型操作 |
+| `SamplingClient` | 从已解析的检查点采样 |
+| `RestClient` | 列出或获取规范任务并管理检查点 |
+| Future | 跟踪提交给任务的一项操作 |
 
-关闭 `ServiceClient` 会结束会话并释放其活跃的训练运行，但不会删除检查点。
+SDK 模型 ID 就是规范的 Fastino 任务 ID。Future 和采样客户端不会创建独立运行。
 
-## 分组奖励为何有效
+## 组相对奖励
 
-假设针对一个提示词的四个响应获得以下奖励：
+对于一组响应，一种常见的应用侧转换是减去该组的平均奖励：
 
-```text
-[1.0, 0.0, 1.0, 0.0]
+```python
+mean_reward = sum(rewards) / len(rewards)
+advantages = [reward - mean_reward for reward in rewards]
 ```
 
-平均奖励为 `0.5`，因此组相对优势值为：
+如果所有居中后的优势值都为零，则该组没有相对信号。你的应用可以记录并跳过它。
 
-```text
-[0.5, -0.5, 0.5, -0.5]
-```
+## 构建对齐的 datum
 
-正值会强化评分高于组平均值的响应中的 token。负值会降低低于平均值的响应出现的概率。
+对于重要性采样式循环，提示词是上下文，采样到的补全是动作。确保 token 数组与所选模型
+使用的 SDK 和渲染器对齐：
 
-如果每个响应获得相同奖励，中心化后的每个优势值都为零。该组不包含相对学习信号，可以跳过。
-
-## datum 中应包含什么
-
-对于常见的重要性采样循环，每个 datum 包含：
-
-- 提示词及其后的采样补全
+- 包含提示词和补全 token 的模型输入
 - 与模型输入对齐的目标 token
-- 采样期间记录的对数概率
-- 应用于补全 token 的优势值
-
-提示词前缀是上下文，而不是策略选择的动作。将其优势值设为零，并将响应优势值应用于生成的 token 位置。
+- 与生成 token 对齐的采样对数概率
+- 应用于补全位置的优势值
 
 <Warning>
-  Token 数组的长度必须符合 renderer 和 SDK 的要求。请复用与所选基础模型对应的
-  renderer。使用其他模型的 formatter 可能生成错误的停止序列或 token 对齐。
+  提示词渲染、token 化、datum 构建和奖励执行均由客户端负责。在运行更大的工作负载前，
+  请根据 `tinker==0.33.1` 和实时功能响应验证它们的形式。
 </Warning>
 
-## 保持更新顺序
+## 保持依赖工作有序
 
-SDK 可以提交多个采样 future，但在依赖并发能力和吞吐量之前，请先针对你已启用的
-Fastino 环境进行验证。对同一个 `TrainingClient` 的更新必须按顺序执行。依次解析
-`forward_backward(...)` 和 `optim_step(...)`，不要让多个独立进程修改同一个
-训练客户端。
+将前向/反向传播阶段视为完成之前，请先解析其 future；在为更新后的状态创建检查点之前，
+请先解析优化器 future。没有应用级协调时，不要让独立控制器修改同一个任务。
 
-## 选择正确的检查点
+SDK 执行这些交互式操作。不要将它们复现为直接 HTTP 调用。
 
-`save_state(name)` 存储训练权重和优化器状态，用于恢复训练。
-`save_weights_for_sampler(name)` 存储权重，用于评估或更多 rollout。采样器检查点
-无法恢复优化器状态。
+## 选择检查点类型
 
-要建立完整的恢复边界，请将状态检查点路径与应用步骤和数据集位置一同存储。完整模式
-请参阅[创建检查点并恢复](/cn/rl-api/checkpoint-and-resume)。
+```python
+state = training_client.save_state("step-000100").result()
+sampler = training_client.save_weights_for_sampler(
+    "step-000100"
+).result()
+```
 
-要使用确定性评分器实现循环，请参阅
-[使用可验证奖励进行训练](/cn/rl-api/verifiable-rewards)。
+使用状态检查点作为训练恢复边界。使用采样器检查点进行 rollout 或评估。将所选检查点标识符
+与应用元数据一起存储，不要根据名称推断状态。
+
+要使用确定性评分器实现此循环，请继续阅读
+[使用可验证奖励进行训练](/cn/rl-api/verifiable-rewards)。有关恢复，请参阅
+[创建检查点并恢复](/cn/rl-api/checkpoint-and-resume)。

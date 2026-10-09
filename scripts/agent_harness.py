@@ -19,7 +19,13 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NoReturn
 
-from check_api_docs import EXPECTED_OPERATIONS, local_docs_findings
+from check_api_docs import (
+    EXPECTED_OPERATIONS,
+    PREVIEW_TRAINING_OPERATIONS,
+    SDK_BASE_PATHS,
+    _path_matches_route,
+    local_docs_findings,
+)
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
@@ -54,6 +60,7 @@ REQUIRED_DISCOVERY_LINKS = {
     "GLiNER inference": "/inference/chat-completions.md",
     "datasets": "/concepts/datasets.md",
     "training": "/training.md",
+    "GLiNER fine-tuning": "/guides/fine-tune-gliner.md",
     "inference reference": "/api-reference/inference/overview.md",
     "GLiDE contract": "/api-reference/inference/systemone.md",
     "GLiNER contract": "/api-reference/inference/chat-completions.md",
@@ -64,11 +71,11 @@ REQUIRED_DISCOVERY_LINKS = {
     "training creation": "/api-reference/training-jobs/create.md",
     "RL API": "/rl-api.md",
     "RL API quickstart": "/rl-api/quickstart.md",
-    "Tinker migration": "/rl-api/migrate-from-tinker.md",
+    "SDK migration": "/rl-api/migrate-from-tinker.md",
     "verifiable rewards": "/rl-api/verifiable-rewards.md",
     "RL checkpoint resume": "/rl-api/checkpoint-and-resume.md",
     "RL training loop": "/rl-api/training-loop.md",
-    "Tinker compatibility": "/rl-api/compatibility.md",
+    "SDK compatibility": "/rl-api/compatibility.md",
     "RL API runtime": "/rl-api/runtime.md",
     "errors": "/troubleshooting/errors.md",
     "retries": "/troubleshooting/retries.md",
@@ -85,6 +92,7 @@ JOURNEY_PAGES = (
     "inference/systemone.mdx",
     "inference/chat-completions.mdx",
     "training.mdx",
+    "guides/fine-tune-gliner.mdx",
     "rl-api.mdx",
     "rl-api/quickstart.mdx",
     "rl-api/migrate-from-tinker.mdx",
@@ -705,14 +713,20 @@ def _journey_findings(
         for match in METHOD_PATH.finditer(text):
             method = match.group("method").lower()
             path_text = match.group("path")
-            if _operation_for_path(operations, method, path_text) is None:
+            if (
+                _operation_for_path(operations, method, path_text) is None
+                and (method.upper(), path_text) not in PREVIEW_TRAINING_OPERATIONS
+            ):
                 findings.append(
                     f"CONTRACT: {relative} documents absent operation "
                     f"{method.upper()} {path_text}"
                 )
         for match in API_URL.finditer(text):
-            if _operation_for_path(operations, "get", match.group("path")) is None and not any(
-                _operation_for_path(operations, method, match.group("path"))
+            path_text = match.group("path")
+            if path_text in SDK_BASE_PATHS or _path_matches_route(path_text, {}):
+                continue
+            if _operation_for_path(operations, "get", path_text) is None and not any(
+                _operation_for_path(operations, method, path_text)
                 for method in HTTP_METHODS
             ):
                 findings.append(
@@ -1222,7 +1236,7 @@ def _ready_dataset_reference(api_key: str) -> dict[str, str]:
 def _run_training_reads(api_key: str) -> None:
     jobs = _request_with_retry(
         "GET",
-        f"{API_ORIGIN}/v1/training-jobs?limit=1",
+        f"{API_ORIGIN}/v1/training/jobs?limit=1",
         headers=_auth_headers(api_key),
     )
     _json_response(jobs, label="TRAINING list jobs")
@@ -1240,7 +1254,7 @@ def _run_training_replay(api_key: str) -> None:
     dataset_reference = _ready_dataset_reference(api_key)
     existing = _request_with_retry(
         "GET",
-        f"{API_ORIGIN}/v1/training-jobs/{job_id}",
+        f"{API_ORIGIN}/v1/training/jobs/{job_id}",
         headers=_auth_headers(api_key),
     )
     existing_payload = _json_response(existing, label="TRAINING existing canary job")
@@ -1276,7 +1290,7 @@ def _run_training_replay(api_key: str) -> None:
     try:
         replay = _request_with_retry(
             "POST",
-            f"{API_ORIGIN}/v1/training-jobs",
+            f"{API_ORIGIN}/v1/training/jobs",
             headers=headers,
             payload=body,
         )
@@ -1310,7 +1324,7 @@ def run_api(*, replay_training: bool) -> None:
     operations = _validate_openapi(document)
     invalid = _request(
         "GET",
-        f"{API_ORIGIN}/v1/training-jobs?limit=1",
+        f"{API_ORIGIN}/v1/training/jobs?limit=1",
         headers={"X-API-Key": "fast_sk_invalid_docs_canary"},
         follow_redirects=False,
     )
@@ -1505,7 +1519,7 @@ def _training_status(payload: object) -> tuple[str, bool]:
 def _cleanup_training_job(api_key: str, job_id: str) -> None:
     response = _request_with_retry(
         "DELETE",
-        f"{API_ORIGIN}/v1/training-jobs/{job_id}",
+        f"{API_ORIGIN}/v1/training/jobs/{job_id}",
         headers=_auth_headers(api_key),
     )
     _require_status(response, {200}, "TRAINING cleanup")
@@ -1524,7 +1538,7 @@ def _error_code(response: Response) -> str | None:
 def _training_job_is_terminal(api_key: str, job_id: str) -> bool:
     poll = _request_with_retry(
         "GET",
-        f"{API_ORIGIN}/v1/training-jobs/{job_id}",
+        f"{API_ORIGIN}/v1/training/jobs/{job_id}",
         headers=_auth_headers(api_key),
         timeout=20,
     )
@@ -1539,7 +1553,7 @@ def _stop_and_confirm(api_key: str, job_id: str, *, timeout_seconds: int = 300) 
     while True:
         stop = _request_with_retry(
             "POST",
-            f"{API_ORIGIN}/v1/training-jobs/{job_id}/stop",
+            f"{API_ORIGIN}/v1/training/jobs/{job_id}/stop",
             headers=_auth_headers(api_key),
             timeout=20,
         )
@@ -1575,7 +1589,7 @@ def _list_training_jobs(api_key: str) -> list[dict[str, object]]:
     while True:
         response = _request_with_retry(
             "GET",
-            f"{API_ORIGIN}/v1/training-jobs?limit=200&offset={offset}",
+            f"{API_ORIGIN}/v1/training/jobs?limit=200&offset={offset}",
             headers=_auth_headers(api_key),
             timeout=30,
         )
@@ -1619,7 +1633,7 @@ def _create_or_recover_training_job(
     try:
         response = _request_with_retry(
             "POST",
-            f"{API_ORIGIN}/v1/training-jobs",
+            f"{API_ORIGIN}/v1/training/jobs",
             headers={
                 **_auth_headers(api_key),
                 "Idempotency-Key": str(marker),
@@ -1730,7 +1744,7 @@ def _wait_for_billing(
     while True:
         response = _request_with_retry(
             "GET",
-            f"{API_ORIGIN}/v1/training-jobs/{job_id}/billing",
+            f"{API_ORIGIN}/v1/training/jobs/{job_id}/billing",
             headers=_auth_headers(api_key),
         )
         payload = _json_response(response, label="TRAINING lifecycle billing")
@@ -1760,7 +1774,7 @@ def _verify_completed_training_job(
     for suffix, label in (("logs", "logs"), ("checkpoints", "checkpoints")):
         result = _request_with_retry(
             "GET",
-            f"{API_ORIGIN}/v1/training-jobs/{job_id}/{suffix}",
+            f"{API_ORIGIN}/v1/training/jobs/{job_id}/{suffix}",
             headers=_auth_headers(api_key),
         )
         _json_response(result, label=f"TRAINING lifecycle {label}")
@@ -1867,7 +1881,7 @@ def run_training_lifecycle() -> None:
             time.sleep(30)
             poll = _request_with_retry(
                 "GET",
-                f"{API_ORIGIN}/v1/training-jobs/{job_id}",
+                f"{API_ORIGIN}/v1/training/jobs/{job_id}",
                 headers=_auth_headers(api_key),
             )
             final_payload = _json_response(poll, label="TRAINING lifecycle poll")

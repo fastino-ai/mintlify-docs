@@ -1,90 +1,81 @@
 ---
 title: "RL API"
 sidebarTitle: "Overview"
-description: "Preview Fastino's limited-access reinforcement-learning and post-training API through the Tinker SDK."
+description: "Run reinforcement-learning and custom post-training workloads as Fastino interactive training jobs."
 ---
 
-Fastino's RL API is a hosted training and sampling service. Its supported Python
-client is the `tinker` package, configured to use Fastino. Your code owns the
-dataset, reward function, response-generation strategy, and stopping criteria.
-Fastino runs model sampling and training.
+Fastino's RL API runs reinforcement-learning and custom post-training workloads
+as **interactive training jobs**. Interactive jobs use the same training-job
+resource and job IDs as every other Fastino training workload:
+`/v1/training/jobs`.
+
+Your application owns the control loop: prompts, datasets, rewards, advantages,
+evaluation, and stopping criteria. Fastino owns the model operations requested
+by that loop, including sampling, forward and backward passes, optimizer steps,
+and checkpoints.
 
 <Note>
-  The RL API is in limited access. Confirm that Fastino has enabled it for your
-  team before planning a production migration.
+  The RL API is in limited access. Confirm that Fastino has enabled interactive
+  training for your team before planning a production workload.
 </Note>
 
-Installing the `tinker` package does not grant access to Fastino's RL API.
-An existing SDK application may keep its call shapes only when every item in
-the [compatibility checklist](/rl-api/compatibility) passes.
+## One job, two views
 
-Use this API when your application must repeatedly generate responses, score
-them, and update the model. For managed fine-tuning from a prepared dataset,
-use the [Training API](/training).
+A training client created through the supported SDK represents one interactive
+Fastino job. The value returned by
+`training_client.get_info().model_data.model_id` is the canonical training job
+ID. Use that same ID with `GET /v1/training/jobs/{job_id}` and other documented
+training-job or checkpoint administration routes.
 
-## How it works
+There is no separate Tinker run behind the job and no outbound routing to
+another training service. The `tinker` Python package is a client-compatibility
+layer for applications that already use its object and method shapes.
 
-Your application:
+## Supported client
 
-1. Samples responses from the current policy.
-2. Scores each response with your reward function.
-3. Turns rewards into advantages.
-4. Sends the training batch to the RL API.
-5. Applies an optimizer step and saves useful checkpoints.
+Fastino tests `tinker==0.33.1`. Configure it with:
 
-This separation lets you own the learning logic without managing model
-infrastructure. Use only the operations and built-in loss names documented in
-the compatibility reference.
+- Base URL: `https://api.fastino.ai/v1/training/compat/tinker`
+- Credential source: `TINKER_CREDENTIAL_CMD`
+- Credential: a normal Fastino API key beginning with `fast_sk_`
+
+The SDK appends `/api/v1/<operation>` to the configured base URL. Adapter routes
+are intentionally absent from Fastino's OpenAPI and API reference. Do not
+construct adapter HTTP requests yourself; use the SDK for interactive
+operations and canonical Fastino routes for job and checkpoint administration.
+
+## How the loop works
+
+1. Create one interactive training client.
+2. Snapshot its weights for sampling.
+3. Generate and score candidate responses in your application.
+4. Convert rewards into training data.
+5. Ask the SDK to run forward/backward and optimizer operations on the same job.
+6. Save state or sampler checkpoints and continue.
+
+Query `ServiceClient.get_server_capabilities()` before choosing a model or
+depending on an optional SDK feature. The capability response is the source of
+truth for the environment your team can use.
 
 ## Start here
 
 <CardGroup cols={2}>
-  <Card
-    title="Connect and sample"
-    icon="play"
-    href="/rl-api/quickstart"
-  >
-    Authenticate, verify access, and make one sampling request.
+  <Card title="Connect and verify" icon="play" href="/rl-api/quickstart">
+    Create an interactive job, sample from a checkpoint, and verify its
+    canonical Fastino job ID.
   </Card>
   <Card
-    title="Migrate from Tinker"
+    title="Migrate an SDK workload"
     icon="arrow-right-arrow-left"
     href="/rl-api/migrate-from-tinker"
   >
-    Move an existing Tinker program to Fastino with a focused compatibility
-    checklist.
+    Replace the endpoint and authentication while preserving supported SDK call
+    shapes.
   </Card>
-  <Card
-    title="Train with verifiable rewards"
-    icon="function"
-    href="/rl-api/verifiable-rewards"
-  >
-    Turn a deterministic grader into a learning signal.
+  <Card title="The training loop" icon="diagram-project" href="/rl-api/training-loop">
+    Understand sampling, rewards, updates, and checkpoints inside one job.
   </Card>
-  <Card
-    title="Checkpoint and resume"
-    icon="rotate-ccw"
-    href="/rl-api/checkpoint-and-resume"
-  >
-    Resume model, optimizer, and application progress after an interruption.
+  <Card title="SDK compatibility" icon="list-check" href="/rl-api/compatibility">
+    Check the exact supported method mappings and unsupported operations.
   </Card>
 </CardGroup>
-
-## Explore the details
-
-<CardGroup cols={3}>
-  <Card title="The RL training loop" icon="diagram-project" href="/rl-api/training-loop">
-    Understand sampling, rewards, updates, and checkpoints.
-  </Card>
-  <Card title="Client compatibility" icon="list-check" href="/rl-api/compatibility">
-    Check supported client versions, models, operations, and losses.
-  </Card>
-  <Card title="Runtime behavior" icon="gauge" href="/rl-api/runtime">
-    Check futures, retries, checkpoints, billing, and errors.
-  </Card>
-</CardGroup>
-
-<Note>
-  The RL API uses the Tinker SDK contract and does not appear in Fastino's
-  public OpenAPI document. Do not construct its HTTP routes directly.
-</Note>

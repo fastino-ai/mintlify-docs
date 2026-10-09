@@ -1,0 +1,193 @@
+---
+title: "Fine-tuner GLiNER"
+sidebarTitle: "Fine-tuner GLiNER"
+description: "Préparez un dataset GLiNER, créez un job de configuration géré et surveillez-le jusqu'aux checkpoints et à son achèvement."
+---
+
+Ce guide crée un job d'entraînement `config`. Vous fournissez un dataset prêt
+et les paramètres d'entraînement ; Fastino exécute la boucle d'entraînement.
+
+## Avant de commencer
+
+Définissez `FASTINO_API_KEY` comme indiqué dans la
+[présentation de l'API d'entraînement](/fr/training). Les exemples l'envoient dans
+l'en-tête `X-API-Key` et utilisent `jq` pour lire les réponses JSON.
+
+## 1. Choisir la tâche
+
+<CardGroup cols={2}>
+  <Card title="Extraction" icon="highlighter">
+    Entraînez GLiNER à trouver des segments étiquetés, tels que des personnes,
+    des produits ou des lieux. Préparez des lignes `text` et `entities`, puis
+    importez le dataset comme données NER.
+  </Card>
+  <Card title="Classification" icon="tags">
+    Entraînez GLiNER à attribuer une ou plusieurs étiquettes à un texte.
+    Préparez des lignes `text` avec `label` ou `labels`, puis importez le
+    dataset comme données de classification.
+  </Card>
+</CardGroup>
+
+Conservez une seule structure de ligne dans chaque fichier JSONL. Consultez
+[Préparer et importer des datasets d'entraînement](/fr/concepts/datasets) pour
+connaître les formats JSONL GLiNER exacts, la requête d'URL d'import, l'import
+du fichier, la requête de traitement et la vérification de disponibilité.
+Ne continuez qu'une fois que la version du dataset indique `ready`.
+
+## 2. Interroger les modèles entraînables
+
+Ne codez pas en dur un modèle de base provenant d'un ancien exemple. Interrogez
+le catalogue actif juste avant de créer le job :
+
+```bash
+curl -sS "https://api.fastino.ai/v1/base-models?supports_training=true" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+Choisissez un modèle GLiNER prenant en charge votre tâche et le type
+d'entraînement souhaité. Copiez son ID exact dans le champ `base_model`.
+
+## 3. Créer un job de configuration
+
+Remplacez ci-dessous le modèle du catalogue, le nom du dataset et sa version.
+Conservez `type` défini sur `config`.
+
+```bash
+curl -sS -X POST "https://api.fastino.ai/v1/training/jobs" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "config",
+    "model_name": "support-request-extractor",
+    "base_model": "BASE_MODEL_ID_FROM_CATALOG",
+    "datasets": [
+      {
+        "name": "READY_DATASET_NAME",
+        "version": "VERSION_NUMBER"
+      }
+    ],
+    "training_type": "lora"
+  }' | tee training-job.json
+```
+
+La réponse est l'enregistrement du job créé. Conservez son `id` :
+
+```bash
+export TRAINING_JOB_ID="$(jq -r '.id' training-job.json)"
+test "$TRAINING_JOB_ID" != "null"
+```
+
+Consultez la [référence de création d'un job](/fr/api-reference/training-jobs/create)
+pour connaître les champs facultatifs des jobs de configuration.
+
+## 4. Interroger le job
+
+Interrogez `GET /v1/training/jobs/{job_id}` jusqu'à ce que
+`is_terminal_status` soit `true` :
+
+```bash
+while true; do
+  if ! JOB="$(
+    curl --fail-with-body -sS \
+      "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
+      -H "X-API-Key: $FASTINO_API_KEY"
+  )"; then
+    echo "Could not read training job" >&2
+    exit 1
+  fi
+
+  echo "$JOB" | jq -e 'has("is_terminal_status")' >/dev/null || {
+    echo "Training response has no terminal-state field" >&2
+    exit 1
+  }
+
+  echo "$JOB" | jq '{
+    normalized_status,
+    is_terminal_status,
+    error_message,
+    is_deployable,
+    deployability_reason
+  }'
+
+  [ "$(echo "$JOB" | jq -r '.is_terminal_status')" = "true" ] && break
+  sleep 10
+done
+```
+
+Pour connaître les statuts des jobs de configuration et les recommandations
+concernant les états terminaux, consultez la
+[présentation de l'API d'entraînement](/fr/training).
+
+## 5. Inspecter les logs et les checkpoints
+
+Consultez les logs lorsque vous avez besoin de détails sur la progression ou
+sur un échec :
+
+```bash
+curl -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/logs" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+Listez les checkpoints créés par Fastino :
+
+```bash
+curl -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+Consultez les pages
+[logs](/fr/api-reference/training-jobs/logs) et
+[checkpoints](/fr/api-reference/training-jobs/checkpoints) pour connaître les
+champs de leurs réponses.
+
+## 6. Déployer le modèle entraîné
+
+Vérifiez les champs `is_deployable` et `deployability_reason` du job terminé
+avant le déploiement :
+
+```bash
+curl --fail-with-body -sS -X POST \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
+```
+
+Interrogez à nouveau le job jusqu'à ce que son état de déploiement soit prêt.
+L'ID du job d'entraînement est l'identifiant de modèle utilisé pour
+l'inférence hébergée.
+
+## 7. Exécuter l'inférence GLiNER
+
+```bash
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"$TRAINING_JOB_ID\",
+    \"messages\": [
+      {
+        \"role\": \"user\",
+        \"content\": \"Ada Lovelace worked in London.\"
+      }
+    ],
+    \"schema\": {
+      \"entities\": [
+        {\"name\": \"person\"},
+        {\"name\": \"location\"}
+      ]
+    }
+  }" | jq -r '.choices[0].message.content | fromjson'
+```
+
+<CardGroup cols={2}>
+  <Card title="Appeler GLiNER" icon="braces" href="/fr/inference/chat-completions">
+    Utilisez GLiNER pour l'extraction ou la classification via
+    `POST /v1/chat/completions`.
+  </Card>
+  <Card title="Installer la compétence d'agent GLiNER" icon="bot" href="/fr/concepts/gliner-agent-skill">
+    Ajoutez éventuellement le workflow GLiNER hébergé à Cursor, Claude Code ou
+    Codex.
+  </Card>
+</CardGroup>

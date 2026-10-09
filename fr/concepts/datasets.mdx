@@ -6,7 +6,7 @@ description: "Formatez, importez, validez et inspectez des datasets NER, de clas
 
 Les jobs d'entraînement référencent des datasets prêts par leur nom. Préparez un fichier JSONL, importez-le via
 l'API de datasets en deux étapes, puis vérifiez que la version traitée existe avant d'appeler
-`POST /v1/training-jobs`.
+`POST /v1/training/jobs`.
 
 ## Choisir un format de dataset
 
@@ -45,40 +45,42 @@ Utilisez un tableau `messages` contenant des messages `system`, `user` ou `assis
 ### 1. Réserver une URL d'import
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/url \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/url \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "dataset_name": "docs-example-ner",
     "filename": "training.jsonl",
     "dataset_type": "ner"
-  }'
+  }' | tee dataset-upload.json
+
+export PRESIGNED_URL="$(jq -r '.presigned_url' dataset-upload.json)"
+export DATASET_ID="$(jq -r '.dataset_id' dataset-upload.json)"
+export DATASET_VERSION="$(jq -r '.version_number' dataset-upload.json)"
 ```
 
 La réponse contient une `presigned_url` de courte durée, un `dataset_id` et un
-`version_number`. Importez les octets exacts du fichier vers `presigned_url` avec une requête HTTP `PUT`. Conservez
-l'ID du dataset et le numéro de version.
+`version_number`. Les commandes ci-dessus conservent ces trois valeurs.
+Importez les octets exacts du fichier vers l'URL présignée :
 
 ```bash
-curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+curl --fail-with-body -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
 ```
 
 ### 2. Traiter le fichier importé
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/process \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "dataset_id": "DATASET_ID_FROM_STEP_1"
-  }'
+  -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
 Le traitement renvoie `202`. Interrogez le dataset par son nom, trouvez l'entrée dont le `version_number`
 correspond à la réponse de l'import, puis attendez que le `status` de cette entrée soit `ready` :
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -92,7 +94,7 @@ jobs d'entraînement](/fr/api-reference/training-jobs/create) :
   "model_name": "my-ner-model",
   "base_model": "fastino/gliner2-base-v1",
   "datasets": [
-    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
   "training_type": "lora"
 }

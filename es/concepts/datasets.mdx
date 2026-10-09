@@ -6,7 +6,7 @@ description: "Formatea, sube, valida e inspecciona datasets de NER, clasificaci�
 
 Los trabajos de entrenamiento hacen referencia a datasets listos por su nombre. Prepara un archivo JSONL, súbelo mediante la
 API de datasets en dos pasos y confirma que la versión procesada existe antes de llamar a
-`POST /v1/training-jobs`.
+`POST /v1/training/jobs`.
 
 ## Elegir un formato de dataset
 
@@ -45,40 +45,42 @@ Usa un array `messages` que contenga mensajes `system`, `user` o `assistant`.
 ### 1. Reservar una URL de subida
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/url \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/url \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "dataset_name": "docs-example-ner",
     "filename": "training.jsonl",
     "dataset_type": "ner"
-  }'
+  }' | tee dataset-upload.json
+
+export PRESIGNED_URL="$(jq -r '.presigned_url' dataset-upload.json)"
+export DATASET_ID="$(jq -r '.dataset_id' dataset-upload.json)"
+export DATASET_VERSION="$(jq -r '.version_number' dataset-upload.json)"
 ```
 
 La respuesta contiene una `presigned_url` de corta duración, un `dataset_id` y un
-`version_number`. Sube los bytes exactos del archivo a `presigned_url` con un HTTP `PUT`. Conserva tanto
-el ID del dataset como el número de versión.
+`version_number`. Los comandos anteriores conservan los tres valores. Sube los
+bytes exactos del archivo a la URL prefirmada:
 
 ```bash
-curl -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
+curl --fail-with-body -X PUT --upload-file training.jsonl "$PRESIGNED_URL"
 ```
 
 ### 2. Procesar el archivo subido
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/upload/process \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "dataset_id": "DATASET_ID_FROM_STEP_1"
-  }'
+  -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
 El procesamiento devuelve `202`. Consulta el dataset por su nombre, busca la entrada cuyo `version_number`
 coincida con la respuesta de la subida y espera hasta que el `status` de esa entrada sea `ready`:
 
 ```bash
-curl -s https://api.fastino.ai/v1/datasets/docs-example-ner \
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -92,7 +94,7 @@ de entrenamiento](/es/api-reference/training-jobs/create):
   "model_name": "my-ner-model",
   "base_model": "fastino/gliner2-base-v1",
   "datasets": [
-    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_STEP_1"}
+    {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
   "training_type": "lora"
 }

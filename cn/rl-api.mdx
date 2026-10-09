@@ -1,86 +1,70 @@
 ---
 title: "RL API"
 sidebarTitle: "概览"
-description: "通过 Tinker SDK 预览 Fastino 限量开放的强化学习和自定义后训练 API。"
+description: "以 Fastino 交互式训练任务的形式运行强化学习和自定义后训练工作负载。"
 ---
 
-Fastino 的 RL API 是托管式训练与采样服务。其支持的 Python 客户端是配置为使用
-Fastino 的 `tinker` 软件包。你的代码负责数据集、奖励函数、响应生成策略和停止条件。
-Fastino 负责模型采样和训练。
+Fastino 的 RL API 以**交互式训练任务**的形式运行强化学习和自定义后训练工作负载。
+交互式任务与其他所有 Fastino 训练工作负载使用相同的训练任务资源和任务 ID：
+`/v1/training/jobs`。
+
+你的应用负责控制循环：提示词、数据集、奖励、优势值、评估和停止条件。Fastino
+负责执行该循环请求的模型操作，包括采样、前向和反向传播、优化器步骤及检查点。
 
 <Note>
-  RL API 目前为限量开放。在规划生产迁移之前，请确认 Fastino 已为你的团队启用
-  RL API。
+  RL API 目前为限量开放。在规划生产工作负载之前，请确认 Fastino 已为你的团队启用交互式训练。
 </Note>
 
-安装 `tinker` 软件包并不代表你已获得 Fastino RL API 的访问权限。只有当
-[兼容性检查清单](/cn/rl-api/compatibility)中的每一项都通过时，现有 SDK
-应用才能保留原有的调用形式。
+## 一个任务，两种视图
 
-当应用需要反复生成响应、对响应评分并更新模型时，请使用此 API。如果你要基于准备好
-的数据集进行托管式微调，请使用[训练 API](/cn/training)。
+通过受支持的 SDK 创建的训练客户端代表一个 Fastino 交互式任务。
+`training_client.get_info().model_data.model_id` 返回的值是规范的训练任务 ID。
+在 `GET /v1/training/jobs/{job_id}` 及其他有文档说明的训练任务或检查点管理路由中使用同一个 ID。
 
-## 工作原理
+该任务背后不存在单独的 Tinker 运行，也不会将请求传出到其他训练服务。
+`tinker` Python 软件包是一个客户端兼容层，供已经使用其对象和方法形式的应用使用。
 
-你的应用负责：
+## 受支持的客户端
 
-1. 从当前策略中采样响应。
-2. 使用奖励函数为每个响应评分。
-3. 将奖励转换为优势值。
-4. 将训练批次发送到 RL API。
-5. 执行优化器步骤，并保存有用的检查点。
+Fastino 测试 `tinker==0.33.1`。配置如下：
 
-这种分工让你无需管理模型基础设施，也能掌控学习逻辑。请仅使用兼容性参考中记录的
-操作和内置损失函数名称。
+- 基础 URL：`https://api.fastino.ai/v1/training/compat/tinker`
+- 凭据来源：`TINKER_CREDENTIAL_CMD`
+- 凭据：以 `fast_sk_` 开头的普通 Fastino API 密钥
+
+SDK 会将 `/api/v1/<operation>` 追加到配置的基础 URL。适配器路由有意不出现在
+Fastino 的 OpenAPI 和 API 参考中。请勿自行构造适配器 HTTP 请求；使用 SDK
+执行交互式操作，并使用规范的 Fastino 路由管理任务和检查点。
+
+## 循环的工作方式
+
+1. 创建一个交互式训练客户端。
+2. 为采样创建权重快照。
+3. 在你的应用中生成候选响应并评分。
+4. 将奖励转换为训练数据。
+5. 要求 SDK 在同一个任务上运行前向/反向传播和优化器操作。
+6. 保存状态或采样器检查点，然后继续。
+
+选择模型或依赖可选 SDK 功能之前，请查询 `ServiceClient.get_server_capabilities()`。
+功能响应是你的团队所用环境的权威来源。
 
 ## 从这里开始
 
 <CardGroup cols={2}>
-  <Card
-    title="连接并采样"
-    icon="play"
-    href="/cn/rl-api/quickstart"
-  >
-    完成身份验证、验证访问权限，并发起一次采样请求。
+  <Card title="连接并验证" icon="play" href="/cn/rl-api/quickstart">
+    创建交互式任务、从检查点采样，并验证其规范的 Fastino 任务 ID。
   </Card>
   <Card
-    title="从 Tinker 迁移"
+    title="迁移 SDK 工作负载"
     icon="arrow-right-arrow-left"
     href="/cn/rl-api/migrate-from-tinker"
   >
-    使用精简的兼容性检查清单，将现有 Tinker 程序迁移到 Fastino。
+    替换端点和身份验证，同时保留受支持的 SDK 调用形式。
   </Card>
-  <Card
-    title="使用可验证奖励进行训练"
-    icon="function"
-    href="/cn/rl-api/verifiable-rewards"
-  >
-    将确定性评分器转化为学习信号。
+  <Card title="训练循环" icon="diagram-project" href="/cn/rl-api/training-loop">
+    了解一个任务中的采样、奖励、更新和检查点。
   </Card>
-  <Card
-    title="创建检查点并恢复"
-    icon="rotate-ccw"
-    href="/cn/rl-api/checkpoint-and-resume"
-  >
-    在中断后恢复模型、优化器和应用进度。
+  <Card title="SDK 兼容性" icon="list-check" href="/cn/rl-api/compatibility">
+    查看确切的受支持方法映射和不受支持的操作。
   </Card>
 </CardGroup>
-
-## 深入了解
-
-<CardGroup cols={3}>
-  <Card title="RL 训练循环" icon="diagram-project" href="/cn/rl-api/training-loop">
-    了解采样、奖励、更新和检查点。
-  </Card>
-  <Card title="客户端兼容性" icon="list-check" href="/cn/rl-api/compatibility">
-    查看支持的客户端版本、模型、操作和损失函数。
-  </Card>
-  <Card title="运行时行为" icon="gauge" href="/cn/rl-api/runtime">
-    查看 future、重试、检查点、计费和错误。
-  </Card>
-</CardGroup>
-
-<Note>
-  RL API 使用 Tinker SDK 契约，不会出现在 Fastino 的公共 OpenAPI 文档中。
-  请勿直接构造其 HTTP 路由。
-</Note>

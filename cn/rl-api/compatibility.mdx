@@ -1,96 +1,77 @@
 ---
-title: "客户端兼容性"
-description: "支持的客户端版本、模型、训练操作、采样操作和损失函数。"
+title: "SDK 兼容性"
+description: "Fastino 交互式训练任务的确切 Tinker SDK 支持和映射。"
 ---
 
-本参考说明 Fastino 的 RL API 支持 Tinker 客户端契约的哪些部分。固定的
-`tinker==0.32.0` 软件包定义方法签名。本页定义 Fastino 特有的支持边界；如果本页
-明确标记某项不受支持，即使客户端软件包提供该功能，也应以本页为准。
+Fastino 使用 `tinker==0.33.1` 测试兼容性契约。该软件包定义 SDK 签名；
+本页定义 Fastino 支持的方法及其到 Fastino 训练领域的映射方式。
 
-## 客户端契约
-
-| 项目 | 值 |
+| 项目 | 支持的值 |
 | --- | --- |
-| Python 软件包 | `tinker` |
-| 测试版本 | `0.32.0` |
-| 支持的最低版本 | `0.25.0` |
-| 基础 URL | `https://api.fastino.ai/tinker` |
-| 凭据 | `tml-` 后跟 Fastino `fast_sk_...` 密钥 |
-| 团队访问权限 | 通过身份验证的 Fastino 团队可获得限量访问权限 |
+| 软件包 | `tinker==0.33.1` |
+| 基础 URL | `https://api.fastino.ai/v1/training/compat/tinker` |
+| 身份验证 | 由 `TINKER_CREDENTIAL_CMD` 打印的 `fast_sk_` 密钥 |
+| 资源标识 | 一个训练客户端就是一个具有相同 ID 的 Fastino 交互式任务 |
 
-使用此预览版进行开发时，请固定 `tinker==0.32.0`。
+SDK 会将 `/api/v1/<operation>` 添加到基础 URL。适配器路由不会出现在 OpenAPI
+和 API 参考中。用户不得构造适配器请求。
 
-## 模型
+## 训练和采样
 
-| 基础模型 | 上下文窗口 | 最大 LoRA rank |
-| --- | ---: | ---: |
-| `Qwen/Qwen3.6-35B-A3B` | 32,768 | 32 |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 | 32 |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 | 32 |
+| SDK 方法或操作 | Fastino 映射 | 支持情况 |
+| --- | --- | --- |
+| `create_lora_training_client` | 使用交互式任务类型的 `POST /v1/training/jobs` | 支持 |
+| `copy_weights` | 从检查点创建交互式任务 | 支持 |
+| `TrainingClient.get_info` | `GET` 规范的 Fastino 任务 | 支持 |
+| `forward` | 交互式任务上的 `/forward` | 支持 |
+| `forward_backward` | 交互式任务上的 `/forward-backward` | 支持 |
+| 自定义前向/反向操作 | 交互式任务上的 `/forward-backward` | 支持 |
+| `optim_step` | 交互式任务上的 `/optim-step` | 支持 |
+| `save_state` | `POST` 一个类型为 `state` 的检查点 | 支持 |
+| `save_weights_for_sampler` | `POST` 一个类型为 `sampler` 的检查点 | 支持 |
+| 加载训练状态 | 在交互式任务上加载检查点 | 支持 |
+| 创建或获取采样客户端 | 解析所选检查点 | 支持 |
+| `SamplingClient.sample` | 从检查点采样 | 支持 |
 
-选择模型之前，请调用 `get_server_capabilities()`。功能响应是当前可用性和上下文窗口
-的权威依据。
+保持 SDK 方法参数 `base_model` 不变。在选择基础模型或依赖可选操作前，请查询
+`ServiceClient.get_server_capabilities()`。功能是权威来源；本参考不会规定固定的模型目录、
+损失目录、秩、上下文窗口或单次调用限制。
 
-## 训练操作
+## Future
 
-| 功能 | 支持情况 |
-| --- | --- |
-| 创建 LoRA 训练客户端 | 支持 |
-| `forward` | 支持 |
-| `forward_backward` | 支持 |
-| `optim_step` | 支持 |
-| 保存或加载训练状态 | 支持 |
-| 从已保存状态创建新客户端 | 支持 |
-| 保存采样器权重 | 支持 |
-| 从训练权重创建采样客户端 | 支持 |
-| 卸载或释放运行 | 支持 |
-| LoRA 以外的训练布局 | 不支持 |
+| SDK 方法或操作 | Fastino 映射 | 支持情况 |
+| --- | --- | --- |
+| Future result/get | 获取操作 | 支持 |
+| Future cancel | 取消操作 | 支持 |
+| `retrieve_futures` 批量检索 | 无 | 不支持 |
 
-支持的优化器系列是通过 SDK `AdamParams` 使用的 AdamW。
+## 管理
 
-### 损失函数
+| SDK 方法或操作 | Fastino 映射 | 支持情况 |
+| --- | --- | --- |
+| `RestClient` 列出训练运行 | 列出规范的 Fastino 任务 | 支持 |
+| `RestClient` 获取训练运行 | 获取规范的 Fastino 任务 | 支持 |
+| 列出或获取检查点 | 规范的任务/检查点路由 | 支持 |
+| 下载或删除检查点 | 规范的任务/检查点路由 | 支持 |
+| 发布或取消发布检查点 | 规范的任务/检查点路由 | 支持 |
+| 设置或清除检查点 TTL | 规范的任务/检查点路由 | 支持 |
+| 获取检查点存储用量 | 规范的任务/检查点路由 | 支持 |
 
-网关接受以下内置损失函数名称：
+## 仅适配器使用的基础机制
 
-- `cross_entropy`
-- `importance_sampling`
-- `ppo`
-- `cispo`
-- `dro`
+SDK 可以使用适配器机制处理功能、会话、心跳、遥测、身份验证和审计集成。这些是实现细节，
+没有公开的 Fastino 路由。不要将其视为面向客户的 HTTP API。
 
-请求被接受只确认客户端契约和请求形式有效，并不表示每个外部 recipe 在每个模型上
-都具有完全相同的数值行为。增加工作负载规模之前，请使用小型留出运行对损失函数、
-datum 字段和模型进行组合验证。
+## 明确不受支持
 
-[使用可验证奖励进行训练](/cn/rl-api/verifiable-rewards)展示了
-`importance_sampling` 的 datum 形式。
+- 通过 `retrieve_futures` 批量检索 future
+- `save_weights_external`
+- `external_weights_urls`
+- SDK 身份验证或令牌操作
+- SDK 计费、用量或事件操作
 
-## 采样操作
+身份验证只能通过 `TINKER_CREDENTIAL_CMD` 提供普通的 Fastino `fast_sk_` 密钥。
+以 `tml-` 开头的凭据会被拒绝，并且有效示例不得设置 `TINKER_API_KEY`。
 
-| 功能 | 支持情况 |
-| --- | --- |
-| 从基础模型采样 | 支持 |
-| 从具名采样器权重采样 | 支持 |
-| 从当前训练权重采样 | 支持 |
-| 请求多个样本 | 支持 |
-| 计算 token 对数概率 | 支持 |
-| 取消排队中的采样 future | 支持 |
-| 图像或多模态提示词块 | 不支持 |
-| `target_prompt_logprobs` | 不支持 |
-| `prompt_alt_tokens_k` | 不支持 |
-
-当前模型接受编码后的文本 token 块。采样需要 `SamplingClient`。
-
-## 其他差异
-
-| 功能 | 行为 |
-| --- | --- |
-| 会话 trace 导出 | 不支持 |
-| SDK 审计端点 | 不返回条目 |
-| 跨团队加载检查点 | 不支持 |
-| OpenAPI 发现 | RL 路由有意不包含在公共 OpenAPI 文档中 |
-
-请使用应用日志和 Fastino 项目用量记录进行运维归因。
-
-Future、检查点、重试、计费、限制和错误请参阅
+有关生命周期和恢复指导，请参阅
 [运行时行为和错误](/cn/rl-api/runtime)。
