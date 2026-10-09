@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
+import tempfile
 import unittest
 import urllib.error
 from decimal import Decimal
@@ -218,6 +220,250 @@ class AgentHarnessTests(unittest.TestCase):
         self.assertEqual(len(bodies), 1)
         self.assertIsNone(bodies[0][2])
         self.assertEqual(bodies[0][1]["state"]["customer"]["tier"], "pro")
+
+    def test_documented_response_reads_first_json_block_after_heading(self) -> None:
+        page = """---
+title: Example
+---
+
+```json
+{"not": "this one"}
+```
+
+## Response
+
+Prose before the block.
+
+```json Response
+{"answers": {"route": {"type": "choice", "choice": "a"}}}
+```
+
+```json
+{"also": "ignored"}
+```
+"""
+
+        self.assertEqual(
+            HARNESS._documented_response(page),
+            {"answers": {"route": {"type": "choice", "choice": "a"}}},
+        )
+
+    def test_documented_response_requires_heading_and_valid_json(self) -> None:
+        with self.assertRaisesRegex(HARNESS.HarnessFailure, "no '## Response' heading"):
+            HARNESS._documented_response('```json\n{"a": 1}\n```\n')
+        with self.assertRaisesRegex(HARNESS.HarnessFailure, "has no ```json block"):
+            HARNESS._documented_response("## Response\n\n```bash\necho hi\n```\n")
+        with self.assertRaisesRegex(HARNESS.HarnessFailure, "does not parse"):
+            HARNESS._documented_response("## Response\n\n```json\n{oops}\n```\n")
+
+    def test_cookbook_request_parses_single_curl_and_auth_header(self) -> None:
+        page = """```bash
+export FASTINO_API_KEY=fast_sk_example
+```
+
+```bash
+curl https://api.fastino.ai/v1/chat/completions \\
+  -H "Authorization: Bearer $FASTINO_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "fastino/gliner2.5-base-v1", "messages": [{"role": "user", "content": "Hi"}]}'
+```
+"""
+
+        request = HARNESS._cookbook_request(page)
+
+        self.assertEqual(request.path, "/v1/chat/completions")
+        self.assertTrue(request.bearer)
+        self.assertEqual(request.body["model"], "fastino/gliner2.5-base-v1")
+
+    def test_cookbook_request_rejects_wrong_auth_header_and_duplicate_curls(self) -> None:
+        glide_with_bearer = """```bash
+curl https://api.fastino.ai/v1/systemone \\
+  -H "Authorization: Bearer $FASTINO_API_KEY" \\
+  -d '{"model": "fastino/GLiDE"}'
+```
+"""
+        with self.assertRaisesRegex(HARNESS.HarnessFailure, "X-API-Key"):
+            HARNESS._cookbook_request(glide_with_bearer)
+        with self.assertRaisesRegex(HARNESS.HarnessFailure, "found 2"):
+            HARNESS._cookbook_request(glide_with_bearer * 2)
+
+    def test_cookbook_findings_reject_empty_directory(self) -> None:
+        self.assertEqual(
+            HARNESS._cookbook_findings({}, {}, []),
+            [f"COOKBOOK: {HARNESS.COOKBOOK_DIR}/ exists but has no cookbook pages"],
+        )
+
+    GLIDE_DOCUMENTED = {
+        "model": "fastino/GLiDE",
+        "answers": {
+            "route": {
+                "type": "choice",
+                "choice": "billing",
+                "confidence": 0.91,
+                "probabilities": {"billing": 0.91, "tech": 0.09},
+            },
+            "urgency": {
+                "type": "score",
+                "score": 3,
+                "expected_level": 2.8,
+                "confidence": 0.7,
+                "probabilities": {"3": 0.7},
+                "legend": {"3": "high"},
+            },
+            "refund": {"type": "noul", "noul": 0.82, "confidence": 0.64},
+        },
+        "usage": {"input_tokens": 100, "output_tokens": 3},
+    }
+
+    def _glide_live(self, **overrides: dict[str, object]) -> dict[str, object]:
+        live = json.loads(json.dumps(self.GLIDE_DOCUMENTED))
+        live["answers"]["route"]["confidence"] = 0.55
+        live["answers"]["urgency"]["expected_level"] = 2.1
+        live["answers"]["refund"]["confidence"] = 0.2
+        live["usage"] = {"input_tokens": 999, "output_tokens": 9}
+        for name, fields in overrides.items():
+            live["answers"][name].update(fields)
+        return live
+
+    def test_compare_glide_answers_ignores_probabilities_and_usage(self) -> None:
+        self.assertEqual(
+            HARNESS.compare_glide_answers(self.GLIDE_DOCUMENTED, self._glide_live(refund={"noul": 0.51})),
+            [],
+        )
+
+    def test_compare_glide_answers_reports_choice_mismatch(self) -> None:
+        mismatches = HARNESS.compare_glide_answers(
+            self.GLIDE_DOCUMENTED, self._glide_live(route={"choice": "tech"})
+        )
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("answers.route.choice", mismatches[0])
+
+    def test_compare_glide_answers_reports_score_mismatch(self) -> None:
+        mismatches = HARNESS.compare_glide_answers(
+            self.GLIDE_DOCUMENTED, self._glide_live(urgency={"score": 2})
+        )
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("answers.urgency.score", mismatches[0])
+
+    def test_compare_glide_answers_reports_noul_flipped_across_half(self) -> None:
+        mismatches = HARNESS.compare_glide_answers(
+            self.GLIDE_DOCUMENTED, self._glide_live(refund={"noul": 0.31})
+        )
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("opposite sides of 0.5", mismatches[0])
+
+    def test_compare_glide_answers_reports_different_answer_set(self) -> None:
+        live = self._glide_live()
+        del live["answers"]["refund"]
+
+        self.assertIn(
+            "answers differ",
+            HARNESS.compare_glide_answers(self.GLIDE_DOCUMENTED, live)[0],
+        )
+
+    GLINER_DOCUMENTED = {
+        "entities": {
+            "person": [{"text": "Ada Lovelace", "confidence": 0.98, "start": 0, "end": 12}],
+            "location": [{"text": "London", "confidence": 0.95, "start": 44, "end": 50}],
+        },
+        "sentiment": {"label": "positive", "confidence": 0.9},
+        "relation_extraction": {
+            "works_with": [
+                {"head": {"text": "Ada Lovelace"}, "tail": {"text": "Charles Babbage"}}
+            ]
+        },
+    }
+
+    def test_compare_gliner_content_matches_and_allows_extra_live_entities(self) -> None:
+        live = json.loads(json.dumps(self.GLINER_DOCUMENTED))
+        live["entities"]["person"][0]["confidence"] = 0.6
+        live["entities"]["person"].append(
+            {"text": "Charles Babbage", "confidence": 0.9, "start": 23, "end": 38}
+        )
+        live["sentiment"]["confidence"] = 0.51
+        live["relation_extraction"]["works_with"].append(
+            {"head": {"text": "Charles Babbage"}, "tail": {"text": "Ada Lovelace"}}
+        )
+
+        self.assertEqual(HARNESS.compare_gliner_content(self.GLINER_DOCUMENTED, live), [])
+
+    def test_compare_gliner_content_reports_missing_entity(self) -> None:
+        live = json.loads(json.dumps(self.GLINER_DOCUMENTED))
+        live["entities"]["location"] = []
+
+        mismatches = HARNESS.compare_gliner_content(self.GLINER_DOCUMENTED, live)
+
+        self.assertEqual(mismatches, ["entities.location: live is missing documented ['London']"])
+
+    def test_compare_gliner_content_reports_missing_relation_pair(self) -> None:
+        live = json.loads(json.dumps(self.GLINER_DOCUMENTED))
+        live["relation_extraction"]["works_with"] = [
+            {"head": {"text": "Charles Babbage"}, "tail": {"text": "Ada Lovelace"}}
+        ]
+
+        mismatches = HARNESS.compare_gliner_content(self.GLINER_DOCUMENTED, live)
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("relation_extraction.works_with", mismatches[0])
+        self.assertIn("('Ada Lovelace', 'Charles Babbage')", mismatches[0])
+
+    def test_compare_gliner_content_reports_label_and_key_mismatch(self) -> None:
+        live = json.loads(json.dumps(self.GLINER_DOCUMENTED))
+        live["sentiment"]["label"] = "negative"
+        del live["relation_extraction"]
+
+        mismatches = HARNESS.compare_gliner_content(self.GLINER_DOCUMENTED, live)
+
+        self.assertEqual(len(mismatches), 2)
+        self.assertIn("top-level keys differ", mismatches[0])
+        self.assertIn("sentiment.label", mismatches[1])
+
+    def test_run_cookbooks_prints_pass_and_fail_lines(self) -> None:
+        page_text = """---
+title: Refunds
+---
+
+```bash
+curl https://api.fastino.ai/v1/systemone \\
+  -H "X-API-Key: $FASTINO_API_KEY" \\
+  -d '{"model": "fastino/GLiDE"}'
+```
+
+## Response
+
+```json
+{"model": "fastino/GLiDE", "answers": {"refund": {"type": "noul", "noul": 0.8}}}
+```
+"""
+        live_yes = {"model": "fastino/GLiDE", "answers": {"refund": {"type": "noul", "noul": 0.7}}}
+        live_no = {"model": "fastino/GLiDE", "answers": {"refund": {"type": "noul", "noul": 0.2}}}
+        responses = [
+            HARNESS.Response(200, "https://api.fastino.ai/v1/systemone", {}, json.dumps(body).encode())
+            for body in (live_yes, live_no)
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            pages = [Path(directory) / "a.mdx", Path(directory) / "b.mdx"]
+            for page in pages:
+                page.write_text(page_text)
+            with (
+                mock.patch.object(HARNESS, "_require_api_key", return_value="fast_sk_test"),
+                mock.patch.object(HARNESS, "_load_openapi", return_value={}),
+                mock.patch.object(HARNESS, "_validate_openapi", return_value={}),
+                mock.patch.object(HARNESS, "_validate_operation_response"),
+                mock.patch.object(HARNESS, "_request_with_retry", side_effect=responses) as request,
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                self.assertRaisesRegex(HARNESS.HarnessFailure, "1 of 2 cookbook pages failed"),
+            ):
+                HARNESS.run_cookbooks(pages)
+
+        lines = stdout.getvalue().splitlines()
+        self.assertRegex(lines[0], r"^PASS .*a\.mdx \d+ms$")
+        self.assertRegex(lines[1], r"^FAIL .*b\.mdx: .*opposite sides of 0\.5")
+        self.assertEqual(request.call_args.kwargs["headers"], {"X-API-Key": "fast_sk_test"})
+        self.assertNotIn("fast_sk_test", stdout.getvalue())
 
     def test_training_terminal_fallback_handles_canonical_statuses(self) -> None:
         status, terminal = HARNESS._training_status(

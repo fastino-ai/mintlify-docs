@@ -83,6 +83,11 @@ JOURNEY_PAGES = (
     "api-reference/training-jobs/create.mdx",
     "api-reference/training/overview.mdx",
 )
+COOKBOOK_DIR = "api-reference/cookbooks"
+COOKBOOK_ENDPOINTS = {
+    "/v1/systemone": "X-API-Key: $FASTINO_API_KEY",
+    "/v1/chat/completions": "Authorization: Bearer $FASTINO_API_KEY",
+}
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\((?P<target>/[^)\s]+)\)")
 HREF_LINK = re.compile(r'href=["\'](?P<target>/[^"\']+)["\']')
@@ -93,6 +98,11 @@ CURL_BODY_START = re.compile(r"-d\s+'")
 FRONTMATTER = re.compile(r"\A---\s*\n.*?^---\s*$", re.DOTALL | re.MULTILINE)
 HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*#*\s*$", re.MULTILINE)
 EXPLICIT_ID = re.compile(r'\bid=["\'](?P<id>[^"\']+)["\']')
+FENCED_BLOCK = re.compile(
+    r"^[ \t]*```(?P<language>[\w-]*)[^\n]*\n(?P<body>.*?)^[ \t]*```[ \t]*$",
+    re.DOTALL | re.MULTILINE,
+)
+RESPONSE_HEADING = re.compile(r"^##[ \t]+Response[ \t]*$", re.MULTILINE)
 
 
 class HarnessFailure(RuntimeError):
@@ -670,6 +680,93 @@ def _journey_findings(
     return findings
 
 
+@dataclass(frozen=True)
+class CookbookRequest:
+    """The one documented cURL call of a cookbook page."""
+
+    path: str
+    bearer: bool
+    body: object
+
+
+def _cookbook_pages(root: Path = ROOT) -> list[Path] | None:
+    """Return English cookbook pages, or None when the directory does not exist yet."""
+    directory = root / COOKBOOK_DIR
+    if not directory.is_dir():
+        return None
+    return sorted(path for path in directory.glob("*.mdx") if path.name != "overview.mdx")
+
+
+def _fenced_blocks(text: str, language: str) -> list[tuple[int, str]]:
+    return [
+        (match.start(), match.group("body"))
+        for match in FENCED_BLOCK.finditer(text)
+        if match.group("language") == language
+    ]
+
+
+def _documented_response(text: str) -> object:
+    """Parse the first ```json block after the `## Response` heading."""
+    heading = RESPONSE_HEADING.search(text)
+    if heading is None:
+        fail("COOKBOOK: page has no '## Response' heading")
+    blocks = _fenced_blocks(text[heading.end() :], "json")
+    if not blocks:
+        fail("COOKBOOK: '## Response' has no ```json block")
+    try:
+        return json.loads(blocks[0][1])
+    except json.JSONDecodeError as error:
+        fail(f"COOKBOOK: '## Response' JSON does not parse: {error}")
+
+
+def _cookbook_request(text: str) -> CookbookRequest:
+    curls = [body for _, body in _fenced_blocks(text, "bash") if "curl" in body]
+    if len(curls) != 1:
+        fail(f"COOKBOOK: page must have exactly one ```bash cURL block, found {len(curls)}")
+    block = curls[0]
+    urls = {match.group("path") for match in API_URL.finditer(block)}
+    if len(urls) != 1 or next(iter(urls)) not in COOKBOOK_ENDPOINTS:
+        fail(f"COOKBOOK: cURL must target exactly one of {sorted(COOKBOOK_ENDPOINTS)}, found {sorted(urls)}")
+    path = next(iter(urls))
+    if COOKBOOK_ENDPOINTS[path] not in block:
+        fail(f"COOKBOOK: cURL to {path} must send header '{COOKBOOK_ENDPOINTS[path]}'")
+    bodies = _curl_bodies(block)
+    if len(bodies) != 1:
+        fail(f"COOKBOOK: cURL must have exactly one -d '...' JSON body, found {len(bodies)}")
+    _, body, body_error = bodies[0]
+    if body_error is not None:
+        fail(f"COOKBOOK: malformed cURL JSON: {body_error}")
+    return CookbookRequest(path=path, bearer=path == "/v1/chat/completions", body=body)
+
+
+def _cookbook_findings(
+    document: dict[str, object],
+    operations: dict[tuple[str, str], dict[str, object]],
+    pages: list[Path],
+) -> list[str]:
+    findings: list[str] = []
+    if not pages:
+        findings.append(f"COOKBOOK: {COOKBOOK_DIR}/ exists but has no cookbook pages")
+    for page in pages:
+        relative = page.relative_to(ROOT).as_posix()
+        text = page.read_text(encoding="utf-8")
+        try:
+            if FRONTMATTER.match(text) is None:
+                fail("COOKBOOK: page has invalid frontmatter")
+            request = _cookbook_request(text)
+            _validate_value(
+                request.body,
+                _request_schema(document, operations[("post", request.path)]),
+                document,
+                location=f"{relative} request",
+            )
+            if not isinstance(_documented_response(text), dict):
+                fail("COOKBOOK: '## Response' JSON must be an object")
+        except HarnessFailure as error:
+            findings.append(f"{error} ({relative})")
+    return findings
+
+
 def run_static() -> None:
     document = _load_openapi()
     operations = _validate_openapi(document)
@@ -683,11 +780,20 @@ def run_static() -> None:
         findings.extend(_journey_findings(document, operations))
     except HarnessFailure as error:
         findings.append(str(error))
+    cookbooks = _cookbook_pages()
+    if cookbooks is not None:
+        findings.extend(_cookbook_findings(document, operations, cookbooks))
     if findings:
         fail("\n".join(findings))
+    cookbook_summary = (
+        f"{len(cookbooks)} cookbook pages"
+        if cookbooks is not None
+        else f"no {COOKBOOK_DIR}/ directory yet, cookbooks skipped"
+    )
     print(
         "Agent docs static harness passed: "
-        f"{len(operations)} operations, {len(_english_docs())} English pages"
+        f"{len(operations)} operations, {len(_english_docs())} English pages, "
+        f"{cookbook_summary}"
     )
 
 
@@ -953,6 +1059,19 @@ def _run_gliner(
     )
 
 
+def _gliner_content(payload: object, *, label: str) -> object:
+    """Parse the JSON string GLiNER returns in choices[0].message.content."""
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    message = choices[0].get("message") if isinstance(choices, list) and choices else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str):
+        fail(f"{label}: response has no choices[0].message.content")
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as error:
+        fail(f"{label}: content is not serialized JSON: {error}")
+
+
 def _validate_gliner_response(
     document: dict[str, object],
     operations: dict[tuple[str, str], dict[str, object]],
@@ -970,15 +1089,7 @@ def _validate_gliner_response(
         response,
         payload,
     )
-    choices = payload.get("choices") if isinstance(payload, dict) else None
-    message = choices[0].get("message") if isinstance(choices, list) and choices else None
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str):
-        fail(f"{label}: response has no choices[0].message.content")
-    try:
-        result = json.loads(content)
-    except json.JSONDecodeError as error:
-        fail(f"{label}: content is not serialized JSON: {error}")
+    result = _gliner_content(payload, label=label)
     entities = result.get("entities") if isinstance(result, dict) else None
     if not isinstance(entities, dict):
         fail(f"{label}: content does not contain an entities object")
@@ -1152,6 +1263,161 @@ def run_api(*, replay_training: bool) -> None:
         f"GLiDE={glide}, GLiNER={gliner}, trainable={training_model}, "
         f"training_replay={replay_training}"
     )
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _glide_answers(response: object) -> dict[str, object]:
+    answers = response.get("answers") if isinstance(response, dict) else None
+    return answers if isinstance(answers, dict) else {}
+
+
+def compare_glide_answers(documented: object, live: object) -> list[str]:
+    """Compare two /v1/systemone responses on decisions, ignoring probabilities and usage."""
+    documented_answers = _glide_answers(documented)
+    live_answers = _glide_answers(live)
+    mismatches: list[str] = []
+    if set(documented_answers) != set(live_answers):
+        mismatches.append(
+            f"answers differ: documented {sorted(documented_answers)}, live {sorted(live_answers)}"
+        )
+    for name in sorted(set(documented_answers) & set(live_answers)):
+        expected = documented_answers[name]
+        actual = live_answers[name]
+        if not isinstance(expected, dict) or not isinstance(actual, dict):
+            mismatches.append(f"answers.{name} is not an object")
+            continue
+        for key in ("choice", "score"):
+            if (key in expected or key in actual) and expected.get(key) != actual.get(key):
+                mismatches.append(
+                    f"answers.{name}.{key}: documented {expected.get(key)!r}, live {actual.get(key)!r}"
+                )
+        if "noul" in expected or "noul" in actual:
+            documented_noul = expected.get("noul")
+            live_noul = actual.get("noul")
+            if not _is_number(documented_noul) or not _is_number(live_noul):
+                mismatches.append(
+                    f"answers.{name}.noul: documented {documented_noul!r}, live {live_noul!r}"
+                )
+            elif (documented_noul >= 0.5) != (live_noul >= 0.5):
+                mismatches.append(
+                    f"answers.{name}.noul: documented {documented_noul} and live {live_noul} "
+                    "are on opposite sides of 0.5"
+                )
+    return mismatches
+
+
+def _span_text(item: object) -> object:
+    return item.get("text") if isinstance(item, dict) else item
+
+
+def _span_texts(items: object) -> set[str]:
+    if not isinstance(items, list):
+        return set()
+    return {text for item in items if isinstance(text := _span_text(item), str)}
+
+
+def _relation_pairs(items: object) -> set[tuple[str, str]]:
+    if not isinstance(items, list):
+        return set()
+    pairs: set[tuple[str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        head = _span_text(item.get("head"))
+        tail = _span_text(item.get("tail"))
+        if isinstance(head, str) and isinstance(tail, str):
+            pairs.add((head, tail))
+    return pairs
+
+
+def compare_gliner_content(documented: object, live: object) -> list[str]:
+    """Compare parsed GLiNER content; documented spans must be a subset of live spans."""
+    if not isinstance(documented, dict) or not isinstance(live, dict):
+        return ["GLiNER content must be a JSON object on both sides"]
+    mismatches: list[str] = []
+    if set(documented) != set(live):
+        mismatches.append(f"top-level keys differ: documented {sorted(documented)}, live {sorted(live)}")
+    for key in sorted(set(documented) & set(live)):
+        expected = documented[key]
+        actual = live[key]
+        if key in {"entities", "relation_extraction"}:
+            if not isinstance(expected, dict) or not isinstance(actual, dict):
+                mismatches.append(f"{key} must be an object on both sides")
+                continue
+            collect = _span_texts if key == "entities" else _relation_pairs
+            for group in sorted(expected):
+                missing = collect(expected[group]) - collect(actual.get(group))
+                if missing:
+                    mismatches.append(f"{key}.{group}: live is missing documented {sorted(missing)}")
+        elif isinstance(expected, dict) and "label" in expected:
+            live_label = actual.get("label") if isinstance(actual, dict) else None
+            if expected["label"] != live_label:
+                mismatches.append(
+                    f"{key}.label: documented {expected['label']!r}, live {live_label!r}"
+                )
+    return mismatches
+
+
+def _page_label(page: Path) -> str:
+    try:
+        return page.relative_to(ROOT).as_posix()
+    except ValueError:
+        return page.as_posix()
+
+
+def _run_cookbook(
+    api_key: str,
+    page: Path,
+    document: dict[str, object],
+    operations: dict[tuple[str, str], dict[str, object]],
+) -> int:
+    """Send one cookbook's cURL body live and return the request latency in milliseconds."""
+    label = f"COOKBOOK {_page_label(page)}"
+    text = page.read_text(encoding="utf-8")
+    request = _cookbook_request(text)
+    documented = _documented_response(text)
+    started = time.monotonic()
+    response = _request_with_retry(
+        "POST",
+        f"{API_ORIGIN}{request.path}",
+        headers=_auth_headers(api_key, bearer=request.bearer),
+        payload=request.body,
+    )
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    payload = _json_response(response, label=label)
+    _validate_operation_response(document, operations, "post", request.path, response, payload)
+    if request.bearer:
+        mismatches = compare_gliner_content(documented, _gliner_content(payload, label=label))
+    else:
+        mismatches = compare_glide_answers(documented, payload)
+    if mismatches:
+        fail("; ".join(mismatches))
+    return elapsed_ms
+
+
+def run_cookbooks(pages: list[Path] | None = None) -> None:
+    api_key = _require_api_key()
+    document = _load_openapi()
+    operations = _validate_openapi(document)
+    if pages is None:
+        pages = _cookbook_pages()
+    if not pages:
+        fail(f"COOKBOOK: no cookbook pages found in {COOKBOOK_DIR}/")
+    failures = 0
+    for page in pages:
+        try:
+            elapsed_ms = _run_cookbook(api_key, page, document, operations)
+        except (HarnessFailure, OSError, urllib.error.URLError, ValueError) as error:
+            failures += 1
+            print(f"FAIL {_page_label(page)}: {error}", flush=True)
+            continue
+        print(f"PASS {_page_label(page)} {elapsed_ms}ms", flush=True)
+    if failures:
+        fail(f"COOKBOOK: {failures} of {len(pages)} cookbook pages failed")
+    print(f"Cookbook end-to-end checks passed: {len(pages)} pages")
 
 
 def _training_status(payload: object) -> tuple[str, bool]:
@@ -1575,7 +1841,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("static", "published", "api", "training-replay", "training-lifecycle"),
+        choices=(
+            "static",
+            "published",
+            "api",
+            "cookbooks",
+            "training-replay",
+            "training-lifecycle",
+        ),
     )
     args = parser.parse_args()
     try:
@@ -1585,6 +1858,8 @@ def main() -> int:
             run_published()
         elif args.command == "api":
             run_api(replay_training=False)
+        elif args.command == "cookbooks":
+            run_cookbooks()
         elif args.command == "training-replay":
             _run_training_replay(_require_api_key())
             print("Training idempotency replay passed")
