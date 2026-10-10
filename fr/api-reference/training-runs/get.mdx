@@ -1,0 +1,110 @@
+---
+title: "Obtenir une exécution d’entraînement"
+sidebarTitle: "Obtenir une exécution"
+description: "Appelez GET /v1/training-runs/{run_id} pour obtenir une exécution d’entraînement avec son modèle de base, son rang LoRA, sa dernière activité et ses derniers checkpoints d’entraînement et d’échantillonnage."
+api: "GET /v1/training-runs/{run_id}"
+---
+
+`GET /v1/training-runs/{run_id}`
+
+Renvoie une exécution d’entraînement visible par l’appelant, avec ses derniers checkpoints d’état d’entraînement et d’échantillonnage.
+
+## Requête
+
+<ParamField header="X-API-Key" type="string" required>
+  Votre clé d’API Fastino.
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  ID de l’exécution d’entraînement. C’est l’ID de modèle renvoyé par le SDK compatible Tinker lorsqu’il crée un client d’entraînement, au format `SESSION_ID:train:N`.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl https://api.fastino.ai/v1/training-runs/YOUR_RUN_ID \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Réponse
+
+<ResponseField name="training_run_id" type="string">
+  ID de l’exécution d’entraînement.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  Modèle de base entraîné par l’exécution.
+</ResponseField>
+
+<ResponseField name="model_owner" type="string">
+  ID de l’équipe propriétaire de l’exécution.
+</ResponseField>
+
+<ResponseField name="is_lora" type="boolean">
+  Indique si l’exécution entraîne un adaptateur LoRA.
+</ResponseField>
+
+<ResponseField name="corrupted" type="boolean">
+  Indique si l’état d’entraînement de l’exécution est inutilisable et si elle ne peut plus effectuer de pas d’entraînement.
+</ResponseField>
+
+<ResponseField name="lora_rank" type="integer | null">
+  Rang LoRA, lorsque l’exécution entraîne un adaptateur LoRA.
+</ResponseField>
+
+<ResponseField name="last_request_time" type="string">
+  Horodatage ISO 8601 de la requête SDK la plus récente de l’exécution.
+</ResponseField>
+
+<ResponseField name="last_checkpoint" type="object | null">
+  Checkpoint d’état d’entraînement le plus récent, ou `null`. Les champs des checkpoints sont décrits dans [Lister les checkpoints d’une exécution](/fr/api-reference/training-runs/list-checkpoints).
+</ResponseField>
+
+<ResponseField name="last_sampler_checkpoint" type="object | null">
+  Checkpoint de poids d’échantillonnage le plus récent, ou `null`.
+</ResponseField>
+
+<ResponseField name="user_metadata" type="object | null">
+  Métadonnées clé-valeur de type chaîne attachées à la création de l’exécution.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "training_run_id": "YOUR_SESSION_ID:train:0",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "model_owner": "YOUR_TEAM_ID",
+  "is_lora": true,
+  "corrupted": false,
+  "lora_rank": 32,
+  "last_request_time": "2026-10-09T18:42:10Z",
+  "last_checkpoint": {
+    "checkpoint_id": "weights/step-100",
+    "checkpoint_type": "training",
+    "time": "2026-10-09T18:40:00Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/weights/step-100",
+    "size_bytes": 503316480,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "last_sampler_checkpoint": {
+    "checkpoint_id": "sampler_weights/step-100",
+    "checkpoint_type": "sampler",
+    "time": "2026-10-09T18:40:02Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+    "size_bytes": 167772160,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "user_metadata": {"experiment": "baseline"}
+}
+```
+
+</ResponseExample>
+
+Une exécution inconnue ou que vous ne pouvez pas voir renvoie `404`.

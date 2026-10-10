@@ -1,0 +1,93 @@
+---
+title: "List training runs"
+sidebarTitle: "List runs"
+description: "Call GET /v1/training-runs to list the step-level training runs your team created with the Tinker-compatible SDK, newest first, with limit and offset pagination."
+api: "GET /v1/training-runs"
+---
+
+`GET /v1/training-runs`
+
+Returns the training runs visible to the authenticated caller, newest first. Training runs are step-level runs that you create and drive with the Tinker-compatible SDK. Set the SDK's `base_url` to `https://api.fastino.ai/v1/training-runs/sdk` and authenticate with your Fastino API key. You see your own runs and your team's runs in projects you can access.
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField query="limit" type="integer" default="20">
+  Page size. Values are clamped to `1` through `1000`.
+</ParamField>
+
+<ParamField query="offset" type="integer" default="0">
+  Number of runs to skip.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl "https://api.fastino.ai/v1/training-runs?limit=20&offset=0" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Whether the request succeeded.
+</ResponseField>
+
+<ResponseField name="training_runs" type="object[]">
+  Training runs for this page. Each run has the fields described in [Get a training run](/api-reference/training-runs/get).
+</ResponseField>
+
+<ResponseField name="count" type="integer">
+  Number of runs in this page.
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Total number of visible runs before pagination.
+</ResponseField>
+
+<ResponseField name="has_more" type="boolean">
+  Whether another page exists after this one.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "training_runs": [
+    {
+      "training_run_id": "YOUR_SESSION_ID:train:0",
+      "base_model": "Qwen/Qwen3.6-35B-A3B",
+      "model_owner": "YOUR_TEAM_ID",
+      "is_lora": true,
+      "corrupted": false,
+      "lora_rank": 32,
+      "last_request_time": "2026-10-09T18:42:10Z",
+      "last_checkpoint": null,
+      "last_sampler_checkpoint": {
+        "checkpoint_id": "sampler_weights/step-100",
+        "checkpoint_type": "sampler",
+        "time": "2026-10-09T18:40:02Z",
+        "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+        "size_bytes": 167772160,
+        "public": false,
+        "user_metadata": null,
+        "expires_at": null
+      },
+      "user_metadata": {"experiment": "baseline"}
+    }
+  ],
+  "count": 1,
+  "total": 1,
+  "has_more": false
+}
+```
+
+</ResponseExample>
+
+Invalid pagination values return `422`. A missing or invalid API key returns `401`. If training runs are not enabled for your team, the route returns `404`.

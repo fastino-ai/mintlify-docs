@@ -1,0 +1,110 @@
+---
+title: "Get a training run"
+sidebarTitle: "Get run"
+description: "Call GET /v1/training-runs/{run_id} to get one training run with its base model, LoRA rank, last activity time, and latest training and sampler checkpoints."
+api: "GET /v1/training-runs/{run_id}"
+---
+
+`GET /v1/training-runs/{run_id}`
+
+Returns one training run visible to the caller, with its latest training-state and sampler checkpoints.
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  Training-run ID. This is the model ID the Tinker-compatible SDK returns when it creates a training client, in the form `SESSION_ID:train:N`.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl https://api.fastino.ai/v1/training-runs/YOUR_RUN_ID \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Response
+
+<ResponseField name="training_run_id" type="string">
+  Training-run ID.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  Base model the run trains.
+</ResponseField>
+
+<ResponseField name="model_owner" type="string">
+  ID of the team that owns the run.
+</ResponseField>
+
+<ResponseField name="is_lora" type="boolean">
+  Whether the run trains a LoRA adapter.
+</ResponseField>
+
+<ResponseField name="corrupted" type="boolean">
+  Whether the run's training state is unusable and the run can no longer take training steps.
+</ResponseField>
+
+<ResponseField name="lora_rank" type="integer | null">
+  LoRA rank, when the run trains a LoRA adapter.
+</ResponseField>
+
+<ResponseField name="last_request_time" type="string">
+  ISO 8601 timestamp of the run's most recent SDK request.
+</ResponseField>
+
+<ResponseField name="last_checkpoint" type="object | null">
+  Most recent training-state checkpoint, or `null`. Checkpoint fields are described in [List training-run checkpoints](/api-reference/training-runs/list-checkpoints).
+</ResponseField>
+
+<ResponseField name="last_sampler_checkpoint" type="object | null">
+  Most recent sampler-weights checkpoint, or `null`.
+</ResponseField>
+
+<ResponseField name="user_metadata" type="object | null">
+  String key-value metadata attached when the run was created.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "training_run_id": "YOUR_SESSION_ID:train:0",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "model_owner": "YOUR_TEAM_ID",
+  "is_lora": true,
+  "corrupted": false,
+  "lora_rank": 32,
+  "last_request_time": "2026-10-09T18:42:10Z",
+  "last_checkpoint": {
+    "checkpoint_id": "weights/step-100",
+    "checkpoint_type": "training",
+    "time": "2026-10-09T18:40:00Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/weights/step-100",
+    "size_bytes": 503316480,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "last_sampler_checkpoint": {
+    "checkpoint_id": "sampler_weights/step-100",
+    "checkpoint_type": "sampler",
+    "time": "2026-10-09T18:40:02Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+    "size_bytes": 167772160,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "user_metadata": {"experiment": "baseline"}
+}
+```
+
+</ResponseExample>
+
+An unknown run, or a run you cannot see, returns `404`.

@@ -48,7 +48,15 @@ TRAINING_OPERATIONS = {
     ("POST", "/v1/training-jobs/{job_id}/sync"),
     ("POST", "/v1/training-jobs/{job_id}/terminate"),
 }
-EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
+TRAINING_RUN_OPERATIONS = {
+    ("GET", "/v1/training-runs"),
+    ("GET", "/v1/training-runs/{run_id}"),
+    ("GET", "/v1/training-runs/{run_id}/checkpoints"),
+    ("GET", "/v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download"),
+}
+EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS | TRAINING_RUN_OPERATIONS
+# SDK base URLs are documented prefixes, not routes: the SDK appends its own paths.
+SDK_BASE_PATHS = {"/v1/training-runs/sdk"}
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",
@@ -334,7 +342,7 @@ def _path_matches_route(
     method: str | None = None,
 ) -> bool:
     path = url_path.split("?", maxsplit=1)[0].rstrip(".,)")
-    if "$" in path or path in {"", "/v1"}:
+    if "$" in path or path in {"", "/v1"} or path.rstrip("/") in SDK_BASE_PATHS:
         return True
     concrete_path = re.sub(r"(\{[^}]+\}|YOUR_[A-Z_]+|[A-Z_]{2,}|:[a-z_]+)", "VALUE", path)
     candidates = patterns.get(method, []) if method is not None else [

@@ -1,0 +1,110 @@
+---
+title: "获取训练运行"
+sidebarTitle: "获取运行"
+description: "调用 GET /v1/training-runs/{run_id}，获取单个训练运行及其基础模型、LoRA 秩、最近活动时间，以及最新的训练检查点和采样检查点。"
+api: "GET /v1/training-runs/{run_id}"
+---
+
+`GET /v1/training-runs/{run_id}`
+
+返回调用方可见的单个训练运行，以及其最新的训练状态检查点和采样检查点。
+
+## 请求
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  训练运行 ID。即兼容 Tinker 的 SDK 在创建训练客户端时返回的模型 ID，格式为 `SESSION_ID:train:N`。
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl https://api.fastino.ai/v1/training-runs/YOUR_RUN_ID \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## 响应
+
+<ResponseField name="training_run_id" type="string">
+  训练运行 ID。
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  该运行训练的基础模型。
+</ResponseField>
+
+<ResponseField name="model_owner" type="string">
+  拥有该运行的团队 ID。
+</ResponseField>
+
+<ResponseField name="is_lora" type="boolean">
+  该运行是否训练 LoRA 适配器。
+</ResponseField>
+
+<ResponseField name="corrupted" type="boolean">
+  该运行的训练状态是否不可用，且无法再执行训练步骤。
+</ResponseField>
+
+<ResponseField name="lora_rank" type="integer | null">
+  LoRA 秩（当该运行训练 LoRA 适配器时）。
+</ResponseField>
+
+<ResponseField name="last_request_time" type="string">
+  该运行最近一次 SDK 请求的 ISO 8601 时间戳。
+</ResponseField>
+
+<ResponseField name="last_checkpoint" type="object | null">
+  最新的训练状态检查点，或 `null`。检查点字段见[列出训练运行检查点](/cn/api-reference/training-runs/list-checkpoints)。
+</ResponseField>
+
+<ResponseField name="last_sampler_checkpoint" type="object | null">
+  最新的采样权重检查点，或 `null`。
+</ResponseField>
+
+<ResponseField name="user_metadata" type="object | null">
+  创建运行时附加的字符串键值元数据。
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "training_run_id": "YOUR_SESSION_ID:train:0",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "model_owner": "YOUR_TEAM_ID",
+  "is_lora": true,
+  "corrupted": false,
+  "lora_rank": 32,
+  "last_request_time": "2026-10-09T18:42:10Z",
+  "last_checkpoint": {
+    "checkpoint_id": "weights/step-100",
+    "checkpoint_type": "training",
+    "time": "2026-10-09T18:40:00Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/weights/step-100",
+    "size_bytes": 503316480,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "last_sampler_checkpoint": {
+    "checkpoint_id": "sampler_weights/step-100",
+    "checkpoint_type": "sampler",
+    "time": "2026-10-09T18:40:02Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+    "size_bytes": 167772160,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "user_metadata": {"experiment": "baseline"}
+}
+```
+
+</ResponseExample>
+
+未知的运行或您无权查看的运行会返回 `404`。

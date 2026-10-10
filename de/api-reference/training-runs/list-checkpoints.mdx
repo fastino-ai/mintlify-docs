@@ -1,0 +1,110 @@
+---
+title: "Checkpoints eines Trainingslaufs auflisten"
+sidebarTitle: "Checkpoints auflisten"
+description: "Rufen Sie GET /v1/training-runs/{run_id}/checkpoints auf, um die gespeicherten Trainingszustands- und Sampler-Checkpoints eines Laufs aufzulisten, neueste zuerst, mit Größen und tinker-Pfaden."
+api: "GET /v1/training-runs/{run_id}/checkpoints"
+---
+
+`GET /v1/training-runs/{run_id}/checkpoints`
+
+Gibt die gespeicherten Checkpoints eines Trainingslaufs zurück, neueste zuerst. Checkpoints entstehen durch die Speicheraufrufe des SDK: Trainingszustands-Checkpoints (`weights/<name>`) setzen das Training fort, und Sampler-Checkpoints (`sampler_weights/<name>`) enthalten die Adaptergewichte für das Sampling.
+
+## Anfrage
+
+<ParamField header="X-API-Key" type="string" required>
+  Ihr Fastino-API-Schlüssel.
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  ID des Trainingslaufs.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl https://api.fastino.ai/v1/training-runs/YOUR_RUN_ID/checkpoints \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Antwort
+
+<ResponseField name="success" type="boolean">
+  Ob die Anfrage erfolgreich war.
+</ResponseField>
+
+<ResponseField name="run_id" type="string">
+  ID des Trainingslaufs.
+</ResponseField>
+
+<ResponseField name="checkpoints" type="object[]">
+  Gespeicherte Checkpoints, neueste zuerst.
+
+  <Expandable title="Checkpoint">
+    <ResponseField name="checkpoint_id" type="string">
+      Checkpoint-ID, entweder `weights/<name>` oder `sampler_weights/<name>`. Verwenden Sie sie mit [Checkpoint herunterladen](/de/api-reference/training-runs/download-checkpoint).
+    </ResponseField>
+    <ResponseField name="checkpoint_type" type="string">
+      `training` für Trainingszustands-Checkpoints oder `sampler` für Sampler-Gewichte.
+    </ResponseField>
+    <ResponseField name="time" type="string">
+      ISO-8601-Zeitstempel der Speicherung des Checkpoints.
+    </ResponseField>
+    <ResponseField name="tinker_path" type="string">
+      Der `tinker://`-Pfad des Checkpoints, über den das SDK ihn lädt.
+    </ResponseField>
+    <ResponseField name="size_bytes" type="integer | null">
+      Checkpoint-Größe in Bytes, sofern bekannt.
+    </ResponseField>
+    <ResponseField name="public" type="boolean">
+      Ob der Checkpoint veröffentlicht ist.
+    </ResponseField>
+    <ResponseField name="user_metadata" type="object | null">
+      An den Checkpoint angehängte String-Schlüssel-Wert-Metadaten.
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      ISO-8601-Ablaufzeit oder `null`, wenn der Checkpoint bis zum Löschen erhalten bleibt.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="integer">
+  Anzahl der zurückgegebenen Checkpoints.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "run_id": "YOUR_SESSION_ID:train:0",
+  "checkpoints": [
+    {
+      "checkpoint_id": "sampler_weights/step-100",
+      "checkpoint_type": "sampler",
+      "time": "2026-10-09T18:40:02Z",
+      "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+      "size_bytes": 167772160,
+      "public": false,
+      "user_metadata": null,
+      "expires_at": null
+    },
+    {
+      "checkpoint_id": "weights/step-100",
+      "checkpoint_type": "training",
+      "time": "2026-10-09T18:40:00Z",
+      "tinker_path": "tinker://YOUR_SESSION_ID:train:0/weights/step-100",
+      "size_bytes": 503316480,
+      "public": false,
+      "user_metadata": null,
+      "expires_at": null
+    }
+  ],
+  "count": 2
+}
+```
+
+</ResponseExample>
+
+Ein unbekannter oder für Sie nicht sichtbarer Lauf gibt `404` zurück.

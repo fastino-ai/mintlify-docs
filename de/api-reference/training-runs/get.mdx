@@ -1,0 +1,110 @@
+---
+title: "Trainingslauf abrufen"
+sidebarTitle: "Lauf abrufen"
+description: "Rufen Sie GET /v1/training-runs/{run_id} auf, um einen Trainingslauf mit Basismodell, LoRA-Rang, letzter Aktivität und den neuesten Trainings- und Sampler-Checkpoints abzurufen."
+api: "GET /v1/training-runs/{run_id}"
+---
+
+`GET /v1/training-runs/{run_id}`
+
+Gibt einen für den Aufrufer sichtbaren Trainingslauf mit seinen neuesten Trainingszustands- und Sampler-Checkpoints zurück.
+
+## Anfrage
+
+<ParamField header="X-API-Key" type="string" required>
+  Ihr Fastino-API-Schlüssel.
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  ID des Trainingslaufs. Dies ist die Modell-ID, die das Tinker-kompatible SDK beim Erstellen eines Trainingsclients zurückgibt, im Format `SESSION_ID:train:N`.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl https://api.fastino.ai/v1/training-runs/YOUR_RUN_ID \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Antwort
+
+<ResponseField name="training_run_id" type="string">
+  ID des Trainingslaufs.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  Basismodell, das der Lauf trainiert.
+</ResponseField>
+
+<ResponseField name="model_owner" type="string">
+  ID des Teams, dem der Lauf gehört.
+</ResponseField>
+
+<ResponseField name="is_lora" type="boolean">
+  Ob der Lauf einen LoRA-Adapter trainiert.
+</ResponseField>
+
+<ResponseField name="corrupted" type="boolean">
+  Ob der Trainingszustand des Laufs unbrauchbar ist und der Lauf keine Trainingsschritte mehr ausführen kann.
+</ResponseField>
+
+<ResponseField name="lora_rank" type="integer | null">
+  LoRA-Rang, wenn der Lauf einen LoRA-Adapter trainiert.
+</ResponseField>
+
+<ResponseField name="last_request_time" type="string">
+  ISO-8601-Zeitstempel der letzten SDK-Anfrage des Laufs.
+</ResponseField>
+
+<ResponseField name="last_checkpoint" type="object | null">
+  Neuester Trainingszustands-Checkpoint oder `null`. Die Checkpoint-Felder sind unter [Checkpoints eines Trainingslaufs auflisten](/de/api-reference/training-runs/list-checkpoints) beschrieben.
+</ResponseField>
+
+<ResponseField name="last_sampler_checkpoint" type="object | null">
+  Neuester Sampler-Gewichts-Checkpoint oder `null`.
+</ResponseField>
+
+<ResponseField name="user_metadata" type="object | null">
+  String-Schlüssel-Wert-Metadaten, die beim Erstellen des Laufs angehängt wurden.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "training_run_id": "YOUR_SESSION_ID:train:0",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "model_owner": "YOUR_TEAM_ID",
+  "is_lora": true,
+  "corrupted": false,
+  "lora_rank": 32,
+  "last_request_time": "2026-10-09T18:42:10Z",
+  "last_checkpoint": {
+    "checkpoint_id": "weights/step-100",
+    "checkpoint_type": "training",
+    "time": "2026-10-09T18:40:00Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/weights/step-100",
+    "size_bytes": 503316480,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "last_sampler_checkpoint": {
+    "checkpoint_id": "sampler_weights/step-100",
+    "checkpoint_type": "sampler",
+    "time": "2026-10-09T18:40:02Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+    "size_bytes": 167772160,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "user_metadata": {"experiment": "baseline"}
+}
+```
+
+</ResponseExample>
+
+Ein unbekannter oder für Sie nicht sichtbarer Lauf gibt `404` zurück.
