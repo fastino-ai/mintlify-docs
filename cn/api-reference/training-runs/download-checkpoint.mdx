@@ -1,0 +1,105 @@
+---
+title: "下载训练运行检查点"
+sidebarTitle: "下载检查点"
+description: "调用 GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download，获取团队某个检查点 tar 归档的短期签名 URL。"
+api: "GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download"
+---
+
+`GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download`
+
+返回团队某个检查点 tar 归档的短期签名 URL。对于采样检查点，归档包含 PEFT 适配器文件。请另行请求返回的 URL 以下载归档。该 URL 无需 API 密钥，15 分钟后过期。
+
+下载权重需要团队具备权重下载权限，与[下载训练后的权重](/cn/api-reference/training-jobs/download)使用的权限相同。
+
+## 请求
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  训练运行 ID。
+</ParamField>
+
+<ParamField path="checkpoint_id" type="string" required>
+  [列出训练运行检查点](/cn/api-reference/training-runs/list-checkpoints)返回的检查点 ID：`weights/<name>` 或 `sampler_weights/<name>`。请原样发送，斜杠是路径的一部分。
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+RUN_ID="YOUR_RUN_ID"
+CHECKPOINT_ID="sampler_weights/step-100"
+
+curl "https://api.fastino.ai/v1/training-runs/$RUN_ID/checkpoints/$CHECKPOINT_ID/download" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## 响应
+
+<ResponseField name="success" type="boolean">
+  URL 是否已生成。
+</ResponseField>
+
+<ResponseField name="run_id" type="string">
+  训练运行 ID。
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  检查点 ID。
+</ResponseField>
+
+<ResponseField name="download_url" type="string">
+  检查点 tar 归档的签名 URL。无需任何凭证。
+</ResponseField>
+
+<ResponseField name="expires_in_seconds" type="integer">
+  URL 有效期（秒）。值为 `900`。
+</ResponseField>
+
+<ResponseField name="file_name" type="string">
+  建议的下载文件名。
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "run_id": "YOUR_SESSION_ID:train:0",
+  "checkpoint_id": "sampler_weights/step-100",
+  "download_url": "https://api.fastino.ai/v1/training-runs/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "YOUR_SESSION_ID_train_0-sampler_weights-step-100.tar"
+}
+```
+
+</ResponseExample>
+
+<Warning>
+  签名 URL 是一种临时的 bearer 凭证。请勿记录、提交、持久化或分享它。请及时下载归档，并按照您的数据处理策略进行存储。
+</Warning>
+
+如需在一个流程中请求 URL 并下载归档：
+
+```bash
+response=$(curl -fsS \
+  "https://api.fastino.ai/v1/training-runs/$RUN_ID/checkpoints/$CHECKPOINT_ID/download" \
+  -H "X-API-Key: $FASTINO_API_KEY")
+
+curl -fL \
+  -o "$(jq -r '.file_name' <<<"$response")" \
+  "$(jq -r '.download_url' <<<"$response")"
+```
+
+此示例需要 `jq`。
+
+| 状态 | 含义 |
+| --- | --- |
+| `400` | 检查点 ID 不是 `weights/<name>` 或 `sampler_weights/<name>`。 |
+| `403` | 您的团队没有权重下载权限。请联系 sales@fastino.ai。 |
+| `404` | 运行或检查点未知、您无权查看，或没有可下载的文件。 |
+
+已过期或被篡改的签名 URL 在请求时会返回 `403`。请重新请求一个 URL。

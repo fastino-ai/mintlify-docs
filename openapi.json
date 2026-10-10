@@ -306,7 +306,7 @@
         "type": "object"
       },
       "AnthropicMessagesResponse": {
-        "description": "Anthropic Messages API response format.\n\n``fastino_inference_id`` is a Fastino-only extension: the\n``inferences.id`` of the persisted row backing this completion. It mirrors\nthe ``x_fastino.inference_id`` field on the OpenAI-compatible chat\ncompletion response so frontend playground clients can use the same\npoll-``GET /inferences/{id}``-for-judge-results round-trip on either\nsurface. ``None`` when persistence didn't run (e.g. ``store=false``).",
+        "description": "Anthropic Messages API response format.\n\n``fastino_inference_id`` is a Fastino-only identifier for the persisted\ninference. It mirrors ``x_fastino.inference_id`` on OpenAI-compatible chat\ncompletions and can be used with ``GET /inferences/{id}`` to poll for\nevaluation results. It is null when persistence did not run.",
         "properties": {
           "content": {
             "items": {
@@ -425,7 +425,7 @@
         "type": "object"
       },
       "AnthropicUsage": {
-        "description": "Usage statistics in Anthropic format.\n\n``input_tokens`` is Anthropic's non-cached input contract - cached\nreads / writes live in the separate ``cache_read_input_tokens`` /\n``cache_creation_input_tokens`` fields. Fastino mirrors the same\nshape on the ``/v1/messages`` wire so SDK consumers reading the\nfields directly stay correct.",
+        "description": "Usage statistics in Anthropic format.\n\n``input_tokens`` is Anthropic's non-cached input contract — cached\nreads / writes live in the separate ``cache_read_input_tokens`` /\n``cache_creation_input_tokens`` fields. Fastino mirrors the same\nshape on the ``/v1/messages`` wire so SDK consumers reading the\nfields directly stay correct.",
         "properties": {
           "cache_creation_input_tokens": {
             "default": 0,
@@ -688,7 +688,7 @@
             "title": "Coding Benchmark Mean"
           },
           "coding_benchmarks": {
-            "description": "The figures averaged into coding_benchmark_mean, strongest first, so a listing can show its working without a request per model. Empty when there is no mean to explain. See GET /base-models/{id}/benchmarks for provenance and ranks.",
+            "description": "The figures averaged into coding_benchmark_mean, strongest first, so a listing can show its working without a request per model. Empty when there is no mean to explain.",
             "items": {
               "$ref": "#/components/schemas/BenchmarkComponentScore"
             },
@@ -817,7 +817,7 @@
                 "type": "null"
               }
             ],
-            "description": "SPDX license identifier or short name for the model weights (e.g. 'Apache-2.0', 'Llama-3-Community', 'Proprietary'). Display string only - null when unknown.",
+            "description": "SPDX license identifier or short name for the model weights (e.g. 'Apache-2.0', 'Llama-3-Community', 'Proprietary'). Display string only — null when unknown.",
             "title": "License"
           },
           "market_input_price_per_million": {
@@ -865,7 +865,7 @@
                 "type": "null"
               }
             ],
-            "description": "Maximum input tokens advertised for this model. Matches the conservative provider context window used by this catalog row.",
+            "description": "Maximum input tokens advertised for this model. Matches the conservative provider context window used by this catalog row. For encoder (GLiNER) models this is the text plus schema limit; longer input is rejected with input_too_long unless the request sets truncate_overflow_text. Null when the catalog has no limit.",
             "title": "Max Input Tokens"
           },
           "max_output_tokens": {
@@ -943,7 +943,7 @@
           },
           "supports_image_input": {
             "default": false,
-            "description": "Whether this model accepts image (vision) content blocks on the compat inference APIs. True when any provider catalog entry for this model sets supports_vision=True. Output is always text - no model supports image output.",
+            "description": "Whether this model accepts image (vision) content blocks on the compat inference APIs. True when any provider catalog entry for this model sets supports_vision=True. Output is always text — no model supports image output.",
             "title": "Supports Image Input",
             "type": "boolean"
           },
@@ -964,7 +964,7 @@
           },
           "supports_zdr": {
             "default": false,
-            "description": "Whether this model has a Zero-Data-Retention-compliant route. Informational - shown on the models page. Fails closed: defaults False and is True only when the model is explicitly catalogued as ZDR-supported, so the claim is never over-reported.",
+            "description": "Whether this model has a Zero-Data-Retention-compliant route. Informational — shown on the models page. Fails closed: defaults False and is True only when the model is explicitly catalogued as ZDR-supported, so the claim is never over-reported.",
             "title": "Supports Zdr",
             "type": "boolean"
           },
@@ -1029,7 +1029,7 @@
         "type": "object"
       },
       "BenchmarkComponentScore": {
-        "description": "One benchmark figure behind a published axis mean.\n\nDeliberately thinner than ``schemas.model_benchmarks.BenchmarkScore``: this\none is repeated for every model in the catalogue listing, and provenance,\nranks and timestamps belong on the detail endpoint where there is room to\npresent them.",
+        "description": "One benchmark figure behind a published axis mean.",
         "properties": {
           "benchmark_id": {
             "description": "Upstream benchmark slug",
@@ -1214,7 +1214,7 @@
                 "type": "null"
               }
             ],
-            "description": "Opt-in reasoning / extended-thinking controls. Accepts Fastino's normalized shape with keys ``enabled`` (bool), ``max_tokens`` (int, Anthropic-style budget), ``effort`` (one of minimal/low/medium/high/xhigh/max/none, OpenAI-style tier), and ``exclude`` (bool, hide reasoning tokens from the response). ``effort`` and ``max_tokens`` are mutually exclusive. Fastino extensions for Claude routes (Anthropic direct + Bedrock): ``mode`` (manual/adaptive - adaptive lets the model pick thinking depth per request, required on Opus 4.7+) and ``display`` (summarized/omitted - controls whether thinking text streams back; omitted preserves only the signature for multi-turn). On Chat Completions, provider reasoning text is hidden by default and is returned on ``message.reasoning_content`` / ``delta.reasoning_content`` only when the caller explicitly requests visible reasoning with ``exclude=false`` or ``display=summarized``. Fastino canonicalizes this into InferenceRequest.reasoning at the adapter boundary and each provider renders it to its native wire field (Anthropic ``thinking``, OpenAI ``reasoning_effort``, Vercel AI Gateway ``reasoning``). Fastino does not enable reasoning by default.",
+            "description": "Opt-in reasoning / extended-thinking controls. Accepts Fastino's normalized shape with keys ``enabled`` (bool), ``max_tokens`` (int, Anthropic-style budget), ``effort`` (one of minimal/low/medium/high/xhigh/max/none, OpenAI-style tier), and ``exclude`` (bool, hide reasoning tokens from the response). ``effort`` and ``max_tokens`` are mutually exclusive. Fastino extensions for Claude routes (Anthropic direct + Bedrock): ``mode`` (manual/adaptive — adaptive lets the model pick thinking depth per request, required on Opus 4.7+) and ``display`` (summarized/omitted — controls whether thinking text streams back; omitted preserves only the signature for multi-turn). On Chat Completions, provider reasoning text is hidden by default and is returned on ``message.reasoning_content`` / ``delta.reasoning_content`` only when the caller explicitly requests visible reasoning with ``exclude=false`` or ``display=summarized``. Fastino canonicalizes this into InferenceRequest.reasoning at the adapter boundary and each provider renders it to its native wire field (Anthropic ``thinking``, OpenAI ``reasoning_effort``, Vercel AI Gateway ``reasoning``). Fastino does not enable reasoning by default.",
             "title": "Reasoning"
           },
           "response_format": {
@@ -1376,6 +1376,12 @@
             ],
             "title": "Top P"
           },
+          "truncate_overflow_text": {
+            "default": false,
+            "description": "Encoder (GLiNER) models only. When the text is longer than the model's max_input_tokens, cut it to fit instead of rejecting the request with input_too_long. Off by default. A response whose input was cut reports x_fastino.truncated: true; entities past the cut are not returned. Token usage still counts the full submitted text. Texts over 50,000 characters are rejected before truncation applies. Not supported for full fine-tuned encoder models, which still reject.",
+            "title": "Truncate Overflow Text",
+            "type": "boolean"
+          },
           "user": {
             "anyOf": [
               {
@@ -1445,7 +1451,7 @@
         "type": "object"
       },
       "ChatCompletionUsage": {
-        "description": "Token usage statistics.\n\n``prompt_tokens`` follows the upstream wire contract - *includes* every\ninput class (non-cached, cache read, and cache write). The breakdown is\nexposed under ``prompt_tokens_details`` so consumers can attribute the\ncached-read and cache-write subsets. Cache-aware billing on the brain\nside reads the canonical ``InferenceUsage`` fields directly, not this\nwire payload.",
+        "description": "Token usage statistics.\n\n``prompt_tokens`` follows the upstream wire contract — *includes* every\ninput class (non-cached, cache read, and cache write). The breakdown is\nexposed under ``prompt_tokens_details`` so consumers can attribute the\ncached-read and cache-write subsets.",
         "properties": {
           "completion_tokens": {
             "default": 0,
@@ -1551,6 +1557,46 @@
           "role"
         ],
         "title": "ChatMessage",
+        "type": "object"
+      },
+      "CheckpointDownloadResponse": {
+        "description": "``GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download``: a short-lived signed link.",
+        "properties": {
+          "checkpoint_id": {
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "download_url": {
+            "description": "Signed URL of the checkpoint's tar archive; needs no credentials.",
+            "title": "Download Url",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "checkpoint_id",
+          "download_url",
+          "expires_in_seconds",
+          "file_name"
+        ],
+        "title": "CheckpointDownloadResponse",
         "type": "object"
       },
       "CheckpointListResponse": {
@@ -1717,15 +1763,94 @@
         "title": "CheckpointResponse",
         "type": "object"
       },
+      "CheckpointView": {
+        "description": "A checkpoint (the SDK's ``Checkpoint``).",
+        "properties": {
+          "checkpoint_id": {
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "checkpoint_type": {
+            "enum": [
+              "training",
+              "sampler"
+            ],
+            "title": "Checkpoint Type",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "public": {
+            "default": false,
+            "title": "Public",
+            "type": "boolean"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "time": {
+            "format": "date-time",
+            "title": "Time",
+            "type": "string"
+          },
+          "tinker_path": {
+            "description": "The checkpoint's tinker:// path, which the SDK addresses it by.",
+            "title": "Tinker Path",
+            "type": "string"
+          },
+          "user_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Metadata"
+          }
+        },
+        "required": [
+          "checkpoint_id",
+          "checkpoint_type",
+          "time",
+          "tinker_path"
+        ],
+        "title": "CheckpointView",
+        "type": "object"
+      },
       "ChoiceAnswer": {
         "additionalProperties": false,
         "description": "The chosen option and the probability of every option.",
         "properties": {
           "choice": {
+            "description": "The option name with the highest probability.",
             "title": "Choice",
             "type": "string"
           },
           "confidence": {
+            "description": "Probability margin between the best and second-best option.",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Confidence",
@@ -1737,6 +1862,7 @@
               "minimum": 0.0,
               "type": "number"
             },
+            "description": "Probability of every option, keyed by option name.",
             "title": "Probabilities",
             "type": "object"
           },
@@ -1752,28 +1878,32 @@
           "confidence",
           "probabilities"
         ],
-        "title": "ChoiceAnswer",
+        "title": "Choice answer",
         "type": "object"
       },
       "ChoiceQuestion": {
         "additionalProperties": false,
-        "description": "A question whose answer is one named option.",
+        "description": "A question whose answer is one of 2 to 255 named options.",
         "properties": {
           "criteria": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue-Input"
             },
-            "minProperties": 1,
+            "description": "2 to 255 options. Each key is an option name returned in `choice`; each value describes when that option applies.",
+            "maxProperties": 255,
+            "minProperties": 2,
             "title": "Criteria",
             "type": "object"
           },
           "instructions": {
+            "description": "The question to answer about `state`. A JSON object is accepted and sent as its compact JSON text.",
             "minLength": 1,
             "title": "Instructions",
             "type": "string"
           },
           "type": {
             "const": "choice",
+            "description": "`choice` to pick one named option.",
             "title": "Type",
             "type": "string"
           }
@@ -1783,7 +1913,7 @@
           "instructions",
           "criteria"
         ],
-        "title": "ChoiceQuestion",
+        "title": "Choice",
         "type": "object"
       },
       "ContentBlock": {
@@ -2467,6 +2597,7 @@
           },
           "dataset_name": {
             "description": "Name for the dataset",
+            "minLength": 1,
             "title": "Dataset Name",
             "type": "string"
           },
@@ -2492,7 +2623,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional Experiment ID (UUID) the upload was started from. The dataset is linked to it so it appears in that Experiment's Datasets tab (ENG-7109). Ignored when the caller may not access the Experiment.",
+            "description": "Optional Experiment ID (UUID) the upload was started from. The dataset is linked to the experiment when the caller has access.",
             "title": "Experiment Id"
           },
           "filename": {
@@ -2901,8 +3032,13 @@
         "type": "object"
       },
       "FastinoExtension": {
-        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, …); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
+        "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, …); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    default_schema_applied: Whether Fastino supplied the selected\n        encoder model's default because the request did not provide a\n        GLiNER schema. This also applies when ``response_format`` is\n        ``text`` or ``json_object``, since neither contains a schema.\n    truncated: Whether the encoder input was cut to fit the model's\n        ``max_input_tokens`` because the request set\n        ``truncate_overflow_text``. For a batch, at least one text was cut.",
         "properties": {
+          "default_schema_applied": {
+            "default": false,
+            "title": "Default Schema Applied",
+            "type": "boolean"
+          },
           "inference_id": {
             "anyOf": [
               {
@@ -2913,6 +3049,11 @@
               }
             ],
             "title": "Inference Id"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
           }
         },
         "title": "FastinoExtension",
@@ -3083,6 +3224,12 @@
             ],
             "default": 0.5,
             "title": "Threshold"
+          },
+          "truncate_overflow_text": {
+            "default": false,
+            "description": "Encoder (GLiNER) models only. When the text is longer than the model's max_input_tokens, cut it to fit instead of rejecting the request with input_too_long. Off by default. A response whose input was cut reports x_fastino.truncated: true; entities past the cut are not returned. Token usage still counts the full submitted text. Texts over 50,000 characters are rejected before truncation applies. Not supported for full fine-tuned encoder models, which still reject.",
+            "title": "Truncate Overflow Text",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3111,6 +3258,17 @@
           "token_usage": {
             "title": "Token Usage",
             "type": "integer"
+          },
+          "x_fastino": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FastinoExtension"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fastino extension fields. Present only when the input was truncated."
           }
         },
         "required": [
@@ -3291,7 +3449,7 @@
         "type": "object"
       },
       "InferenceFeedbackRequest": {
-        "description": "Request to submit human feedback on a specific inference.\n\nArgs:\n    verdict: Human judgment - correct or incorrect.\n    corrected_output: Expected output when verdict is incorrect.\n    notes: Optional free-text notes from the reviewer.",
+        "description": "Human feedback to submit for a specific inference.",
         "properties": {
           "corrected_output": {
             "anyOf": [
@@ -3333,7 +3491,7 @@
         "type": "object"
       },
       "InferenceFeedbackResponse": {
-        "description": "Response after submitting human feedback.\n\nArgs:\n    inference_id: The inference that was annotated.\n    human_verdict: The stored verdict.\n    human_feedback_at: Timestamp of the feedback submission.",
+        "description": "Stored human feedback for a specific inference.",
         "properties": {
           "human_feedback_at": {
             "description": "When the feedback was submitted",
@@ -3859,12 +4017,14 @@
         "description": "Probability that the noul question's true option holds.",
         "properties": {
           "confidence": {
+            "description": "`|2 * noul - 1|`: `0` at maximum uncertainty, `1` when certain.",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Confidence",
             "type": "number"
           },
           "noul": {
+            "description": "Probability that the `true` criterion holds. Not a boolean.",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Noul",
@@ -3881,7 +4041,7 @@
           "noul",
           "confidence"
         ],
-        "title": "NoulAnswer",
+        "title": "Noul answer",
         "type": "object"
       },
       "NoulCriteria": {
@@ -3890,11 +4050,13 @@
         "properties": {
           "false": {
             "default": "No",
+            "description": "The opposite outcome.",
             "title": "False",
             "type": "string"
           },
           "true": {
             "default": "Yes",
+            "description": "The outcome whose probability `noul` returns.",
             "title": "True",
             "type": "string"
           }
@@ -3904,18 +4066,21 @@
       },
       "NoulQuestion": {
         "additionalProperties": false,
-        "description": "A yes/no question read from the true and false option letters.",
+        "description": "A yes/no question answered with the probability that `true` holds.",
         "properties": {
           "criteria": {
-            "$ref": "#/components/schemas/NoulCriteria"
+            "$ref": "#/components/schemas/NoulCriteria",
+            "description": "Optional labels for the two outcomes. Defaults to Yes and No."
           },
           "instructions": {
+            "description": "The question to answer about `state`. A JSON object is accepted and sent as its compact JSON text.",
             "minLength": 1,
             "title": "Instructions",
             "type": "string"
           },
           "type": {
             "const": "noul",
+            "description": "`noul` for a yes/no question.",
             "title": "Type",
             "type": "string"
           }
@@ -3924,11 +4089,11 @@
           "type",
           "instructions"
         ],
-        "title": "NoulQuestion",
+        "title": "Noul",
         "type": "object"
       },
       "PromptTokensDetails": {
-        "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Fastino relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire - that's the upstream contract Fastino relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
+        "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Fastino relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire — that's the upstream contract Fastino relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
         "properties": {
           "cache_write_tokens": {
             "default": 0,
@@ -4362,12 +4527,14 @@
         "description": "The chosen level, its expectation, and the level probabilities.",
         "properties": {
           "confidence": {
+            "description": "Probability margin between the two most probable levels.",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Confidence",
             "type": "number"
           },
           "expected_level": {
+            "description": "Probability-weighted level index. Read this where a weighted score is expected.",
             "title": "Expected Level",
             "type": "number"
           },
@@ -4375,6 +4542,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Description of each level, keyed by level index.",
             "title": "Legend",
             "type": "object"
           },
@@ -4384,10 +4552,12 @@
               "minimum": 0.0,
               "type": "number"
             },
+            "description": "Probability of each level, keyed by level index such as `\"0\"`.",
             "title": "Probabilities",
             "type": "object"
           },
           "score": {
+            "description": "Index of the most probable level, from `0`.",
             "minimum": 0.0,
             "title": "Score",
             "type": "integer"
@@ -4406,7 +4576,7 @@
           "probabilities",
           "legend"
         ],
-        "title": "ScoreAnswer",
+        "title": "Score answer",
         "type": "object"
       },
       "ScoreQuestion": {
@@ -4428,15 +4598,18 @@
                 "type": "object"
               }
             ],
+            "description": "1 to 255 levels, lowest first. An object needs numeric-string keys, which are sorted and discarded. Answers, `legend`, and `expected_level` use the 0-based level position, not your keys.",
             "title": "Criteria"
           },
           "instructions": {
+            "description": "The question to answer about `state`. A JSON object is accepted and sent as its compact JSON text.",
             "minLength": 1,
             "title": "Instructions",
             "type": "string"
           },
           "type": {
             "const": "score",
+            "description": "`score` to rate on an ordered scale.",
             "title": "Type",
             "type": "string"
           }
@@ -4446,7 +4619,7 @@
           "instructions",
           "criteria"
         ],
-        "title": "ScoreQuestion",
+        "title": "Score",
         "type": "object"
       },
       "StopJobRequest": {
@@ -4555,9 +4728,10 @@
       },
       "SystemOneRequest": {
         "additionalProperties": false,
-        "description": "Body of ``POST /v1/systemone``.\n\n``provider``, ``user``, ``session_id`` and ``trace`` are the OpenRouter\nrouting and observability fields; they are accepted and never forwarded.",
+        "description": "Body of ``POST /v1/systemone``.\n\n``provider``, ``user``, ``session_id`` and ``trace`` are the OpenRouter\nrouting and observability fields; they are accepted and never forwarded.\n``thinking`` is optional. Absent and false are one pass. True is rejected\nuntil a thinking pass is served.",
         "properties": {
           "model": {
+            "description": "Decision model to call. Use `fastino/GLiDE`.",
             "minLength": 1,
             "title": "Model",
             "type": "string"
@@ -4574,6 +4748,7 @@
                 "type": "null"
               }
             ],
+            "description": "Accepted for OpenRouter compatibility and not forwarded to the model.",
             "title": "Provider"
           },
           "questions": {
@@ -4598,6 +4773,7 @@
                 }
               ]
             },
+            "description": "One or more questions keyed by names you choose. The same keys appear under `answers`.",
             "minProperties": 1,
             "title": "Questions",
             "type": "object"
@@ -4612,6 +4788,7 @@
                 "type": "null"
               }
             ],
+            "description": "Accepted for OpenRouter compatibility and not forwarded to the model.",
             "title": "Session Id"
           },
           "state": {
@@ -4632,7 +4809,20 @@
                 "type": "array"
               }
             ],
+            "description": "The situation every question is evaluated against: a string, a JSON object of labeled fields, or a JSON array. Send an empty value when the question carries all the context.",
             "title": "State"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit or send `false`. `true` is rejected until thinking is served.",
+            "title": "Thinking"
           },
           "trace": {
             "anyOf": [
@@ -4646,6 +4836,7 @@
                 "type": "null"
               }
             ],
+            "description": "Accepted for OpenRouter compatibility and not forwarded to the model.",
             "title": "Trace"
           },
           "user": {
@@ -4658,6 +4849,7 @@
                 "type": "null"
               }
             ],
+            "description": "Accepted for OpenRouter compatibility and not forwarded to the model.",
             "title": "User"
           }
         },
@@ -4671,7 +4863,7 @@
       },
       "SystemOneResponse": {
         "additionalProperties": false,
-        "description": "Engine response the provider bills from ``usage``.",
+        "description": "Decision answers and token usage for one request.",
         "properties": {
           "answers": {
             "additionalProperties": {
@@ -4695,10 +4887,12 @@
                 }
               ]
             },
+            "description": "One answer per question, keyed by the question names you sent.",
             "title": "Answers",
             "type": "object"
           },
           "model": {
+            "description": "Engine name without the provider prefix, e.g. `glide`.",
             "title": "Model",
             "type": "string"
           },
@@ -4709,7 +4903,8 @@
             "type": "integer"
           },
           "usage": {
-            "$ref": "#/components/schemas/SystemOneUsage"
+            "$ref": "#/components/schemas/SystemOneUsage",
+            "description": "Token counts used for billing."
           }
         },
         "required": [
@@ -4726,11 +4921,13 @@
         "description": "Token counts the engine reports for one decision.",
         "properties": {
           "input_tokens": {
+            "description": "Input tokens across every internal pass for every question. Can exceed 40,000 even when each rendered question prompt fits.",
             "minimum": 0.0,
             "title": "Input Tokens",
             "type": "integer"
           },
           "output_tokens": {
+            "description": "Output tokens the engine produced.",
             "minimum": 0.0,
             "title": "Output Tokens",
             "type": "integer"
@@ -4741,6 +4938,19 @@
           "output_tokens"
         ],
         "title": "SystemOneUsage",
+        "type": "object"
+      },
+      "TerminateJobRequest": {
+        "description": "Options for terminating a training job.",
+        "properties": {
+          "delete_checkpoints": {
+            "default": false,
+            "description": "Permanently delete all checkpoints and artifacts for this job. Irreversible. Defaults to false so terminate never destroys artifacts the caller has already paid to produce.",
+            "title": "Delete Checkpoints",
+            "type": "boolean"
+          }
+        },
+        "title": "TerminateJobRequest",
         "type": "object"
       },
       "TerminateJobResponse": {
@@ -4760,7 +4970,7 @@
           },
           "status": {
             "default": "terminated",
-            "description": "`terminated` once confirmed, or `stopping` (HTTP 202) while the provider confirms; checkpoints are deleted only after confirmation.",
+            "description": "`terminated` once confirmed, or `stopping` (HTTP 202) while the provider confirms; with `delete_checkpoints: true`, checkpoints are deleted only after confirmation.",
             "title": "Status",
             "type": "string"
           },
@@ -4779,10 +4989,10 @@
         "type": "object"
       },
       "TrainingJobBillingResponse": {
-        "description": "Per-job billing outcome, verifiable by ``training_job_id`` (ENG-6131).",
+        "description": "Billing outcome for a training job.",
         "properties": {
           "billed": {
-            "description": "Whether a billing request row exists for this job.",
+            "description": "Whether a billing record exists for this job; see charged_usd for the amount.",
             "title": "Billed",
             "type": "boolean"
           },
@@ -4831,7 +5041,7 @@
                 "type": "null"
               }
             ],
-            "description": "When the training container actually began executing (ENG-6068). Distinct from started_at. FAILED/CANCELLED jobs bill only when this is set, so a null value here explains why billed=false.",
+            "description": "When training compute began. Distinct from started_at. Failed or cancelled jobs are billed only when this is set, so null explains why billed is false.",
             "title": "Compute Started At"
           },
           "gpu_minutes": {
@@ -4860,7 +5070,7 @@
                 "type": "null"
               }
             ],
-            "description": "The requests.id row this job was billed against, if billed.",
+            "description": "Billing request identifier, when billed.",
             "title": "Request Id"
           },
           "started_at": {
@@ -4905,7 +5115,7 @@
             "title": "Auto Data Sizing"
           },
           "base_model": {
-            "description": "HuggingFace model identifier (e.g. 'fastino/gliner2-base-v1', 'deepseek-ai/DeepSeek-V4-Flash', or 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16').",
+            "description": "Trainable model ID from GET /v1/base-models?supports_training=true (e.g. 'fastino/gliner2-base-v1').",
             "minLength": 1,
             "title": "Base Model",
             "type": "string"
@@ -4956,6 +5166,20 @@
             "description": "GLiNER only: learning rate applied to encoder parameters. When omitted, falls back to `learning_rate`.",
             "title": "Encoder Learning Rate"
           },
+          "eval_steps": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GLiNER2 (encoder) only: run periodic mid-training validation every N optimizer steps, in requested-batch units like save_steps (scaled by the same ratio when GPU admission reduces the batch). When omitted, validation runs only at each epoch end — the standard cadence. Periodic evals are for cost/visibility (loss curve, W&B): they do NOT select the deployed checkpoint. Checkpoint selection uses the full-split epoch-end and final validation. Checkpoint saving still follows save_steps independently.",
+            "title": "Eval Steps"
+          },
           "gradient_accumulation_steps": {
             "anyOf": [
               {
@@ -4981,7 +5205,7 @@
                 "type": "null"
               }
             ],
-            "description": "Peak learning rate for AdamW. When omitted, the trainer's default applies - the per-model catalog rate (2e-4) for decoder LoRA on Modal, 2e-5 elsewhere. Pinning the old 2e-5 default on a decoder LoRA run under-trains the adapter by an order of magnitude.",
+            "description": "Peak learning rate for AdamW. When omitted, the trainer's default applies — the per-model catalog rate (2e-4) for decoder LoRA on Modal, 2e-5 elsewhere. Pinning the old 2e-5 default on a decoder LoRA run under-trains the adapter by an order of magnitude.",
             "title": "Learning Rate"
           },
           "lora_alpha": {
@@ -5037,6 +5261,34 @@
             "description": "Decoder SFT loss masking knob. Dense decoder LoRA currently rejects true until assistant-only loss masking is supported by the active trainer, and encoder jobs reject true. Defaults false to preserve the stock recipe.",
             "title": "Mask History",
             "type": "boolean"
+          },
+          "max_eval_samples": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GLiNER2 (encoder) only: per-dataset cap on the periodic mid-training validation set (deterministic first-N subsample). When omitted, no cap. Periodic evals are for cost/visibility only and never select the deployed checkpoint; selection uses the full-split epoch-end and final validation, which ignore this cap.",
+            "title": "Max Eval Samples"
+          },
+          "max_gold_per_query": {
+            "anyOf": [
+              {
+                "maximum": 1024.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GLiNER2 only: maximum gold spans retained for each query. Omit to use GLiNER2's default of 32.",
+            "title": "Max Gold Per Query"
           },
           "max_length": {
             "anyOf": [
@@ -5109,6 +5361,23 @@
             "title": "Nr Epochs",
             "type": "integer"
           },
+          "on_capacity_exceeded": {
+            "anyOf": [
+              {
+                "enum": [
+                  "raise",
+                  "truncate_with_warning",
+                  "skip_sample"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GLiNER2 only: behavior when a query has more gold spans than max_gold_per_query. 'raise' fails the job without dropping gold; 'truncate_with_warning' keeps the first spans and drops the rest; 'skip_sample' keeps the row in the batch but removes all of its extraction supervision. Omit to use 'raise'.",
+            "title": "On Capacity Exceeded"
+          },
           "packing": {
             "anyOf": [
               {
@@ -5161,7 +5430,7 @@
                 "type": "null"
               }
             ],
-            "description": "Algorithm-specific hyperparameters for RL training. Supported keys (all optional unless noted, TRL-aligned defaults applied container-side): max_steps, kl_beta, group_size, sampling_temperature, max_completion_length, reward_type (GRPO; required, one of the built-in reward function names - see rl_training._BUILTIN_REWARDS); dpo_beta, loss_type (DPO); logging_steps (both; defaults to 25, lower for short smoke runs). When reward_type == 'llm_as_judge' (GRPO only) the judge call is routed through brain's '/v1/chat/completions' API authenticated with a per-run fast_sk_* key minted by ModalTrainingHandler._launch_and_monitor immediately before spawning the Modal function (the user never supplies the key - minted in the workqueue handler so the cleartext value never enters the SQS message body, injected into the Modal payload at spawn time, revoked from the post-training cleanup hook on terminal status). Additional knobs: llm_judge_model (HuggingFace model id, default 'claude-haiku-4-5' - must resolve to a brain catalog entry via resolve_catalog_model_id), llm_judge_rubric (template string with {prompt}/{completion}/{answer} placeholders; falls back to a generic faithfulness/quality rubric scored 1-10 when absent), llm_judge_score_scale (raw max score for normalisation to [0,1], default 10), llm_judge_timeout_s (HTTP timeout per judge call, default 30), llm_judge_max_concurrent (parallelism cap on judge HTTP calls, default 8), llm_judge_max_retries (per-row retry budget on transient HTTP errors, default 1), llm_judge_retry_backoff_s (sleep between retries, default 2.0).",
+            "description": "Algorithm-specific hyperparameters for RL training. Supported keys (all optional unless noted, TRL-aligned defaults applied container-side): max_steps, kl_beta, group_size, sampling_temperature, max_completion_length, reward_type (GRPO; required and must name a supported built-in reward); dpo_beta, loss_type (DPO); logging_steps (both; defaults to 25, lower for short smoke runs). Additional knobs for the 'llm_as_judge' reward: llm_judge_model (available model ID, default 'claude-haiku-4-5'), llm_judge_rubric (template string with {prompt}/{completion}/{answer} placeholders; falls back to a generic faithfulness/quality rubric scored 1-10 when absent), llm_judge_score_scale (raw max score for normalisation to [0,1], default 10), llm_judge_timeout_s (HTTP timeout per judge call, default 30), llm_judge_max_concurrent (parallelism cap on judge HTTP calls, default 8), llm_judge_max_retries (per-row retry budget on transient HTTP errors, default 1), llm_judge_retry_backoff_s (sleep between retries, default 2.0).",
             "title": "Rl Config"
           },
           "samples_per_label": {
@@ -5197,7 +5466,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Requests must pin provider_name to 'modal'; Fireworks and other unsupported architectures reject this field. When omitted, encoder and decoder jobs share the same trainer default (3407). Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 - treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
+            "description": "Optional reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Requests must pin provider_name to 'modal'; Fireworks and other unsupported architectures reject this field. When omitted, encoder and decoder jobs share the same trainer default (3407). Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 — treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
           },
           "system_prompt": {
@@ -5209,7 +5478,7 @@
                 "type": "null"
               }
             ],
-            "description": "Canonical system prompt written to every decoder training row. When populated, it is persisted on ``training_jobs.system_prompt`` and re-injected by inference providers for API-direct callers that omit the ``system`` message (train/serve alignment), and prefills the inference-page system-prompt editor. Leave null for PAFT datasets, mixed-prompt uploads, or any case where no single prompt should be pinned at serve time. A non-blank prompt is rejected for encoder jobs.",
+            "description": "Canonical system prompt for decoder training and inference. When populated, it is re-injected by inference providers for API-direct callers that omit the ``system`` message (train/serve alignment), and prefills the inference-page system-prompt editor. Leave null for PAFT datasets, mixed-prompt uploads, or any case where no single prompt should be pinned at serve time. A non-blank prompt is rejected for encoder jobs.",
             "title": "System Prompt"
           },
           "task_learning_rate": {
@@ -5228,7 +5497,7 @@
           },
           "training_algorithm": {
             "default": "sft",
-            "description": "Training algorithm: 'sft' (default), 'grpo', or 'dpo'. GRPO and DPO are dispatched to the Modal RL entrypoint. GRPO requires rl_config.reward_type from the built-in menu; DPO requires {prompt, chosen, rejected} columns and optional rl_config.dpo_beta / loss_type.",
+            "description": "Training algorithm: 'sft' (default), 'grpo', or 'dpo'. GRPO requires rl_config.reward_type from the built-in menu; DPO requires {prompt, chosen, rejected} columns and optional rl_config.dpo_beta / loss_type.",
             "enum": [
               "sft",
               "grpo",
@@ -5279,7 +5548,7 @@
                 "type": "null"
               }
             ],
-            "description": "Fraction of total training steps for linear LR warmup. Ignored when warmup_steps is set. When omitted, the trainer's default applies - the per-model catalog warmup (0.03) for decoder LoRA on Modal, none elsewhere.",
+            "description": "Fraction of total training steps for linear LR warmup. Ignored when warmup_steps is set. When omitted, the trainer's default applies — the per-model catalog warmup (0.03) for decoder LoRA on Modal, none elsewhere.",
             "title": "Warmup Ratio"
           },
           "warmup_steps": {
@@ -5465,7 +5734,7 @@
                 "type": "null"
               }
             ],
-            "description": "Experiment whose agent trained this adapter, when one did. A composite foreign key pins it to the same project as project_id, so it is never an Experiment from elsewhere. Null for a job dispatched outside an Experiment -- a direct API call, or a job predating the column -- which means the owning Experiment is unknown, not that there is none. Adapter-scoped UI hand-offs read this to open the thread that produced the adapter instead of whichever of the project's Experiments happens to be the most recently active (ENG-7287).",
+            "description": "Experiment associated with this training job, when available. Null means no associated experiment was recorded.",
             "title": "Experiment Id"
           },
           "hub_model_id": {
@@ -5489,7 +5758,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whether the pushed Hub repo is private, as recorded at push time. Null for a job that has never been pushed, and for a push recorded before this field existed (ENG-6761) -- this means the visibility was not recorded, not that either visibility applies. The request schema (HuggingFacePushModelRequest.private) defaults to True, but the only real caller (the CLI) always sends it explicitly, so that default is unreachable in practice -- null here means the visibility was never recorded, not that a caller omitted it. Render null as a neutral 'pushed, visibility unknown' state rather than assuming either PUBLISHED or PRIVATE.",
+            "description": "Whether the pushed Hub repository is private, as recorded at push time. Null means the job was not pushed or its repository visibility was not recorded.",
             "title": "Hub Model Private"
           },
           "id": {
@@ -5636,6 +5905,14 @@
             "description": "Canonical status alias for compatibility handling (requested, running, complete, deployed, failed, cancelled)",
             "title": "Normalized Status"
           },
+          "notices": {
+            "description": "Advisories to show alongside this job, such as the dedicated-endpoint serving terms for full fine-tunes.",
+            "items": {
+              "$ref": "#/components/schemas/TrainingNotice"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
           "nr_epochs": {
             "title": "Nr Epochs",
             "type": "integer"
@@ -5735,8 +6012,15 @@
                 "type": "null"
               }
             ],
-            "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded (ENG-6970): its seed is unknown, not reconstructed from the default the migration backfilled. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 - treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
+            "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded, because its seed is unknown. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 — treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
+          },
+          "source": {
+            "const": "job",
+            "default": "job",
+            "description": "A managed training job. ``/v1/trained-models`` also lists training runs (``source: run``).",
+            "title": "Source",
+            "type": "string"
           },
           "started_at": {
             "anyOf": [
@@ -5832,7 +6116,7 @@
       },
       "TrainingJobUpdate": {
         "additionalProperties": false,
-        "description": "Thin PATCH body for ``PATCH /v1/training-jobs/{job_id}``.\n\nExposes only ``project_id``. Send ``null`` to unassign the training job\nfrom its current project. Unknown fields are rejected with HTTP 422.\n\nMovement semantics: this endpoint moves only the ``training_jobs.project_id``\nlabel. It does NOT cascade ``project_id`` updates to dependent rows\n(``deployments``, ``inferences``, ``project_evaluation_runs``) which each carry\ntheir own ``project_id``. Those records remain attached to their original\nproject. Callers needing aggregate-model movement must update the\ndependents explicitly.",
+        "description": "Thin PATCH body for ``PATCH /v1/training-jobs/{job_id}``.\n\nExposes only ``project_id``. Send ``null`` to unassign the training job\nfrom its current project. Unknown fields are rejected with HTTP 422.\n\nMoving a job changes only its project association. Related resources\nremain in their current projects and must be moved separately.",
         "properties": {
           "project_id": {
             "anyOf": [
@@ -5878,6 +6162,27 @@
         "title": "TrainingLogsResponse",
         "type": "object"
       },
+      "TrainingNotice": {
+        "description": "Advisory attached to a training job or quote; never blocks the launch.",
+        "properties": {
+          "code": {
+            "description": "Stable machine-readable notice code.",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Customer-facing notice text.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "TrainingNotice",
+        "type": "object"
+      },
       "TrainingOutputLogEntry": {
         "description": "Single training output log entry (stdout/stderr)",
         "properties": {
@@ -5916,6 +6221,163 @@
           "source"
         ],
         "title": "TrainingOutputLogEntry",
+        "type": "object"
+      },
+      "TrainingRunCheckpointListResponse": {
+        "description": "``GET /v1/training-runs/{run_id}/checkpoints``: a run's live checkpoints, newest first.",
+        "properties": {
+          "checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/CheckpointView"
+            },
+            "title": "Checkpoints",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "checkpoints",
+          "count"
+        ],
+        "title": "TrainingRunCheckpointListResponse",
+        "type": "object"
+      },
+      "TrainingRunListResponse": {
+        "description": "``GET /v1/training-runs``: the team's training runs, newest first.",
+        "properties": {
+          "count": {
+            "description": "Runs on this page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "has_more": {
+            "description": "True when more runs follow this page.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          },
+          "total": {
+            "description": "The team's runs in all.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "training_runs": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingRunView"
+            },
+            "title": "Training Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "training_runs",
+          "count",
+          "total",
+          "has_more"
+        ],
+        "title": "TrainingRunListResponse",
+        "type": "object"
+      },
+      "TrainingRunView": {
+        "description": "A training run (the SDK's ``TrainingRun``).",
+        "properties": {
+          "base_model": {
+            "title": "Base Model",
+            "type": "string"
+          },
+          "corrupted": {
+            "default": false,
+            "title": "Corrupted",
+            "type": "boolean"
+          },
+          "is_lora": {
+            "default": true,
+            "title": "Is Lora",
+            "type": "boolean"
+          },
+          "last_checkpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_request_time": {
+            "format": "date-time",
+            "title": "Last Request Time",
+            "type": "string"
+          },
+          "last_sampler_checkpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lora_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lora Rank"
+          },
+          "model_owner": {
+            "title": "Model Owner",
+            "type": "string"
+          },
+          "training_run_id": {
+            "title": "Training Run Id",
+            "type": "string"
+          },
+          "user_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Metadata"
+          }
+        },
+        "required": [
+          "training_run_id",
+          "base_model",
+          "model_owner",
+          "last_request_time"
+        ],
+        "title": "TrainingRunView",
         "type": "object"
       },
       "UpdateModelNameRequest": {
@@ -6008,7 +6470,7 @@
   "paths": {
     "/v1/base-models": {
       "get": {
-        "description": "Public model catalog - single source of truth for available models.\n\nReturns the union of all provider catalogs. Each model carries a\n``supports_inference`` flag derived from ``catalog_registry`` and\n``supports_training`` / ``training_types`` derived from the training\nprovider registry (the same source the training gate enforces), not from\n``catalog_registry``. Use query parameters to filter by capability.\n\nThe ``supports_inference`` flag and filter use\n:func:`supports_inference_runtime`, which unions\n``supports_base_inference`` across every provider entry **that can\nactually serve in this deployment** - its runtime configuration is\npresent *and* its kill switch is on. A finetune-only Fireworks decoder\nstill reports ``True`` when it is bridged through Vercel AI Gateway or\nAWS Bedrock; an Azure-only catalog slug (``claude-sonnet-4-5``) reports\n``True`` only when the brain has the Azure env vars set; a gateway-only\nslug reports ``False`` when that gateway's kill switch is off, since\nthe router would refuse to serve it.\n\nAuthentication is **optional**. Anonymous callers receive the public\ncatalog with all feature-flag-gated entries hidden (their flags\nresolve to ``default_value=False``). Authenticated callers populate\nthe request-scoped identity ContextVars via ``FlexibleAuth`` so\nper-user / per-team / per-email Datadog Remote Config rules can match,\nexposing gated entries (e.g. Gliner-PII, Gliner Guardrails) to users\non a rollout. Bad credentials are silently downgraded to anonymous so\nthis endpoint never returns 401.\n\nCallers in restricted jurisdictions have the matching families hidden from\nthe catalog, mirroring the inference-time 451 so the UI never offers an\nunusable model: sanctioned regions hide foreign frontier families\n(OpenAI/Anthropic/Gemini/Llama) and GDPR regions hide GDPR-restricted\nfamilies (Sakana). The jurisdiction is resolved from both CloudFront's\n``CloudFront-Viewer-Country`` header and the team's verified billing-card\ncountry, so a VPN cannot unhide a model the caller's card jurisdiction bars.\n\nExamples:\n    GET /base-models                          - full catalog\n    GET /base-models?supports_inference=true   - serverless-capable models\n    GET /base-models?supports_training=true    - trainable models\n    GET /base-models?task_type=encoder          - encoder/NER models only\n    GET /base-models?task_type=decoder          - decoder/LLM models only\n    GET /base-models?task_type=embedding        - text embedding models only",
+        "description": "List base models available to the caller.\n\nEach model reports its inference and training capabilities, supported\ntraining types, context limits, and public pricing. Capability filters\nselect models currently available for the requested operation.\n\nAuthentication is optional. Anonymous callers receive the public catalog;\nauthenticated callers may also receive models available to their account.\nModel visibility can vary by account eligibility and jurisdiction.\n\nExamples:\n    GET /v1/base-models                          — full catalog\n    GET /v1/base-models?supports_inference=true   — serverless-capable models\n    GET /v1/base-models?supports_training=true    — trainable models\n    GET /v1/base-models?task_type=encoder          — encoder/NER models only\n    GET /v1/base-models?task_type=decoder          — decoder/LLM models only\n    GET /v1/base-models?task_type=embedding        — text embedding models only",
         "operationId": "list_base_models_v1_base_models_get",
         "parameters": [
           {
@@ -6097,7 +6559,7 @@
     },
     "/v1/chat/completions": {
       "post": {
-        "description": "OpenAI-compatible chat completions endpoint.\n\nThin shell over :func:`services.inference.adapters.openai_chat.run_chat_completion`.\nThe adapter handles LLM-passthrough vs Fastino-task dispatch, SSE\nrendering with ``<think>...</think>`` folding for reasoning models,\ntool-call deltas, finish-reason mapping, persistence, and error\nmapping. The router keeps only HTTP-shaped concerns: route\ndeclaration, auth, rate limiting.\n\nArgs:\n    body: Validated :class:`ChatCompletionRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    auth: Authenticated request context.\n\nReturns:\n    :class:`ChatCompletionResponse` for non-streaming, or a\n    :class:`StreamingResponse` of ``chat.completion.chunk`` SSE\n    events terminated by ``data: [DONE]`` when ``body.stream``\n    is true.",
+        "description": "Serve an OpenAI-compatible chat completion.",
         "operationId": "chat_completions_v1_chat_completions_post",
         "requestBody": {
           "content": {
@@ -6120,14 +6582,14 @@
               "text/event-stream": {
                 "example": "data: {\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"deepseek-ai/DeepSeek-V4-Flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"deepseek-ai/DeepSeek-V4-Flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n",
                 "schema": {
-                  "description": "OpenAI-compatible chat completion streaming chunk.\n\n    One of these is JSON-serialized into each ``data: {...}\n\n`` SSE event\n    emitted by the chat completions handler when ``stream=true``. The stream\n    is terminated by a literal ``data: [DONE]\n\n`` sentinel that does not\n    follow this schema.\n\n    ``x_fastino`` mirrors the field on :class:`ChatCompletionResponse` and is\n    populated only on the terminal chunk (the one carrying ``finish_reason``)\n    when persistence ran. Intermediate chunks set it to ``None`` so SDK\n    clients can wait for the terminal frame before reading the id rather\n    than racing the early text deltas.\n    ",
+                  "description": "OpenAI-compatible chat completion streaming chunk.\n\n    One of these is JSON-serialized into each ``data: {...}\n\n`` SSE event\n    emitted by the chat completions handler when ``stream=true``. The stream\n    is terminated by a literal ``data: [DONE]\n\n`` sentinel that does not\n    follow this schema.\n\n    ``x_fastino`` mirrors the field on the non-streaming response. When\n    persistence ran or an encoder default schema was applied, it is emitted\n    in a separate metadata chunk after the chunk carrying ``finish_reason``\n    and before the optional usage chunk and ``[DONE]`` sentinel. Content\n    chunks omit it.\n    ",
                   "properties": {
                     "choices": {
                       "items": {
                         "description": "One choice slot inside a streaming chunk.",
                         "properties": {
                           "delta": {
-                            "description": "Incremental delta payload inside a streaming chunk's choice.\n\nThe OpenAI Chat Completions chunk schema (``ChoiceDelta`` in the\nopenai-python SDK) defines ``content``, ``function_call``,\n``refusal``, ``role``, and ``tool_calls`` - there is no spec slot\nfor reasoning. Fastino can expose the de facto industry extension\n(vLLM, DeepSeek, LiteLLM) on\n``reasoning_content`` for callers that opt in with existing\n``reasoning`` visibility controls (``exclude=false`` or\n``display=summarized``), mirroring Fastino's\nown input path at\n:func:`services.inference.providers.openai_compat.OpenAICompatProvider._chat_delta_to_events`\n(which already reads ``delta.reasoning_content`` from those same\nupstream providers). Stock OpenAI-compatible consumers receive no\nreasoning field by default so model scratchpad text is not rendered\nas assistant output. The renderer contract lives on\n:class:`~services.inference.adapters.openai_chat._ChatStreamRenderer`.",
+                            "description": "Incremental delta payload inside a streaming chunk's choice.\n\n``reasoning_content`` is an optional extension for callers that request\nvisible reasoning with ``exclude=false`` or ``display=summarized``.\nIt is omitted by default so reasoning text is not rendered as assistant\noutput by OpenAI-compatible clients.",
                             "properties": {
                               "content": {
                                 "anyOf": [
@@ -6213,7 +6675,7 @@
                     "usage": {
                       "anyOf": [
                         {
-                          "description": "Token usage statistics.\n\n``prompt_tokens`` follows the upstream wire contract - *includes* every\ninput class (non-cached, cache read, and cache write). The breakdown is\nexposed under ``prompt_tokens_details`` so consumers can attribute the\ncached-read and cache-write subsets. Cache-aware billing on the brain\nside reads the canonical ``InferenceUsage`` fields directly, not this\nwire payload.",
+                          "description": "Token usage statistics.\n\n``prompt_tokens`` follows the upstream wire contract — *includes* every\ninput class (non-cached, cache read, and cache write). The breakdown is\nexposed under ``prompt_tokens_details`` so consumers can attribute the\ncached-read and cache-write subsets.",
                           "properties": {
                             "completion_tokens": {
                               "default": 0,
@@ -6228,7 +6690,7 @@
                             "prompt_tokens_details": {
                               "anyOf": [
                                 {
-                                  "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Fastino relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire - that's the upstream contract Fastino relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
+                                  "description": "Per-input-class breakdown for OpenAI-shape usage payloads.\n\nMirrors OpenAI's ``prompt_tokens_details`` block and the industry\ncache-creation extension so clients reading\n``usage.prompt_tokens_details.cached_tokens`` /\n``cache_write_tokens`` keep working when Fastino relays a cache-aware\nupstream response. Both counts are subsets of ``prompt_tokens`` on the\nwire — that's the upstream contract Fastino relays faithfully.\n\nAttributes:\n    cached_tokens: Input tokens served from the upstream prompt cache\n        (cache read).\n    cache_write_tokens: Input tokens written into the upstream prompt\n        cache (cache creation). ``0`` for upstreams that bill writes\n        as plain input (OpenAI, vLLM).",
                                   "properties": {
                                     "cache_write_tokens": {
                                       "default": 0,
@@ -6266,8 +6728,13 @@
                     "x_fastino": {
                       "anyOf": [
                         {
-                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, …); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.",
+                          "description": "Fastino-specific extension fields appended to OpenAI-compatible responses.\n\nOpenAI's API contract reserves the unprefixed top-level keys (``id``,\n``choices``, ``usage``, …); custom data must live under a clearly\nnamespaced key. ``x_fastino`` is that key.\n\nAttributes:\n    inference_id: The Fastino-side identifier of the persisted\n        ``inferences`` row associated with this completion. Present\n        when persistence is enabled (``extra_body.store == True``)\n        and the row was successfully recorded; ``None`` for ad-hoc\n        requests that opted out of persistence. The frontend uses\n        this to poll ``GET /inferences/{id}`` for asynchronous\n        judge results without coupling the inference response\n        latency to the judge.\n    default_schema_applied: Whether Fastino supplied the selected\n        encoder model's default because the request did not provide a\n        GLiNER schema. This also applies when ``response_format`` is\n        ``text`` or ``json_object``, since neither contains a schema.\n    truncated: Whether the encoder input was cut to fit the model's\n        ``max_input_tokens`` because the request set\n        ``truncate_overflow_text``. For a batch, at least one text was cut.",
                           "properties": {
+                            "default_schema_applied": {
+                              "default": false,
+                              "title": "Default Schema Applied",
+                              "type": "boolean"
+                            },
                             "inference_id": {
                               "anyOf": [
                                 {
@@ -6278,6 +6745,11 @@
                                 }
                               ],
                               "title": "Inference Id"
+                            },
+                            "truncated": {
+                              "default": false,
+                              "title": "Truncated",
+                              "type": "boolean"
                             }
                           },
                           "title": "FastinoExtension",
@@ -6309,6 +6781,90 @@
               }
             },
             "description": "Validation Error"
+          },
+          "425": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "model_warming",
+                    "message": "Model is warming up",
+                    "type": "invalid_request_error"
+                  }
+                },
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The model is temporarily warming. Wait the number of seconds in `Retry-After`, then retry the same request with a bounded retry policy.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "minimum": 1.0,
+                  "type": "integer"
+                }
+              },
+              "x-should-retry": {
+                "description": "`true`; SDK clients with retries enabled wait `Retry-After` and retry.",
+                "schema": {
+                  "enum": [
+                    "true"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Chat Completions",
@@ -6351,31 +6907,31 @@
             }
           },
           {
-            "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user - this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
+            "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user — this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
             "in": "query",
             "name": "include_failed",
             "required": false,
             "schema": {
               "default": false,
-              "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user - this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
+              "description": "When true, include the caller's own failed datasets (status='failed'). Defaults to false so the UI never renders broken-but-clickable records that 404 on preview/analyze. The result set is always scoped to the authenticated user — this flag does NOT grant cross-user visibility, so passing true is safe for any authenticated caller. Failed rows remain in the database for support / debugging; their original upload is preserved at raw_s3_key.",
               "title": "Include Failed",
               "type": "boolean"
             }
           },
           {
-            "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
+            "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans.",
             "in": "query",
             "name": "include_orphans",
             "required": false,
             "schema": {
               "default": false,
-              "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans; set this explicitly from surfaces that deliberately want orphans folded in, e.g. the MLE agent's dataset picker (ENG-6077).",
+              "description": "When true and project_id names a real project, also include the caller's own orphan (no-project) datasets alongside the project's own rows. Ignored when project_id is omitted or is the 'default' sentinel, where orphans are always included regardless. Defaults to false so an ordinary project-scoped list stays scoped to the project instead of being swamped by every one of the caller's orphans.",
               "title": "Include Orphans",
               "type": "boolean"
             }
           },
           {
-            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+            "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set should page with limit and offset until a short page is returned.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -6391,7 +6947,7 @@
                 }
               ],
               "default": 200,
-              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set page with limit/offset (ENG-7085): the frontend datasets tab and the sandbox dataset picker both loop until a short page rather than issuing one unbounded read.",
+              "description": "Maximum datasets to return, newest first, after collapsing to the latest version per name. Defaults to and is bounded at 200 (oversize requests are rejected, matching /v1/training-jobs and /projects/{id}/evaluation-runs). Callers that need the full set should page with limit and offset until a short page is returned.",
               "title": "Limit"
             }
           },
@@ -6403,6 +6959,7 @@
             "schema": {
               "default": 0,
               "description": "Number of leading datasets to skip.",
+              "maximum": 10000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -6471,6 +7028,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "The processing job could not be queued. The upload is marked failed and can be processed again. Retryable."
           }
         },
         "summary": "Process Uploaded Dataset",
@@ -6523,7 +7083,7 @@
     },
     "/v1/datasets/{name}": {
       "delete": {
-        "description": "Soft-delete a dataset and all its versions.\n\nArgs:\n    name: Dataset name. Legacy UUID lookups are still accepted and routed\n        through the by-ID path for backwards compatibility.",
+        "description": "Soft-delete a dataset and all its versions.",
         "operationId": "delete_dataset_v1_datasets__name__delete",
         "parameters": [
           {
@@ -6605,7 +7165,7 @@
     },
     "/v1/gliner-2": {
       "post": {
-        "description": "Process text using GLiNER-2 base model via InferenceService.\n\n``task`` is optional - when omitted the unified schema path is used.\nLegacy task names are still accepted but deprecated.",
+        "description": "Process text using GLiNER-2 base model via InferenceService.\n\n``task`` is optional — when omitted the unified schema path is used.\nLegacy task names are still accepted but deprecated.",
         "operationId": "gliner2_process_v1_gliner_2_post",
         "requestBody": {
           "content": {
@@ -6647,7 +7207,7 @@
     },
     "/v1/gliner-2/async": {
       "post": {
-        "description": "Submit large GLiNER-2 request for async processing.\n\nUse this endpoint when processing >1M tokens that would exceed\nthe 30-second timeout. Returns immediately with a job_id.\nPoll GET /gliner-2/jobs/{job_id} to retrieve results.\n\nArgs:\n    request: AsyncGlinerRequest with task, text, schema\n    http_request: FastAPI request object\n    auth: Authentication result\n\nReturns:\n    202 Accepted with job_id for polling",
+        "description": "Submit large GLiNER-2 request for async processing.\n\nUse this endpoint when processing >1M tokens that would exceed\nthe 30-second timeout. Returns immediately with a job_id.\nPoll GET /gliner-2/jobs/{job_id} to retrieve results.",
         "operationId": "gliner2_async_v1_gliner_2_async_post",
         "requestBody": {
           "content": {
@@ -6689,7 +7249,7 @@
     },
     "/v1/gliner-2/jobs/{job_id}": {
       "get": {
-        "description": "Get status and result of an async GLiNER-2 job.\n\nReturns:\n- 200 with status=\"complete\" and result when done\n- 200 with status=\"processing\" while in progress\n- 200 with status=\"error\" and error message if failed\n- 404 if job not found or belongs to different user\n\nArgs:\n    job_id: UUID of the job to check\n    auth: Authentication result\n\nReturns:\n    GlinerJobStatus with current status and result if complete",
+        "description": "Get status and result of an async GLiNER-2 job.\n\nPossible outcomes:\n- 200 with status=\"complete\" and result when done\n- 200 with status=\"processing\" while in progress\n- 200 with status=\"error\" and error message if failed\n- 404 if job not found or belongs to different user",
         "operationId": "gliner2_job_status_v1_gliner_2_jobs__job_id__get",
         "parameters": [
           {
@@ -6732,7 +7292,7 @@
     },
     "/v1/inferences": {
       "get": {
-        "description": "List inference history for the authenticated user.\n\nReturns all inference records across all model types (NER, classification,\nJSON extraction, decoder) sorted by most recent first.\n\nArgs:\n    auth: Authentication result with user_id\n    limit: Maximum number of records to return (default 100, max 500)\n    offset: Number of records to skip for pagination\n    model_id: Optional filter by model ID\n    task: Optional filter by task type\n    project_id: Optional filter by project ID\n    training_job_id: Optional filter by training job ID\n    latency_min/latency_max: Inclusive latency window in ms.\n    llmaj_score_min/llmaj_score_max: Inclusive LLMAJ-score window\n        in [0.0, 1.0].\n    since: Optional inclusive lower bound on ``created_at`` (ISO 8601).\n    until: Optional exclusive upper bound on ``created_at`` (ISO 8601).\n\nReturns:\n    InferenceListResponse with paginated inference records.\n\nRaises:\n    HTTPException: 422 when ``min`` is greater than its paired\n        ``max`` - returning an empty page would silently mask the\n        caller's misordered query.",
+        "description": "List inference history for the authenticated user.\n\nReturns all inference records across all model types (NER, classification,\nJSON extraction, decoder) sorted by most recent first.",
         "operationId": "list_inference_history_v1_inferences_get",
         "parameters": [
           {
@@ -6757,6 +7317,7 @@
             "schema": {
               "default": 0,
               "description": "Number of records to skip",
+              "maximum": 10000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -6982,7 +7543,7 @@
     },
     "/v1/inferences/{inference_id}": {
       "get": {
-        "description": "Get a single inference record by ID.\n\nArgs:\n    inference_id: The inference record UUID\n    auth: Authentication result with user_id\n\nReturns:\n    InferenceRecord with full details\n\nRaises:\n    HTTPException: 404 if inference not found or outside the caller's team",
+        "description": "Get a single inference record by ID.",
         "operationId": "get_inference_detail_v1_inferences__inference_id__get",
         "parameters": [
           {
@@ -7031,7 +7592,7 @@
     },
     "/v1/inferences/{inference_id}/feedback": {
       "get": {
-        "description": "Get human feedback for a specific inference.\n\nArgs:\n    inference_id: The inference record UUID to look up.\n    auth: Authentication result with user_id.\n\nReturns:\n    InferenceFeedbackResponse with the stored feedback.\n\nRaises:\n    HTTPException: 404 if inference not found or no feedback submitted.",
+        "description": "Get human feedback for a specific inference.",
         "operationId": "get_inference_feedback_v1_inferences__inference_id__feedback_get",
         "parameters": [
           {
@@ -7078,7 +7639,7 @@
         ]
       },
       "post": {
-        "description": "Submit human feedback on a specific inference.\n\nMarks an inference as correct or incorrect. When marking as incorrect,\nthe expected output must be provided for downstream training data curation.\n\nArgs:\n    inference_id: The inference record UUID to annotate.\n    request: Feedback payload with verdict, optional corrected output, and notes.\n    auth: Authentication result with user_id.\n\nReturns:\n    InferenceFeedbackResponse confirming the stored feedback.\n\nRaises:\n    HTTPException: 404 if inference not found or outside the caller's team.",
+        "description": "Submit human feedback on a specific inference.\n\nMarks an inference as correct or incorrect. When marking as incorrect,\nthe expected output must be provided for downstream training data curation.",
         "operationId": "submit_inference_feedback_v1_inferences__inference_id__feedback_post",
         "parameters": [
           {
@@ -7112,6 +7673,9 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "description": "Caller lacks edit access on the team."
+          },
           "404": {
             "description": "Inference not found."
           },
@@ -7130,7 +7694,7 @@
     },
     "/v1/messages": {
       "post": {
-        "description": "Anthropic-compatible messages endpoint.\n\nThin shell over :func:`services.inference.adapters.anthropic_messages.run_messages`.\nThe adapter handles content-block translation, LLM-passthrough vs\nFastino-task dispatch, SSE rendering, persistence, and error\nmapping. The router keeps only HTTP-shaped concerns: route\ndeclaration, auth, rate limiting.\n\nArgs:\n    body: Validated :class:`AnthropicMessagesRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    auth: Authenticated request context.\n\nReturns:\n    :class:`AnthropicMessagesResponse` for non-streaming, or a\n    :class:`StreamingResponse` of Anthropic SSE events when\n    ``body.stream`` is true.",
+        "description": "Serve an Anthropic-compatible Messages request.",
         "operationId": "messages_v1_messages_post",
         "requestBody": {
           "content": {
@@ -7170,6 +7734,130 @@
               }
             },
             "description": "Validation Error"
+          },
+          "425": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "message": "Model is warming up",
+                    "type": "invalid_request_error"
+                  },
+                  "type": "error"
+                },
+                "schema": {
+                  "oneOf": [
+                    {
+                      "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Code"
+                            },
+                            "message": {
+                              "title": "Message",
+                              "type": "string"
+                            },
+                            "param": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Param"
+                            },
+                            "type": {
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "message",
+                            "type",
+                            "param",
+                            "code"
+                          ],
+                          "title": "Error",
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "title": "OpenAIError",
+                      "type": "object"
+                    },
+                    {
+                      "description": "Anthropic error envelope returned when the request includes `anthropic-version`. Distinct from the OpenAI `{error: {message, type, param, code}}` body.",
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "message": {
+                              "title": "Message",
+                              "type": "string"
+                            },
+                            "type": {
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "message"
+                          ],
+                          "title": "Error",
+                          "type": "object"
+                        },
+                        "type": {
+                          "enum": [
+                            "error"
+                          ],
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "error"
+                      ],
+                      "title": "AnthropicError",
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The model is temporarily warming. Wait the number of seconds in `Retry-After`, then retry the same request with a bounded retry policy.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "minimum": 1.0,
+                  "type": "integer"
+                }
+              },
+              "x-should-retry": {
+                "description": "`true`; SDK clients with retries enabled wait `Retry-After` and retry.",
+                "schema": {
+                  "enum": [
+                    "true"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Messages",
@@ -7180,7 +7868,7 @@
     },
     "/v1/models": {
       "get": {
-        "description": "List available Anthropic-compatible models.\n\nAuthentication is optional. Anonymous callers receive the public runtime\ncatalog; authenticated callers also receive their user-scoped decoder\nfine-tunes. Claude Code callers also receive the ``anthropic/pioneer/<id>``\ngateway discovery aliases until they are retired (ENG-7789).\n\nArgs:\n    request: Incoming request; its headers identify Claude Code callers.\n    limit: Maximum number of models to return. Omit to return the full\n        assembled catalog.\n    before_id: Cursor for paginating backward.\n    after_id: Cursor for paginating forward.\n    client_version: Optional Codex/OpenAI client version hint.\n    auth: Optional authentication result.\n\nReturns:\n    Combined Anthropic-compatible and Codex/OpenAI-compatible model catalog.\n\nRaises:\n    HTTPException: If both cursor parameters are provided.",
+        "description": "List available Anthropic-compatible models.\n\nAuthentication is optional. Anonymous callers receive the public runtime\ncatalog; authenticated callers also receive their user-scoped decoder\nfine-tunes.",
         "operationId": "list_models_v1_models_get",
         "parameters": [
           {
@@ -7279,7 +7967,7 @@
     },
     "/v1/responses": {
       "post": {
-        "description": "OpenAI-compatible Responses API endpoint.\n\nThin shell over :func:`services.inference.adapters.openai_responses.run_responses`.\nThe adapter handles input-item to chat-message translation,\nLLM-passthrough vs Fastino-task dispatch, SSE rendering,\ntool-call serialisation, persistence, and error mapping. The\nrouter keeps only HTTP-shaped concerns: route declaration, auth,\nrate limiting.\n\nArgs:\n    body: Validated :class:`ResponsesRequest`.\n    request: FastAPI request (forwarded so the adapter can read\n        API-key billing context out of ``request.state`` for\n        streaming responses).\n    response: Response whose headers carry the deprecation and\n        router-tip signals.\n    auth: Authenticated request context.\n\nReturns:\n    JSON response payload or :class:`StreamingResponse` SSE stream\n    in Responses API format.",
+        "description": "Serve an OpenAI-compatible Responses request.",
         "operationId": "responses_v1_responses_post",
         "requestBody": {
           "content": {
@@ -7309,6 +7997,90 @@
               }
             },
             "description": "Validation Error"
+          },
+          "425": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "model_warming",
+                    "message": "Model is warming up",
+                    "type": "invalid_request_error"
+                  }
+                },
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The model is temporarily warming. Wait the number of seconds in `Retry-After`, then retry the same request with a bounded retry policy.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "minimum": 1.0,
+                  "type": "integer"
+                }
+              },
+              "x-should-retry": {
+                "description": "`true`; SDK clients with retries enabled wait `Retry-After` and retry.",
+                "schema": {
+                  "enum": [
+                    "true"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Responses",
@@ -7319,7 +8091,7 @@
     },
     "/v1/systemone": {
       "post": {
-        "description": "Answer a batch of questions about one state.\n\nArgs:\n    body: Validated System One request.\n    request: FastAPI request, used for geo checks and billing context.\n    auth: Authenticated caller.\n\nReturns:\n    The engine's answers and token usage.",
+        "description": "Answer a batch of questions about one state.",
         "operationId": "decide_v1_systemone_post",
         "requestBody": {
           "content": {
@@ -7342,6 +8114,301 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A rendered question prompt exceeds the context window or another input is invalid. Shorten `state` or correct the question."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The API key is missing, malformed, or invalid."
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Insufficient credits, funding required, or an owner-set daily or monthly spend limit was reached."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A payment method, card verification, credit ceiling, or account policy requirement blocks the request."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The model is unknown or is not served by `/v1/systemone`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7351,6 +8418,267 @@
               }
             },
             "description": "Validation Error"
+          },
+          "425": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "model_warming",
+                    "message": "Model is warming up",
+                    "type": "invalid_request_error"
+                  }
+                },
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The model is temporarily warming. Wait the number of seconds in `Retry-After`, then retry the same request with a bounded retry policy.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "minimum": 1.0,
+                  "type": "integer"
+                }
+              },
+              "x-should-retry": {
+                "description": "`true`; SDK clients with retries enabled wait `Retry-After` and retry.",
+                "schema": {
+                  "enum": [
+                    "true"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A rate or capacity limit was reached. Wait for `Retry-After` when present, then retry with bounded backoff."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The serving provider returned an invalid or failed response. Retry with backoff."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "OpenAI error envelope returned for Brain HTTP failures. Replaces FastAPI's default `{detail: string}` body.",
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Code"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "param": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Param"
+                        },
+                        "type": {
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "title": "Error",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "title": "OpenAIError",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A temporary provider or serving failure. Retry with bounded backoff before treating it as terminal."
           }
         },
         "summary": "Decide",
@@ -7414,6 +8742,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 10000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -7448,7 +8777,7 @@
         ]
       },
       "post": {
-        "description": "Create a new training job.\n\nThe provider is resolved from the registry based on\n``(base_model, training_type)``.\n\nArgs:\n    request: Incoming FastAPI request (required by SlowAPI key function).\n    training_request: Training configuration with dataset references and base_model.\n    auth: Authenticated user context.\n    idempotency_key: Optional ``Idempotency-Key``; a repeat replays the original job.",
+        "description": "Create a new training job.",
         "operationId": "create_training_job_v1_training_jobs_post",
         "parameters": [
           {
@@ -7556,7 +8885,7 @@
         ]
       },
       "get": {
-        "description": "Get a training job by ID if it is visible to the caller's team.\n\nRead visibility matches the other ``training-jobs/{job_id}`` read routes\nthat already use ``_get_visible_job`` (logs, checkpoints, download): a\njob on a team-visible project, or a project-less shared job, is\nreturned even when the caller is not the creator. Mutating routes keep\ntheir own owner-scoped service calls.",
+        "description": "Get a training job by ID if it is visible to the caller's team.",
         "operationId": "get_training_job_v1_training_jobs__job_id__get",
         "parameters": [
           {
@@ -7597,7 +8926,7 @@
         ]
       },
       "patch": {
-        "description": "Patch a training job. Currently exposes only ``project_id``.\n\nDelegates to :func:`services.projects.movement.assign_resource_to_project`\nwhich owns the visibility check, target-project gating, and the\nservice-role ``UPDATE``. Send ``project_id: null`` to unassign the job\nfrom its project.\n\nMovement is **label-only**: only ``training_jobs.project_id`` changes.\nDependent rows that carry their own ``project_id`` (``deployments``,\n``inferences``, ``project_evaluation_runs``) are intentionally not cascaded.\nCallers needing aggregate-model movement must update dependents\nexplicitly.",
+        "description": "Patch a training job. Currently exposes only ``project_id``.\n\nSend ``project_id: null`` to unassign the job. Moving a job changes only\nits project association; related resources are not moved automatically.",
         "operationId": "update_training_job_v1_training_jobs__job_id__patch",
         "parameters": [
           {
@@ -7650,7 +8979,7 @@
     },
     "/v1/training-jobs/{job_id}/billing": {
       "get": {
-        "description": "Get the billing outcome for a specific training job, by job ID.\n\nCloses the API gap in ENG-6131: reports whether a job was billed and,\nif so, for how much and how long, so a billing-correctness fix like\nENG-6068 can be verified live without direct database access. Read\nvisibility matches ``get_training_job`` and the other\n``training-jobs/{job_id}`` read routes.",
+        "description": "Get the billing outcome for a specific training job, by job ID.\n\nReports whether the job was billed and, if so, the charge and compute\nduration. The route uses the same access controls as other training-job\nread endpoints.",
         "operationId": "get_training_job_billing_v1_training_jobs__job_id__billing_get",
         "parameters": [
           {
@@ -7788,7 +9117,7 @@
     },
     "/v1/training-jobs/{job_id}/deployments": {
       "get": {
-        "description": "Deprecated. Returns deployments that reference the given training job.\n\nArgs:\n    job_id: Training job ID.\n    auth: Authenticated user.\n\nReturns:\n    DeploymentHistoryResponse with deprecation headers.",
+        "description": "Return deployments that reference the given training job.",
         "operationId": "get_training_job_deployments_v1_training_jobs__job_id__deployments_get",
         "parameters": [
           {
@@ -7824,9 +9153,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "[Deprecated] Get deployments for a training job -- use /projects/{project_id}/deployments",
+        "summary": "Get deployments for a training job",
         "tags": [
-          "deprecated"
+          "training-jobs"
         ]
       }
     },
@@ -7921,7 +9250,7 @@
     },
     "/v1/training-jobs/{job_id}/model-name": {
       "patch": {
-        "description": "Update the model_name for a training job.\n\nThin wrapper: visibility scoping, validation, the UPDATE, and the\nactivity-event side effect all live in\n:meth:`TrainingJobService.update_model_name`. The router only owns\nHTTP concerns (status codes, request/response shaping) per\n``brain/CLAUDE.md``.",
+        "description": "Update the model_name for a training job.",
         "operationId": "update_training_job_model_name_v1_training_jobs__job_id__model_name_patch",
         "parameters": [
           {
@@ -7974,7 +9303,7 @@
     },
     "/v1/training-jobs/{job_id}/push-to-hub": {
       "post": {
-        "description": "Push a completed training job's model to HuggingFace Hub.\n\nArgs:\n    job_id: Training job UUID.\n    request: Target repo, token, and commit metadata.\n    auth: Authenticated caller admitted by the training-jobs rollout.\n\nReturns:\n    The hub push outcome.\n\nRaises:\n    HTTPException: 400/403/404/409/500 for validation, permission,\n        lookup, conflict, and upload failures.",
+        "description": "Push a completed training job's model to HuggingFace Hub.",
         "operationId": "push_training_job_to_huggingface_v1_training_jobs__job_id__push_to_hub_post",
         "parameters": [
           {
@@ -8202,7 +9531,7 @@
     },
     "/v1/training-jobs/{job_id}/terminate": {
       "post": {
-        "description": "Terminate a training job and delete all artifacts.\n\nStops the provider job if running, deletes all checkpoints, and marks\nthe job as terminated. This operation is irreversible.",
+        "description": "Terminate a training job; checkpoints are kept unless ``delete_checkpoints`` is true.",
         "operationId": "terminate_training_job_v1_training_jobs__job_id__terminate_post",
         "parameters": [
           {
@@ -8215,6 +9544,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TerminateJobRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -8309,6 +9655,201 @@
         "summary": "Terminate Training Job",
         "tags": [
           "training-jobs"
+        ]
+      }
+    },
+    "/v1/training-runs": {
+      "get": {
+        "description": "List the team's training runs, newest first.",
+        "operationId": "list_runs_v1_training_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/v1/training-runs/{run_id}": {
+      "get": {
+        "description": "Get one training run with its latest checkpoints.",
+        "operationId": "get_run_v1_training_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/v1/training-runs/{run_id}/checkpoints": {
+      "get": {
+        "description": "List a training run's checkpoints, newest first.",
+        "operationId": "list_run_checkpoints_v1_training_runs__run_id__checkpoints_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunCheckpointListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Run Checkpoints",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download": {
+      "get": {
+        "description": "Get a short-lived signed URL of a tar archive of one of the team's own checkpoints (for sampler weights, the PEFT adapter files). The URL needs no credentials and expires after 15 minutes. Needs the team's weight-download entitlement, as /v1/training-jobs/{job_id}/download does.",
+        "operationId": "download_checkpoint_v1_training_runs__run_id__checkpoints__checkpoint_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "checkpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Checkpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointDownloadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "For downloading models, please contact sales@fastino.ai"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get a download URL for a training run checkpoint",
+        "tags": [
+          "training-runs"
         ]
       }
     }

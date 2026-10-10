@@ -1,0 +1,110 @@
+---
+title: "列出训练运行检查点"
+sidebarTitle: "列出检查点"
+description: "调用 GET /v1/training-runs/{run_id}/checkpoints，按从新到旧的顺序列出训练运行已保存的训练状态检查点和采样检查点，包括大小和 tinker 路径。"
+api: "GET /v1/training-runs/{run_id}/checkpoints"
+---
+
+`GET /v1/training-runs/{run_id}/checkpoints`
+
+按从新到旧的顺序返回训练运行已保存的检查点。检查点由 SDK 的保存调用创建：训练状态检查点（`weights/<name>`）可用于恢复训练，采样检查点（`sampler_weights/<name>`）保存用于采样的适配器权重。
+
+## 请求
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  训练运行 ID。
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl https://api.fastino.ai/v1/training-runs/YOUR_RUN_ID/checkpoints \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## 响应
+
+<ResponseField name="success" type="boolean">
+  请求是否成功。
+</ResponseField>
+
+<ResponseField name="run_id" type="string">
+  训练运行 ID。
+</ResponseField>
+
+<ResponseField name="checkpoints" type="object[]">
+  已保存的检查点，按从新到旧排序。
+
+  <Expandable title="检查点">
+    <ResponseField name="checkpoint_id" type="string">
+      检查点 ID，格式为 `weights/<name>` 或 `sampler_weights/<name>`。可用于[下载训练运行检查点](/cn/api-reference/training-runs/download-checkpoint)。
+    </ResponseField>
+    <ResponseField name="checkpoint_type" type="string">
+      训练状态检查点为 `training`，采样权重为 `sampler`。
+    </ResponseField>
+    <ResponseField name="time" type="string">
+      检查点保存时的 ISO 8601 时间戳。
+    </ResponseField>
+    <ResponseField name="tinker_path" type="string">
+      检查点的 `tinker://` 路径，SDK 使用该路径加载检查点。
+    </ResponseField>
+    <ResponseField name="size_bytes" type="integer | null">
+      检查点大小（字节），如已知。
+    </ResponseField>
+    <ResponseField name="public" type="boolean">
+      检查点是否已发布。
+    </ResponseField>
+    <ResponseField name="user_metadata" type="object | null">
+      附加到检查点的字符串键值元数据。
+    </ResponseField>
+    <ResponseField name="expires_at" type="string | null">
+      ISO 8601 过期时间；如果检查点会一直保留直到被删除，则为 `null`。
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="integer">
+  返回的检查点数量。
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "run_id": "YOUR_SESSION_ID:train:0",
+  "checkpoints": [
+    {
+      "checkpoint_id": "sampler_weights/step-100",
+      "checkpoint_type": "sampler",
+      "time": "2026-10-09T18:40:02Z",
+      "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+      "size_bytes": 167772160,
+      "public": false,
+      "user_metadata": null,
+      "expires_at": null
+    },
+    {
+      "checkpoint_id": "weights/step-100",
+      "checkpoint_type": "training",
+      "time": "2026-10-09T18:40:00Z",
+      "tinker_path": "tinker://YOUR_SESSION_ID:train:0/weights/step-100",
+      "size_bytes": 503316480,
+      "public": false,
+      "user_metadata": null,
+      "expires_at": null
+    }
+  ],
+  "count": 2
+}
+```
+
+</ResponseExample>
+
+未知的运行或您无权查看的运行会返回 `404`。

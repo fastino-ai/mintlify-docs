@@ -1,0 +1,105 @@
+---
+title: "Télécharger un checkpoint"
+sidebarTitle: "Télécharger un checkpoint"
+description: "Appelez GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download pour obtenir une URL signée de courte durée vers une archive tar d’un checkpoint de votre équipe."
+api: "GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download"
+---
+
+`GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download`
+
+Renvoie une URL signée de courte durée vers une archive tar d’un checkpoint de votre équipe. Pour les checkpoints d’échantillonnage, l’archive contient les fichiers de l’adaptateur PEFT. Récupérez l’URL renvoyée séparément pour télécharger l’archive. L’URL ne nécessite pas de clé d’API et expire au bout de 15 minutes.
+
+Le téléchargement de poids nécessite le droit de téléchargement des poids de votre équipe, le même que celui utilisé par [Télécharger les poids entraînés](/fr/api-reference/training-jobs/download).
+
+## Requête
+
+<ParamField header="X-API-Key" type="string" required>
+  Votre clé d’API Fastino.
+</ParamField>
+
+<ParamField path="run_id" type="string" required>
+  ID de l’exécution d’entraînement.
+</ParamField>
+
+<ParamField path="checkpoint_id" type="string" required>
+  ID du checkpoint tel que listé par [Lister les checkpoints d’une exécution](/fr/api-reference/training-runs/list-checkpoints) : `weights/<name>` ou `sampler_weights/<name>`. Envoyez-le tel quel ; la barre oblique fait partie du chemin.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+RUN_ID="YOUR_RUN_ID"
+CHECKPOINT_ID="sampler_weights/step-100"
+
+curl "https://api.fastino.ai/v1/training-runs/$RUN_ID/checkpoints/$CHECKPOINT_ID/download" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Réponse
+
+<ResponseField name="success" type="boolean">
+  Indique si l’URL a été générée.
+</ResponseField>
+
+<ResponseField name="run_id" type="string">
+  ID de l’exécution d’entraînement.
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  ID du checkpoint.
+</ResponseField>
+
+<ResponseField name="download_url" type="string">
+  URL signée de l’archive tar du checkpoint. Elle ne nécessite aucun identifiant.
+</ResponseField>
+
+<ResponseField name="expires_in_seconds" type="integer">
+  Durée de validité de l’URL en secondes. La valeur est `900`.
+</ResponseField>
+
+<ResponseField name="file_name" type="string">
+  Nom de fichier suggéré pour le téléchargement.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "run_id": "YOUR_SESSION_ID:train:0",
+  "checkpoint_id": "sampler_weights/step-100",
+  "download_url": "https://api.fastino.ai/v1/training-runs/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "YOUR_SESSION_ID_train_0-sampler_weights-step-100.tar"
+}
+```
+
+</ResponseExample>
+
+<Warning>
+  L’URL signée est un identifiant temporaire de type bearer. Ne la journalisez pas, ne la commitez pas, ne la persistez pas et ne la partagez pas. Téléchargez rapidement l’archive et stockez-la conformément à votre politique de gestion des données.
+</Warning>
+
+Pour demander l’URL et télécharger l’archive en une seule étape :
+
+```bash
+response=$(curl -fsS \
+  "https://api.fastino.ai/v1/training-runs/$RUN_ID/checkpoints/$CHECKPOINT_ID/download" \
+  -H "X-API-Key: $FASTINO_API_KEY")
+
+curl -fL \
+  -o "$(jq -r '.file_name' <<<"$response")" \
+  "$(jq -r '.download_url' <<<"$response")"
+```
+
+Cet exemple nécessite `jq`.
+
+| Statut | Signification |
+| --- | --- |
+| `400` | L’ID du checkpoint n’est ni `weights/<name>` ni `sampler_weights/<name>`. |
+| `403` | Votre équipe ne dispose pas du droit de téléchargement des poids. Contactez sales@fastino.ai. |
+| `404` | L’exécution ou le checkpoint est inconnu, ne vous est pas visible ou n’a pas de fichiers téléchargeables. |
+
+Une URL signée expirée ou modifiée renvoie `403` lors de sa récupération. Demandez une nouvelle URL.

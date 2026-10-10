@@ -1,0 +1,93 @@
+---
+title: "Lister les exécutions d’entraînement"
+sidebarTitle: "Lister les exécutions"
+description: "Appelez GET /v1/training-runs pour lister les exécutions d’entraînement pas à pas créées par votre équipe avec le SDK compatible Tinker, de la plus récente à la plus ancienne, avec une pagination limit et offset."
+api: "GET /v1/training-runs"
+---
+
+`GET /v1/training-runs`
+
+Renvoie les exécutions d’entraînement visibles par l’appelant authentifié, de la plus récente à la plus ancienne. Les exécutions d’entraînement sont des exécutions pas à pas que vous créez et pilotez avec le SDK compatible Tinker. Définissez le `base_url` du SDK sur `https://api.fastino.ai/v1/training-runs/sdk` et authentifiez-vous avec votre clé d’API Fastino. Vous voyez vos propres exécutions et celles de votre équipe dans les projets auxquels vous avez accès.
+
+## Requête
+
+<ParamField header="X-API-Key" type="string" required>
+  Votre clé d’API Fastino.
+</ParamField>
+
+<ParamField query="limit" type="integer" default="20">
+  Taille de page. Les valeurs sont ramenées entre `1` et `1000`.
+</ParamField>
+
+<ParamField query="offset" type="integer" default="0">
+  Nombre d’exécutions à ignorer.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl "https://api.fastino.ai/v1/training-runs?limit=20&offset=0" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Réponse
+
+<ResponseField name="success" type="boolean">
+  Indique si la requête a réussi.
+</ResponseField>
+
+<ResponseField name="training_runs" type="object[]">
+  Exécutions d’entraînement de cette page. Chaque exécution contient les champs décrits dans [Obtenir une exécution d’entraînement](/fr/api-reference/training-runs/get).
+</ResponseField>
+
+<ResponseField name="count" type="integer">
+  Nombre d’exécutions dans cette page.
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Nombre total d’exécutions visibles avant pagination.
+</ResponseField>
+
+<ResponseField name="has_more" type="boolean">
+  Indique si une autre page suit celle-ci.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "training_runs": [
+    {
+      "training_run_id": "YOUR_SESSION_ID:train:0",
+      "base_model": "Qwen/Qwen3.6-35B-A3B",
+      "model_owner": "YOUR_TEAM_ID",
+      "is_lora": true,
+      "corrupted": false,
+      "lora_rank": 32,
+      "last_request_time": "2026-10-09T18:42:10Z",
+      "last_checkpoint": null,
+      "last_sampler_checkpoint": {
+        "checkpoint_id": "sampler_weights/step-100",
+        "checkpoint_type": "sampler",
+        "time": "2026-10-09T18:40:02Z",
+        "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+        "size_bytes": 167772160,
+        "public": false,
+        "user_metadata": null,
+        "expires_at": null
+      },
+      "user_metadata": {"experiment": "baseline"}
+    }
+  ],
+  "count": 1,
+  "total": 1,
+  "has_more": false
+}
+```
+
+</ResponseExample>
+
+Des valeurs de pagination invalides renvoient `422`. Une clé d’API absente ou invalide renvoie `401`. Si les exécutions d’entraînement ne sont pas activées pour votre équipe, la route renvoie `404`.
