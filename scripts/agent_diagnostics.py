@@ -10,10 +10,13 @@ from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Protocol
 
 from check_api_docs import EXPECTED_SKILLS
 
+UTC = timezone(timedelta())
 DOCS_ORIGIN = os.getenv("FASTINO_DOCS_ORIGIN", "https://docs.fastino.ai").rstrip("/")
 API_ORIGIN = os.getenv("FASTINO_API_ORIGIN", "https://api.fastino.ai").rstrip("/")
 AGENT_ORIGIN = os.getenv("FASTINO_AGENT_ORIGIN", "https://agent.fastino.ai").rstrip("/")
@@ -76,6 +79,14 @@ class SkillEntry:
     name: str
     url: str
     digest: str
+
+
+@dataclass(frozen=True)
+class GscContext:
+    site_url: str
+    modified_urls: tuple[tuple[str, datetime], ...]
+    service: object
+    handled_errors: tuple[type[Exception], ...]
 
 
 def base_discovery_targets() -> tuple[DiscoveryTarget, ...]:
@@ -525,11 +536,221 @@ def skill_digest_findings(
     return findings
 
 
+def parse_timestamp(value: str) -> datetime:
+    if value.endswith("Z"):
+        value = f"{value[:-1]}+00:00"
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("timestamp must include a UTC offset")
+    return parsed
+
+
+def gsc_inspection_findings(
+    *,
+    url: str,
+    index_status: dict[str, object],
+    last_modified: datetime,
+    now: datetime,
+    max_crawl_age_days: int,
+) -> list[str]:
+    verdict = str(index_status.get("verdict", "UNKNOWN"))
+    coverage = str(index_status.get("coverageState", "UNKNOWN"))
+    robots = str(index_status.get("robotsTxtState", "UNKNOWN"))
+    fetch = str(index_status.get("pageFetchState", "UNKNOWN"))
+    summary = f"verdict={verdict}, coverage={coverage}, robots={robots}, fetch={fetch}"
+    crawl_value = index_status.get("lastCrawlTime")
+    if not isinstance(crawl_value, str):
+        return [f"{url}: GSC has no lastCrawlTime ({summary})"]
+
+    findings: list[str] = []
+    if (
+        verdict != "PASS"
+        or robots == "DISALLOWED"
+        or fetch not in {"SUCCESSFUL", "UNKNOWN"}
+    ):
+        findings.append(f"{url}: GSC indexing blocker ({summary})")
+    crawl_time = parse_timestamp(crawl_value)
+    if crawl_time < last_modified:
+        findings.append(
+            f"{url}: GSC crawl {crawl_value} predates content update "
+            f"{last_modified.isoformat()}"
+        )
+    if now - crawl_time > timedelta(days=max_crawl_age_days):
+        findings.append(
+            f"{url}: GSC crawl {crawl_value} exceeds the "
+            f"{max_crawl_age_days}-day freshness limit"
+        )
+    return findings
+
+
+def gsc_sitemap_findings(
+    site_url: str,
+    sitemap_entries: list[dict[str, object]],
+) -> list[str]:
+    expected_path = f"{site_url.rstrip('/')}/sitemap.xml"
+    sitemap = next(
+        (entry for entry in sitemap_entries if entry.get("path") == expected_path),
+        None,
+    )
+    if sitemap is None:
+        return [f"{site_url}: GSC has no submitted sitemap {expected_path}"]
+    if sitemap.get("isPending") is True or not sitemap.get("lastDownloaded"):
+        return [f"{expected_path}: GSC sitemap has not finished processing"]
+    errors = str(sitemap.get("errors", "0"))
+    warnings = str(sitemap.get("warnings", "0"))
+    if errors != "0" or warnings != "0":
+        return [f"{expected_path}: GSC reports {errors} errors and {warnings} warnings"]
+    return []
+
+
+def prepare_gsc(
+    *,
+    site_url: str,
+    modified_manifest: Path,
+) -> GscContext:
+    if site_url.startswith("sc-domain:"):
+        raise DiagnosticsFailure("GSC diagnostics require a URL-prefix property")
+    try:
+        raw_manifest = json.loads(modified_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise DiagnosticsFailure(f"GSC modified manifest is invalid: {error}") from error
+    if not isinstance(raw_manifest, dict) or not raw_manifest:
+        raise DiagnosticsFailure(
+            "GSC modified manifest must be a non-empty URL-to-timestamp object"
+        )
+    modified_urls: list[tuple[str, datetime]] = []
+    for url, modified_value in raw_manifest.items():
+        if not isinstance(url, str) or not isinstance(modified_value, str):
+            raise DiagnosticsFailure("GSC manifest keys and values must be strings")
+        try:
+            modified_urls.append((url, parse_timestamp(modified_value)))
+        except ValueError as error:
+            raise DiagnosticsFailure(
+                f"GSC manifest timestamp for {url} is invalid: {error}"
+            ) from error
+
+    try:
+        import google.auth
+        from google.auth.exceptions import GoogleAuthError
+        from googleapiclient.discovery import build
+        from googleapiclient.errors import HttpError
+        from httplib2 import HttpLib2Error
+    except ImportError as error:
+        raise DiagnosticsFailure(
+            "GSC inspection requires google-auth and google-api-python-client"
+        ) from error
+
+    try:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+        )
+        service = build(
+            "searchconsole",
+            "v1",
+            credentials=credentials,
+            cache_discovery=False,
+        )
+    except (GoogleAuthError, HttpError, HttpLib2Error) as error:
+        raise DiagnosticsFailure(f"GSC credentials are unavailable: {error}") from error
+    return GscContext(
+        site_url,
+        tuple(modified_urls),
+        service,
+        (GoogleAuthError, HttpError, HttpLib2Error),
+    )
+
+
+def inspect_gsc(
+    context: GscContext,
+    *,
+    max_crawl_age_days: int,
+) -> list[str]:
+    findings: list[str] = []
+    try:
+        sitemap_result = (
+            context.service.sitemaps().list(siteUrl=context.site_url).execute()
+        )
+    except context.handled_errors as error:
+        findings.append(f"{context.site_url}: GSC sitemap inspection failed: {error}")
+    else:
+        if not isinstance(sitemap_result, dict):
+            findings.append(f"{context.site_url}: GSC sitemap response is invalid")
+        else:
+            raw_sitemaps = sitemap_result.get("sitemap", [])
+            if not isinstance(raw_sitemaps, list):
+                findings.append(f"{context.site_url}: GSC sitemap response is invalid")
+            else:
+                findings.extend(
+                    gsc_sitemap_findings(
+                        context.site_url,
+                        [entry for entry in raw_sitemaps if isinstance(entry, dict)],
+                    )
+                )
+
+    now = datetime.now(UTC)
+    for url, last_modified in context.modified_urls:
+        try:
+            result = (
+                context.service.urlInspection()
+                .index()
+                .inspect(
+                    body={
+                        "inspectionUrl": url,
+                        "siteUrl": context.site_url,
+                        "languageCode": "en-US",
+                    }
+                )
+                .execute()
+            )
+        except context.handled_errors as error:
+            findings.append(f"{url}: GSC URL inspection failed: {error}")
+            continue
+        if not isinstance(result, dict):
+            findings.append(f"{url}: GSC URL inspection response is invalid")
+            continue
+        inspection_result = result.get("inspectionResult", {})
+        if not isinstance(inspection_result, dict):
+            findings.append(f"{url}: GSC returned an invalid inspectionResult")
+            continue
+        index_status = inspection_result.get("indexStatusResult", {})
+        if not isinstance(index_status, dict):
+            findings.append(f"{url}: GSC returned an invalid indexStatusResult")
+            continue
+        findings.extend(
+            gsc_inspection_findings(
+                url=url,
+                index_status=index_status,
+                last_modified=last_modified,
+                now=now,
+                max_crawl_age_days=max_crawl_age_days,
+            )
+        )
+    return findings
+
+
 def run_diagnostics(
     *,
     request: Request,
     validate_openapi: OpenApiValidator,
+    gsc_site_url: str | None = None,
+    gsc_modified_manifest: Path | None = None,
+    max_gsc_crawl_age_days: int = 7,
 ) -> int:
+    if max_gsc_crawl_age_days <= 0:
+        raise DiagnosticsFailure("--max-gsc-crawl-age-days must be greater than zero")
+    if bool(gsc_site_url) != bool(gsc_modified_manifest):
+        raise DiagnosticsFailure(
+            "GSC inspection requires --gsc-site-url and --gsc-modified-manifest"
+        )
+    gsc_context = (
+        prepare_gsc(
+            site_url=gsc_site_url,
+            modified_manifest=gsc_modified_manifest,
+        )
+        if gsc_site_url and gsc_modified_manifest
+        else None
+    )
+
     targets = base_discovery_targets()
     default, googlebot, findings = fetch_discovery_responses(targets, request)
 
@@ -612,6 +833,14 @@ def run_diagnostics(
             validate_openapi(document)
         except (DiagnosticsFailure, RuntimeError, json.JSONDecodeError) as error:
             findings.append(f"canonical OpenAPI: {error}")
+
+    if gsc_context is not None:
+        findings.extend(
+            inspect_gsc(
+                gsc_context,
+                max_crawl_age_days=max_gsc_crawl_age_days,
+            )
+        )
 
     if findings:
         raise DiagnosticsFailure("\n".join(findings))

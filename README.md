@@ -87,6 +87,21 @@ The diagnostics check compares default and Googlebot responses, cache policy, cr
 bodies, and published Agent Skill digests across the docs, agent, API, and marketing hosts.
 It requires no credentials and remains manual-only while known cache-policy findings exist.
 
+Google Search Console inspection is optional. Install `google-auth` and
+`google-api-python-client`, add the service-account email as a user on the
+`https://docs.fastino.ai/` URL-prefix property, provide Application Default Credentials, and
+pass a non-empty JSON object that maps each inspected URL to its authoritative content-update
+timestamp. Timestamps must include a UTC offset. The URL Inspection API quota is approximately
+2,000 URLs per property per day, so keep the manifest within that limit:
+
+```bash
+python3 -m pip install google-auth google-api-python-client
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
+  python3 scripts/agent_harness.py diagnostics \
+    --gsc-site-url https://docs.fastino.ai/ \
+    --gsc-modified-manifest /path/to/url-last-modified.json
+```
+
 Authenticated canaries use a dedicated account and the
 `FASTINO_DOCS_CANARY_API_KEY` repository secret. Configure these repository variables before
 enabling them:

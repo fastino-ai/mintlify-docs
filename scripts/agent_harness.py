@@ -1857,7 +1857,16 @@ def main() -> int:
             "training-lifecycle",
         ),
     )
+    parser.add_argument("--gsc-site-url")
+    parser.add_argument("--gsc-modified-manifest", type=Path)
+    parser.add_argument("--max-gsc-crawl-age-days", type=int, default=7)
     args = parser.parse_args()
+    if args.command != "diagnostics" and (
+        args.gsc_site_url
+        or args.gsc_modified_manifest
+        or args.max_gsc_crawl_age_days != 7
+    ):
+        parser.error("GSC options require the diagnostics command")
     try:
         if args.command == "static":
             run_static()
@@ -1867,6 +1876,9 @@ def main() -> int:
             target_count = run_agent_diagnostics(
                 request=_request,
                 validate_openapi=_validate_openapi,
+                gsc_site_url=args.gsc_site_url,
+                gsc_modified_manifest=args.gsc_modified_manifest,
+                max_gsc_crawl_age_days=args.max_gsc_crawl_age_days,
             )
             print(f"Agent discovery diagnostics passed: {target_count} public targets")
         elif args.command == "api":
