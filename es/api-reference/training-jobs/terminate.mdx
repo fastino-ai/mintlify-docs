@@ -1,16 +1,16 @@
 ---
 title: "Terminar un trabajo de entrenamiento"
 sidebarTitle: "Terminar trabajo"
-description: "Usa POST /v1/training-jobs/{job_id}/terminate para detener un trabajo, eliminar todos sus checkpoints y marcarlo como terminado. Usa stop para conservarlos."
+description: "Usa POST /v1/training-jobs/{job_id}/terminate para terminar un trabajo. Los checkpoints se conservan salvo que delete_checkpoints sea true."
 api: "POST /v1/training-jobs/{job_id}/terminate"
 ---
 
 `POST /v1/training-jobs/{job_id}/terminate`
 
-Detiene el trabajo del proveedor si está activo, elimina todos los checkpoints y marca el trabajo como terminado.
+Detiene el trabajo del proveedor si está activo y marca el trabajo como terminado. De forma predeterminada, se conservan los checkpoints y artefactos existentes.
 
 <Warning>
-  La terminación es irreversible. Usa el endpoint de detención cuando necesites preservar los checkpoints.
+  Establecer `delete_checkpoints` en `true` elimina permanentemente los checkpoints y artefactos del trabajo. Esta acción no se puede deshacer.
 </Warning>
 
 ## Solicitud
@@ -23,11 +23,17 @@ Detiene el trabajo del proveedor si está activo, elimina todos los checkpoints 
   UUID del trabajo de entrenamiento.
 </ParamField>
 
+<ParamField body="delete_checkpoints" type="boolean" default="false">
+  Indica si se deben eliminar permanentemente todos los checkpoints y artefactos. Omite este campo o establécelo en `false` para conservarlos.
+</ParamField>
+
 <RequestExample>
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate \
-  -H "X-API-Key: $FASTINO_API_KEY"
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"delete_checkpoints": false}'
 ```
 
 </RequestExample>
@@ -39,9 +45,9 @@ curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/termin
 ```json Response
 {
   "success": true,
-  "message": "Training job terminated",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
-  "deleted_checkpoints": 3
+  "deleted_checkpoints": 0
 }
 ```
 

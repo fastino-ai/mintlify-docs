@@ -1,16 +1,16 @@
 ---
 title: "Terminate a training job"
 sidebarTitle: "Terminate job"
-description: "Call POST /v1/training-jobs/{job_id}/terminate to stop a training job, delete every checkpoint, and mark it terminated. Use stop to keep checkpoints."
+description: "Call POST /v1/training-jobs/{job_id}/terminate to terminate a training job. Checkpoints are preserved unless delete_checkpoints is true."
 api: "POST /v1/training-jobs/{job_id}/terminate"
 ---
 
 `POST /v1/training-jobs/{job_id}/terminate`
 
-Stops the provider job if it is active, deletes every checkpoint, and marks the job as terminated.
+Stops the provider job if it is active and marks the job as terminated. By default, existing checkpoints and artifacts are preserved.
 
 <Warning>
-  Termination is irreversible. Use the stop endpoint when you need to preserve checkpoints.
+  Setting `delete_checkpoints` to `true` permanently deletes the job's checkpoints and artifacts. This cannot be undone.
 </Warning>
 
 ## Request
@@ -23,11 +23,17 @@ Stops the provider job if it is active, deletes every checkpoint, and marks the 
   Training-job UUID.
 </ParamField>
 
+<ParamField body="delete_checkpoints" type="boolean" default="false">
+  Whether to permanently delete every checkpoint and artifact. Omit this field or set it to `false` to preserve them.
+</ParamField>
+
 <RequestExample>
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/terminate \
-  -H "X-API-Key: $FASTINO_API_KEY"
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"delete_checkpoints": false}'
 ```
 
 </RequestExample>
@@ -39,9 +45,9 @@ curl -X POST https://api.fastino.ai/v1/training-jobs/YOUR_TRAINING_JOB_ID/termin
 ```json Response
 {
   "success": true,
-  "message": "Training job terminated",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
-  "deleted_checkpoints": 3
+  "deleted_checkpoints": 0
 }
 ```
 
