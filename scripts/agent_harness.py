@@ -1243,30 +1243,38 @@ def _run_training_replay(api_key: str) -> None:
     _cleanup_unexpected_replay_jobs(api_key, job_id)
 
 
-def run_api(*, replay_training: bool) -> None:
-    api_key = _require_api_key()
-    document = _load_openapi()
-    operations = _validate_openapi(document)
+def _run_inference(
+    api_key: str,
+    document: dict[str, object],
+    operations: dict[tuple[str, str], dict[str, object]],
+) -> tuple[str, str]:
     invalid = _request(
         "GET",
-        f"{API_ORIGIN}/v1/training-jobs?limit=1",
+        f"{API_ORIGIN}/v1/inferences?limit=1",
         headers={"X-API-Key": "fast_sk_invalid_docs_canary"},
         follow_redirects=False,
     )
     if invalid.status != 401:
         fail(f"AUTH: invalid X-API-Key expected 401, got {invalid.status}")
     glide, gliner = _discover_models(api_key)
-    training_model = _discover_training_model(api_key)
     _run_glide(api_key, glide, document, operations)
     _run_gliner(api_key, gliner, document, operations)
+    return glide, gliner
+
+
+def run_inference() -> None:
+    api_key = _require_api_key()
+    document = _load_openapi()
+    operations = _validate_openapi(document)
+    glide, gliner = _run_inference(api_key, document, operations)
+    print(f"Authenticated inference passed: GLiDE={glide}, GLiNER={gliner}")
+
+
+def run_training_reads() -> None:
+    api_key = _require_api_key()
+    training_model = _discover_training_model(api_key)
     _run_training_reads(api_key)
-    if replay_training:
-        _run_training_replay(api_key)
-    print(
-        "Authenticated agent journey passed: "
-        f"GLiDE={glide}, GLiNER={gliner}, trainable={training_model}, "
-        f"training_replay={replay_training}"
-    )
+    print(f"Training reads passed: trainable={training_model}")
 
 
 def _is_number(value: object) -> bool:
@@ -1848,7 +1856,8 @@ def main() -> int:
         choices=(
             "static",
             "published",
-            "api",
+            "inference",
+            "training-reads",
             "cookbooks",
             "training-replay",
             "training-lifecycle",
@@ -1860,8 +1869,10 @@ def main() -> int:
             run_static()
         elif args.command == "published":
             run_published()
-        elif args.command == "api":
-            run_api(replay_training=False)
+        elif args.command == "inference":
+            run_inference()
+        elif args.command == "training-reads":
+            run_training_reads()
         elif args.command == "cookbooks":
             run_cookbooks()
         elif args.command == "training-replay":

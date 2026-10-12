@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -32,10 +33,93 @@ class AgentHarnessTests(unittest.TestCase):
             HARNESS.ROOT / ".github/workflows/agent-docs-training-lifecycle.yml"
         ).read_text()
 
-        self.assertEqual(daily.count("github.ref == 'refs/heads/main'"), 2)
-        self.assertEqual(daily.count("ref: main"), 2)
+        self.assertEqual(daily.count("github.ref == 'refs/heads/main'"), 3)
+        self.assertEqual(daily.count("ref: main"), 3)
         self.assertIn("github.ref == 'refs/heads/main'", lifecycle)
         self.assertIn("ref: main", lifecycle)
+
+    def test_inference_canary_does_not_require_training_configuration(self) -> None:
+        document: dict[str, object] = {}
+        operations: dict[tuple[str, str], dict[str, object]] = {}
+        unauthorized = HARNESS.Response(
+            401,
+            "https://api.fastino.ai/v1/inferences?limit=1",
+            {},
+            b"{}",
+        )
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(HARNESS, "_require_api_key", return_value="fast_sk_test"),
+            mock.patch.object(HARNESS, "_load_openapi", return_value=document),
+            mock.patch.object(
+                HARNESS,
+                "_validate_openapi",
+                return_value=operations,
+            ),
+            mock.patch.object(
+                HARNESS,
+                "_request",
+                return_value=unauthorized,
+            ) as request,
+            mock.patch.object(
+                HARNESS,
+                "_discover_models",
+                return_value=("fastino/GLiDE", "fastino/gliner2.5-base-v1"),
+            ),
+            mock.patch.object(HARNESS, "_run_glide") as glide,
+            mock.patch.object(HARNESS, "_run_gliner") as gliner,
+            mock.patch.object(HARNESS, "_discover_training_model") as training_model,
+            mock.patch.object(HARNESS, "_run_training_reads") as training_reads,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            HARNESS.run_inference()
+
+        request.assert_called_once_with(
+            "GET",
+            "https://api.fastino.ai/v1/inferences?limit=1",
+            headers={"X-API-Key": "fast_sk_invalid_docs_canary"},
+            follow_redirects=False,
+        )
+        glide.assert_called_once_with(
+            "fast_sk_test",
+            "fastino/GLiDE",
+            document,
+            operations,
+        )
+        gliner.assert_called_once_with(
+            "fast_sk_test",
+            "fastino/gliner2.5-base-v1",
+            document,
+            operations,
+        )
+        training_model.assert_not_called()
+        training_reads.assert_not_called()
+        self.assertEqual(
+            stdout.getvalue(),
+            (
+                "Authenticated inference passed: GLiDE=fastino/GLiDE, "
+                "GLiNER=fastino/gliner2.5-base-v1\n"
+            ),
+        )
+
+    def test_training_reads_report_the_trainable_model(self) -> None:
+        with (
+            mock.patch.object(HARNESS, "_require_api_key", return_value="fast_sk_test"),
+            mock.patch.object(
+                HARNESS,
+                "_discover_training_model",
+                return_value="fastino/gliner2-base-v1",
+            ),
+            mock.patch.object(HARNESS, "_run_training_reads") as training_reads,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            HARNESS.run_training_reads()
+
+        training_reads.assert_called_once_with("fast_sk_test")
+        self.assertEqual(
+            stdout.getvalue(),
+            "Training reads passed: trainable=fastino/gliner2-base-v1\n",
+        )
 
     def test_openapi_resolves_required_agent_operations(self) -> None:
         document = HARNESS._load_openapi()
