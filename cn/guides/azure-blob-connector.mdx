@@ -1,0 +1,70 @@
+---
+title: "使用编码代理连接 Azure Blob 数据"
+sidebarTitle: "Azure Blob 连接器"
+description: "让 Cursor、Claude Code 或 Codex 以只读方式将 Azure Blob 容器连接到 Fastino 项目。"
+---
+
+你无需手动拼接 API 请求。编码代理可以发现 Azure 资源信息、创建项目连接器、
+引导完成 Microsoft 同意、授予容器级只读权限、测试连接并启动不可变数据快照。
+
+## 你需要提供的信息
+
+- Azure Blob 容器 URL，可包含 blob 前缀。
+- Fastino 项目名称或 ID。
+- 数据用途：`training` 或 `evaluation`。
+
+代理会通过当前 Azure CLI 会话解析租户、订阅、资源组、存储账户和容器。
+
+## 开始前
+
+将编码代理连接到团队的 Fastino MCP 端点：
+
+```text
+https://api.fastino.ai/v1/teams/YOUR_TEAM_ID/mcp
+```
+
+然后登录拥有该存储账户的 Azure 目录和订阅：
+
+```bash
+az login
+az account show
+```
+
+你的 Azure 身份还必须能够在容器上分配角色，例如拥有 **Owner** 或
+**User Access Administrator** 角色。
+
+<Note>
+Azure 订阅角色和 Microsoft Entra 目录角色互不相同。订阅 Owner 可以授予
+Blob RBAC，但不一定能批准目录中的新企业应用。
+</Note>
+
+## 向代理发出请求
+
+```text
+将 https://customerdata.blob.core.windows.net/training/incoming/
+连接到 Fastino 项目 "support-classifier"，作为训练数据。
+
+使用我当前的 Azure CLI 会话。只在该容器上授予 Storage Blob Data Reader，
+测试连接，启动同步，等待同步完成并报告生成的数据集。不要启动训练。
+```
+
+## 同意与权限
+
+Microsoft 同意是每个 Azure 租户一次性的操作，而不是每个容器一次。
+如果租户允许用户同意，当前用户可以完成此步骤；如果租户策略禁止用户同意，
+则需要 Entra **Cloud Application Administrator** 或 **Global Administrator**
+批准一次。
+
+Fastino 不接受账户密钥、SAS 令牌、客户证书或客户端密钥。运行时使用 Fastino
+自己的证书身份，并且仅获得所选容器范围内的 **Storage Blob Data Reader**。
+
+## 故障排除
+
+| 状态 | 含义 | 处理方法 |
+| --- | --- | --- |
+| `consent_missing` | Azure 租户中尚无 Fastino 企业应用 | 打开返回的同意 URL；仅在租户策略要求时联系管理员 |
+| `role_missing` | 已同意，但缺少 Blob RBAC | 运行返回的容器级角色命令，然后重新测试 |
+| `container_missing` | 存储坐标不匹配 | 让代理根据容器 URL 重新发现资源 |
+| `unavailable` | Azure 或 Fastino 暂时无法完成测试 | 重试，并将返回的提供商错误代码用于支持请求 |
+
+Azure RBAC 传播可能需要几分钟。先让代理重试测试，不要立即创建重复连接器。

@@ -1,0 +1,77 @@
+---
+title: "Azure-Blob-Daten mit einem Coding-Agent verbinden"
+sidebarTitle: "Azure-Blob-Connector"
+description: "Lassen Sie Cursor, Claude Code oder Codex einen Azure-Blob-Container mit schreibgeschütztem Zugriff an ein Fastino-Projekt anbinden."
+---
+
+Sie müssen keine API-Anfragen von Hand erstellen. Der Agent ermittelt die
+Azure-Ressourcendaten, erstellt den Projekt-Connector, begleitet die
+Microsoft-Zustimmung, vergibt Leserechte auf den Container, testet die Verbindung
+und startet einen unveränderlichen Snapshot.
+
+## Benötigte Angaben
+
+- Die URL des Azure-Blob-Containers, optional mit Blob-Präfix.
+- Name oder ID des Fastino-Projekts.
+- Verwendungszweck: `training` oder `evaluation`.
+
+Tenant, Abonnement, Ressourcengruppe, Speicherkonto und Container ermittelt der
+Agent über Ihre authentifizierte Azure-CLI-Sitzung.
+
+## Voraussetzungen
+
+Verbinden Sie den Coding-Agent mit dem Fastino-MCP-Endpunkt Ihres Teams:
+
+```text
+https://api.fastino.ai/v1/teams/YOUR_TEAM_ID/mcp
+```
+
+Melden Sie sich im Verzeichnis und Abonnement des Speicherkontos an:
+
+```bash
+az login
+az account show
+```
+
+Ihre Azure-Identität muss Rollen am Container zuweisen dürfen, etwa als
+**Owner** oder **User Access Administrator**.
+
+<Note>
+Azure-Abonnementrollen und Microsoft-Entra-Verzeichnisrollen sind getrennt. Ein
+Owner kann Blob-RBAC vergeben, aber nicht zwingend eine neue Unternehmensanwendung
+genehmigen.
+</Note>
+
+## Auftrag an den Agenten
+
+```text
+Verbinde https://customerdata.blob.core.windows.net/training/incoming/
+mit meinem Fastino-Projekt "support-classifier" als Trainingsdaten.
+
+Verwende meine aktuelle Azure-CLI-Sitzung. Vergib ausschließlich Storage Blob
+Data Reader auf diesem Container, teste und synchronisiere den Connector, warte
+auf den Abschluss und melde die erzeugten Datasets. Starte kein Training.
+```
+
+## Zustimmung und Sicherheit
+
+Die Microsoft-Zustimmung erfolgt einmal pro Azure-Tenant, nicht pro Container.
+Erlaubt der Tenant Benutzerzustimmung, kann der angemeldete Benutzer zustimmen.
+Andernfalls muss einmalig ein Entra **Cloud Application Administrator** oder
+**Global Administrator** zustimmen.
+
+Fastino akzeptiert keine Kontoschlüssel, SAS-Token, Client-Geheimnisse oder
+Kundenzertifikate. Zur Laufzeit nutzt Fastino die eigene zertifikatsbasierte
+Identität und **Storage Blob Data Reader**, begrenzt auf den gewählten Container.
+
+## Fehlerbehebung
+
+| Status | Bedeutung | Maßnahme |
+| --- | --- | --- |
+| `consent_missing` | Die Fastino-Unternehmensanwendung fehlt im Tenant | Zustimmungs-URL öffnen; Administrator nur verwenden, wenn die Richtlinie es verlangt |
+| `role_missing` | Zustimmung vorhanden, Blob-RBAC fehlt | Zurückgegebenen Rollenbefehl ausführen und erneut testen |
+| `container_missing` | Speicherkoordinaten stimmen nicht | Ressource anhand der Container-URL neu ermitteln lassen |
+| `unavailable` | Azure oder Fastino konnte den Test nicht abschließen | Erneut versuchen und den Anbietercode für den Support verwenden |
+
+Die RBAC-Übernahme kann mehrere Minuten dauern. Lassen Sie den Agenten erneut
+testen, bevor Sie einen weiteren Connector erstellen.

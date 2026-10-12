@@ -1,0 +1,77 @@
+---
+title: "Connecter des données Azure Blob avec un agent"
+sidebarTitle: "Connecteur Azure Blob"
+description: "Demandez à Cursor, Claude Code ou Codex de connecter un conteneur Azure Blob à un projet Fastino avec un accès en lecture seule."
+---
+
+Vous n'avez pas à construire les requêtes API manuellement. L'agent découvre les
+coordonnées Azure, crée le connecteur du projet, guide le consentement Microsoft,
+accorde un accès en lecture au conteneur, teste la connexion et lance un snapshot
+immuable.
+
+## Informations à fournir
+
+- L'URL du conteneur Azure Blob, avec un préfixe facultatif.
+- Le nom ou l'ID du projet Fastino.
+- L'usage des données : `training` ou `evaluation`.
+
+L'agent déduit le tenant, l'abonnement, le groupe de ressources, le compte de
+stockage et le conteneur depuis votre session Azure CLI authentifiée.
+
+## Avant de commencer
+
+Connectez l'agent au endpoint MCP de votre équipe :
+
+```text
+https://api.fastino.ai/v1/teams/YOUR_TEAM_ID/mcp
+```
+
+Connectez-vous au répertoire et à l'abonnement propriétaires du stockage :
+
+```bash
+az login
+az account show
+```
+
+Votre identité doit pouvoir attribuer des rôles sur le conteneur, par exemple
+avec **Owner** ou **User Access Administrator**.
+
+<Note>
+Les rôles d'abonnement Azure et les rôles de répertoire Microsoft Entra sont
+distincts. Un Owner peut attribuer le RBAC sans forcément pouvoir approuver une
+nouvelle application d'entreprise.
+</Note>
+
+## Demander à l'agent
+
+```text
+Connecte https://customerdata.blob.core.windows.net/training/incoming/
+à mon projet Fastino "support-classifier" comme données d'entraînement.
+
+Utilise ma session Azure CLI actuelle. Accorde uniquement Storage Blob Data
+Reader sur ce conteneur, teste le connecteur, synchronise-le, attends la fin et
+indique les datasets créés. Ne lance pas d'entraînement.
+```
+
+## Consentement et sécurité
+
+Le consentement Microsoft est effectué une seule fois par tenant, pas pour
+chaque conteneur. Si le tenant autorise le consentement utilisateur, l'utilisateur
+connecté peut l'accorder. Sinon, un **Cloud Application Administrator** ou
+**Global Administrator** Entra doit l'accorder une fois.
+
+Fastino n'accepte ni clé de compte, ni jeton SAS, ni secret client, ni certificat
+client. À l'exécution, Fastino utilise sa propre identité par certificat et le
+rôle **Storage Blob Data Reader**, limité au conteneur sélectionné.
+
+## Dépannage
+
+| Statut | Signification | Action |
+| --- | --- | --- |
+| `consent_missing` | L'application d'entreprise Fastino n'existe pas dans le tenant | Ouvrez l'URL de consentement ; utilisez un administrateur uniquement si la politique l'exige |
+| `role_missing` | Le consentement existe, mais le RBAC manque | Exécutez la commande de rôle renvoyée, puis retestez |
+| `container_missing` | Les coordonnées de stockage ne correspondent pas | Demandez à l'agent de redécouvrir la ressource depuis l'URL |
+| `unavailable` | Azure ou Fastino n'a pas pu terminer le test | Réessayez et utilisez le code fournisseur pour le support |
+
+La propagation du RBAC peut prendre plusieurs minutes. Réessayez avant de créer
+un autre connecteur.

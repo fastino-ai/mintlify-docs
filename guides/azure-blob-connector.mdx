@@ -1,0 +1,135 @@
+---
+title: "Connect Azure Blob data with a coding agent"
+sidebarTitle: "Azure Blob connector"
+description: "Ask Cursor, Claude Code, or Codex to connect an Azure Blob container to a Fastino project with read-only access."
+---
+
+Connect an Azure Blob container through a coding agent instead of assembling API
+requests by hand. The agent discovers the Azure resource coordinates, creates the
+project connector, guides any required Microsoft consent, grants container-scoped
+read access, tests the connection, and starts an immutable dataset sync.
+
+## What you provide
+
+You normally need only:
+
+- The Azure Blob container URL, optionally including a blob prefix.
+- The Fastino project name or ID.
+- Whether the imported data is for `training` or `evaluation`.
+
+The agent can derive the tenant, subscription, resource group, storage account,
+and container from your authenticated Azure CLI session. Connector and dataset
+names can default from the container name.
+
+## Before you start
+
+1. Connect your coding agent to your team's Fastino MCP endpoint:
+
+   ```text
+   https://api.fastino.ai/v1/teams/YOUR_TEAM_ID/mcp
+   ```
+
+2. Authenticate Azure CLI to the directory and subscription that own the storage
+   account:
+
+   ```bash
+   az login
+   az account show
+   ```
+
+3. Confirm your Azure identity can assign roles on the container. Azure roles
+   such as **Owner** or **User Access Administrator** normally provide this.
+
+<Note>
+Azure subscription roles and Microsoft Entra directory roles are separate. A
+subscription owner can grant Blob RBAC but might not be allowed to approve a
+new enterprise application in the directory.
+</Note>
+
+## Ask your agent
+
+Give the agent the container URL rather than every Azure resource field:
+
+```text
+Connect https://customerdata.blob.core.windows.net/training/incoming/
+to my Fastino project "support-classifier" as training data.
+
+Use my current Azure CLI session. Grant only Storage Blob Data Reader on this
+container, test the connector, sync it, wait until the sync finishes, and report
+the resulting datasets. Do not start training.
+```
+
+The same prompt works in Cursor, Claude Code, or Codex when Fastino MCP and Azure
+CLI are available to that session.
+
+## What the agent does
+
+<Steps>
+  <Step title="Discover the source">
+    The agent uses Azure CLI to resolve the storage account's tenant,
+    subscription, and resource group. Azure storage account names are globally
+    unique, so the container URL is sufficient for discovery.
+  </Step>
+
+  <Step title="Create the project connector">
+    Fastino stores the Azure resource coordinates, selected prefix, dataset name,
+    and dataset purpose. It never asks for an account key, SAS token, client
+    secret, or customer certificate.
+  </Step>
+
+  <Step title="Provision the Fastino identity">
+    If Fastino's enterprise application already exists in the storage tenant,
+    this step is automatic. Otherwise, the agent returns a Microsoft consent URL.
+    The Azure Storage permission itself supports user consent, but a tenant may
+    enforce an administrator-only consent policy.
+  </Step>
+
+  <Step title="Grant least-privilege access">
+    Fastino obtains its tenant-local service-principal object ID from its own
+    Azure token. The agent then assigns **Storage Blob Data Reader** at the
+    container scope. This avoids Microsoft Graph directory-read access and does
+    not grant access to other containers.
+  </Step>
+
+  <Step title="Test and sync">
+    The agent tests list-only access, queues an immutable snapshot, and polls the
+    sync until it succeeds or returns an actionable error.
+  </Step>
+</Steps>
+
+## Microsoft consent
+
+Microsoft consent is a one-time operation per Azure tenant, not per container.
+It creates Fastino's enterprise application in that tenant.
+
+- If the tenant permits user consent, the signed-in Azure user can approve it.
+- If the tenant blocks user consent, an Entra **Cloud Application
+  Administrator** or **Global Administrator** must approve it once.
+- Subscription ownership does not override the tenant's Entra consent policy.
+
+After the enterprise application exists, a subscription owner or User Access
+Administrator can grant read access to additional containers without repeating
+consent.
+
+## Security model
+
+- Fastino authenticates with its own certificate-backed, multi-tenant Entra
+  application.
+- The certificate stays in Fastino's secret store and is never shared with the
+  customer or coding agent.
+- Customer storage credentials, SAS tokens, and account keys are not accepted.
+- Runtime access is read-only and scoped to the selected container.
+- Deleting a connector revokes future syncs but does not delete datasets already
+  published to the Fastino project.
+
+## Troubleshooting
+
+| Status | Meaning | Action |
+| --- | --- | --- |
+| `consent_missing` | Fastino's enterprise application does not exist in the Azure tenant | Open the returned consent URL; use a tenant administrator only if policy requires one |
+| `role_missing` | Consent succeeded, but Blob RBAC is absent | Run the returned container-scoped role assignment command, then retest |
+| `container_missing` | The storage account, container, tenant, or subscription does not match | Ask the agent to rediscover the source from the container URL |
+| `unavailable` | Azure or Fastino could not complete the test | Retry, then use the returned provider error code for support |
+
+Azure RBAC changes can take several minutes to propagate. The agent should retry
+the test before creating another connector.
