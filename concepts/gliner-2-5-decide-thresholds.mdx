@@ -1,0 +1,115 @@
+---
+title: "Evaluate and Train GLiNER 2.5 Decide"
+sidebarTitle: "Evaluation & Train"
+description: "Evaluate classification quality, select multi-label thresholds, and fine-tune GLiNER 2.5 Decide for your domain."
+---
+
+Evaluate the exact `classifications` schema your application will send to `fastino/GLiNER-2.5-Decide`. Change the labels or task settings only between evaluation runs so results remain comparable.
+
+## Evaluate a Decide schema
+
+Start with a fixed task:
+
+```json
+{
+  "task": "support_tags",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+Build a held-out set with the same label names. Include:
+
+- Positive and negative examples for every label
+- Inputs where several labels should be returned
+- Inputs where no label should clear the threshold
+- Ambiguous and out-of-domain text
+
+Send every example through `POST /v1/chat/completions` with the same Decide model ID and schema. Parse the JSON string in `choices[0].message.content` before scoring the task result.
+
+For single-label Decide tasks, measure top-1 accuracy and per-label confusion. For multi-label tasks, measure precision, recall, and F1 per label and across the task. If one request contains several tasks, evaluate each task independently because Decide does not enforce relationships between them.
+
+## Select `cls_threshold`
+
+`cls_threshold` only affects tasks with `multi_label: true`. Decide returns labels that meet the threshold and omits the rest:
+
+- Raise it to return fewer labels and generally favor precision.
+- Lower it to return more labels and generally favor recall.
+- Single-label tasks always return the highest-scoring label.
+- Thresholds affect inference only; they do not change training.
+
+Rerun the held-out set for every candidate threshold because the response contains only the labels selected at that threshold. Choose a threshold per task when false positives and false negatives have different costs.
+
+Do not treat `0.5` as a universal default. For labels that trigger consequential actions, require a stricter threshold or route low-confidence results to review.
+
+## Train GLiNER 2.5 Decide
+
+Train only when the base model still misses your domain after you have clarified the label taxonomy and tuned multi-label thresholds.
+
+The live base-model catalog currently advertises:
+
+```json
+{
+  "id": "fastino/GLiNER-2.5-Decide",
+  "supports_training": true,
+  "training_types": ["lora"]
+}
+```
+
+Check `GET /v1/base-models?supports_training=true` before creating a job because catalog availability can change. Use `fastino/GLiNER-2.5-Decide` as `base_model` and `lora` as `training_type`.
+
+### Prepare Decide classification data
+
+Use the public classification JSONL format. Each line contains `text` and either one `label` or several `labels`:
+
+```jsonl
+{"text":"I was charged twice for the same invoice.","label":"billing"}
+{"text":"I cannot sign in and suspect my account was compromised.","labels":["account","security"]}
+```
+
+The dataset labels must use the same stable strings that you pass in the Decide inference schema. Do not mix single-label and multi-label row shapes in one dataset, and keep the held-out evaluation set out of the training upload.
+
+<Card title="Upload the classification dataset" icon="database" href="/concepts/datasets">
+  Create, upload, process, and version the JSONL dataset used by the Decide training job.
+</Card>
+
+### Create the Decide training job
+
+Submit the ready dataset against the Decide base model:
+
+```bash
+curl -X POST https://api.fastino.ai/v1/training-jobs \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "support-decide",
+    "base_model": "fastino/GLiNER-2.5-Decide",
+    "datasets": [{"name": "support-decide-training"}],
+    "training_type": "lora",
+    "validation_data_percentage": 0.2
+  }'
+```
+
+Omit learning rate, batch size, and LoRA parameters unless you have evidence to override the Decide training recipe. Save the returned training-job ID and poll until the artifact is deployable.
+
+### Compare and deploy
+
+Run the base model and trained checkpoint against the same held-out set with the same `classifications` schema. Compare:
+
+- Per-label errors for single-label tasks
+- Per-label precision, recall, and F1 for multi-label tasks
+- Empty and over-selected multi-label results
+- The threshold required for each task
+
+Deploy a checkpoint only when it improves the application-level errors you care about. After deployment, rerun threshold selection; fine-tuning can change Decide confidence values even when predicted labels stay the same.
+
+<CardGroup cols={2}>
+  <Card title="Training jobs" icon="activity" href="/training">
+    Monitor the Decide job, checkpoints, and deployability status.
+  </Card>
+
+  <Card title="Training API reference" icon="book" href="/api-reference/training/overview">
+    Inspect the exact dataset and training-job contracts.
+  </Card>
+</CardGroup>

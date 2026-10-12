@@ -1,0 +1,342 @@
+---
+title: "Llamar a GLiDE"
+sidebarTitle: "Llamar a GLiDE"
+description: "Autentícate, envía una solicitud de decisión a GLiDE y gestiona las probabilidades y la confianza."
+tag: "NEW"
+---
+
+```text
+POST https://api.fastino.ai/v1/systemone
+```
+
+Este es el endpoint de inferencia de **GLiDE**. Envía un `state` no vacío y una o varias `questions`
+tipadas y con nombre; lee las decisiones estructuradas en `answers`. GLiDE no usa
+`/v1/chat/completions`, `messages` ni un `schema` de GLiNER.
+
+GLiDE cuesta **0,15 \$ por cada millón de tokens de entrada**. Los tokens de salida son **gratuitos (0 \$)**.
+Consulta [Precios](/es/pricing) para ver las tarifas de inferencia actuales.
+
+<CardGroup cols={2}>
+  <Card title="Ver el contrato de la API" icon="braces" href="/es/api-reference/inference/systemone">
+    Consulta el esquema completo de solicitud y respuesta de POST /v1/systemone.
+  </Card>
+  <Card title="Recetas de GLiDE" icon="chef-hat" href="/es/cookbooks/overview">
+    Solicitudes completas y probadas para clasificar tickets, controlar acciones de agentes y detectar inyecciones de prompt.
+  </Card>
+</CardGroup>
+
+## Configura tu API key
+
+1. **Crea una cuenta de [Fastino](https://agent.fastino.ai/)**
+2. **Obtén tu API key** en [Settings](https://agent.fastino.ai/api-keys)
+
+Establece tu clave como una variable de entorno para que los ejemplos siguientes funcionen tal cual:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## Elige un tipo de pregunta
+
+Cada pregunta es de una sola etiqueta y devuelve probabilidades. Elige la primitiva según la
+forma de respuesta que necesita tu código:
+
+| Primitiva | Úsala cuando | Forma de `criteria` | Resultado principal |
+| --- | --- | --- | --- |
+| [Noul](/es/concepts/glide-noul) | La respuesta es sí o no | Opcional `{"true": "...", "false": "..."}`; por defecto Yes/No | `noul`, la probabilidad de true |
+| [Choice](/es/concepts/glide-choice) | Debe ganar exactamente una opción sin orden | Objeto que asigna claves de opción a descripciones | `choice` más `probabilities` |
+| [Score](/es/concepts/glide-score) | La respuesta pertenece a una escala ordenada | Array ordenado de descripciones de niveles | `score`, `expected_level` y `probabilities` |
+
+No existe una primitiva multietiqueta. Haz varias preguntas independientes con nombre en una sola solicitud
+cuando necesites varios juicios sobre el mismo state.
+
+## Solicitud
+
+<ParamField body="model" type="string" required>
+  Usa `fastino/GLiDE`. Si lo omites, se devuelve `422 'model' must be provided`. La respuesta
+  devuelve el nombre del motor como `glide`.
+</ParamField>
+
+<ParamField body="state" type="string | object | array" required>
+  La situación no vacía que se va a evaluar. Usa una cadena para un solo pasaje, un objeto para campos
+  etiquetados o un array para una secuencia ordenada de mensajes o registros.
+</ParamField>
+
+<ParamField body="questions" type="object" required>
+  Un objeto no vacío cuyas claves son nombres que tú eliges. Cada valor debe contener `type` e
+  `instructions`; Choice y Score también requieren `criteria`. Las mismas claves aparecen bajo
+  `answers` en la respuesta.
+  Consulta [Noul](/es/concepts/glide-noul), [Choice](/es/concepts/glide-choice) y
+  [Score](/es/concepts/glide-score) para ver la forma completa de solicitud y respuesta de cada tipo.
+</ParamField>
+
+### Formas de state
+
+`state` es el material frente al que se evalúa cada pregunta. Piensa en ello como lo que le entregarías a un panel de expertos antes de pedirles que emitan un juicio.
+
+| Forma | Útil para | Ejemplo |
+| --- | --- | --- |
+| String | Un solo mensaje, artículo o pasaje | `"My card was charged twice."` |
+| Object | Campos con nombre, registros relacionados o estado de la aplicación | `{"message": "My card was charged twice.", "order_id": "A-104"}` |
+| Array | Una secuencia de mensajes o registros | `["Hi", "My order number is A-104.", "My card was charged twice."]` |
+
+Usa un objeto cuando la decisión dependa de comparar varias partes con nombre (por ejemplo, un ticket y la política con la que se evalúa): así cada parte queda etiquetada y sus relaciones quedan claras. Una cadena simple basta cuando el caso es un único pasaje autocontenido. Todas las preguntas de una solicitud ven el mismo `state` y se evalúan de forma independiente frente a él.
+
+
+### Solicitud completa
+
+```bash
+curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    }
+  }'
+```
+
+## Respuesta
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+`answers` usa las claves de pregunta de tu solicitud. Para este Noul:
+
+- `noul` es la probabilidad de que se cumpla el criterio `true`. No es un booleano.
+- `confidence` es la certeza sobre cualquiera de los dos resultados: `|2 × noul − 1|`.
+- Ajusta los umbrales de acción con datos representativos. No des por hecho que `0.5` es el umbral
+  adecuado para tu negocio.
+
+Choice y Score devuelven campos distintos. Consulta sus páginas de primitiva para ver las formas exactas de respuesta
+y ejemplos de integración.
+
+## Combinar varias preguntas
+
+Haz varias preguntas de distintos tipos sobre el mismo `state` en una sola llamada. Todas las preguntas se evalúan juntas en un único viaje de ida y vuelta.
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      },
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+Respuesta:
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "department": {
+      "type": "choice",
+      "choice": "returns",
+      "confidence": 0.9992611288391886,
+      "probabilities": {
+        "billing": 0.00031500429476013744,
+        "returns": 0.9995761331339488,
+        "shipping": 0.00010886257129113499
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 0,
+      "expected_level": 0.27621539375795195,
+      "confidence": 0.4999999998141525,
+      "probabilities": {
+        "0": 0.7412615353520668,
+        "1": 0.24126153553791435,
+        "2": 0.017476929110018805
+      },
+      "legend": {
+        "0": "low urgency, can wait",
+        "1": "medium urgency, handle soon",
+        "2": "high urgency, handle immediately"
+      }
+    }
+  },
+  "usage": { "input_tokens": 743, "output_tokens": 252 },
+  "token_usage": 995
+}
+```
+
+## Límites y formas no admitidas
+
+- Cada prompt de pregunta renderizado (`state` más esa pregunta) debe caber en **40,000
+  tokens**.
+- Choice requiere **entre 2 y 255 opciones**; una sola opción no puede representar una decisión ni un margen de confianza significativo. Score acepta como máximo **255 niveles**.
+- `usage.input_tokens` suma las pasadas internas de todas las preguntas, por lo que puede superar 40,000
+  aunque cada prompt renderizado individual quepa.
+- Una solicitud evalúa un único `state` compartido; pon varias preguntas bajo `questions`.
+- `/v1/systemone` no hace streaming y no acepta un lote de estados independientes.
+- GLiDE no admite actualmente ID de despliegues ajustados.
+
+Consulta [confianza e incertidumbre](/es/concepts/glide-capabilities#confianza-e-incertidumbre) para ver las fórmulas de confianza
+y el enrutamiento basado en confianza.
+
+## Migrar desde TypeSafe
+
+Jev de TypeSafe y GLiDE de Fastino usan la misma estructura de System One: `state`, `questions`
+con nombre y `answers` correspondientes. La mayoría de las solicitudes se transfieren sin problemas,
+pero la integración no es un reemplazo directo. Usa esta lista de comprobación para migrar con seguridad:
+
+| TypeSafe o Jev | Fastino GLiDE |
+| --- | --- |
+| `https://api.typesafe.ai/v1/systemone` | `https://api.fastino.ai/v1/systemone` |
+| `TYPESAFE_API_KEY` | `FASTINO_API_KEY` |
+| `Authorization: Bearer $TYPESAFE_API_KEY` | `X-API-Key: $FASTINO_API_KEY` |
+| Modelo de solicitud `jev-latest` | Modelo de solicitud `fastino/GLiDE` |
+| ID de modelo de Jev en la respuesta | Modelo de respuesta `glide` |
+| Cliente del SDK de TypeSafe | Tu cliente HTTP llamando a `/v1/systemone` |
+| Reintentar `429` y `529` | Reintentar `425`, `429` y `503` con backoff acotado |
+
+<Steps>
+  <Step title="Conserva la estructura de solicitud de System One">
+    Conserva el `state` no vacío, las claves de pregunta y los tipos de primitiva. GLiDE exige que cada
+    valor de `instructions` sea una cadena no vacía, así que convierte las instrucciones omitidas, nulas,
+    de tipo objeto o de tipo array en texto claro. Mantén los criterios de Choice como un objeto. Los
+    criterios de Noul son opcionales, pero sus valores `true` y `false` deben ser cadenas. Para los
+    criterios de Score, es preferible un array ordenado.
+    Envía solo los campos de solicitud documentados que necesite tu integración. Los campos de nivel superior
+    no admitidos devuelven `422`, así que no copies opciones arbitrarias del cliente de TypeSafe en el cuerpo JSON.
+  </Step>
+  <Step title="Cambia el endpoint, la credencial y el modelo">
+    Dirige la solicitud a Fastino, lee `FASTINO_API_KEY`, envíala con `X-API-Key` y establece
+    `model` en `fastino/GLiDE`. Fastino también acepta el encabezado Bearer si mantener ese
+    estilo simplifica una migración HTTP directa. Espera `model: "glide"` en la respuesta.
+  </Step>
+  <Step title="Actualiza el manejo de respuestas de Score">
+    El `score` de TypeSafe es un número de coma flotante ponderado por probabilidad. Su equivalente en
+    GLiDE es `expected_level`. En cambio, el `score` de GLiDE es el índice entero del nivel más probable.
+    GLiDE devuelve las descripciones de la leyenda de Score como cadenas, así que actualiza los consumidores
+    que esperan valores de leyenda estructurados.
+    Para las solicitudes de Score, GLiDE también acepta objetos de criterios con claves de cadena numéricas, como
+    `{"1": "low", "3": "medium", "5": "high"}`. Las claves se ordenan y se descartan, y la
+    respuesta se reindexa de `0` a `N-1`. Usa un array ordenado cuando los valores numéricos originales
+    no deban confundirse con los índices de nivel devueltos.
+  </Step>
+  <Step title="Revisa las claves de nivel y el comportamiento de reintento">
+    GLiDE devuelve `probabilities` y `legend` de Score con claves de cadena como `"0"` y `"1"`.
+    La respuesta HTTP sin procesar de TypeSafe hace lo mismo, pero su SDK de Python puede exponer claves
+    enteras. Convierte las claves solo si la aplicación requiere mapas con claves enteras. Sustituye el
+    manejo de reintentos de `529` de TypeSafe por el manejo de `425` y `503` de Fastino, y mantén un
+    backoff acotado para `429`. Respeta `Retry-After` cuando esté presente y aplica el mismo presupuesto
+    de reintentos a los fallos de transporte.
+  </Step>
+  <Step title="Vuelve a validar los umbrales de decisión">
+    Mantén intactas las acciones de negocio existentes durante la migración y luego prueba GLiDE con casos
+    representativos antes del despliegue. No des por hecho que los umbrales calibrados para Jev se
+    transfieren sin cambios a un modelo diferente.
+  </Step>
+</Steps>
+
+<Warning>
+  No asignes el `score` de coma flotante de TypeSafe al `score` de GLiDE. Lee
+  `answers.&lt;key&gt;.expected_level` cuando el código existente espere una puntuación ponderada. Lee
+  `answers.&lt;key&gt;.score` solo cuando el código necesite el índice del único nivel ganador.
+</Warning>
+
+### Sustituye el uso del SDK de TypeSafe
+
+Si el proyecto usa un SDK de TypeSafe:
+
+1. Busca `typesafe-sdk`, `@typesafe-ai/sdk`, `TypeSafeClient`, `AsyncTypeSafeClient` y los
+   constructores de preguntas de TypeSafe en manifiestos, importaciones, código de la aplicación y pruebas.
+2. Sustituye los constructores del SDK y el acceso tipado a las respuestas por el cliente HTTP del proyecto y
+   el JSON decodificado.
+3. Elimina los paquetes e importaciones de TypeSafe solo cuando no quede ninguna referencia.
+
+Las reglas de endpoint, validación, reintentos y Score indicadas arriba siguen siendo aplicables.
+
+## Errores
+
+Una primera solicitud a un modelo en frío puede devolver `425 model_warming` mientras se calienta; reintenta
+tras unos 60 segundos.
+
+| Estado | Causa probable | Acción |
+| --- | --- | --- |
+| `400` | El prompt supera la ventana de contexto u otra entrada de inferencia no es válida | Acorta el state o corrige la pregunta |
+| `401` | Clave de API ausente, mal formada o no válida | Exporta una clave `fast_sk_...` válida |
+| `402` | Créditos insuficientes, se requiere financiación o límite de gasto diario/mensual fijado por el propietario | Añade créditos o ajusta el límite de gasto |
+| `403` | Método de pago, verificación de tarjeta, techo de crédito o denegación por política de la cuenta | Resuelve el requisito de facturación o de la cuenta |
+| `404` | Modelo desconocido o un modelo que solo admite chat completions | Usa `fastino/GLiDE` |
+| `422` | Falta un campo obligatorio, un valor tiene una forma incorrecta o se envió un campo adicional | Lee y corrige los detalles de validación a nivel de campo |
+| `425` | El despliegue se está calentando | Reintenta tras el retraso indicado |
+| `429` | Límite de tasa o de capacidad | Respeta `Retry-After` y reintenta con retroceso |
+| `503` | Fallo temporal del proveedor o del servicio | Reintenta antes de tratarlo como terminal |
+
+Usa un tiempo de espera de lectura de al menos 300 segundos y un backoff acotado para `425`, `429` y `503`.
+No reintentes `401`, `402`, `403`, `404` ni `422` sin corregir el problema subyacente.
+
+## Sigue aprendiendo
+
+<CardGroup cols={2}>
+  <Card title="Descripción general de GLiDE" icon="book-open" href="/es/concepts/glide">
+    Comprende GLiDE, elige una primitiva y consulta las indicaciones específicas del modelo.
+  </Card>
+
+  <Card title="Noul" icon="toggle-on" href="/es/concepts/glide-noul">
+    Integra una probabilidad de sí/no.
+  </Card>
+
+  <Card title="Choice" icon="list" href="/es/concepts/glide-choice">
+    Enruta a una opción con nombre.
+  </Card>
+
+  <Card title="Score" icon="gauge" href="/es/concepts/glide-score">
+    Evalúa una rúbrica ordenada.
+  </Card>
+</CardGroup>

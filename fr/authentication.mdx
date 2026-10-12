@@ -1,0 +1,54 @@
+---
+title: "Authentification de l'API Fastino : gérer les clés API"
+sidebarTitle: "Authentification"
+description: "Authentifiez les requêtes à l'API Fastino avec l'en-tête X-API-Key ou un jeton Bearer, puis créez, renouvelez et révoquez vos clés API."
+---
+
+La plupart des opérations de l'API Fastino nécessitent votre clé API. Les routes de catalogue explicitement publiques, comme
+`GET /v1/models`, peuvent être appelées sans clé. Les opérations authentifiées utilisent un schéma simple basé sur les en-têtes.
+Aucun flux OAuth ni échange de jeton n'est requis. Votre clé vous identifie et détermine
+les ressources et les limites de débit qui s'appliquent à vos requêtes.
+
+## Obtenir une clé API
+
+1. Connectez-vous à [Fastino](https://agent.fastino.ai).
+2. Allez dans **Settings** → **API Keys**.
+3. Cliquez sur **Create key**, donnez-lui un nom et copiez la valeur affichée.
+
+Stockez votre clé dans une variable d'environnement (par exemple `FASTINO_API_KEY`) plutôt que de la coder en dur dans les fichiers source.
+
+Les nouvelles clés Fastino commencent par `fast_sk_`. Les anciennes clés `pio_sk_` sont retirées ; créez une
+clé de remplacement dans le tableau de bord avant d'appeler l'API Fastino.
+
+## Transmettre votre clé API
+
+Incluez votre clé dans l'en-tête `X-API-Key` des requêtes Fastino natives :
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+Les SDK compatibles OpenAI et Anthropic envoient par convention la même clé sous forme de jeton Bearer. Définissez leur option `api_key` sur `$FASTINO_API_KEY` ; le SDK ajoute `Authorization: Bearer ...` pour vous.
+
+## Gestion des clés
+
+Créez, renouvelez et révoquez les clés dans **Settings → API Keys** du tableau de bord Fastino. L’API publique n’expose pas d’opérations de gestion des clés.
+
+### Liste de renouvellement
+
+1. Créez la clé de remplacement et copiez-la immédiatement.
+2. Mettez à jour chaque service via son gestionnaire de secrets ou la variable `FASTINO_API_KEY`.
+3. Vérifiez que les requêtes aboutissent avec la nouvelle clé.
+4. Révoquez l’ancienne clé dans le tableau de bord. La révocation est immédiate et irréversible.
+
+## Réponses d’erreur
+
+| Statut | Signification |
+| --- | --- |
+| `401 Unauthorized` | La clé est absente, mal formée, expirée ou révoquée. |
+| `402 Payment Required` | Le compte ne dispose pas de crédits suffisants. Consultez **Settings → Billing**. |
+
+<Warning>
+  Traitez les clés API comme des secrets. Ne les placez jamais dans le code source, les applications clientes, les URL, les journaux, les exemples ou les messages de support.
+</Warning>

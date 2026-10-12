@@ -1,0 +1,104 @@
+---
+title: "Appeler GLiNER 2.5 Decide"
+sidebarTitle: "Appeler GLiNER 2.5 Decide"
+description: "Authentifiez-vous et effectuez une première requête de classification définie par schéma avec GLiNER 2.5 Decide."
+---
+
+Appelez GLiNER 2.5 Decide via l'endpoint Chat Completions de Fastino compatible avec OpenAI. Placez le texte à classifier dans un message utilisateur et définissez les étiquettes autorisées dans un schéma `classifications`.
+
+```text
+POST https://api.fastino.ai/v1/chat/completions
+```
+
+## Configurer votre clé d'API
+
+Créez une clé dans les [paramètres Fastino](https://agent.fastino.ai/api-keys), puis exposez-la à votre processus :
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## Effectuer une requête de classification
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiNER-2.5-Decide",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My subscription renewed after I cancelled it. Please refund the charge."
+      }
+    ],
+    "schema": {
+      "classifications": [
+        {
+          "task": "intent",
+          "labels": ["refund_request", "cancel_subscription", "login_problem"],
+          "multi_label": false
+        }
+      ]
+    },
+    "store": false
+  }'
+```
+
+Chaque tâche de classification nécessite au moins une étiquette. Avec `multi_label: false`, Decide renvoie l'étiquette ayant le score le plus élevé.
+
+## Lire la réponse
+
+Une réponse réussie utilise l'enveloppe Chat Completions. Le résultat de la classification est une chaîne JSON dans `choices[0].message.content` :
+
+```json
+{
+  "model": "fastino/GLiNER-2.5-Decide",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"intent\": {\"label\": \"refund_request\", \"confidence\": 0.999862551689148}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 13,
+    "completion_tokens": 22,
+    "total_tokens": 35
+  },
+  "token_usage": 35
+}
+```
+
+Analysez le contenu du message avant de lire le résultat de la tâche :
+
+```python
+import json
+
+# `body` is the decoded JSON response body.
+result = json.loads(body["choices"][0]["message"]["content"])
+intent = result["intent"]["label"]
+confidence = result["intent"]["confidence"]
+```
+
+## Étapes suivantes
+
+<CardGroup cols={2}>
+  <Card title="Classification" icon="brackets-curly" href="/fr/concepts/gliner-2-5-decide-schema">
+    Ajoutez le comportement multi-étiquette, plusieurs tâches et des seuils, puis analysez les formes de résultats.
+  </Card>
+
+  <Card title="Référence de l'API" icon="book" href="/fr/api-reference/inference/chat-completions">
+    Consultez le contrat exhaustif de `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

@@ -1,0 +1,54 @@
+---
+title: "Fastino-API-Authentifizierung mit API-Schlüsseln"
+sidebarTitle: "Authentifizierung"
+description: "Authentifizieren Sie Fastino-API-Anfragen mit dem X-API-Key-Header oder einem Bearer-Token und erstellen, rotieren oder widerrufen Sie Ihre API-Schlüssel."
+---
+
+Die meisten Operationen der Fastino API erfordern Ihren API-Schlüssel. Ausdrücklich öffentliche Katalog-Routen wie
+`GET /v1/models` können ohne Schlüssel aufgerufen werden. Authentifizierte Operationen verwenden ein einfaches header-basiertes
+Schema. Es ist kein OAuth-Flow und kein Token-Austausch erforderlich. Ihr Schlüssel identifiziert Sie und bestimmt,
+welche Ressourcen und Rate Limits für Ihre Anfragen gelten.
+
+## Einen API-Schlüssel erhalten
+
+1. Melden Sie sich bei [Fastino](https://agent.fastino.ai) an.
+2. Gehen Sie zu **Settings** → **API Keys**.
+3. Klicken Sie auf **Create key**, vergeben Sie einen Namen und kopieren Sie den angezeigten Wert.
+
+Speichern Sie Ihren Schlüssel in einer Umgebungsvariable (zum Beispiel `FASTINO_API_KEY`), statt ihn in Quelldateien fest zu hinterlegen.
+
+Neue Fastino-Schlüssel beginnen mit `fast_sk_`. Ältere `pio_sk_`-Schlüssel sind außer Betrieb genommen; erstellen Sie im Dashboard
+einen Ersatzschlüssel, bevor Sie die Fastino API aufrufen.
+
+## Übergabe Ihres API-Schlüssels
+
+Fügen Sie Ihren Schlüssel bei nativen Fastino-Anfragen in den `X-API-Key`-Header ein:
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+OpenAI- und Anthropic-kompatible SDKs senden denselben Schlüssel üblicherweise als Bearer-Token. Setzen Sie deren Option `api_key` auf `$FASTINO_API_KEY`; das SDK fügt `Authorization: Bearer ...` automatisch hinzu.
+
+## Schlüssel verwalten
+
+Erstelle, rotiere und widerrufe Schlüssel unter **Settings → API Keys** im Fastino-Dashboard. Die öffentliche API stellt keine API-Schlüsselverwaltung bereit.
+
+### Rotationscheckliste
+
+1. Ersatzschlüssel erstellen und sofort kopieren.
+2. Jeden Dienst über seinen Secret Manager oder die Umgebungsvariable `FASTINO_API_KEY` aktualisieren.
+3. Erfolgreiche Anfragen mit dem Ersatzschlüssel prüfen.
+4. Alten Schlüssel im Dashboard widerrufen. Der Widerruf ist sofort und unumkehrbar.
+
+## Fehlerantworten
+
+| Status | Bedeutung |
+| --- | --- |
+| `401 Unauthorized` | Der Schlüssel fehlt, ist fehlerhaft, abgelaufen oder widerrufen. |
+| `402 Payment Required` | Das Konto hat nicht genügend Guthaben. **Settings → Billing** öffnen. |
+
+<Warning>
+  API-Schlüssel sind Geheimnisse. Niemals in Quellcode, Client-Anwendungen, URLs, Logs, Dokumentationsbeispiele oder Supportnachrichten einfügen.
+</Warning>

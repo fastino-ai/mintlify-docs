@@ -1,0 +1,29 @@
+---
+title: "Nouvelles tentatives et préchauffage"
+sidebarTitle: "Nouvelles tentatives"
+description: "Gérez les réponses transitoires 425, 429, 503 et 529 compatibles Anthropic sans répéter les erreurs permanentes."
+---
+
+## Ne réessayer que les erreurs transitoires
+
+Utilisez un backoff exponentiel borné, respectez `Retry-After` et fixez une limite de tentatives ou de temps.
+
+## Conditions de nouvelle tentative
+
+| Statut | Signification | Action |
+| --- | --- | --- |
+| `425` | Le modèle sélectionné est en préchauffage | Réessayer après le délai indiqué par le serveur |
+| `429` | Limite de requêtes atteinte | Respecter `Retry-After`, puis réessayer |
+| `503` | Service temporairement indisponible | Réessayer avec un backoff borné |
+| `529` | Endpoint compatible Anthropic surchargé | Réessayer manuellement ; le SDK Anthropic ne réessaie pas automatiquement cette réponse |
+
+Ne réessayez pas les erreurs d’authentification, de facturation, de validation, de modèle absent ou de requête incorrecte avant correction.
+
+## Liste de contrôle
+
+- Utilisez une clé d’idempotence pour la création de tâches d’entraînement et les autres mutations compatibles.
+- Conservez le même corps lors de la répétition d’une requête idempotente.
+- Ajoutez de la gigue et un délai maximal.
+- Journalisez le statut final et l’identifiant de requête, jamais la clé API.
+
+Consultez les formats complets et les solutions dans [Erreurs](/fr/troubleshooting/errors).

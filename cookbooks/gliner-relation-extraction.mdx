@@ -1,0 +1,204 @@
+---
+title: "Cookbook: Extract relations between entities"
+sidebarTitle: "Extract relations"
+description: "Find who works where, what is located where, and who acquired whom, as head and tail pairs, with GLiNER 2.5 Multi."
+---
+
+Relation extraction turns sentences into facts you can store in a graph or a table. You define the entity labels and the relation types, and GLiNER returns each relation as a head entity, a tail entity, and the relation type.
+
+## Request
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Lena Vogel works for Siemens in Munich. Siemens acquired Altair Engineering in 2025."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company or institution"
+      },
+      {
+        "name": "location",
+        "description": "city or country"
+      }
+    ],
+    "relations": {
+      "works_for": {
+        "description": "a person is employed by an organization"
+      },
+      "located_in": {
+        "description": "an organization or person is based in a place"
+      },
+      "acquired": {
+        "description": "one organization bought another"
+      }
+    }
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Request schema
+
+| Field | Type | In this recipe |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | One `user` message holding the text to read. |
+| `schema.entities` | array | The entity labels relations connect. |
+| `schema.relations` | object | One key per relation type. `description` says what the relation means, including its direction. |
+| `threshold` | number | Minimum confidence, from 0 to 1. Default `0.5`. |
+| `store` | boolean | Defaults to `true`, which saves the inference. `false` opts out. |
+
+## Response
+
+GLiNER returns the result as a JSON string in `choices[0].message.content`. Parsed, it looks like this. Measured against `https://api.fastino.ai`; confidence values vary slightly between calls.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "Lena Vogel",
+        "confidence": 1.0,
+        "start": 0,
+        "end": 10
+      }
+    ],
+    "organization": [
+      {
+        "text": "Siemens",
+        "confidence": 0.996,
+        "start": 21,
+        "end": 28
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 40,
+        "end": 47
+      },
+      {
+        "text": "Altair Engineering",
+        "confidence": 0.973,
+        "start": 57,
+        "end": 75
+      }
+    ],
+    "location": [
+      {
+        "text": "Munich",
+        "confidence": 1.0,
+        "start": 32,
+        "end": 38
+      }
+    ]
+  },
+  "relation_extraction": {
+    "works_for": [
+      {
+        "head": {
+          "text": "Lena Vogel",
+          "start": 0,
+          "end": 10,
+          "confidence": 0.988
+        },
+        "tail": {
+          "text": "Siemens",
+          "start": 21,
+          "end": 28,
+          "confidence": 0.988
+        }
+      }
+    ],
+    "located_in": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.977
+        },
+        "tail": {
+          "text": "Munich",
+          "start": 32,
+          "end": 38,
+          "confidence": 0.977
+        }
+      }
+    ],
+    "acquired": [
+      {
+        "head": {
+          "text": "Siemens",
+          "start": 40,
+          "end": 47,
+          "confidence": 0.938
+        },
+        "tail": {
+          "text": "Altair Engineering",
+          "start": 57,
+          "end": 75,
+          "confidence": 0.938
+        }
+      }
+    ]
+  }
+}
+```
+
+## Response schema
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `relation_extraction` | object | One key per relation type you defined. |
+| `relation_extraction.<type>[].head` | object | The entity the relation starts from, with `text`, `confidence`, `start`, and `end`. |
+| `relation_extraction.<type>[].tail` | object | The entity the relation points to, with the same fields. |
+
+Relations come back under `relation_extraction`, not under `relations`.
+
+## Act on the answer
+
+```python
+import json
+
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+facts = [
+    (pair["head"]["text"], relation, pair["tail"]["text"])
+    for relation, pairs in result["relation_extraction"].items()
+    for pair in pairs
+    if min(pair["head"]["confidence"], pair["tail"]["confidence"]) >= 0.5
+]
+for head, relation, tail in facts:
+    graph.add_edge(head, tail, type=relation)
+```
+
+## Adapt it
+
+- State the direction in each description, such as "a person is employed by an organization", so heads and tails come out the right way round.
+- Define entity labels for every kind of thing your relations connect, so the entities are typed in your results.
+- Lower `threshold` while tuning to see near misses, then filter in code on the head and tail confidence.
+- Store `start` and `end` with each fact, so you can trace it back to its source sentence.
+
+<CardGroup cols={2}>
+  <Card title="Call GLiNER" icon="braces" href="/inference/chat-completions">
+    Every GLiNER schema type and how to read its result.
+  </Card>
+  <Card title="Chat Completions API reference" icon="code" href="/api-reference/inference/chat-completions">
+    Every field, limit, and error for `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

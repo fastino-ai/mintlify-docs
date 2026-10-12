@@ -1,0 +1,50 @@
+---
+title: "Fastino API 身份验证:生成和使用 API 密钥"
+sidebarTitle: "身份验证"
+description: "使用 X-API-Key 头或 Bearer 令牌对 Fastino API 请求进行身份验证，然后在 Fastino 控制台设置中创建、轮换和撤销 API 密钥。"
+---
+
+大多数 Fastino API 操作都需要您的 API 密钥。明确公开的目录路由(例如 `GET /v1/models`)无需密钥即可调用。需要身份验证的操作采用简单的基于请求头的方案,无需 OAuth 流程或令牌交换。您的密钥用于标识您的身份,并决定哪些资源和速率限制适用于您的请求。
+
+## 获取 API 密钥
+
+1. 在 [Fastino](https://agent.fastino.ai) 登录。
+2. 前往 **Settings** → **API Keys**。
+3. 点击 **Create key**,为其命名,并复制显示的值。
+
+请将您的密钥存储在环境变量中(例如 `FASTINO_API_KEY`),而不是硬编码在源文件中。
+
+新的 Fastino 密钥以 `fast_sk_` 开头。旧版 `pio_sk_` 密钥已停用;在调用 Fastino API 之前,请先在控制面板中创建替换密钥。
+
+## 传递 API 密钥
+
+在原生 Fastino 请求的 `X-API-Key` 头中包含您的密钥:
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+OpenAI 和 Anthropic 兼容的 SDK 通常会将同一密钥作为 Bearer 令牌发送。将其 `api_key` 选项设置为 `$FASTINO_API_KEY`;SDK 会自动为您添加 `Authorization: Bearer ...`。
+
+## 管理密钥
+
+在 Fastino 控制台的 **Settings → API Keys** 中创建、轮换和撤销密钥。公共 API 不提供 API 密钥管理操作。
+
+### 轮换清单
+
+1. 创建替换密钥并立即复制。
+2. 通过密钥管理器或 `FASTINO_API_KEY` 环境变量更新每个服务。
+3. 确认替换密钥可以成功发送请求。
+4. 在控制台中撤销旧密钥。撤销立即生效且不可恢复。
+
+## 错误响应
+
+| 状态 | 含义 |
+| --- | --- |
+| `401 Unauthorized` | 密钥缺失、格式错误、已过期或已撤销。 |
+| `402 Payment Required` | 账户余额不足。请访问 **Settings → Billing**。 |
+
+<Warning>
+  将 API 密钥视为机密。切勿将其放入源代码、客户端应用、URL、日志、文档示例或支持消息。
+</Warning>

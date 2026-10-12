@@ -1,0 +1,107 @@
+---
+title: "Abgerufene Passagen mit GLiDE neu ranken"
+sidebarTitle: "Reranking"
+description: "Bewerten Sie mit GLiDE die Relevanz von Passagen für eine Abfrage, filtern Sie schwache Treffer heraus und ranken Sie abgerufenen Kontext neu."
+---
+
+In einer Retrieval-Augmented-Generation-Pipeline kann ein universelles LLM jede abgerufene Passage vor der Generierung bewerten. Mit GLiDE erhält jede Passage eine Wahrscheinlichkeit dafür, dass sie für die Abfrage relevant ist.
+
+Verwenden Sie die Wahrscheinlichkeit direkt zum Ranken und Filtern.
+
+## Passagen bewerten und neu ranken
+
+```python
+import os
+
+import requests
+
+query = "How do I reset my API key?"
+chunks = [
+    "To reset your API key, go to Dashboard > API Keys and click 'Regenerate'.",
+    "Our pricing plans start at $29/month for the Starter tier.",
+    "API keys are scoped to a single project. Each project can have up to 5 active keys.",
+]
+
+passages = {f"passage_{index}": chunk for index, chunk in enumerate(chunks)}
+questions = {
+    passage_id: {
+        "type": "noul",
+        "instructions": f"Is {passage_id} relevant to answering the query?",
+        "criteria": {
+            "true": "Relevant to answering the query",
+            "false": "Not relevant to answering the query",
+        },
+    }
+    for passage_id in passages
+}
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json={
+        "model": "fastino/GLiDE",
+        "state": {"query": query, "passages": passages},
+        "questions": questions,
+    },
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+scored_chunks = [
+    {
+        "chunk": passage,
+        "score": answers[passage_id]["noul"],
+        "confidence": answers[passage_id]["confidence"],
+    }
+    for passage_id, passage in passages.items()
+]
+
+top_chunks = sorted(scored_chunks, key=lambda item: item["score"], reverse=True)
+relevant_chunks = [item for item in top_chunks if item["score"] > 0.5]
+```
+
+Jeder `score` ist die Noul-Wahrscheinlichkeit, dass das `true`-Kriterium zutrifft. Sortieren Sie absteigend, um die stärksten Treffer an den Anfang zu stellen, und wenden Sie einen Schwellenwert an, wenn die nachgelagerte Generierung nur ausreichend relevanten Kontext erhalten soll.
+
+<Note>
+  Alle Noul-Fragen in diesem Beispiel teilen sich einen `state`, sodass GLiDE die Vorauswahl in einer Anfrage bewertet. Der vollständige State ist in jeder intern gerenderten Frage enthalten; halten Sie ihn innerhalb des [Limits von 40.000 Token pro Frage](/de/inference/systemone#limits-und-nicht-unterstützte-formen). Teilen Sie größere Vorauswahlen in eine begrenzte Anzahl paralleler Anfragen auf und wiederholen Sie Anfragen bei `425`, `429` und `503` mit Backoff.
+</Note>
+
+## Eine Passage pro Anfrage bewerten
+
+Verwenden Sie diese einfachere Form, wenn Passagen unabhängig voneinander eintreffen:
+
+```python
+def relevance_score(query: str, passage: str) -> float:
+    response = requests.post(
+        "https://api.fastino.ai/v1/systemone",
+        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+        json={
+            "model": "fastino/GLiDE",
+            "state": {"query": query, "passage": passage},
+            "questions": {
+                "relevant": {
+                    "type": "noul",
+                    "instructions": "Is this passage relevant to answering the query?",
+                    "criteria": {
+                        "true": "Relevant to answering the query",
+                        "false": "Not relevant to answering the query",
+                    },
+                }
+            },
+        },
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()["answers"]["relevant"]["noul"]
+```
+
+## Was sich gegenüber dem Reranking mit einem LLM ändert
+
+- Binäre Relevanz ist eine Wahrscheinlichkeit von `0` bis `1`, keine generierte Ganzzahl.
+- Sie können denselben Wert zum Ranken und für Schwellenwerte verwenden, ohne Modelltext zu parsen.
+- Die Kriterien legen genau fest, was „relevant“ für Ihre Anwendung bedeutet.
+
+Bewerten Sie die Ranking-Qualität und wählen Sie Schwellenwerte anhand eines gelabelten Retrieval-Datensatzes, bevor Sie den Reranker bereitstellen.
+
+Informationen zu Authentifizierung, Limits, Fehlern und dem vollständigen Antwortvertrag finden Sie unter [GLiDE-Inferenz](/de/inference/systemone).

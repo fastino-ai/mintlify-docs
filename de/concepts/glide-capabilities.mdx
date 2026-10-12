@@ -1,0 +1,56 @@
+---
+title: "Funktionen von GLiDE"
+sidebarTitle: "Funktionen"
+description: "Informieren Sie sich über das Schlussfolgerungsverhalten, die Konfidenz, die Kontextgrenzen und die nicht unterstützten Anfrageformen von GLiDE."
+---
+
+GLiDE bewertet vom Aufrufer definierte Ergebnisse, statt Prosa zu generieren. Diese Seite fasst das technische Verhalten und die Grenzen zusammen. Beginnen Sie für eine erste Anfrage mit [GLiDE aufrufen](/de/inference/systemone).
+
+## Entscheidungsfunktionen
+
+- Einen als String, Objekt oder Array bereitgestellten gemeinsamen `state` bewerten.
+- Eine oder mehrere benannte Fragen zu diesem State stellen.
+- [Noul](/de/concepts/glide-noul) für Ja/Nein-Wahrscheinlichkeiten verwenden.
+- [Choice](/de/concepts/glide-choice) für eine ungeordnete Option aus einer vom Aufrufer definierten Menge verwenden.
+- [Score](/de/concepts/glide-score) für eine Stufe auf einer geordneten Rubrik verwenden.
+- Wahrscheinlichkeiten und Konfidenz für jede Antwort erhalten.
+- Über Arithmetik, Codeabläufe, Daten, Richtlinien, Ausnahmen und zusammenhängende Fakten im bereitgestellten State schlussfolgern.
+
+GLiDE nimmt zuerst eine schnelle Bewertung vor und verwendet bei unsicheren Entscheidungen zusätzliche Schlussfolgerungen. Jede Frage wird unabhängig anhand desselben States bewertet.
+
+## Konfidenz und Unsicherheit
+
+Die Antwort zeigt Ihnen, zu welchem Ergebnis GLiDE gekommen ist. `confidence` zeigt Ihnen, wie deutlich sich das führende Ergebnis von den Alternativen abhebt.
+
+| Fragetyp | Konfidenzformel | Bereich |
+| --- | --- | --- |
+| Noul | Absolutwert von `2 × noul − 1` | `0` bei maximaler Unsicherheit bis `1` an beiden Extremen |
+| Choice | `top1 − top2` | `0` bei Gleichstand bis `1` bei einer dominanten Option |
+| Score | `top1 − top2` | `0` bei Gleichstand bis `1` bei einer dominanten Stufe |
+
+Eine Antwort mit geringer Konfidenz ist nicht zwangsläufig falsch. Sie bedeutet, dass die Wahrscheinlichkeitsmasse auf mehrere Ergebnisse verteilt ist. Passen Sie Aktions- und Fallback-Schwellenwerte anhand repräsentativer Daten an, statt von einem universellen Grenzwert auszugehen.
+
+## Grenzen
+
+- Jeder gerenderte Prompt – `state` plus eine Frage – muss in **40.000 Token** passen.
+- Choice erfordert **2 bis 255 Optionen**.
+- Score akzeptiert bis zu **255 Stufen**.
+- Jede Frage ist Single-Label. Es gibt kein Multi-Label-Primitiv.
+- Eine Anfrage bewertet einen gemeinsamen `state`; mehrere Fragen gehören unter `questions`.
+- `usage.input_tokens` summiert interne Durchläufe über alle Fragen und kann 40.000 überschreiten, obwohl jeder gerenderte Prompt passt.
+
+## Nicht unterstützte Anfrageformen
+
+- `/v1/systemone` unterstützt kein Streaming.
+- Der Endpunkt akzeptiert keinen Batch unabhängiger States.
+- IDs feinabgestimmter Bereitstellungen werden derzeit nicht akzeptiert.
+- Zusätzliche Anfragefelder auf oberster Ebene werden abgelehnt.
+- Choice kann nicht nur eine Option enthalten.
+
+## Evaluierung
+
+Im Decision Index 0.2.1 erzielte GLiDE **64,81** gegenüber Jevs veröffentlichten **57,91** und führte in allen fünf Evaluierungsbereichen sowie in 31 von 38 Benchmarks.
+
+<Card title="GLiDE aufrufen" icon="terminal" href="/de/inference/systemone">
+  Sehen Sie sich die vollständige Anfrage, Antwort, Fehlerbehandlung und Migrationshinweise an.
+</Card>

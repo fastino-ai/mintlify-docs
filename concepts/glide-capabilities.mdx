@@ -1,0 +1,56 @@
+---
+title: "GLiDE Capabilities"
+sidebarTitle: "Capabilities"
+description: "Review GLiDE reasoning behavior, confidence, context limits, and unsupported request shapes."
+---
+
+GLiDE evaluates caller-defined outcomes instead of generating prose. This page summarizes its technical behavior and boundaries. For a first request, start with [Call GLiDE](/inference/systemone).
+
+## Decision capabilities
+
+- Evaluate a string, object, or array supplied as shared `state`.
+- Ask one or more named questions against that state.
+- Use [Noul](/concepts/glide-noul) for yes/no probabilities.
+- Use [Choice](/concepts/glide-choice) for one unordered option from a caller-defined set.
+- Use [Score](/concepts/glide-score) for one level on an ordered rubric.
+- Receive probabilities and confidence for every answer.
+- Reason over arithmetic, code traces, dates, policies, exceptions, and related facts in the supplied state.
+
+GLiDE first makes a fast assessment and spends additional reasoning on uncertain decisions. Each question is evaluated independently against the same state.
+
+## Confidence and uncertainty
+
+The answer tells you what GLiDE concluded. `confidence` tells you how clearly the leading outcome separated from the alternatives.
+
+| Question type | Confidence formula | Range |
+| --- | --- | --- |
+| Noul | Absolute value of `2 × noul − 1` | `0` at maximum uncertainty to `1` at either extreme |
+| Choice | `top1 − top2` | `0` for a tie to `1` for a dominant option |
+| Score | `top1 − top2` | `0` for a tie to `1` for a dominant level |
+
+A low-confidence answer is not necessarily incorrect. It means probability mass is spread across outcomes. Tune action and fallback thresholds on representative data rather than assuming a universal cutoff.
+
+## Limits
+
+- Each rendered prompt—`state` plus one question—must fit within **40,000 tokens**.
+- Choice requires **2 to 255 options**.
+- Score accepts up to **255 levels**.
+- Every question is single-label. There is no multi-label primitive.
+- One request evaluates one shared `state`; multiple questions belong under `questions`.
+- `usage.input_tokens` sums internal passes across questions and can exceed 40,000 even when each rendered prompt fits.
+
+## Unsupported request shapes
+
+- `/v1/systemone` does not stream.
+- It does not accept a batch of independent states.
+- It does not currently accept fine-tuned deployment IDs.
+- Extra top-level request fields are rejected.
+- Choice cannot contain only one option.
+
+## Evaluation
+
+On Decision Index 0.2.1, GLiDE scored **64.81** compared with Jev's published **57.91**, leading all five evaluation areas and 31 of 38 benchmarks.
+
+<Card title="Call GLiDE" icon="terminal" href="/inference/systemone">
+  Review the complete request, response, error handling, and migration guidance.
+</Card>

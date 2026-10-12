@@ -1,0 +1,115 @@
+---
+title: "Evalúa y entrena GLiNER 2.5 Decide"
+sidebarTitle: "Evaluación y entrenamiento"
+description: "Evalúa GLiNER 2.5 Decide, selecciona umbrales multietiqueta y ajusta el modelo con datos de clasificación representativos."
+---
+
+Evalúa el esquema `classifications` exacto que tu aplicación enviará a `fastino/GLiNER-2.5-Decide`. Cambia las etiquetas o la configuración de la tarea únicamente entre ejecuciones de evaluación para que los resultados sigan siendo comparables.
+
+## Evalúa un esquema de Decide
+
+Empieza con una tarea fija:
+
+```json
+{
+  "task": "support_tags",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+Prepara un conjunto reservado con los mismos nombres de etiquetas. Incluye:
+
+- Ejemplos positivos y negativos para cada etiqueta
+- Entradas en las que deban devolverse varias etiquetas
+- Entradas en las que ninguna etiqueta deba superar el umbral
+- Texto ambiguo y fuera del dominio
+
+Envía cada ejemplo mediante `POST /v1/chat/completions` con el mismo ID de modelo de Decide y el mismo esquema. Analiza la cadena JSON de `choices[0].message.content` antes de puntuar el resultado de la tarea.
+
+Para las tareas de Decide de una sola etiqueta, mide la exactitud top-1 y la confusión por etiqueta. Para las tareas multietiqueta, mide la precisión, la exhaustividad y el F1 por etiqueta y en toda la tarea. Si una solicitud contiene varias tareas, evalúa cada una de forma independiente porque Decide no impone relaciones entre ellas.
+
+## Selecciona `cls_threshold`
+
+`cls_threshold` solo afecta a las tareas con `multi_label: true`. Decide devuelve las etiquetas que alcanzan el umbral y omite las demás:
+
+- Auméntalo para devolver menos etiquetas y, en general, favorecer la precisión.
+- Redúcelo para devolver más etiquetas y, en general, favorecer la exhaustividad.
+- Las tareas de una sola etiqueta siempre devuelven la etiqueta con la puntuación más alta.
+- Los umbrales solo afectan a la inferencia; no modifican el entrenamiento.
+
+Vuelve a ejecutar el conjunto reservado para cada umbral candidato porque la respuesta solo contiene las etiquetas seleccionadas con ese umbral. Elige un umbral por tarea cuando los falsos positivos y los falsos negativos tengan costes diferentes.
+
+No trates `0.5` como un valor predeterminado universal. Para las etiquetas que desencadenen acciones con consecuencias importantes, exige un umbral más estricto o deriva los resultados de baja confianza a revisión.
+
+## Entrena GLiNER 2.5 Decide
+
+Entrena únicamente cuando el modelo base siga fallando en tu dominio después de haber aclarado la taxonomía de etiquetas y ajustado los umbrales multietiqueta.
+
+El catálogo activo de modelos base anuncia actualmente:
+
+```json
+{
+  "id": "fastino/GLiNER-2.5-Decide",
+  "supports_training": true,
+  "training_types": ["lora"]
+}
+```
+
+Consulta `GET /v1/base-models?supports_training=true` antes de crear un trabajo porque la disponibilidad del catálogo puede cambiar. Usa `fastino/GLiNER-2.5-Decide` como `base_model` y `lora` como `training_type`.
+
+### Prepara los datos de clasificación de Decide
+
+Usa el formato JSONL público para clasificación. Cada línea contiene `text` y una `label` o varias `labels`:
+
+```jsonl
+{"text":"I was charged twice for the same invoice.","label":"billing"}
+{"text":"I cannot sign in and suspect my account was compromised.","labels":["account","security"]}
+```
+
+Las etiquetas del dataset deben usar las mismas cadenas estables que pasas en el esquema de inferencia de Decide. No mezcles formas de fila de una sola etiqueta y multietiqueta en un mismo dataset, y no incluyas el conjunto de evaluación reservado en la carga de entrenamiento.
+
+<Card title="Sube el dataset de clasificación" icon="database" href="/es/concepts/datasets">
+  Crea, sube, procesa y versiona el dataset JSONL que utiliza el trabajo de entrenamiento de Decide.
+</Card>
+
+### Crea el trabajo de entrenamiento de Decide
+
+Envía el dataset listo con el modelo base de Decide:
+
+```bash
+curl -X POST https://api.fastino.ai/v1/training-jobs \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "support-decide",
+    "base_model": "fastino/GLiNER-2.5-Decide",
+    "datasets": [{"name": "support-decide-training"}],
+    "training_type": "lora",
+    "validation_data_percentage": 0.2
+  }'
+```
+
+Omite la tasa de aprendizaje, el tamaño del lote y los parámetros de LoRA a menos que tengas pruebas que justifiquen modificar la receta de entrenamiento de Decide. Guarda el ID del trabajo de entrenamiento devuelto y consulta su estado hasta que el artefacto se pueda desplegar.
+
+### Compara y despliega
+
+Ejecuta el modelo base y el checkpoint entrenado con el mismo conjunto reservado y el mismo esquema `classifications`. Compara:
+
+- Los errores por etiqueta para las tareas de una sola etiqueta
+- La precisión, la exhaustividad y el F1 por etiqueta para las tareas multietiqueta
+- Los resultados multietiqueta vacíos y con demasiadas selecciones
+- El umbral necesario para cada tarea
+
+Despliega un checkpoint únicamente cuando mejore los errores a nivel de aplicación que te importan. Después del despliegue, vuelve a seleccionar los umbrales; el ajuste fino puede cambiar los valores de confianza de Decide aunque las etiquetas predichas sigan siendo las mismas.
+
+<CardGroup cols={2}>
+  <Card title="Trabajos de entrenamiento" icon="activity" href="/es/training">
+    Supervisa el trabajo de Decide, los checkpoints y el estado de despliegue.
+  </Card>
+
+  <Card title="Referencia de la API de entrenamiento" icon="book" href="/es/api-reference/training/overview">
+    Consulta los contratos exactos del dataset y del trabajo de entrenamiento.
+  </Card>
+</CardGroup>

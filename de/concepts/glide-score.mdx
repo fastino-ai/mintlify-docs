@@ -1,0 +1,99 @@
+---
+title: "Score"
+sidebarTitle: "Score"
+description: "Lassen Sie GLiDE eine geordnete Rubrik auswerten und diskrete sowie kontinuierliche Ergebnisse zurückgeben."
+---
+
+Eine **Score**-Frage bewertet eine Situation auf einer von Ihnen definierten geordneten Skala. Sie gibt einen diskreten `score` (den Index der gewinnenden Stufe) zurück, außerdem `expected_level` (eine wahrscheinlichkeitsgewichtete, kontinuierliche Schätzung über alle Stufen hinweg), `probabilities` pro Stufe und eine `legend`, die Ihre Stufenbeschreibungen nach Index wiedergibt.
+
+Verwenden Sie einen Score, wenn die Antwort eine Position auf einer Skala mit definierten Stufen ist (Dringlichkeit, Schweregrad, Intensität der Stimmung) und keine ungeordnete Kategorie.
+
+<Tip>
+  Score oder Noul: Wenn Sie nur eine binäre Entscheidung benötigen, verwenden Sie stattdessen ein [Noul](/de/concepts/glide-noul). Es ist einfacher und gibt eine einzelne Wahrscheinlichkeit statt einer Verteilung über Stufen zurück.
+</Tip>
+
+## Anfrage
+
+<ParamField body="type" type="string" required>
+  Immer `"score"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  Die zu bewertende Frage in natürlicher Sprache.
+</ParamField>
+
+<ParamField body="criteria" type="string[] | object" required>
+  Ein geordnetes Array von Stufenbeschreibungen, wobei Index `0` die niedrigste Stufe ist: `["low urgency, can wait", "medium urgency, handle soon", "high urgency, handle immediately"]`.
+
+  Akzeptiert auch ein Objekt mit numerischen String-Schlüsseln (z. B. `{"1": "...", "3": "...", "5": "..."}`). Die Schlüssel werden sortiert und anschließend verworfen, und die Antwort wird unabhängig von den verwendeten Schlüsseln immer mit `0..N-1` neu indiziert.
+
+  Geben Sie zwischen 1 und 255 Stufen an.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Antwortobjekt
+
+Der entsprechende Eintrag in `answers` lautet:
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 0,
+    "expected_level": 0.27621539375795195,
+    "confidence": 0.4999999998141525,
+    "probabilities": {
+      "0": 0.7412615353520668,
+      "1": 0.24126153553791435,
+      "2": 0.017476929110018805
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+- `score`: ein diskreter ganzzahliger Index, die Stufe mit dem höchsten Wert (argmax).
+- `expected_level`: `Σ(level × probability)`, die kontinuierliche, wahrscheinlichkeitsgewichtete Position über alle Stufen hinweg. Verwenden Sie diesen Wert, wenn Sie feinere Schwellenwerte benötigen, als der diskrete Index bietet.
+- `legend` wird nicht vom Modell generiert: Die API erstellt sie aus Ihren eigenen `criteria`, nach Index geordnet.
+- `confidence`: `top1 − top2`, dieselbe Formel wie bei Choice, von `0` (zwei benachbarte Stufen gleichauf) bis `1` (eine Stufe vereint nahezu die gesamte Wahrscheinlichkeitsmasse). Wie Sie darauf reagieren, erfahren Sie unter [Konfidenz und Unsicherheit](/de/concepts/glide-capabilities#konfidenz-und-unsicherheit).
+
+## Verwendung des Ergebnisses
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```

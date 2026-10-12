@@ -1,0 +1,157 @@
+---
+title: "Clasificación de GLiNER 2.5 Decide"
+sidebarTitle: "Clasificación"
+description: "Define tareas de clasificación y analiza los resultados de una sola etiqueta, multietiqueta o varias tareas con GLiNER 2.5 Decide."
+---
+
+Añade un array `schema.classifications` de nivel superior para definir una o varias tareas de clasificación. Cada tarea acepta exactamente estas claves:
+
+<ParamField body="task" type="string" required>
+  Un nombre estable para la tarea de clasificación. El mismo nombre aparece en el resultado analizado.
+</ParamField>
+
+<ParamField body="labels" type="string[]" required>
+  Al menos una etiqueta permitida. Decide no acepta objetos de descripción de etiquetas.
+</ParamField>
+
+<ParamField body="multi_label" type="boolean" default="false">
+  Cuando es `false`, devuelve la única etiqueta con mayor puntuación. Cuando es `true`, devuelve cada etiqueta que alcanza `cls_threshold`.
+</ParamField>
+
+<ParamField body="cls_threshold" type="number">
+  Un umbral de inferencia de `0` a `1` para tareas multietiqueta. No afecta al entrenamiento ni cambia la selección de una sola etiqueta.
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  Se acepta por compatibilidad, pero actualmente no tiene efecto en GLiNER 2.5 Decide.
+</ParamField>
+
+## Clasificación de una sola etiqueta
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Las tareas de una sola etiqueta siempre devuelven la etiqueta con mayor puntuación. Las etiquetas no tienen orden; enumerar `low`, `medium` y `high` en ese orden no crea una escala ordinal. Después de analizar `choices[0].message.content`, el resultado de cada tarea es un objeto:
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` es una de las cadenas de `labels` y `confidence` es la confianza del modelo, de `0` a `1`.
+
+## Clasificación multietiqueta
+
+```json
+{
+  "classifications": [
+    {
+      "task": "tags",
+      "labels": ["technical_issue", "login_problem", "urgent", "human_handoff"],
+      "multi_label": true,
+      "cls_threshold": 0.2
+    }
+  ]
+}
+```
+
+Las tareas multietiqueta devuelven un array con cada etiqueta seleccionada y su confianza:
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+Solo se incluyen las etiquetas que alcanzan `cls_threshold`. Un umbral más estricto puede producir un array más corto o vacío. Auméntalo para favorecer la precisión; redúcelo para favorecer la exhaustividad.
+
+## Ejecuta varias tareas en una solicitud
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    },
+    {
+      "task": "urgency",
+      "labels": ["low", "normal", "high", "critical"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Las tareas se puntúan en una sola pasada hacia delante, pero permanecen independientes. El objeto analizado usa como claves los nombres `task` de la solicitud:
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
+La clasificación clásica no aplica implicaciones, exclusiones, reglas de cardinalidad ni relaciones ordinales entre tareas.
+
+## Analiza el resultado
+
+GLiNER 2.5 Decide serializa el resultado de clasificación como JSON dentro de `choices[0].message.content`. Analiza esa cadena antes de leer las tareas:
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+No leas las tareas directamente desde `choices[0]`. La [Referencia de la API](/es/api-reference/inference/chat-completions) documenta el envoltorio completo de Chat Completions.
+
+## Esquema predeterminado
+
+Si omites tanto `schema` como `response_format`, Decide usa su tarea `intent` predeterminada del catálogo con `book`, `cancel`, `change` y `status`. La respuesta indica `x_fastino.default_schema_applied: true` cuando se usa ese valor predeterminado.
+
+## Errores de validación frecuentes
+
+| Entrada no válida | Usa en su lugar |
+| --- | --- |
+| `"labels": {"book": "user wants to book"}` | `"labels": ["book", "cancel"]` |
+| Una clave `label_descriptions` | Elimínala y mantén las etiquetas como cadenas |
+| Una clave `description` en una tarea | Elimínala |
+| `"threshold": 0.5` dentro de una tarea | `"cls_threshold": 0.5` con `"multi_label": true` |
+| Una lista `labels` vacía | Proporciona al menos una etiqueta |
+
+<CardGroup cols={2}>
+  <Card title="Evaluación y entrenamiento" icon="sliders" href="/es/concepts/gliner-2-5-decide-thresholds">
+    Evalúa la calidad, selecciona umbrales y adapta el modelo con datos representativos.
+  </Card>
+
+  <Card title="Referencia de la API" icon="book" href="/es/api-reference/inference/chat-completions">
+    Consulta el esquema completo de solicitud y respuesta de Chat Completions.
+  </Card>
+</CardGroup>

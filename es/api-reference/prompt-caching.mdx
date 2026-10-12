@@ -1,0 +1,144 @@
+---
+title: "Prompt caching en la inferencia"
+sidebarTitle: "Prompt caching"
+description: "Cómo funciona el prompt caching en la API de inferencia de Fastino: qué se puede almacenar en caché, cómo se facturan los tokens de entrada en caché y dónde ver las tasas de aciertos de caché."
+noindex: true
+hidden: true
+---
+
+Una guía breve para obtener aciertos de caché de prompts de forma consistente desde cualquier cliente o harness de agentes (Pi, Claude Code, curl personalizado, SDKs, etc.).
+
+## Lo único que necesitas saber
+
+**Para los modelos Claude / de estilo Anthropic, el caching es opcional (opt-in) a nivel de API, por lo que que se produzca o no depende de tu cliente.** Fastino reenvía tu solicitud tal cual y nunca añade marcadores de caché por ti. Si la solicitud no incluye un marcador `cache_control`, el prefijo estable **no** se almacena en caché y pagas el precio completo de entrada en cada turno. Algunos clientes activan el caching por ti; por ejemplo, Claude Code usa los endpoints de Anthropic (que requieren `cache_control`), así que envía los marcadores automáticamente. Un cliente personalizado básico que envía prompts como cadenas simples no lo hace y no obtiene caching.
+
+Los modelos que almacenan en caché automáticamente (la familia OpenAI/GPT) lo hacen de forma transparente y **rechazan** los marcadores explícitos; con ellos no necesitas hacer nada y no deberías añadir `cache_control`.
+
+| Modelo | Qué debes hacer |
+| --- | --- |
+| Claude / estilo Anthropic | Añadir marcadores `cache_control` (ver más abajo) |
+| Familia OpenAI / GPT (caching automático) | Nada: el caching es automático |
+| Otros modelos | Si no estás seguro, añade un marcador; se respeta donde se admite y se ignora donde el modelo almacena en caché automáticamente |
+
+La palanca fiable que controlas es `cache_control` en los modelos Claude. El resto de esta guía explica cómo usarla correctamente.
+
+## Cómo marcar un prefijo almacenable en caché
+
+Envía la parte estable de tu prompt como un bloque de contenido con un marcador `cache_control`. Todo **hasta el bloque marcado, incluido**, se convierte en el prefijo en caché y se reutiliza en solicitudes posteriores que compartan exactamente ese prefijo.
+
+Los marcadores se respetan en todos los endpoints basados en mensajes y se normalizan de forma idéntica:
+
+- `POST /v1/chat/completions` (compatible con OpenAI): marca un bloque de contenido de un mensaje `system`/`user`.
+- `POST /v1/messages` (compatible con Anthropic): marca un bloque `system`, un bloque de mensaje o un bloque de herramientas.
+- `POST /v1/responses` (OpenAI Responses): marca un bloque de contenido en un mensaje de entrada. El prefijo estable se marca mediante un bloque de mensaje de entrada `system`/`developer` (la cadena simple `instructions` no tiene lugar para un marcador).
+
+### Ejemplo (`/v1/chat/completions`)
+
+```bash
+curl https://api.fastino.ai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -d '{
+    "model": "claude-opus-5",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Large stable system prompt or reusable context goes here.",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      { "role": "user", "content": "Answer in one sentence: what is prompt caching?" }
+    ],
+    "max_tokens": 512
+  }'
+```
+
+El contenido del sistema debe ser un **array de bloques de contenido** (no una cadena simple) para que el marcador tenga un bloque al que asociarse. Un prompt de sistema en forma de cadena simple no puede llevar un marcador y no se almacenará en caché.
+
+## Dónde colocar los marcadores
+
+Puedes marcar hasta **4 breakpoints** por solicitud. Colócalos en las partes que permanecen constantes de un turno a otro, en el orden del prefijo:
+
+1. **Prompt de sistema**: tus instrucciones estables o tu contexto reutilizable.
+2. **Definiciones de herramientas**: marca el bloque de herramientas si envías un conjunto de herramientas grande y fijo.
+3. **Un límite de mensaje**: marca el último mensaje de un prefijo de conversación estable para almacenar en caché el historial hasta ese punto en una sesión de varios turnos.
+
+Todo lo que cambie en cada turno (la última pregunta del usuario) debe ir **después** de tu último marcador para que el prefijo en caché siga siendo idéntico y continúe acertando.
+
+Un `ttl` opcional (por ejemplo `{ "type": "ephemeral", "ttl": "1h" }`) controla la duración de la caché; omítelo para usar la ventana efímera predeterminada del proveedor.
+
+## Tamaño mínimo almacenable en caché
+
+El caching solo se activa cuando el prefijo almacenable es lo bastante grande: del orden de **~1K–4K tokens según el modelo**. Un prompt de sistema corto puede quedar por debajo del umbral, en cuyo caso no se crea ninguna entrada de caché aunque el marcador sea correcto. Si esperas caching pero no ves tokens de caché, comprueba que el prefijo marcado sea realmente grande.
+
+## Configurar un harness de agentes
+
+La mayoría de los harnesses pueden emitir esta estructura, pero hay que indicarles que usen el control de caché de estilo Anthropic para los modelos Claude de Fastino. Al configurar un proveedor personalizado de Fastino, asegúrate de que el cliente esté configurado para:
+
+- Enviar el prompt de sistema como un **bloque de contenido con `cache_control`** (no como una cadena simple), y
+- Mantener la instrucción estable en `role: "system"`.
+
+Si tu harness expone una opción de compatibilidad del proveedor para el formato de control de caché, configúrala con el estilo Anthropic. Si solo envía prompts como cadenas simples sin `cache_control`, no obtendrás caching en los modelos Claude, aunque el mismo harness almacene en caché sin problemas en los modelos con caching automático.
+
+## Verificar que funciona
+
+Revisa el bloque `usage` de la respuesta. Los nombres de los campos varían según el endpoint:
+
+- **`/v1/chat/completions`**: informa de las lecturas de caché en `usage.prompt_tokens_details.cached_tokens`.
+- **`/v1/messages`**: informa de `cache_read_input_tokens` y `cache_creation_input_tokens`.
+
+Qué esperar:
+
+- **Primera solicitud** con un prefijo nuevo: un recuento de escritura/creación de caché distinto de cero.
+- **Solicitudes posteriores** que reutilizan ese prefijo: un recuento de lectura de caché distinto de cero y un recuento de entrada sin caché mucho menor.
+- **Todo a cero** significa que faltaba el marcador, que el prefijo estaba por debajo del tamaño mínimo, que el prefijo cambió entre turnos o que el modelo almacena en caché automáticamente (el ahorro se sigue aplicando, pero no se informa como tokens de caché).
+
+<Note>
+  Algunos harnesses normalizan estos valores en sus propios campos (por ejemplo `cacheRead` / `cacheWrite` en sus logs): los mismos números con nombres distintos.
+</Note>
+
+## Cómo interpretarlo
+
+El uso de tokens de cada respuesta divide los tokens de entrada según su estado de caché:
+
+| Campo | Significado |
+| --- | --- |
+| `prompt_tokens` | Tokens de entrada no almacenados en caché |
+| `cache_read_tokens` | Tokens de entrada servidos desde la caché (con descuento) |
+| `cache_write_tokens` | Tokens de entrada escritos en la caché en esta solicitud |
+| `completion_tokens` | Tokens de salida |
+| `total_tokens` | Suma de los cuatro anteriores |
+
+## Facturación
+
+La entrada en caché es más barata que la entrada nueva. Las tarifas son relativas al precio de entrada de cada modelo:
+
+| Proveedor | Lectura de caché | Escritura de caché |
+| --- | --- | --- |
+| Claude / Opus | 0.1× entrada | 1.25× entrada |
+| Familia GPT-4 | 0.5× entrada | facturada a la tarifa de entrada |
+| Familia GPT-5 | 0.1× entrada | facturada a la tarifa de entrada |
+
+La primera solicitud que llena la caché paga la tarifa de escritura por esos tokens; las solicitudes posteriores que aciertan en la caché pagan la tarifa de lectura, más baja. Las cachés tienen una vida corta, por lo que el ahorro proviene de enviar prompts similares con poco tiempo entre ellos.
+
+<Warning>
+  Los cargos de caching se pueden ver en **Settings → Credits** y se muestran desglosados por modelo o por solicitud individual.
+</Warning>
+
+<Info>
+  Para la mayoría de los modelos de Anthropic, el prompt de sistema debe tener al menos **4096 tokens** para que se active el caching. Las entradas de caché caducan tras **5 minutos** de inactividad.
+</Info>
+
+## Errores comunes
+
+- **Sin `cache_control` en una solicitud a Claude** → sin caching, precio completo en cada turno. Es la causa más común de un aumento repentino de costes.
+- **Prompt de sistema enviado como cadena simple** → no hay nada a lo que asociar el marcador.
+- **Prefijo demasiado pequeño** → por debajo del tamaño mínimo almacenable, así que no se crea ninguna entrada.
+- **El prefijo en caché cambia entre turnos** (por ejemplo, una marca de tiempo al principio del prompt de sistema) → la caché no se puede reutilizar. Mantén el prefijo marcado idéntico byte a byte.
+- **En `/v1/responses`, marcar el campo `instructions`** → es una cadena simple y no puede llevar un marcador; coloca el prefijo estable en un bloque de mensaje de entrada `system`/`developer`.
+- **Añadir `cache_control` a un modelo con caching automático** → se ignora o se rechaza; deja que almacene en caché por sí mismo.
+- **Más de 4 marcadores** → solo se aplican los 4 primeros.

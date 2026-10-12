@@ -1,0 +1,82 @@
+---
+title: "Obtenir un job GLiNER-2 asynchrone"
+sidebarTitle: "GET /v1/gliner-2/jobs/{job_id}"
+description: "Interrogez un job GLiNER-2 asynchrone via son job_id jusqu'à ce qu'il se termine ou échoue, avec des exemples de réponses en cours, terminées et en erreur."
+api: "GET /v1/gliner-2/jobs/{job_id}"
+---
+
+`GET /v1/gliner-2/jobs/{job_id}`
+
+Interrogez un job GLiNER-2 asynchrone jusqu'à ce qu'il se termine ou échoue. Utilisez la même clé d'API que
+celle qui a soumis le job ; les jobs sont limités à l'utilisateur authentifié.
+
+Le panneau OpenAPI de cette page est la source de vérité pour le paramètre de chemin `job_id` et
+chaque champ de réponse.
+
+## Exemple de requête
+
+```bash
+curl "https://api.fastino.ai/v1/gliner-2/jobs/3f08a17f-777a-4aa6-8ec5-879df37775a8" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Réponse en cours de traitement
+
+Continuez à interroger tant que `status` vaut `pending` ou `processing` :
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "pending",
+  "result": null,
+  "error": null,
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": null
+}
+```
+
+## Réponse terminée
+
+Arrêtez d'interroger lorsque `status` vaut `complete`. Le champ `result` suit le schéma de la
+requête de soumission :
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "complete",
+  "result": {
+    "entities": [
+      {
+        "text": "Apple",
+        "label": "organization",
+        "score": 0.99,
+        "start": 0,
+        "end": 5
+      }
+    ]
+  },
+  "error": null,
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": "2026-10-07T22:13:42+00:00"
+}
+```
+
+## Réponse d'erreur
+
+Un job terminé peut indiquer `status: "error"` avec un message dans `error` :
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "error",
+  "result": null,
+  "error": "The input could not be processed",
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": "2026-10-07T22:10:08+00:00"
+}
+```
+
+Un job inconnu, ou appartenant à un autre utilisateur, renvoie `404`.

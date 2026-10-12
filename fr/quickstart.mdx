@@ -1,253 +1,189 @@
 ---
-title: "Démarrage rapide Fastino : inférence et entraînement"
-description: "Créez une clé d'API Fastino, listez les modèles de base, lancez votre premier appel d'inférence avec GLiNER, puis démarrez un entraînement si besoin."
+title: "Démarrage rapide"
+description: "Exécutez une inférence sur Fastino. Ce guide vous présente le moyen le plus rapide d'obtenir une intégration Fastino fonctionnelle."
 sidebarTitle: "Démarrage rapide"
 ---
 
-Ce guide vous propose le chemin le plus rapide vers une intégration Fastino opérationnelle. À la fin, vous aurez effectué un appel d'inférence réussi et compris la structure de l'API. Il vous suffit d'un compte Fastino et d'un terminal.
+## Configurez votre clé d'API
 
-<Steps>
-  <Step title="Inscrivez-vous et récupérez votre clé d'API">
-    Créez un compte sur [Fastino](https://agent.fastino.ai/).
+1. **Créez un compte [Fastino](https://agent.fastino.ai/)**
+2. **Obtenez votre clé d'API** depuis [Settings](https://agent.fastino.ai/api-keys)
 
-    Une fois connecté, rendez-vous dans **Settings → API Keys** et générez une nouvelle clé. Copiez-la dans un endroit sûr, car vous ne pourrez plus la consulter après avoir fermé la boîte de dialogue.
+Définissez votre clé comme variable d'environnement afin que les exemples ci-dessous fonctionnent tels quels :
 
-    <Warning>
-      Ne versionnez pas votre clé d'API. Utilisez une variable d'environnement ou un gestionnaire de secrets plutôt que de l'inscrire en dur dans vos fichiers sources.
-    </Warning>
+<CodeGroup>
 
-    Définissez votre clé comme variable d'environnement afin que les exemples ci-dessous fonctionnent tels quels :
+```bash macOS/Linux
+export FASTINO_API_KEY="your_api_key_here"
+```
+
+```powershell Windows
+setx FASTINO_API_KEY "your_api_key_here"
+```
+
+</CodeGroup>
+
+## Exécutez votre premier appel d'inférence
+
+Appelez `POST /v1/systemone` avec un `model`, un `state` décrivant la situation et une ou plusieurs `questions` typées. GLiDE renvoie directement des probabilités calibrées et des libellés. Aucun texte généré n'est à analyser. L'exemple ci-dessous pose une seule question oui/non (`noul`).
+
+GLiDE coûte **0,15 \$ par million de tokens d'entrée**. Les tokens de sortie sont **gratuits (0 \$)**.
+Consultez [Tarifs](/fr/pricing) pour connaître les tarifs d'inférence actuels.
+
+<Tabs>
+  <Tab title="cURL">
+    **Pour exécuter un appel de décision GLiDE** :
 
     ```bash
-    export FASTINO_API_KEY="your_api_key_here"
-    ```
-  </Step>
-  <Step title="Listez les modèles de base disponibles (facultatif)">
-    Vous pouvez parcourir les modèles proposés par Fastino. Utilisez `GET /v1/base-models` pour consulter le catalogue complet.
-
-    <CodeGroup>
-
-    ```bash curl
-    curl https://api.fastino.ai/v1/base-models \
-      -H "X-API-Key: $FASTINO_API_KEY"
-    ```
-
-    ```python Python
-    import os
-    import requests
-    
-    response = requests.get(
-        "https://api.fastino.ai/v1/base-models",
-        headers={"X-API-Key": os.environ["FASTINO_API_KEY"]}
-    )
-    print(response.json())
-    ```
-
-    ```javascript JavaScript
-    const response = await fetch(
-      "https://api.fastino.ai/v1/base-models",
-      {
-        headers: {
-          "X-API-Key": process.env.FASTINO_API_KEY
-        }
-      }
-    );
-    const data = await response.json();
-    console.log(data);
-    ```
-
-    </CodeGroup>
-
-    La réponse liste les IDs de modèles que vous pouvez passer à `/v1/chat/completions`. Par exemple, `fastino/gliner2-base-v1` est le modèle de base GLiNER pour les tâches de NER.
-  </Step>
-  <Step title="Exécutez votre premier appel d'inférence">
-    Appelez `POST /v1/chat/completions` avec un modèle, un message et un schéma définissant ce que vous souhaitez extraire. L'exemple ci-dessous utilise le modèle de base GLiNER pour extraire des entités nommées d'une phrase.
-
-    <CodeGroup>
-
-    ```bash curl
-    curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-      -H "Authorization: Bearer $FASTINO_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model": "fastino/gliner2.5-multi-v1",
-        "messages": [
-          {
-            "role": "user",
-            "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
-          }
-        ],
-        "schema": {
-          "entities": [
-            {
-              "name": "organization",
-              "description": "business or institution name"
-            },
-            {
-              "name": "product",
-              "description": "named commercial product"
-            },
-            {
-              "name": "event",
-              "description": "named conference or event"
-            },
-            {
-              "name": "location",
-              "description": "city, region, or place"
-            }
-          ]
-        },
-        "threshold": 0.5
-      }'
-    ```
-
-    ```python Python
-    import json
-    import os
-    
-    import requests
-    
-    response = requests.post(
-        "https://api.fastino.ai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "fastino/gliner2.5-multi-v1",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Apple announced the MacBook Pro at WWDC in Cupertino.",
-                }
-            ],
-            "schema": {
-                "entities": [
-                    {"name": "organization", "description": "business or institution name"},
-                    {"name": "product", "description": "named commercial product"},
-                    {"name": "event", "description": "named conference or event"},
-                    {"name": "location", "description": "city, region, or place"},
-                ]
-            },
-            "threshold": 0.5,
-        },
-    )
-    
-    response.raise_for_status()
-    result = response.json()
-    entities = json.loads(result["choices"][0]["message"]["content"])
-    
-    print(json.dumps(entities, indent=2))
-    ```
-
-    ```javascript JavaScript
-    const response = await fetch(
-      "https://api.fastino.ai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.FASTINO_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "fastino/gliner2.5-multi-v1",
-          messages: [
-            {
-              role: "user",
-              content: "Apple announced the MacBook Pro at WWDC in Cupertino.",
-            },
-          ],
-          schema: {
-            entities: [
-              { name: "organization", description: "business or institution name" },
-              { name: "product", description: "named commercial product" },
-              { name: "event", description: "named conference or event" },
-              { name: "location", description: "city, region, or place" },
-            ],
-          },
-          threshold: 0.5,
-        }),
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
-    }
-    
-    const result = await response.json();
-    const entities = JSON.parse(result.choices[0].message.content);
-    
-    console.log(JSON.stringify(entities, null, 2));
-    ```
-
-    </CodeGroup>
-
-    Pour les modèles encodeurs (GLiNER), l'objet `schema` définit la tâche et peut inclure `entities`, `classifications`, `structures` et `relations` :
-
-    - `entities` — une liste de chaînes de types d'entités pour la NER
-    - `classifications` — une liste d'objets `{task, labels}` pour la classification de texte
-    - `structures` — un dictionnaire de définitions de structures pour l'extraction JSON
-    - `relations` — une liste de définitions de relations
-
-    Pour les modèles décodeurs (LLM), omettez `schema` et envoyez un message de chat classique.
-
-    <Note>
-      `model` doit être l'ID d'un modèle de base compatible avec l'inférence ou l'UUID d'une tâche d'entraînement terminée et déployable. Après l'entraînement, déployez l'artefact sélectionné avant d'utiliser l'UUID de la tâche pour l'inférence.
-    </Note>
-  </Step>
-  <Step title="Lancez une tâche d'entraînement (facultatif)">
-    Lorsque vous êtes prêt à affiner un modèle sur vos propres données, lancez une tâche d'entraînement.
-
-    <CodeGroup>
-
-    ```bash curl
-    curl -X POST https://api.fastino.ai/v1/training-jobs \
+    curl -X POST "https://api.fastino.ai/v1/systemone" \
       -H "X-API-Key: $FASTINO_API_KEY" \
       -H "Content-Type: application/json" \
       -d '{
-        "model_name": "my-ner-model",
-        "base_model": "fastino/gliner2-base-v1",
-        "datasets": [{"name": "my-dataset"}],
-        "training_type": "lora",
-        "nr_epochs": 5,
-        "learning_rate": 5e-5
+        "model": "fastino/GLiDE",
+        "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+        "questions": {
+          "refund_allowed": {
+            "type": "noul",
+            "instructions": "Does this request qualify for a refund?",
+            "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+          }
+        }
       }'
     ```
+  </Tab>
 
-    ```python Python
+  <Tab title="Python">
+    **Pour exécuter un appel de décision GLiDE** :
+
+    ```python
     import os
     import requests
-    
+
     response = requests.post(
-        "https://api.fastino.ai/v1/training-jobs",
+        "https://api.fastino.ai/v1/systemone",
         headers={
             "X-API-Key": os.environ["FASTINO_API_KEY"],
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         },
         json={
-            "model_name": "my-ner-model",
-            "base_model": "fastino/gliner2-base-v1",
-            "datasets": [{"name": "my-dataset"}],
-            "training_type": "lora",
-            "nr_epochs": 5,
-            "learning_rate": 5e-5
-        }
+            "model": "fastino/GLiDE",
+            "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+            "questions": {
+                "refund_allowed": {
+                    "type": "noul",
+                    "instructions": "Does this request qualify for a refund?",
+                    "criteria": {"true": "Qualifies", "false": "Does not qualify"},
+                }
+            },
+        },
     )
+
+    response.raise_for_status()
     print(response.json())
-    # {"id": "uuid-of-training-job", "status": "requested"}
     ```
+  </Tab>
 
-    </CodeGroup>
+  <Tab title="JavaScript">
+    **Pour exécuter un appel de décision GLiDE** :
 
-    La réponse inclut l'`id` de la tâche. Interrogez régulièrement `GET /v1/training-jobs/{id}` pour vérifier son statut. Une fois que la tâche atteint `complete`, utilisez son ID comme `model` dans vos appels à `/v1/chat/completions`.
+    ```javascript
+    const response = await fetch(
+      "https://api.fastino.ai/v1/systemone",
+      {
+        method: "POST",
+        headers: {
+          "X-API-Key": process.env.FASTINO_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "fastino/GLiDE",
+          state: "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+          questions: {
+            refund_allowed: {
+              type: "noul",
+              instructions: "Does this request qualify for a refund?",
+              criteria: { true: "Qualifies", false: "Does not qualify" },
+            },
+          },
+        }),
+      }
+    );
 
-    Valeurs de statut de la tâche : `requested` → `running` → `complete` (ou `failed` / `stopped`).
-  </Step>
-</Steps>
+    if (!response.ok) {
+      throw new Error(`Inference failed: ${response.status} ${await response.text()}`);
+    }
+
+    const result = await response.json();
+    console.log(JSON.stringify(result, null, 2));
+    ```
+  </Tab>
+</Tabs>
+
+Voici à quoi ressemble une réponse réussie :
+
+```json
+{
+  "model": "glide",
+  "answers": {
+    "refund_allowed": {
+      "type": "noul",
+      "noul": 0.99767683794902,
+      "confidence": 0.9953536758980399
+    }
+  },
+  "usage": { "input_tokens": 89, "output_tokens": 1 },
+  "token_usage": 90
+}
+```
+
+`answers.refund_allowed.noul` est la probabilité que la réponse soit « oui ». Une valeur de `0.999` indique clairement que la demande est éligible. Poursuivez avec les références [Noul](/fr/concepts/glide-noul), [Choice](/fr/concepts/glide-choice) et [Score](/fr/concepts/glide-score), ou utilisez le [guide de routage](/fr/guides/glide-routing) pour transformer la confiance en action.
+
+<Accordion title="Vous souhaitez plutôt extraire des entités ? Utilisez GLiNER 2.5">
+  Si vous avez besoin d'une extraction au niveau des segments (NER, classification, enregistrements structurés) plutôt que d'une décision, appelez `POST /v1/chat/completions` avec un modèle, un message et un schéma définissant ce que vous souhaitez extraire :
+
+  ```bash
+  curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+    -H "Authorization: Bearer $FASTINO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "fastino/gliner2.5-multi-v1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Apple announced the MacBook Pro at WWDC in Cupertino."
+        }
+      ],
+      "schema": {
+        "entities": [
+          { "name": "organization", "description": "business or institution name" },
+          { "name": "product", "description": "named commercial product" },
+          { "name": "event", "description": "named conference or event" },
+          { "name": "location", "description": "city, region, or place" }
+        ]
+      },
+      "threshold": 0.5
+    }'
+  ```
+
+  Pour les modèles encodeurs (GLiNER), l'objet `schema` définit la tâche et peut inclure `entities`, `classifications`, `structures` et `relations`. Pour les modèles décodeurs (LLM), omettez `schema` et envoyez un message de chat classique. Consultez l'[API d'inférence](/fr/inference/chat-completions) pour le contrat complet, des exemples Python/JavaScript et les codes d'erreur.
+</Accordion>
 
 ## Étapes suivantes
 
-- [API d'entraînement](/fr/training) : découvrez comment utiliser notre API d'entraînement pour affiner un modèle GLiNER de bout en bout.
-- [API d'inférence](/fr/inference) : découvrez comment déployer des modèles de base et des modèles affinés, et exécuter l'inférence avec eux via notre API.
-- [Skill pour agent](/fr/concepts/gliner-agent-skill) : utilisez ce skill pour exécuter l'inférence ou lancer une tâche d'entraînement, directement depuis votre agent de code.
-- [Exemples de cas d'usage](/fr/example-use-cases) : en manque d'idées sur ce que vous pourriez construire ? Explorez nos exemples de cas d'usage.
+<CardGroup cols={2}>
+  <Card title="Modèles de décision" icon="sparkle" href="/fr/concepts/decision-models">
+    Comprenez les modèles de décision, puis poursuivez avec GLiDE ou GLiNER 2.5 Decide.
+  </Card>
+
+  <Card title="Skill d'agent GLiDE" icon="bot" href="/fr/concepts/glide-agent-skill">
+    Utilisez ce skill pour aider votre agent de code à classer, router et noter des décisions avec GLiDE.
+  </Card>
+
+  <Card title="Inférence GLiDE" icon="braces" href="/fr/inference/systemone">
+    Consultez la requête, la réponse, les limites, les nouvelles tentatives et les erreurs complètes de `/v1/systemone`.
+  </Card>
+
+  <Card title="API d'entraînement" icon="database-zap" href="/fr/training">
+    Découvrez comment utiliser notre API d'entraînement pour affiner un modèle GLiNER de bout en bout.
+  </Card>
+</CardGroup>

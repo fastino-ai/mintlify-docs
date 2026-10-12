@@ -1,7 +1,7 @@
 ---
 title: "Prompt Caching on Inference"
 sidebarTitle: "Prompt Caching"
-description: "How prompt caching works on Fastino's inference API — what qualifies for caching, how cached input tokens are billed, and where to view cache hit rates."
+description: "How prompt caching works on Fastino's inference API - what qualifies for caching, how cached input tokens are billed, and where to view cache hit rates."
 noindex: true
 hidden: true
 ---
@@ -10,14 +10,14 @@ A short guide to getting consistent prompt-cache hits from any client or agent h
 
 ## The one thing to know
 
-**For Claude / Anthropic-style models, caching is opt-in at the API level, so whether it happens depends on your client.** Fastino forwards your request as-is and never adds cache markers for you. If the request does not include a `cache_control` marker, the stable prefix is **not** cached and you pay full input price on every turn. Some clients opt in for you — Claude Code, for example, uses Anthropic's endpoints (which require `cache_control`), so it sends markers automatically. A bare custom client that sends plain-string prompts does not, and gets no caching.
+**For Claude / Anthropic-style models, caching is opt-in at the API level, so whether it happens depends on your client.** Fastino forwards your request as-is and never adds cache markers for you. If the request does not include a `cache_control` marker, the stable prefix is **not** cached and you pay full input price on every turn. Some clients opt in for you - Claude Code, for example, uses Anthropic's endpoints (which require `cache_control`), so it sends markers automatically. A bare custom client that sends plain-string prompts does not, and gets no caching.
 
-Models that cache automatically (the OpenAI/GPT family) do so transparently and **reject** explicit markers — for those you don't need to do anything, and you should not add `cache_control`.
+Models that cache automatically (the OpenAI/GPT family) do so transparently and **reject** explicit markers - for those you don't need to do anything, and you should not add `cache_control`.
 
 | Model | What you do |
 | --- | --- |
 | Claude / Anthropic-style | Add `cache_control` markers (see below) |
-| OpenAI / GPT family (auto-caching) | Nothing — caching is automatic |
+| OpenAI / GPT family (auto-caching) | Nothing - caching is automatic |
 | Other models | If unsure, add a marker; it's honored where supported and ignored where the model auto-caches |
 
 The reliable lever you control is `cache_control` on Claude models. The rest of this guide is about using it correctly.
@@ -28,9 +28,9 @@ Send the stable part of your prompt as a content block with a `cache_control` ma
 
 Markers are honored on every message-based endpoint and normalized identically:
 
-- `POST /v1/chat/completions` (OpenAI-compatible) — mark a `system`/`user` message content block.
-- `POST /v1/messages` (Anthropic-compatible) — mark a `system` block, message block, or tools block.
-- `POST /v1/responses` (OpenAI Responses) — mark a content block on an input message. The stable prefix is marked via a `system`/`developer` input message block (the plain `instructions` string has no place for a marker).
+- `POST /v1/chat/completions` (OpenAI-compatible) - mark a `system`/`user` message content block.
+- `POST /v1/messages` (Anthropic-compatible) - mark a `system` block, message block, or tools block.
+- `POST /v1/responses` (OpenAI Responses) - mark a content block on an input message. The stable prefix is marked via a `system`/`developer` input message block (the plain `instructions` string has no place for a marker).
 
 ### Example (`/v1/chat/completions`)
 
@@ -63,9 +63,9 @@ The system content must be a **content-block array** (not a plain string) so the
 
 You can mark up to **4 breakpoints** per request. Put them on the parts that stay constant from one turn to the next, in prefix order:
 
-1. **System prompt** — your stable instructions / reusable context.
-2. **Tool definitions** — mark the tools block if you send a large, fixed tool set.
-3. **A message boundary** — mark the last message of a stable conversation prefix to cache the history up to that point in a multi-turn session.
+1. **System prompt** - your stable instructions / reusable context.
+2. **Tool definitions** - mark the tools block if you send a large, fixed tool set.
+3. **A message boundary** - mark the last message of a stable conversation prefix to cache the history up to that point in a multi-turn session.
 
 Anything that changes every turn (the latest user question) should come **after** your last marker so the cached prefix stays identical and keeps hitting.
 
@@ -73,7 +73,7 @@ An optional `ttl` (e.g. `{ "type": "ephemeral", "ttl": "1h" }`) controls the cac
 
 ## Minimum cacheable size
 
-Caching only kicks in once the cacheable prefix is large enough — on the order of **~1K–4K tokens depending on the model**. A short system prompt may fall below the threshold, in which case no cache entry is created even with a correct marker. If you expect caching but see no cache tokens, check that the marked prefix is genuinely large.
+Caching only kicks in once the cacheable prefix is large enough - on the order of **~1K–4K tokens depending on the model**. A short system prompt may fall below the threshold, in which case no cache entry is created even with a correct marker. If you expect caching but see no cache tokens, check that the marked prefix is genuinely large.
 
 ## Configuring an agent harness
 
@@ -88,8 +88,8 @@ If your harness exposes a provider compatibility option for cache-control format
 
 Check the `usage` block in the response. Field names differ by endpoint:
 
-- **`/v1/chat/completions`** — reports cache reads under `usage.prompt_tokens_details.cached_tokens`.
-- **`/v1/messages`** — reports `cache_read_input_tokens` and `cache_creation_input_tokens`.
+- **`/v1/chat/completions`** - reports cache reads under `usage.prompt_tokens_details.cached_tokens`.
+- **`/v1/messages`** - reports `cache_read_input_tokens` and `cache_creation_input_tokens`.
 
 What to expect:
 
@@ -98,7 +98,7 @@ What to expect:
 - **All zeros** means the marker was missing, the prefix was below the minimum size, the prefix changed between turns, or the model auto-caches (savings still apply but aren't reported as cache tokens).
 
 <Note>
-  Some harnesses normalize these into their own fields (e.g. `cacheRead` / `cacheWrite` in their logs) — same numbers, different names.
+  Some harnesses normalize these into their own fields (e.g. `cacheRead` / `cacheWrite` in their logs) - same numbers, different names.
 </Note>
 
 ## How to read it back

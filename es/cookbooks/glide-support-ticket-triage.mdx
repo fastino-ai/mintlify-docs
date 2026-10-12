@@ -1,0 +1,173 @@
+---
+title: "Receta: Clasifica un ticket de soporte"
+sidebarTitle: "Clasifica un ticket de soporte"
+description: "Envía un ticket de soporte a una cola, valora su urgencia y decide si debe responder una persona, en una sola llamada a GLiDE."
+---
+
+Un ticket nuevo necesita tres decisiones antes de que nadie lo lea: qué cola se encarga de él, con qué rapidez necesita respuesta y si basta con una respuesta automática. GLiDE responde a las tres en una sola solicitud, usando criterios que escribes en lenguaje natural.
+
+## Solicitud
+
+Envía el ticket como `state` y haz una pregunta por decisión. Los nombres de las preguntas (`queue`, `urgency`, `needs_human`) los eliges tú; se devuelven como claves dentro de `answers`.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/GLiDE",
+  "state": {
+    "subject": "Charged twice this month??",
+    "plan": "Pro, 14 seats",
+    "message": "Our card was billed $1,190 twice on Oct 1. Finance wants it fixed today before they freeze the card. The invoice download button just spins, too."
+  },
+  "questions": {
+    "queue": {
+      "type": "choice",
+      "instructions": "Which support queue should this ticket go to?",
+      "criteria": {
+        "billing": "Charges, refunds, and invoices",
+        "technical": "Something in the product is broken",
+        "account": "Logins, seats, and permissions"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgent is this ticket?",
+      "criteria": [
+        "Low: no deadline or business impact",
+        "Normal: needs an answer within a few days",
+        "High: blocks money or work today",
+        "Urgent: an outage or a security incident"
+      ]
+    },
+    "needs_human": {
+      "type": "noul",
+      "instructions": "Should a person reply instead of an automated assistant?",
+      "criteria": {
+        "true": "A person should reply",
+        "false": "An automated reply is enough"
+      }
+    }
+  }
+}'
+```
+
+## Esquema de la solicitud
+
+| Campo | Tipo | En esta receta |
+| --- | --- | --- |
+| `model` | string | `fastino/GLiDE`. |
+| `state` | string, object o array | El ticket. Un objeto mantiene claramente etiquetados el asunto, el plan y el mensaje. |
+| `questions.queue` | [Choice](/es/concepts/glide-choice) | `criteria` es un objeto. Cada clave es un resultado y cada valor indica cuándo se aplica. |
+| `questions.urgency` | [Score](/es/concepts/glide-score) | `criteria` es un array ordenado, empezando por el nivel más bajo. |
+| `questions.needs_human` | [Noul](/es/concepts/glide-noul) | Una pregunta de sí o no. `criteria` describe los lados `true` y `false`. |
+| `questions.*.instructions` | string | La pregunta que GLiDE responde sobre `state`. |
+
+## Respuesta
+
+Medida contra `https://api.fastino.ai`. Los valores de confianza varían ligeramente entre llamadas.
+
+```json
+{
+  "model": "glide_v2",
+  "answers": {
+    "queue": {
+      "type": "choice",
+      "choice": "billing",
+      "confidence": 0.993,
+      "probabilities": {
+        "billing": 0.996,
+        "technical": 0.004,
+        "account": 0.0
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 2,
+      "expected_level": 2.001,
+      "confidence": 0.991,
+      "probabilities": {
+        "0": 0.0,
+        "1": 0.002,
+        "2": 0.994,
+        "3": 0.004
+      },
+      "legend": {
+        "0": "Low: no deadline or business impact",
+        "1": "Normal: needs an answer within a few days",
+        "2": "High: blocks money or work today",
+        "3": "Urgent: an outage or a security incident"
+      }
+    },
+    "needs_human": {
+      "type": "noul",
+      "noul": 0.987,
+      "confidence": 0.974
+    }
+  },
+  "usage": {
+    "input_tokens": 422,
+    "output_tokens": 0
+  }
+}
+```
+
+## Esquema de la respuesta
+
+| Campo | Tipo | Significado |
+| --- | --- | --- |
+| `answers.queue.choice` | string | La clave de `criteria` ganadora. Aquí, `billing`. |
+| `answers.queue.probabilities` | object | La probabilidad de cada resultado. Suman 1. |
+| `answers.urgency.score` | integer | Índice del nivel ganador, contando desde `0`. Aquí, `2` es "High". |
+| `answers.urgency.expected_level` | number | Nivel ponderado por probabilidad, para umbrales más finos que `score`. |
+| `answers.urgency.legend` | object | Tus descripciones de niveles, indexadas por posición. |
+| `answers.needs_human.noul` | number | La probabilidad de que se cumpla el lado `true`, de 0 a 1. |
+| `answers.*.confidence` | number | El grado de certeza de GLiDE sobre esa respuesta, de 0 a 1. |
+| `usage.input_tokens` | integer | Tokens facturados por la solicitud. |
+
+## Actúa según la respuesta
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+queue = answers["queue"]
+urgency = answers["urgency"]["score"]
+needs_human = answers["needs_human"]["noul"] >= 0.5
+
+if queue["confidence"] < 0.7:
+    queue_name = "general"  # let a person pick the queue
+else:
+    queue_name = queue["choice"]
+
+priority = {0: "low", 1: "normal", 2: "high", 3: "urgent"}[urgency]
+assign(ticket, queue=queue_name, priority=priority, auto_reply=not needs_human)
+```
+
+Trata los umbrales `0.7` y `0.5` como puntos de partida. Compruébalos con una muestra de tus propios tickets.
+
+## Adáptala
+
+- Usa los nombres reales de tus colas como claves de `criteria` y describe de qué se encarga cada cola. Las descripciones son las que hacen el trabajo.
+- Añade o elimina niveles de urgencia libremente. La respuesta siempre los indexa desde `0` en el orden en que los enviaste.
+- Incluye en `state` los datos del cliente que GLiDE debe tener en cuenta, como el plan, el nivel de contrato o los incidentes abiertos.
+- Haz más preguntas en la misma solicitud, como `language` o `sentiment`. Cada una añade una entrada a `answers`.
+
+<CardGroup cols={2}>
+  <Card title="Guía de clasificación" icon="tags" href="/es/guides/glide-classification">
+    Diseña preguntas Choice y gestiona las etiquetas inciertas.
+  </Card>
+  <Card title="Referencia de la API de GLiDE" icon="code" href="/es/api-reference/inference/systemone">
+    Todos los campos, límites y errores de `POST /v1/systemone`.
+  </Card>
+</CardGroup>

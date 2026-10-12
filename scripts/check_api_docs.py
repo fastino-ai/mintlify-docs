@@ -1,4 +1,4 @@
-"""Check public API docs against the curated and authoritative contracts."""
+"""Check public API docs against Pioneer's route contract."""
 
 from __future__ import annotations
 
@@ -7,17 +7,273 @@ import json
 import re
 from pathlib import Path
 
-from sync_api_openapi import INFERENCE_OPERATIONS, build_spec
+from generate_localized_llms import localized_index_findings
 
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
+INFERENCE_OPERATIONS = {
+    ("POST", "/v1/chat/completions"),
+    ("POST", "/v1/systemone"),
+    ("POST", "/v1/gliner-2"),
+    ("POST", "/v1/gliner-2/async"),
+    ("GET", "/v1/gliner-2/jobs/{job_id}"),
+    ("POST", "/v1/messages"),
+    ("GET", "/v1/models"),
+    ("POST", "/v1/responses"),
+    ("GET", "/v1/inferences"),
+    ("GET", "/v1/inferences/{inference_id}"),
+    ("GET", "/v1/inferences/{inference_id}/feedback"),
+    ("POST", "/v1/inferences/{inference_id}/feedback"),
+}
+TRAINING_OPERATIONS = {
+    ("GET", "/v1/base-models"),
+    ("GET", "/v1/datasets"),
+    ("POST", "/v1/datasets/upload/process"),
+    ("POST", "/v1/datasets/upload/url"),
+    ("DELETE", "/v1/datasets/{name}"),
+    ("GET", "/v1/datasets/{name}"),
+    ("GET", "/v1/training-jobs"),
+    ("POST", "/v1/training-jobs"),
+    ("DELETE", "/v1/training-jobs/{job_id}"),
+    ("GET", "/v1/training-jobs/{job_id}"),
+    ("PATCH", "/v1/training-jobs/{job_id}"),
+    ("GET", "/v1/training-jobs/{job_id}/billing"),
+    ("GET", "/v1/training-jobs/{job_id}/checkpoints"),
+    ("POST", "/v1/training-jobs/{job_id}/checkpoints/{checkpoint_id}/deploy"),
+    ("GET", "/v1/training-jobs/{job_id}/deployments"),
+    ("GET", "/v1/training-jobs/{job_id}/download"),
+    ("GET", "/v1/training-jobs/{job_id}/logs"),
+    ("PATCH", "/v1/training-jobs/{job_id}/model-name"),
+    ("POST", "/v1/training-jobs/{job_id}/push-to-hub"),
+    ("POST", "/v1/training-jobs/{job_id}/stop"),
+    ("POST", "/v1/training-jobs/{job_id}/sync"),
+    ("POST", "/v1/training-jobs/{job_id}/terminate"),
+}
+EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
+EXPECTED_SKILLS = {
+    "fastino-datasets",
+    "fastino-fine-tune",
+    "fastino-glide",
+    "fastino-gliner",
+    "fastino-inference",
+}
 ACTIVE_LEGACY_INFERENCE = (
     re.compile(r"https://api\.fastino\.ai/inference(?:\b|[/?#])"),
     re.compile(r"\|\s*`POST`\s*\|\s*`/inference`\s*\|"),
 )
 FASTINO_URL = re.compile(r"https://api\.fastino\.ai([^\s\"'`<\\]+)")
-METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[^`\s\"'|,)]+)")
+METHOD_PATH = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE)\s+(/[A-Za-z0-9_{}\-./:*?=&%]+)")
+LLMS_PAGE_URL = re.compile(r"https://docs\.fastino\.ai/([^\s)]+)\.md")
+API_BINDING = re.compile(
+    r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
+    re.MULTILINE,
+)
+REQUIRED_AGENT_RESOURCES = {
+    "https://docs.fastino.ai/.well-known/agent-skills/index.json",
+    "https://docs.fastino.ai/llms-full.txt",
+    "https://docs.fastino.ai/openapi.json",
+}
 RoutePatterns = dict[str, list[re.Pattern[str]]]
+
+
+def _visible_navigation_pages(node: object) -> set[str]:
+    if isinstance(node, str):
+        return {node}
+    if not isinstance(node, dict) or node.get("hidden") is True:
+        return set()
+    pages: set[str] = set()
+    for key in ("groups", "pages"):
+        children = node.get(key)
+        if isinstance(children, list):
+            for child in children:
+                pages.update(_visible_navigation_pages(child))
+    return pages
+
+
+def _llms_findings(root: Path) -> list[str]:
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    navigation = config.get("navigation")
+    languages = navigation.get("languages") if isinstance(navigation, dict) else None
+    english = next(
+        (
+            language
+            for language in languages or []
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    if not isinstance(english, dict):
+        return ["docs.json has no English navigation"]
+
+    visible_pages: set[str] = set()
+    divisions = english.get("tabs")
+    if not isinstance(divisions, list):
+        divisions = english.get("groups")
+    if isinstance(divisions, list):
+        for division in divisions:
+            visible_pages.update(_visible_navigation_pages(division))
+
+    llms_text = (root / "llms.txt").read_text(encoding="utf-8")
+    indexed_pages = set(LLMS_PAGE_URL.findall(llms_text))
+    findings = [
+        f"llms.txt is missing visible English page: {page}"
+        for page in sorted(visible_pages - indexed_pages)
+    ]
+    findings.extend(
+        f"llms.txt is missing agent resource: {url}"
+        for url in sorted(REQUIRED_AGENT_RESOURCES)
+        if f"]({url})" not in llms_text
+    )
+    findings.extend(localized_index_findings(root))
+    return findings
+
+
+def _api_reference_findings(
+    root: Path,
+    destination: dict[str, object],
+) -> list[str]:
+    """Return OpenAPI binding and API-reference navigation findings."""
+    findings: list[str] = []
+    actual_operations = _operations(destination)
+    if actual_operations != EXPECTED_OPERATIONS:
+        missing = sorted(EXPECTED_OPERATIONS - actual_operations)
+        unexpected = sorted(actual_operations - EXPECTED_OPERATIONS)
+        findings.append(
+            "openapi.json operation inventory drifted: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+    bindings: dict[tuple[str, str], list[str]] = {}
+    for path in _documentation_files(root, include_locales=False):
+        match = API_BINDING.search(path.read_text(encoding="utf-8"))
+        if match is not None:
+            bindings.setdefault((match.group(1), match.group(2)), []).append(
+                path.relative_to(root).with_suffix("").as_posix()
+            )
+    for operation in sorted(actual_operations):
+        pages = bindings.get(operation, [])
+        if len(pages) != 1:
+            findings.append(
+                f"{operation[0]} {operation[1]} must have exactly one API binding, "
+                f"found {pages}"
+            )
+
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    languages = config.get("navigation", {}).get("languages", [])
+    english = next(
+        (
+            language
+            for language in languages
+            if isinstance(language, dict) and language.get("language") == "en"
+        ),
+        None,
+    )
+    tabs = english.get("tabs") if isinstance(english, dict) else None
+    if not isinstance(tabs, list):
+        return [*findings, "English navigation has no tabs"]
+    reference = next(
+        (
+            tab
+            for tab in tabs
+            if isinstance(tab, dict) and tab.get("tab") == "API Reference"
+        ),
+        None,
+    )
+    groups = reference.get("pages") if isinstance(reference, dict) else None
+    if not isinstance(groups, list):
+        return [*findings, "English navigation has no API Reference tab"]
+    names = [
+        group.get("group")
+        for group in groups
+        if isinstance(group, dict) and group.get("hidden") is not True
+    ]
+    if names != ["Inference", "Training"]:
+        findings.append(
+            "API Reference must contain exactly Inference and Training groups, "
+            f"found {names}"
+        )
+    visible_reference_pages = _visible_navigation_pages(reference)
+    for operation, pages in sorted(bindings.items()):
+        if operation not in actual_operations:
+            continue
+        if pages[0] not in visible_reference_pages:
+            findings.append(
+                f"API binding is outside the API Reference tab: {pages[0]}"
+            )
+    return findings
+
+
+def _journey_order_findings(root: Path) -> list[str]:
+    """Require task guides to precede their operation contracts for agents."""
+    text = (root / "llms.txt").read_text(encoding="utf-8")
+    pairs = (
+        ("inference/systemone.md", "api-reference/inference/systemone.md"),
+        (
+            "inference/chat-completions.md",
+            "api-reference/inference/chat-completions.md",
+        ),
+        ("training.md", "api-reference/training-jobs/create.md"),
+        ("concepts/datasets.md", "api-reference/datasets/upload-url.md"),
+    )
+    findings: list[str] = []
+    for guide, contract in pairs:
+        guide_index = text.find(guide)
+        contract_index = text.find(contract)
+        if guide_index < 0 or contract_index < 0:
+            findings.append(
+                f"llms.txt must index both guide and contract: {guide}, {contract}"
+            )
+        elif guide_index > contract_index:
+            findings.append(
+                f"llms.txt must place the guide before its contract: {guide}"
+            )
+    return findings
+
+
+def _skill_findings(root: Path) -> list[str]:
+    findings: list[str] = []
+    skills_root = root / ".mintlify" / "skills"
+    actual_skills = (
+        {path.name for path in skills_root.iterdir() if path.is_dir()}
+        if skills_root.is_dir()
+        else set()
+    )
+    if actual_skills != EXPECTED_SKILLS:
+        findings.append(
+            "Mintlify skills differ from the expected public set: "
+            f"expected {sorted(EXPECTED_SKILLS)}, found {sorted(actual_skills)}"
+        )
+    for skill_name in sorted(actual_skills):
+        skill_path = skills_root / skill_name / "SKILL.md"
+        if not skill_path.is_file():
+            findings.append(f"{skill_path.relative_to(root)} is missing")
+            continue
+        match = re.search(
+            r"\A---\s*\n.*?^name:\s*([^\s]+)\s*$.*?^---\s*$",
+            skill_path.read_text(encoding="utf-8"),
+            flags=re.DOTALL | re.MULTILINE,
+        )
+        if match is None:
+            findings.append(f"{skill_path.relative_to(root)} has invalid frontmatter")
+        elif match.group(1) != skill_name:
+            findings.append(
+                f"{skill_path.relative_to(root)} name is {match.group(1)!r}, "
+                f"expected {skill_name!r}"
+            )
+    for path in root.rglob("*.mdx"):
+        relative = path.relative_to(root)
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if "npx skills add https://api.fastino.ai" in line:
+                findings.append(
+                    f"{relative}:{number}: stale API-hosted skill install"
+                )
+            if "https://api.fastino.ai/.well-known/agent-skills/" in line:
+                findings.append(
+                    f"{relative}:{number}: stale API-hosted skill source"
+                )
+    return findings
 
 
 def _operations(spec: dict[str, object]) -> set[tuple[str, str]]:
@@ -103,6 +359,10 @@ def _is_migration_line(line: str) -> bool:
             "supprim",
             "elimin",
             "entfernt",
+            "eingestellt",
+            "außer betrieb",
+            "retir",
+            "heredad",
             "旧版",
             "移除",
         )
@@ -168,30 +428,13 @@ def _line_findings(
     return findings
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pioneer-root", type=Path, required=True)
-    parser.add_argument("--include-locales", action="store_true")
-    args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
-    destination = json.loads((root / "openapi.json").read_text(encoding="utf-8"))
-    manifest = json.loads(
-        (args.pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    generated = build_spec(root, args.pioneer_root.resolve())
-    route_patterns = _route_patterns(manifest)
-    findings: list[str] = []
+def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]:
+    """Return checks that need only this documentation repository."""
+    findings = _llms_findings(root)
+    findings.extend(_skill_findings(root))
+    findings.extend(_api_reference_findings(root, destination))
+    findings.extend(_journey_order_findings(root))
 
-    actual_operations = _operations(destination)
-    expected_operations = _operations(generated)
-    for operation in sorted(expected_operations - actual_operations):
-        findings.append(f"openapi.json missing {operation[0]} {operation[1]}")
-    for operation in sorted(actual_operations - expected_operations):
-        findings.append(f"openapi.json has undocumented {operation[0]} {operation[1]}")
-    if destination != generated:
-        findings.append("openapi.json content is stale; run scripts/sync_api_openapi.py")
     serialized_destination = json.dumps(destination)
     for retired_contract in ('"felix"', "/felix/training-jobs", "pio_sk_"):
         if retired_contract in serialized_destination:
@@ -199,12 +442,32 @@ def main() -> int:
                 f"openapi.json contains retired public contract text: {retired_contract}"
             )
 
-    docs = _documentation_files(root, include_locales=args.include_locales)
+    docs = _documentation_files(root, include_locales=False)
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
     for method, path in INFERENCE_OPERATIONS:
         visible_path = path.replace("{inference_id}", ":id")
         if path not in corpus and visible_path not in corpus:
             findings.append(f"English docs do not mention {method} {path}")
+    return findings
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pioneer-root", type=Path, required=True)
+    parser.add_argument("--include-locales", action="store_true")
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+    destination_path = root / "openapi.json"
+    destination = json.loads(destination_path.read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (args.pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    route_patterns = _route_patterns(manifest)
+    actual_operations = _operations(destination)
+    findings = local_docs_findings(root, destination)
+    docs = _documentation_files(root, include_locales=args.include_locales)
     for path in docs:
         findings.extend(
             _line_findings(
@@ -218,7 +481,7 @@ def main() -> int:
     if findings:
         print("\n".join(findings))
         return 1
-    print(f"API docs parity passed: {len(actual_operations)} curated operations")
+    print(f"API docs parity passed: {len(actual_operations)} published operations")
     return 0
 
 

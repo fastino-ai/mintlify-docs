@@ -1,0 +1,115 @@
+---
+title: "Évaluer et entraîner GLiNER 2.5 Decide"
+sidebarTitle: "Évaluation et entraînement"
+description: "Évaluez GLiNER 2.5 Decide, sélectionnez des seuils multi-étiquettes et adaptez le modèle à votre domaine par fine-tuning."
+---
+
+Évaluez le schéma `classifications` exact que votre application enverra à `fastino/GLiNER-2.5-Decide`. Ne modifiez les étiquettes ou les paramètres de tâche qu'entre les exécutions d'évaluation afin que les résultats restent comparables.
+
+## Évaluer un schéma Decide
+
+Commencez avec une tâche fixe :
+
+```json
+{
+  "task": "support_tags",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+Constituez un jeu de données réservé avec les mêmes noms d'étiquettes. Incluez :
+
+- Des exemples positifs et négatifs pour chaque étiquette
+- Des entrées pour lesquelles plusieurs étiquettes doivent être renvoyées
+- Des entrées pour lesquelles aucune étiquette ne doit franchir le seuil
+- Du texte ambigu et hors domaine
+
+Envoyez chaque exemple à `POST /v1/chat/completions` avec le même identifiant de modèle Decide et le même schéma. Analysez la chaîne JSON dans `choices[0].message.content` avant d'évaluer le résultat de la tâche.
+
+Pour les tâches Decide mono-étiquette, mesurez l'exactitude top 1 et la confusion par étiquette. Pour les tâches multi-étiquettes, mesurez la précision, le rappel et le score F1 par étiquette et sur l'ensemble de la tâche. Si une requête contient plusieurs tâches, évaluez chaque tâche indépendamment, car Decide n'impose aucune relation entre elles.
+
+## Sélectionner `cls_threshold`
+
+`cls_threshold` affecte uniquement les tâches avec `multi_label: true`. Decide renvoie les étiquettes qui atteignent le seuil et omet les autres :
+
+- Augmentez-le pour renvoyer moins d'étiquettes et favoriser généralement la précision.
+- Diminuez-le pour renvoyer davantage d'étiquettes et favoriser généralement le rappel.
+- Les tâches mono-étiquette renvoient toujours l'étiquette ayant le score le plus élevé.
+- Les seuils affectent uniquement l'inférence ; ils ne modifient pas l'entraînement.
+
+Réexécutez le jeu de données réservé pour chaque seuil candidat, car la réponse contient uniquement les étiquettes sélectionnées à ce seuil. Choisissez un seuil par tâche lorsque les faux positifs et les faux négatifs ont des coûts différents.
+
+Ne considérez pas `0.5` comme une valeur par défaut universelle. Pour les étiquettes qui déclenchent des actions lourdes de conséquences, exigez un seuil plus strict ou soumettez les résultats à faible niveau de confiance à une revue.
+
+## Entraîner GLiNER 2.5 Decide
+
+N'entraînez le modèle que si le modèle de base commet toujours des erreurs dans votre domaine après avoir clarifié la taxonomie des étiquettes et ajusté les seuils multi-étiquettes.
+
+Le catalogue actuel des modèles de base disponibles annonce :
+
+```json
+{
+  "id": "fastino/GLiNER-2.5-Decide",
+  "supports_training": true,
+  "training_types": ["lora"]
+}
+```
+
+Vérifiez `GET /v1/base-models?supports_training=true` avant de créer une tâche, car la disponibilité dans le catalogue peut changer. Utilisez `fastino/GLiNER-2.5-Decide` comme `base_model` et `lora` comme `training_type`.
+
+### Préparer les données de classification Decide
+
+Utilisez le format JSONL public de classification. Chaque ligne contient `text` et soit un seul `label`, soit plusieurs `labels` :
+
+```jsonl
+{"text":"I was charged twice for the same invoice.","label":"billing"}
+{"text":"I cannot sign in and suspect my account was compromised.","labels":["account","security"]}
+```
+
+Les étiquettes du jeu de données doivent utiliser les mêmes chaînes stables que celles que vous transmettez dans le schéma d'inférence Decide. Ne mélangez pas les structures de lignes mono-étiquette et multi-étiquettes dans un même jeu de données, et n'incluez pas le jeu d'évaluation réservé dans l'import d'entraînement.
+
+<Card title="Importer le jeu de données de classification" icon="database" href="/fr/concepts/datasets">
+  Créez, importez, traitez et versionnez le jeu de données JSONL utilisé par la tâche d'entraînement Decide.
+</Card>
+
+### Créer la tâche d'entraînement Decide
+
+Soumettez le jeu de données prêt au modèle de base Decide :
+
+```bash
+curl -X POST https://api.fastino.ai/v1/training-jobs \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "support-decide",
+    "base_model": "fastino/GLiNER-2.5-Decide",
+    "datasets": [{"name": "support-decide-training"}],
+    "training_type": "lora",
+    "validation_data_percentage": 0.2
+  }'
+```
+
+Omettez le taux d'apprentissage, la taille des lots et les paramètres LoRA, sauf si vous disposez d'éléments justifiant de déroger à la recette d'entraînement Decide. Enregistrez l'identifiant de la tâche d'entraînement renvoyé et interrogez régulièrement son état jusqu'à ce que l'artefact puisse être déployé.
+
+### Comparer et déployer
+
+Exécutez le modèle de base et le checkpoint entraîné sur le même jeu de données réservé avec le même schéma `classifications`. Comparez :
+
+- Les erreurs par étiquette pour les tâches mono-étiquette
+- La précision, le rappel et le score F1 par étiquette pour les tâches multi-étiquettes
+- Les résultats multi-étiquettes vides ou comportant trop de sélections
+- Le seuil requis pour chaque tâche
+
+Ne déployez un checkpoint que s'il améliore les erreurs au niveau de l'application qui vous importent. Après le déploiement, sélectionnez à nouveau les seuils ; le fine-tuning peut modifier les valeurs de confiance de Decide même lorsque les étiquettes prédites restent identiques.
+
+<CardGroup cols={2}>
+  <Card title="Tâches d'entraînement" icon="activity" href="/fr/training">
+    Surveillez la tâche Decide, les checkpoints et leur état de déployabilité.
+  </Card>
+
+  <Card title="Référence de l'API d'entraînement" icon="book" href="/fr/api-reference/training/overview">
+    Consultez les contrats exacts du jeu de données et de la tâche d'entraînement.
+  </Card>
+</CardGroup>

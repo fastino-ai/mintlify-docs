@@ -1,0 +1,81 @@
+---
+title: "GLiNER2-PII: SLM zur PII-Erkennung"
+sidebarTitle: "GLiNER2-PII"
+description: "Führen Sie GLiNER2-PII aus, Fastinos mehrsprachiges Open-Source-SLM zur PII-Erkennung, um Namen, E-Mail-Adressen, Telefonnummern und andere personenbezogene Daten in Texten zu identifizieren."
+hidden: true
+noindex: true
+---
+
+GLiNER2-PII ist unser Open-Source-Small-Language-Model zum Erkennen und Schwärzen personenbezogener Daten (PII). Mit 300 Millionen Parametern identifiziert es 42 feingranulare PII-Entitätstypen in 7 Sprachen in einem einzigen Forward Pass.
+
+## Inferenz mit GLiNER2-PII in Fastino
+
+`POST /v1/chat/completions`
+
+Führt GLiNER2-PII über die übergebenen Nachrichten aus und gibt die in `schema` definierten Entitäten zurück. Fastino stellt unter `https://api.fastino.ai/v1` einen OpenAI-kompatiblen Endpunkt bereit, sodass Sie GLiNER2-PII über die Standardroute für Chat Completions mit der Modell-ID `fastino/gliner2-privacy-filter-PII-multi` aufrufen.
+
+**Anfrage-Body**
+
+<ParamField body="model" type="string" required>
+  Die GLiNER2-PII-Modell-ID: `fastino/gliner2-privacy-filter-PII-multi`.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  Der auf PII zu prüfende Text im Standard-Chatformat von OpenAI.
+</ParamField>
+
+<ParamField body="schema" type="object" required>
+  Das Extraktionsschema. Enthält ein `entities`-Array mit den zu erkennenden PII-Typen. Übergeben Sie eine beliebige Teilmenge der 42 unterstützten Typen (siehe die [Label-Tabelle unten](#was-gliner2-pii-erkennt)). Das Beispiel erkennt `person`, `email` und `phone_number`.
+</ParamField>
+
+<ParamField body="include_confidence" type="boolean">
+  Gibt für jede erkannte Entität einen Konfidenzwert zurück. Im Beispiel auf `true` gesetzt.
+</ParamField>
+
+<ParamField body="include_spans" type="boolean">
+  Gibt für jede erkannte Entität die Zeichen-Spans zurück. Im Beispiel auf `true` gesetzt.
+</ParamField>
+
+### Beispiel: PII-Erkennung
+
+Diese Anfrage erkennt die drei Entitätstypen `person`, `email` und `phone_number` in einer einzelnen User-Nachricht.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_FASTINO_API_KEY>" \
+  -d '{
+  "model": "fastino/gliner2-privacy-filter-PII-multi",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi, my name is John Smith. You can reach me at john.smith@acme.com or +1-555-0192."
+    }
+  ],
+  "schema": {
+    "entities": [
+      "person",
+      "email",
+      "phone_number"
+    ]
+  },
+  "include_confidence": true,
+  "include_spans": true
+}'
+```
+
+## Was GLiNER2-PII erkennt
+
+GLiNER2-PII erkennt 42 feingranulare PII-Entitätstypen, die in sieben Gruppen gegliedert sind.
+
+| Gruppe | Entitätstypen |
+| --- | --- |
+| **Personen / Namen** | `person`, `full_name`, `first_name`, `middle_name`, `last_name`, `date_of_birth` |
+| **Kontakt / Adresse** | `email`, `phone_number`, `address`, `street_address`, `city`, `state_or_region`, `postal_code`, `country` |
+| **Behördliche / steuerliche IDs** | `government_id`, `national_id_number`, `passport_number`, `drivers_license_number`, `license_number`, `tax_id`, `tax_number` |
+| **Bankwesen / Zahlung** | `bank_account`, `account_number`, `routing_number`, `iban`, `payment_card`, `card_number`, `card_expiry`, `card_cvv` |
+| **Digitale Identität** | `username`, `ip_address`, `account_id`, `sensitive_account_id` |
+| **Geheimnisse / Zugangsdaten** | `password`, `secret`, `api_key`, `access_token`, `recovery_code` |
+| **Sensible Daten (Datumsangaben)** | `sensitive_date`, `document_date`, `expiration_date`, `transaction_date` |
+
+Unterstützte Sprachen: Englisch, Französisch, Spanisch, Deutsch, Italienisch, Portugiesisch und Niederländisch.

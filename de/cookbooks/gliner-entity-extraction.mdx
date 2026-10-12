@@ -1,0 +1,157 @@
+---
+title: "Rezept: Entitäten aus mehrsprachigem Text extrahieren"
+sidebarTitle: "Entitäten extrahieren"
+description: "Extrahieren Sie mit GLiNER 2.5 Multi Personen, Organisationen, Orte und Datumsangaben aus Text in jeder unterstützten Sprache."
+---
+
+Entitätsextraktion ist der häufigste Einsatz von GLiNER 2.5 Multi. Sie benennen die gewünschten Labels auf Englisch, senden Text in einer beliebigen unterstützten Sprache und erhalten jeden Treffer mit seinen exakten Zeichen-Offsets zurück. Training ist nicht nötig.
+
+## Anfrage
+
+Der folgende Text ist deutsch. Die Labels bleiben englisch.
+
+```bash
+curl -X POST https://api.fastino.ai/v1/chat/completions \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/gliner2.5-multi-v1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Dr. María Fernández, Finanzvorständin der Banco Santander, traf sich am 3. März 2026 in München mit Siemens, um den Liefervertrag zu unterzeichnen."
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "name": "person",
+        "description": "full name of a person"
+      },
+      {
+        "name": "organization",
+        "description": "company, bank, or institution"
+      },
+      {
+        "name": "location",
+        "description": "city, region, or country"
+      },
+      {
+        "name": "date",
+        "description": "calendar date"
+      }
+    ]
+  },
+  "threshold": 0.5,
+  "store": false
+}'
+```
+
+## Anfrageschema
+
+| Feld | Typ | In diesem Rezept |
+| --- | --- | --- |
+| `model` | string | `fastino/gliner2.5-multi-v1`. |
+| `messages` | array | Eine `user`-Nachricht mit dem zu lesenden Text. |
+| `schema.entities` | array | Ein Objekt pro Label. `name` ist der Schlüssel im Ergebnis; `description` sagt GLiNER, was zählt. |
+| `threshold` | number | Mindestkonfidenz, ab der ein Treffer zurückgegeben wird, von 0 bis 1. Standard `0.5`. |
+| `store` | boolean | Standardmäßig `true`, wodurch die Inferenz gespeichert wird. Mit `false` widersprechen Sie. |
+
+## Antwort
+
+GLiNER gibt das Ergebnis als JSON-String in `choices[0].message.content` zurück. Geparst sieht es so aus. Gemessen gegen `https://api.fastino.ai`; Konfidenzwerte schwanken zwischen Aufrufen geringfügig.
+
+```json
+{
+  "entities": {
+    "person": [
+      {
+        "text": "María Fernández",
+        "confidence": 0.949,
+        "start": 4,
+        "end": 19
+      }
+    ],
+    "organization": [
+      {
+        "text": "Banco Santander",
+        "confidence": 0.996,
+        "start": 42,
+        "end": 57
+      },
+      {
+        "text": "Siemens",
+        "confidence": 0.992,
+        "start": 100,
+        "end": 107
+      }
+    ],
+    "location": [
+      {
+        "text": "München",
+        "confidence": 1.0,
+        "start": 88,
+        "end": 95
+      }
+    ],
+    "date": [
+      {
+        "text": "3. März 2026",
+        "confidence": 0.996,
+        "start": 72,
+        "end": 84
+      }
+    ]
+  }
+}
+```
+
+## Antwortschema
+
+| Feld | Typ | Bedeutung |
+| --- | --- | --- |
+| `entities` | object | Ein Schlüssel pro angefordertem Label. |
+| `entities.<label>[].text` | string | Der gefundene Text, genau so, wie er in der Eingabe steht. |
+| `entities.<label>[].confidence` | number | Konfidenz des Treffers, von 0 bis 1. |
+| `entities.<label>[].start`, `end` | integer | Zeichen-Offsets in der Eingabe, Ende exklusiv. |
+
+## Auf die Antwort reagieren
+
+```python
+import json
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/chat/completions",
+    headers={"Authorization": f"Bearer {os.environ['FASTINO_API_KEY']}"},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+result = json.loads(response.json()["choices"][0]["message"]["content"])
+
+text = body["messages"][0]["content"]
+for label, matches in result["entities"].items():
+    for match in matches:
+        assert text[match["start"]:match["end"]] == match["text"]
+        print(f"{label:<12} {match['text']}  ({match['confidence']:.2f})")
+```
+
+Die Offsets verweisen auf Ihren Originaltext, sodass Sie Treffer direkt an Ort und Stelle hervorheben oder schwärzen können.
+
+## Anpassen
+
+- Formulieren Sie Beschreibungen, die ähnliche Labels voneinander abgrenzen, etwa `company` gegenüber `government agency`. Ein vages Label wie `product` kann Beinahe-Treffer wie Vertragsnamen erfassen.
+- Erhöhen Sie `threshold` für mehr Präzision oder senken Sie den Wert für mehr Recall. Stimmen Sie ihn an einer gelabelten Stichprobe ab.
+- Halten Sie Labelnamen stabil. Nachgelagerter Code liest sie als Schlüssel.
+- Sollen Labels feste Datensätze statt loser Textstellen sein? Verwenden Sie `schema.structures`.
+
+<CardGroup cols={2}>
+  <Card title="GLiNER aufrufen" icon="braces" href="/de/inference/chat-completions">
+    Alle GLiNER-Schematypen und wie Sie deren Ergebnis lesen.
+  </Card>
+  <Card title="Chat-Completions-API-Referenz" icon="code" href="/de/api-reference/inference/chat-completions">
+    Alle Felder, Grenzen und Fehler für `POST /v1/chat/completions`.
+  </Card>
+</CardGroup>

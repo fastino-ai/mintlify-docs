@@ -1,43 +1,94 @@
 ---
-title: "GLiNER"
-sidebarTitle: "GLiNER"
-description: "Compare GLiNER2.5, GLiNER2, and GLiNER for efficient information extraction."
+title: "GLiNER2.5"
+sidebarTitle: "Overview"
+description: "Learn when and how to use GLiNER2.5 Multi for multilingual, schema-driven information extraction."
 ---
 
-GLiNER is an open-source family of small language models for efficient information extraction.
+GLiNER2.5 Multi is Fastino's multilingual, multi-task information-extraction model. Use one schema to extract entities, classify text, build structured records, identify relations, and attach attributes to spans.
 
-## GLiNER2.5
+## When to use GLiNER 2.5
 
-GLiNER2.5 replaces span enumeration with a boundary-prediction architecture. It supports spans of any length within the model context, long-context extraction, joint entity-relation extraction, constrained classification, and span attributes. It remains small and can run without a GPU.
+Use GLiNER2.5 Multi when extraction or multilingual coverage is central to the task:
 
-- **Unlimited span length** — Extract full addresses, legal references, and other long entities without configuring a maximum span width.
-- **Constrained classification** — Declare rules across classification tasks to prevent contradictory label combinations.
-- **Span attributes** — Classify extracted spans by attributes such as sentiment, severity, or negation in the same forward pass.
-- **Long-context extraction** — Process contracts, reports, and transcripts with a 4,096-word context and chunk longer documents while preserving offsets.
-- **Joint information extraction** — Extract entities and relations as one schema-constrained graph for knowledge bases and agent memory.
+- **Entity extraction** - pull people, organizations, products, locations, or domain-specific entities (medications, dosages, clauses) out of free text, with character offsets and confidence scores.
+- **Structured records** - turn "Alice bought apples and Bob bought oranges" into `[{"buyer": "Alice", "item": "apples"}, {"buyer": "Bob", "item": "oranges"}]`, keeping each instance's fields linked.
+- **Relation and knowledge-graph extraction** - extract typed entity-relation graphs (`works_for`, `located_in`) for agent memory or a knowledge base.
+- **Span attributes** - tag each extracted entity with an attribute, such as per-person sentiment, in the same pass as extraction.
+- **Long documents** - process an encoded context of up to 4,096 tokens, with chunking and offset remapping for longer documents.
+- **Multiple tasks at once** - combine entities, classification, structures, and relations in a single schema-constrained call instead of chaining several model requests.
+- **Consistent outputs** - use constrained classification or joint entity-relation decoding when labels and relation endpoints must agree.
 
-## Compare GLiNER generations
+GLiNER2.5 Multi also supports classification. Choose [GLiNER-2.5-Decide](/concepts/gliner-2-5-decide) when the input is English and classification itself—intent, routing, sentiment, priority, moderation, or scoring—is the primary workload.
 
-| | GLiNER2.5 | GLiNER2 | GLiNER |
-| --- | --- | --- | --- |
-| Architecture | Boundary prediction | Span enumeration | Span enumeration |
-| Primary use | Constraint-aware structured extraction | Entity extraction and structured parsing | Open-vocabulary NER |
-| Model sizes | 74M small, 194M base, 287M multilingual | 205M base, 300M multilingual | 50M small, 90M medium |
-| Input context | 4,096 words | 2,048 tokens | 512 tokens |
-| Maximum span length | No configured cap | 8 words | 12 words |
-| Text classification | Yes, with cross-task constraints | Yes | No |
-| Structured extraction | Yes | Yes | No |
-| Relation extraction | Yes | Yes | No |
-| Span attributes | Yes | No | No |
+## How to use GLiNER 2.5
 
-GLiNER2.5 is the recommended starting point for new extraction projects. Use GLiNER2 for existing schema-based integrations and the original GLiNER for open-vocabulary NER checkpoints built on the first-generation package.
+Call the multilingual checkpoint through Fastino's OpenAI-compatible inference endpoint. Put the text in a user message and describe the task in `schema`:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      { "role": "user", "content": "Apple CEO Tim Cook unveiled the iPhone 15 Pro in Cupertino." }
+    ],
+    "schema": {
+      "entities": [
+        { "name": "person", "description": "named individual" },
+        { "name": "organization", "description": "business or institution name" },
+        { "name": "product", "description": "named commercial product" },
+        { "name": "location", "description": "city, region, or place" }
+      ]
+    }
+  }'
+```
+
+Add `classifications`, `structures`, or `relations` keys to the same `schema` to run several tasks over the same text in one call. See the [Inference API](/inference/chat-completions) reference for the full request and response contract, including structured records and relation schemas.
+
+## Constrained classification with GLiNER2.5 Multi
+
+Use constrained classification when several answers must form one valid decision. Unlike classic `classifications`, which selects each task independently, the constrained decoder searches for a joint assignment that satisfies declared rules.
+
+GLiNER2.5 Multi supports three task shapes:
+
+| Task shape | Selection rule | Typical use |
+| --- | --- | --- |
+| Single answer | Select exactly one permitted answer | Intent, route, or policy verdict |
+| Multiple answers | Select zero or more answers, optionally with minimum and maximum counts | Topics, effects, or detected harms |
+| Ordinal | Select exactly one answer from a low-to-high ordered scale | Severity, urgency, or rating |
+
+Each task can include answer descriptions, an instruction, and labeled examples. These fields give the encoder context for scoring while keeping output restricted to the declared answers.
+
+Constraints connect those task results:
+
+| Constraint | Meaning |
+| --- | --- |
+| Implication | Selecting one answer requires another answer or condition |
+| Exclusion | Two answers cannot both be selected |
+| Cardinality | Require or limit how many answers a task selects |
+| Ordinal bound | Require an exact, minimum, maximum, or bounded level |
+
+The result contains each task's selected answer, answer probabilities, confidence, and `_meta.feasible`. Constraints can select a lower-probability answer when the independent top choices would violate a rule. They enforce consistency; they do not increase or recalibrate probabilities or confidence.
+
+For single-answer and ordinal tasks, confidence is the selected answer's probability. For multiple-answer tasks, it is the geometric mean of each selected answer's probability and each unselected answer's complement (`1 - probability`). An empty multiple-answer result without a default has no confidence value.
+
+See the [constrained-classification API example](/inference/chat-completions#constrained-classification-schema) for the complete hosted request, supported schema fields, constraints, and response.
 
 <CardGroup cols={2}>
   <Card title="Explore GLiNER2.5" icon="sparkles" href="https://fastino.ai/models/gliner2-5">
     Read about the architecture, benchmarks, and use cases.
   </Card>
 
+  <Card title="GLiNER-2.5-Decide" icon="sparkle" href="/concepts/gliner-2-5-decide">
+    Use the classification-tuned English model for operational decisions.
+  </Card>
+
   <Card title="View the model catalog" icon="table-list" href="/concepts/models">
     Browse Fastino models and their model IDs.
+  </Card>
+
+  <Card title="Inference API reference" icon="braces" href="/inference/chat-completions">
+    Full request and response contract, including structured records and relations.
   </Card>
 </CardGroup>

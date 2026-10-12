@@ -1,0 +1,115 @@
+---
+title: "GLiNER 2.5 Decide evaluieren und trainieren"
+sidebarTitle: "Evaluierung & Training"
+description: "Evaluieren Sie GLiNER 2.5 Decide, wählen Sie Multi-Label-Schwellenwerte aus und stimmen Sie das Modell für Ihre Domäne fein ab."
+---
+
+Evaluieren Sie genau das `classifications`-Schema, das Ihre Anwendung an `fastino/GLiNER-2.5-Decide` senden wird. Ändern Sie Labels oder Aufgabeneinstellungen nur zwischen Evaluierungsdurchläufen, damit die Ergebnisse vergleichbar bleiben.
+
+## Ein Decide-Schema evaluieren
+
+Beginnen Sie mit einer festgelegten Aufgabe:
+
+```json
+{
+  "task": "support_tags",
+  "labels": ["billing", "technical", "account", "security"],
+  "multi_label": true,
+  "cls_threshold": 0.5
+}
+```
+
+Erstellen Sie einen zurückgehaltenen Datensatz mit denselben Labelnamen. Nehmen Sie Folgendes auf:
+
+- Positive und negative Beispiele für jedes Label
+- Eingaben, bei denen mehrere Labels zurückgegeben werden sollten
+- Eingaben, bei denen kein Label den Schwellenwert erreichen sollte
+- Mehrdeutige und domänenfremde Texte
+
+Senden Sie jedes Beispiel über `POST /v1/chat/completions` mit derselben Decide-Modell-ID und demselben Schema. Parsen Sie vor der Auswertung des Aufgabenergebnisses den JSON-String in `choices[0].message.content`.
+
+Messen Sie für Single-Label-Decide-Aufgaben die Top-1-Genauigkeit und die Verwechslungen pro Label. Messen Sie für Multi-Label-Aufgaben Precision, Recall und F1 pro Label sowie über die gesamte Aufgabe hinweg. Wenn eine Anfrage mehrere Aufgaben enthält, evaluieren Sie jede Aufgabe unabhängig, da Decide keine Beziehungen zwischen ihnen erzwingt.
+
+## `cls_threshold` auswählen
+
+`cls_threshold` wirkt sich nur auf Aufgaben mit `multi_label: true` aus. Decide gibt Labels zurück, die den Schwellenwert erreichen, und lässt die übrigen weg:
+
+- Erhöhen Sie ihn, um weniger Labels zurückzugeben und im Allgemeinen Precision zu begünstigen.
+- Senken Sie ihn, um mehr Labels zurückzugeben und im Allgemeinen Recall zu begünstigen.
+- Single-Label-Aufgaben geben immer das Label mit dem höchsten Score zurück.
+- Schwellenwerte wirken sich nur auf die Inferenz aus; sie ändern das Training nicht.
+
+Führen Sie den zurückgehaltenen Datensatz für jeden in Betracht kommenden Schwellenwert erneut aus, da die Antwort nur die bei diesem Schwellenwert ausgewählten Labels enthält. Wählen Sie für jede Aufgabe einen eigenen Schwellenwert, wenn falsch-positive und falsch-negative Ergebnisse unterschiedliche Kosten verursachen.
+
+Betrachten Sie `0.5` nicht als universellen Standardwert. Verwenden Sie für Labels, die folgenreiche Aktionen auslösen, einen strengeren Schwellenwert oder leiten Sie Ergebnisse mit niedriger Konfidenz zur Überprüfung weiter.
+
+## GLiNER 2.5 Decide trainieren
+
+Trainieren Sie nur, wenn das Basismodell Ihre Domäne weiterhin nicht zuverlässig abdeckt, nachdem Sie die Labeltaxonomie präzisiert und die Multi-Label-Schwellenwerte abgestimmt haben.
+
+Der aktuelle Live-Katalog der Basismodelle gibt Folgendes an:
+
+```json
+{
+  "id": "fastino/GLiNER-2.5-Decide",
+  "supports_training": true,
+  "training_types": ["lora"]
+}
+```
+
+Prüfen Sie `GET /v1/base-models?supports_training=true`, bevor Sie einen Job erstellen, da sich die Verfügbarkeit im Katalog ändern kann. Verwenden Sie `fastino/GLiNER-2.5-Decide` als `base_model` und `lora` als `training_type`.
+
+### Decide-Klassifizierungsdaten vorbereiten
+
+Verwenden Sie das öffentliche JSONL-Klassifizierungsformat. Jede Zeile enthält `text` und entweder ein `label` oder mehrere `labels`:
+
+```jsonl
+{"text":"I was charged twice for the same invoice.","label":"billing"}
+{"text":"I cannot sign in and suspect my account was compromised.","labels":["account","security"]}
+```
+
+Die Labels im Datensatz müssen dieselben stabilen Strings verwenden, die Sie im Decide-Inferenzschema übergeben. Mischen Sie Single-Label- und Multi-Label-Zeilenformate nicht in einem Datensatz und nehmen Sie den zurückgehaltenen Evaluierungsdatensatz nicht in den Trainings-Upload auf.
+
+<Card title="Klassifizierungsdatensatz hochladen" icon="database" href="/de/concepts/datasets">
+  Erstellen, laden, verarbeiten und versionieren Sie den JSONL-Datensatz, den der Decide-Trainingsjob verwendet.
+</Card>
+
+### Decide-Trainingsjob erstellen
+
+Übermitteln Sie den einsatzbereiten Datensatz für das Decide-Basismodell:
+
+```bash
+curl -X POST https://api.fastino.ai/v1/training-jobs \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "support-decide",
+    "base_model": "fastino/GLiNER-2.5-Decide",
+    "datasets": [{"name": "support-decide-training"}],
+    "training_type": "lora",
+    "validation_data_percentage": 0.2
+  }'
+```
+
+Lassen Sie Lernrate, Batchgröße und LoRA-Parameter weg, sofern Sie keine Belege dafür haben, vom Decide-Trainingsrezept abzuweichen. Speichern Sie die zurückgegebene Trainingsjob-ID und fragen Sie den Status ab, bis das Artefakt bereitgestellt werden kann.
+
+### Vergleichen und bereitstellen
+
+Führen Sie das Basismodell und den trainierten Checkpoint mit demselben zurückgehaltenen Datensatz und demselben `classifications`-Schema aus. Vergleichen Sie:
+
+- Fehler pro Label bei Single-Label-Aufgaben
+- Precision, Recall und F1 pro Label bei Multi-Label-Aufgaben
+- Leere und übermäßig umfangreiche Multi-Label-Ergebnisse
+- Den für jede Aufgabe erforderlichen Schwellenwert
+
+Stellen Sie einen Checkpoint nur bereit, wenn er die für Sie relevanten Fehler auf Anwendungsebene reduziert. Wiederholen Sie nach der Bereitstellung die Auswahl der Schwellenwerte; durch Fine-Tuning können sich die Decide-Konfidenzwerte ändern, selbst wenn die vorhergesagten Labels gleich bleiben.
+
+<CardGroup cols={2}>
+  <Card title="Trainingsjobs" icon="activity" href="/de/training">
+    Überwachen Sie den Decide-Job, die Checkpoints und den Bereitstellungsstatus.
+  </Card>
+
+  <Card title="Training-API-Referenz" icon="book" href="/de/api-reference/training/overview">
+    Prüfen Sie die genauen Verträge für Datensätze und Trainingsjobs.
+  </Card>
+</CardGroup>

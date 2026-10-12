@@ -1,0 +1,159 @@
+---
+title: "Classification GLiNER 2.5 Decide"
+sidebarTitle: "Classification"
+description: "Configurez les tâches de classification de Decide et analysez leurs résultats mono-étiquette, multi-étiquettes ou à tâches multiples."
+---
+
+Ajoutez un tableau `schema.classifications` au premier niveau pour définir une ou plusieurs tâches de classification. Chaque tâche accepte exactement les clés suivantes :
+
+<ParamField body="task" type="string" required>
+  Un nom stable pour la tâche de classification. Le même nom apparaît dans le résultat analysé.
+</ParamField>
+
+<ParamField body="labels" type="string[]" required>
+  Au moins une étiquette est requise. Decide n'accepte pas les objets associant étiquettes et descriptions.
+</ParamField>
+
+<ParamField body="multi_label" type="boolean" default="false">
+  Lorsque la valeur est `false`, renvoie l'unique étiquette ayant le score le plus élevé. Lorsqu'elle est `true`, renvoie chaque étiquette qui atteint `cls_threshold`.
+</ParamField>
+
+<ParamField body="cls_threshold" type="number">
+  Un seuil d'inférence compris entre `0` et `1` pour les tâches multi-étiquettes. Il n'affecte pas l'entraînement et ne modifie pas la sélection mono-étiquette.
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  Accepté à des fins de compatibilité, mais n'a actuellement aucun effet sur GLiNER 2.5 Decide.
+</ParamField>
+
+## Analyser le résultat
+
+Le résultat de classification est sérialisé au format JSON dans `choices[0].message.content`. Analysez cette chaîne avant de lire les tâches :
+
+```python
+import json
+
+body = response.json()
+result = json.loads(body["choices"][0]["message"]["content"])
+```
+
+Ne lisez pas les tâches de classification directement dans `choices[0]`.
+
+## Classification mono-étiquette
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Les tâches mono-étiquette renvoient toujours l'étiquette ayant le score le plus élevé. Les étiquettes ne sont pas ordonnées : répertorier `low`, `medium` et `high` dans cet ordre ne crée pas d'échelle ordinale.
+
+Le nom `task` devient la clé du résultat analysé :
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.999862551689148
+  }
+}
+```
+
+`label` est l'une des chaînes du tableau `labels`, et `confidence` est compris entre `0` et `1`.
+
+## Classification multi-étiquettes
+
+```json
+{
+  "classifications": [
+    {
+      "task": "tags",
+      "labels": ["technical_issue", "login_problem", "urgent", "human_handoff"],
+      "multi_label": true,
+      "cls_threshold": 0.2
+    }
+  ]
+}
+```
+
+Les tâches multi-étiquettes renvoient un tableau contenant chaque étiquette sélectionnée et son niveau de confiance. Augmentez `cls_threshold` pour favoriser la précision ; diminuez-le pour favoriser le rappel.
+
+```json
+{
+  "tags": [
+    {"label": "technical_issue", "confidence": 0.4421546757221222},
+    {"label": "login_problem", "confidence": 0.21206879615783691},
+    {"label": "urgent", "confidence": 0.4834045469760895},
+    {"label": "human_handoff", "confidence": 0.8267117738723755}
+  ]
+}
+```
+
+Seules les étiquettes qui atteignent `cls_threshold` sont sélectionnées. Un seuil plus strict peut produire un tableau plus court ou vide.
+
+## Exécuter plusieurs tâches dans une requête
+
+```json
+{
+  "classifications": [
+    {
+      "task": "intent",
+      "labels": ["refund_request", "cancel_subscription", "login_problem"],
+      "multi_label": false
+    },
+    {
+      "task": "urgency",
+      "labels": ["low", "normal", "high", "critical"],
+      "multi_label": false
+    }
+  ]
+}
+```
+
+Les tâches sont évaluées en une seule passe avant, mais restent indépendantes. La classification classique n'impose pas d'implications, d'exclusions, de règles de cardinalité ni de relations ordinales entre les tâches.
+
+Le résultat analysé contient une clé par nom de tâche :
+
+```json
+{
+  "intent": {
+    "label": "refund_request",
+    "confidence": 0.99
+  },
+  "urgency": {
+    "label": "normal",
+    "confidence": 0.82
+  }
+}
+```
+
+## Schéma par défaut
+
+Si vous omettez à la fois `schema` et `response_format`, Decide utilise sa tâche `intent` par défaut du catalogue avec `book`, `cancel`, `change` et `status`. La réponse indique `x_fastino.default_schema_applied: true` lorsque ce schéma par défaut est utilisé.
+
+## Erreurs de validation fréquentes
+
+| Entrée non valide | Utilisez plutôt |
+| --- | --- |
+| `"labels": {"book": "user wants to book"}` | `"labels": ["book", "cancel"]` |
+| Une clé `label_descriptions` | Supprimez-la et conservez les étiquettes sous forme de chaînes |
+| Une clé `description` sur une tâche | Supprimez-la |
+| `"threshold": 0.5` dans une tâche | `"cls_threshold": 0.5` avec `"multi_label": true` |
+| Liste d'étiquettes vide | Fournissez au moins une étiquette |
+
+<CardGroup cols={2}>
+  <Card title="Évaluation et entraînement" icon="sliders" href="/fr/concepts/gliner-2-5-decide-thresholds">
+    Évaluez la qualité, ajustez les seuils et adaptez le modèle à votre domaine.
+  </Card>
+
+  <Card title="Référence de l'API" icon="book" href="/fr/api-reference/inference/chat-completions">
+    Consultez l'enveloppe et le schéma de réponse complets de Chat Completions.
+  </Card>
+</CardGroup>

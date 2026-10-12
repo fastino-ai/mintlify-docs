@@ -1,0 +1,100 @@
+---
+title: "Inférence GLiNER-2 native"
+sidebarTitle: "POST /v1/gliner-2"
+description: "Exécutez une extraction et une classification GLiNER-2 natives et synchrones avec le schéma GLiNER unifié, avec des exemples d'entités et de classification."
+api: "POST /v1/gliner-2"
+---
+
+`POST /v1/gliner-2`
+
+Exécutez une extraction et une classification GLiNER-2 natives et synchrones. Le panneau OpenAPI de cette
+page est la source de vérité pour chaque champ de requête et de réponse.
+
+Utilisez `POST /v1/chat/completions` lorsque vous avez besoin d'un modèle hébergé nommé, d'un modèle fine-tuné,
+de la persistance des inférences ou de l'enveloppe compatible OpenAI. Cet endpoint natif sélectionne pour vous
+le modèle de base Fastino GLiNER-2.
+
+## Schéma de requête
+
+La requête exige :
+
+- `text` : une chaîne ou un tableau de chaînes.
+- `schema` : le dictionnaire de schéma GLiNER unifié. L'ancien tableau plat d'étiquettes est obsolète.
+
+Elle accepte également `threshold`, `include_confidence`, `include_spans` et `format_results`.
+Omettez `task` : il s'agit d'un ancien indice obsolète, et le schéma identifie l'opération.
+
+## Exemple d'extraction d'entités
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple CEO Tim Cook introduced the iPhone in Cupertino.",
+    "schema": {
+      "entities": [
+        {"name": "person", "description": "named individual"},
+        {"name": "organization", "description": "business or institution"},
+        {"name": "product", "description": "named commercial product"},
+        {"name": "location", "description": "city, region, or place"}
+      ]
+    },
+    "threshold": 0.5,
+    "include_confidence": true,
+    "include_spans": true
+  }'
+```
+
+## Exemple de classification
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/gliner-2" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The replacement arrived quickly and works perfectly.",
+    "schema": {
+      "classifications": [
+        {
+          "task": "sentiment",
+          "labels": ["positive", "negative", "neutral"],
+          "multi_label": false,
+          "top_k": 1
+        }
+      ]
+    }
+  }'
+```
+
+Chaque classification classique exige au moins une étiquette. Pour chaque forme prise en charge d'entité,
+de classification, de structure, de relation, d'enregistrement, d'attribut et de classification contrainte,
+consultez la
+[référence complète du schéma GLiNER de `POST /v1/chat/completions`](/fr/api-reference/inference/chat-completions).
+
+## Schéma de réponse
+
+Une réponse réussie contient :
+
+- `result` : le résultat d'extraction ou de classification, structuré selon le schéma.
+- `token_usage` : le nombre de tokens d'entrée traités.
+
+```json
+{
+  "result": {
+    "entities": [
+      {
+        "text": "Apple",
+        "label": "organization",
+        "score": 0.99,
+        "start": 0,
+        "end": 5
+      }
+    ]
+  },
+  "token_usage": 10
+}
+```
+
+Lorsque `text` est un tableau, `result` est un tableau dans le même ordre que l'entrée. N'envoyez pas cette
+forme de lot via `POST /v1/chat/completions` ; soumettez plutôt ces conversations séparément.

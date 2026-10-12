@@ -1,43 +1,94 @@
 ---
-title: "GLiNER"
-sidebarTitle: "GLiNER"
-description: "比较 GLiNER2.5、GLiNER2 与 GLiNER，用于高效的信息抽取。"
+title: "GLiNER2.5"
+sidebarTitle: "概览"
+description: "了解何时以及如何使用 GLiNER2.5 Multi 进行多语言、由 schema 驱动的信息抽取。"
 ---
 
-GLiNER 是一个用于高效信息抽取的开源小型语言模型系列。
+GLiNER2.5 Multi 是 Fastino 的多语言、多任务信息抽取模型。使用一个 schema 即可抽取实体、分类文本、构建结构化记录、识别关系并为 span 添加属性。
 
-## GLiNER2.5
+## 何时使用 GLiNER 2.5
 
-GLiNER2.5 用边界预测架构取代了跨度枚举。它支持模型上下文范围内任意长度的跨度、长上下文抽取、联合实体-关系抽取、约束分类以及跨度属性。它保持了小体量，无需 GPU 也能运行。
+当抽取或多语言覆盖是任务核心时，请使用 GLiNER2.5 Multi。
 
-- **无限跨度长度**：抽取完整地址、法律条文引用以及其他长实体，无需配置最大跨度宽度。
-- **约束分类**：在多个分类任务之间声明规则，避免出现相互矛盾的标签组合。
-- **跨度属性**：在同一次前向传递中，按情感、严重程度或否定等属性对抽取出的跨度进行分类。
-- **长上下文抽取**：处理合同、报告和会议记录，支持 4,096 词的上下文，并可在保留偏移量的前提下对更长的文档进行分块。
-- **联合信息抽取**：将实体和关系作为一个受 schema 约束的图一并抽取，可用于知识库和智能体记忆。
+- **实体抽取**：从自由文本中抽取人物、组织、产品、地点或特定领域的实体（药物、剂量、条款），并附带字符偏移量和置信度分数。
+- **结构化记录**：将 "Alice bought apples and Bob bought oranges" 转换为 `[{"buyer": "Alice", "item": "apples"}, {"buyer": "Bob", "item": "oranges"}]`，并保持每个实例的字段相互关联。
+- **关系与知识图谱抽取**：抽取带类型的实体-关系图（`works_for`、`located_in`），用于智能体记忆或知识库。
+- **跨度属性**：在抽取的同一次处理中，为每个抽取出的实体标注属性，例如针对每个人物的情感。
+- **长文档**：处理最多 4,096 tokens 的编码上下文，并对更长的文档进行分块和偏移量重映射。
+- **一次执行多个任务**：在一次受 schema 约束的调用中组合实体、分类、结构和关系，而无需串联多个模型请求。
+- **一致的输出**：当标签和关系端点必须保持一致时，使用受约束分类或联合实体关系解码。
 
-## 比较各代 GLiNER
+GLiNER2.5 Multi 也支持分类。当输入为英文且分类本身--意图、路由、情感、优先级、审核或评分--是主要工作负载时，请选择 [GLiNER-2.5-Decide](/cn/concepts/gliner-2-5-decide)。
 
-| | GLiNER2.5 | GLiNER2 | GLiNER |
-| --- | --- | --- | --- |
-| 架构 | 边界预测 | 跨度枚举 | 跨度枚举 |
-| 主要用途 | 感知约束的结构化抽取 | 实体抽取与结构化解析 | 开放词表 NER |
-| 模型规模 | 74M small、194M base、287M 多语言 | 205M base、300M 多语言 | 50M small、90M medium |
-| 输入上下文 | 4,096 词 | 2,048 tokens | 512 tokens |
-| 最大跨度长度 | 无预设上限 | 8 词 | 12 词 |
-| 文本分类 | 是，支持跨任务约束 | 是 | 否 |
-| 结构化抽取 | 是 | 是 | 否 |
-| 关系抽取 | 是 | 是 | 否 |
-| 跨度属性 | 是 | 否 | 否 |
+## 如何使用 GLiNER 2.5
 
-对于新的抽取项目，推荐从 GLiNER2.5 开始。若已有基于 schema 的集成，可继续使用 GLiNER2；若需要基于第一代软件包构建的开放词表 NER 检查点，可使用最初的 GLiNER。
+通过 Fastino 兼容 OpenAI 的推理端点调用多语言检查点。将文本放在用户消息中，并在 `schema` 中描述任务：
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      { "role": "user", "content": "Apple CEO Tim Cook unveiled the iPhone 15 Pro in Cupertino." }
+    ],
+    "schema": {
+      "entities": [
+        { "name": "person", "description": "named individual" },
+        { "name": "organization", "description": "business or institution name" },
+        { "name": "product", "description": "named commercial product" },
+        { "name": "location", "description": "city, region, or place" }
+      ]
+    }
+  }'
+```
+
+在同一个 `schema` 中添加 `classifications`、`structures` 或 `relations` 键，即可在一次调用中对同一段文本运行多个任务。有关完整的请求和响应约定（包括结构化记录和关系 schema），请参阅 [推理 API](/cn/inference/chat-completions) 参考。
+
+## 使用 GLiNER2.5 Multi 进行受约束分类
+
+当多个答案必须共同构成一个有效决策时，请使用受约束分类。经典 `classifications` 会独立地为每个任务做出选择，而受约束解码器会搜索满足所声明规则的联合分配。
+
+GLiNER2.5 Multi 支持三种任务形式：
+
+| 任务形式 | 选择规则 | 典型用途 |
+| --- | --- | --- |
+| 单一答案 | 恰好选择一个允许的答案 | 意图、路由或策略判定 |
+| 多个答案 | 选择零个或多个答案，可选设置最小和最大数量 | 主题、影响或检测到的危害 |
+| 有序 | 从由低到高排列的等级中恰好选择一个答案 | 严重程度、紧急程度或评分 |
+
+每个任务都可以包含答案描述、指令和带标签的示例。这些字段为编码器评分提供上下文，同时输出仍仅限于所声明的答案。
+
+约束将这些任务结果关联起来：
+
+| 约束 | 含义 |
+| --- | --- |
+| 蕴含 | 选择某个答案时，必须同时满足另一个答案或条件 |
+| 排斥 | 两个答案不能同时被选中 |
+| 基数 | 要求或限制一个任务选中的答案数量 |
+| 等级界限 | 要求精确等级、最低等级、最高等级或限定等级范围 |
+
+结果包含每个任务选中的答案、答案概率、置信度以及 `_meta.feasible`。当各任务独立的最高选项会违反规则时，约束可能会选择概率较低的答案。约束用于保证一致性；它们不会提高或重新校准概率或置信度。
+
+对于单一答案任务和有序任务，置信度是所选答案的概率。对于多个答案任务，置信度是每个已选答案概率与每个未选答案补值（`1 - probability`）的几何平均数。没有默认值且结果为空的多个答案任务没有置信度值。
+
+有关完整的托管请求、支持的 schema 字段、约束和响应，请参阅[受约束分类 API 示例](/cn/inference/chat-completions#受约束分类-schema)。
 
 <CardGroup cols={2}>
   <Card title="了解 GLiNER2.5" icon="sparkles" href="https://fastino.ai/models/gliner2-5">
     阅读其架构、基准测试和使用场景。
   </Card>
 
+  <Card title="GLiNER-2.5-Decide" icon="sparkle" href="/cn/concepts/gliner-2-5-decide">
+    对于运营决策，请使用针对英文分类调优的模型。
+  </Card>
+
   <Card title="查看模型目录" icon="table-list" href="/cn/concepts/models">
     浏览 Fastino 模型及其模型 ID。
+  </Card>
+
+  <Card title="推理 API 参考" icon="braces" href="/cn/inference/chat-completions">
+    完整的请求和响应约定，包括结构化记录和关系。
   </Card>
 </CardGroup>

@@ -1,43 +1,94 @@
 ---
-title: "GLiNER"
-sidebarTitle: "GLiNER"
-description: "Compara GLiNER2.5, GLiNER2 y GLiNER para una extracción de información eficiente."
+title: "GLiNER2.5"
+sidebarTitle: "Descripción general"
+description: "Descubre cuándo y cómo usar GLiNER2.5 Multi para extracción de información multilingüe basada en esquemas."
 ---
 
-GLiNER es una familia de código abierto de modelos de lenguaje pequeños para una extracción de información eficiente.
+GLiNER2.5 Multi es el modelo multilingüe y multitarea de Fastino para extracción de información. Usa un solo esquema para extraer entidades, clasificar texto, crear registros estructurados, identificar relaciones y añadir atributos a spans.
 
-## GLiNER2.5
+## Cuándo usar GLiNER 2.5
 
-GLiNER2.5 sustituye la enumeración de spans por una arquitectura de predicción de límites. Admite spans de cualquier longitud dentro del contexto del modelo, extracción de contexto largo, extracción conjunta de entidades y relaciones, clasificación con restricciones y atributos de span. Sigue siendo pequeño y puede ejecutarse sin GPU.
+Usa GLiNER2.5 Multi cuando la extracción o la cobertura multilingüe sean fundamentales:
 
-- **Longitud de span ilimitada**: extrae direcciones completas, referencias legales y otras entidades largas sin configurar un ancho máximo de span.
-- **Clasificación con restricciones**: declara reglas entre tareas de clasificación para evitar combinaciones de etiquetas contradictorias.
-- **Atributos de span**: clasifica los spans extraídos según atributos como sentimiento, gravedad o negación en la misma pasada hacia adelante.
-- **Extracción de contexto largo**: procesa contratos, informes y transcripciones con un contexto de 4,096 palabras y divide documentos más largos en fragmentos preservando los offsets.
-- **Extracción conjunta de información**: extrae entidades y relaciones como un único grafo con restricciones de esquema para bases de conocimiento y memoria de agentes.
+- **Extracción de entidades**: extrae personas, organizaciones, productos, ubicaciones o entidades específicas del dominio (medicamentos, dosis, cláusulas) de texto libre, con offsets de caracteres y puntuaciones de confianza.
+- **Registros estructurados**: convierte "Alice bought apples and Bob bought oranges" en `[{"buyer": "Alice", "item": "apples"}, {"buyer": "Bob", "item": "oranges"}]`, manteniendo vinculados los campos de cada instancia.
+- **Extracción de relaciones y grafos de conocimiento**: extrae grafos tipados de entidades y relaciones (`works_for`, `located_in`) para la memoria de agentes o una base de conocimiento.
+- **Atributos de span**: etiqueta cada entidad extraída con un atributo, como el sentimiento por persona, en la misma pasada que la extracción.
+- **Documentos largos**: procesa un contexto codificado de hasta 4,096 tokens, con división en fragmentos y reasignación de offsets para documentos más largos.
+- **Varias tareas a la vez**: combina entidades, clasificación, estructuras y relaciones en una única llamada con restricciones de esquema en lugar de encadenar varias solicitudes al modelo.
+- **Resultados coherentes**: usa clasificación con restricciones o extracción conjunta de entidades y relaciones cuando las etiquetas y los extremos de las relaciones deban coincidir.
 
-## Compara las generaciones de GLiNER
+GLiNER2.5 Multi también admite clasificación. Elige [GLiNER-2.5-Decide](/es/concepts/gliner-2-5-decide) cuando el texto esté en inglés y la clasificación -intención, enrutamiento, sentimiento, prioridad, moderación o puntuación- sea la carga principal.
 
-| | GLiNER2.5 | GLiNER2 | GLiNER |
-| --- | --- | --- | --- |
-| Arquitectura | Predicción de límites | Enumeración de spans | Enumeración de spans |
-| Uso principal | Extracción estructurada con restricciones | Extracción de entidades y parsing estructurado | NER de vocabulario abierto |
-| Tamaños de modelo | 74M small, 194M base, 287M multilingüe | 205M base, 300M multilingüe | 50M small, 90M medium |
-| Contexto de entrada | 4,096 palabras | 2,048 tokens | 512 tokens |
-| Longitud máxima de span | Sin límite configurado | 8 palabras | 12 palabras |
-| Clasificación de texto | Sí, con restricciones entre tareas | Sí | No |
-| Extracción estructurada | Sí | Sí | No |
-| Extracción de relaciones | Sí | Sí | No |
-| Atributos de span | Sí | No | No |
+## Cómo usar GLiNER 2.5
 
-GLiNER2.5 es el punto de partida recomendado para nuevos proyectos de extracción. Usa GLiNER2 para integraciones existentes basadas en esquemas y el GLiNER original para checkpoints de NER de vocabulario abierto construidos sobre el paquete de primera generación.
+Llama al checkpoint multilingüe a través del endpoint de inferencia de Fastino compatible con OpenAI. Coloca el texto en un mensaje de usuario y describe la tarea en `schema`:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "Authorization: Bearer $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/gliner2.5-multi-v1",
+    "messages": [
+      { "role": "user", "content": "Apple CEO Tim Cook unveiled the iPhone 15 Pro in Cupertino." }
+    ],
+    "schema": {
+      "entities": [
+        { "name": "person", "description": "named individual" },
+        { "name": "organization", "description": "business or institution name" },
+        { "name": "product", "description": "named commercial product" },
+        { "name": "location", "description": "city, region, or place" }
+      ]
+    }
+  }'
+```
+
+Añade las claves `classifications`, `structures` o `relations` al mismo `schema` para ejecutar varias tareas sobre el mismo texto en una sola llamada. Consulta la referencia de la [API de inferencia](/es/inference/chat-completions) para ver el contrato completo de solicitud y respuesta, incluidos los registros estructurados y los esquemas de relaciones.
+
+## Clasificación con restricciones con GLiNER2.5 Multi
+
+Usa la clasificación con restricciones cuando varias respuestas deban formar una única decisión válida. A diferencia de `classifications` clásico, que selecciona cada tarea de forma independiente, el decodificador con restricciones busca una asignación conjunta que cumpla las reglas declaradas.
+
+GLiNER2.5 Multi admite tres formas de tarea:
+
+| Forma de tarea | Regla de selección | Uso típico |
+| --- | --- | --- |
+| Respuesta única | Selecciona exactamente una respuesta permitida | Intención, ruta o veredicto de política |
+| Varias respuestas | Selecciona cero o más respuestas, opcionalmente con un número mínimo y máximo | Temas, efectos o daños detectados |
+| Ordinal | Selecciona exactamente una respuesta de una escala ordenada de menor a mayor | Gravedad, urgencia o valoración |
+
+Cada tarea puede incluir descripciones de las respuestas, una instrucción y ejemplos etiquetados. Estos campos dan contexto al codificador para la puntuación, mientras la salida se mantiene limitada a las respuestas declaradas.
+
+Las restricciones conectan los resultados de esas tareas:
+
+| Restricción | Significado |
+| --- | --- |
+| Implicación | Seleccionar una respuesta exige otra respuesta o condición |
+| Exclusión | Dos respuestas no pueden seleccionarse a la vez |
+| Cardinalidad | Exige o limita cuántas respuestas selecciona una tarea |
+| Límite ordinal | Exige un nivel exacto, mínimo, máximo o acotado |
+
+El resultado contiene la respuesta seleccionada de cada tarea, las probabilidades de las respuestas, la confianza y `_meta.feasible`. Las restricciones pueden seleccionar una respuesta de menor probabilidad cuando las opciones principales independientes infringirían una regla. Garantizan la coherencia; no aumentan ni recalibran las probabilidades ni la confianza.
+
+En las tareas de respuesta única y ordinales, la confianza es la probabilidad de la respuesta seleccionada. En las tareas de varias respuestas, es la media geométrica de la probabilidad de cada respuesta seleccionada y del complemento de cada respuesta no seleccionada (`1 - probability`). Un resultado vacío de varias respuestas sin valor predeterminado no tiene valor de confianza.
+
+Consulta el [ejemplo de API de clasificación con restricciones](/es/inference/chat-completions#esquema-de-clasificación-con-restricciones) para ver la solicitud alojada completa, los campos de esquema admitidos, las restricciones y la respuesta.
 
 <CardGroup cols={2}>
   <Card title="Explora GLiNER2.5" icon="sparkles" href="https://fastino.ai/models/gliner2-5">
     Lee sobre la arquitectura, los benchmarks y los casos de uso.
   </Card>
 
+  <Card title="GLiNER-2.5-Decide" icon="sparkle" href="/es/concepts/gliner-2-5-decide">
+    Usa el modelo ajustado para clasificación en inglés para decisiones operativas.
+  </Card>
+
   <Card title="Ver el catálogo de modelos" icon="table-list" href="/es/concepts/models">
     Explora los modelos de Fastino y sus IDs de modelo.
+  </Card>
+
+  <Card title="Referencia de la API de inferencia" icon="braces" href="/es/inference/chat-completions">
+    Contrato completo de solicitud y respuesta, incluidos los registros estructurados y las relaciones.
   </Card>
 </CardGroup>

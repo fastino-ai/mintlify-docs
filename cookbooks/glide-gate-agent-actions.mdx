@@ -1,0 +1,134 @@
+---
+title: "Cookbook: Gate an agent's next move"
+sidebarTitle: "Gate an agent's next move"
+description: "Check an agent's proposed action against your policy and decide whether it acts, asks the user first, or keeps looking."
+---
+
+An agent about to spend money or change data should check the move against your rules first. Put the goal, the proposed action, and the policy in `state`, then ask GLiDE what the agent should do next. Your code, not the model, carries out the decision.
+
+## Request
+
+```bash
+curl -X POST https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/GLiDE",
+  "state": {
+    "goal": "Book the cheapest flight to Lisbon next Friday",
+    "proposed_action": "Book TAP 1:05 PM for $212. The fare is non-refundable.",
+    "policy": "Confirm with the user before any non-refundable purchase over $100.",
+    "last_user_message": "just get it done, thanks!"
+  },
+  "questions": {
+    "next_step": {
+      "type": "choice",
+      "instructions": "What should the agent do next?",
+      "criteria": {
+        "confirm": "Check with the user before acting",
+        "book": "Book it now",
+        "search": "Keep searching for other options"
+      }
+    },
+    "reversible": {
+      "type": "noul",
+      "instructions": "Can the proposed action be undone after it runs?",
+      "criteria": {
+        "true": "It can be undone",
+        "false": "It cannot be undone"
+      }
+    }
+  }
+}'
+```
+
+## Request schema
+
+| Field | Type | In this recipe |
+| --- | --- | --- |
+| `model` | string | `fastino/GLiDE`. |
+| `state.goal` | string | What the user asked the agent to do. |
+| `state.proposed_action` | string | The exact action the agent is about to take, with the facts that matter (price, refundability). |
+| `state.policy` | string | The rule that applies. GLiDE weighs it against the user's message. |
+| `state.last_user_message` | string | What the user said most recently. |
+| `questions.next_step` | [Choice](/concepts/glide-choice) | One outcome per branch your agent can take. |
+| `questions.reversible` | [Noul](/concepts/glide-noul) | A second, independent check you can log or combine with `next_step`. |
+
+## Response
+
+Measured against `https://api.fastino.ai`. Confidence values vary slightly between calls.
+
+```json
+{
+  "model": "glide_v2",
+  "answers": {
+    "next_step": {
+      "type": "choice",
+      "choice": "confirm",
+      "confidence": 0.934,
+      "probabilities": {
+        "confirm": 0.964,
+        "book": 0.03,
+        "search": 0.005
+      }
+    },
+    "reversible": {
+      "type": "noul",
+      "noul": 0.028,
+      "confidence": 0.945
+    }
+  },
+  "usage": {
+    "input_tokens": 280,
+    "output_tokens": 0
+  }
+}
+```
+
+The user said "just get it done", but the policy requires confirmation for a non-refundable purchase over \$100, so GLiDE picks `confirm`. Remove the `policy` line and the same request returns `book`. Put the rule in `state` whenever it should win.
+
+## Response schema
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `answers.next_step.choice` | string | `confirm`, `book`, or `search`. |
+| `answers.next_step.confidence` | number | How certain GLiDE is, from 0 to 1. |
+| `answers.next_step.probabilities` | object | Probability for every outcome. |
+| `answers.reversible.noul` | number | Probability that the action can be undone. Here it is close to 0. |
+
+## Act on the answer
+
+```python
+answers = response.json()["answers"]
+step = answers["next_step"]
+reversible = answers["reversible"]["noul"] >= 0.5
+
+if step["choice"] == "book" and step["confidence"] >= 0.8 and reversible:
+    agent.run(proposed_action)
+elif step["choice"] == "search":
+    agent.keep_searching()
+else:
+    agent.ask_user(f"Before I go ahead: {proposed_action} OK?")
+```
+
+Only the safest path, asking the user, is the fallback. An uncertain or irreversible answer never executes on its own.
+
+## Adapt it
+
+- Make each `criteria` key a branch your agent already supports, such as `run`, `ask_user`, `escalate`, or `abort`.
+- Quote the policy text exactly. GLiDE applies the rule you supply; it does not know your policies otherwise.
+- Include the facts the policy depends on (amount, recipient, refundability) in `proposed_action`.
+- Keep the final check in code. For example, never let a spend over a hard limit run, whatever the answer.
+
+<Warning>
+  Use GLiDE as decision support, not as the only safeguard for irreversible or high-impact actions. Validate on representative cases and keep a human-review path.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Policy and safety guide" icon="shield-check" href="/guides/glide-policy-safety">
+    Design gates that fail safely on uncertainty.
+  </Card>
+  <Card title="GLiDE API reference" icon="code" href="/api-reference/inference/systemone">
+    Every field, limit, and error for `POST /v1/systemone`.
+  </Card>
+</CardGroup>

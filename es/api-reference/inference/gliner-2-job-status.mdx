@@ -1,0 +1,82 @@
+---
+title: "Consultar un trabajo asíncrono de GLiNER-2"
+sidebarTitle: "GET /v1/gliner-2/jobs/{job_id}"
+description: "Consulta un trabajo asíncrono de GLiNER-2 por su job_id hasta que se complete o falle, con ejemplos de respuestas en proceso, completadas y de error."
+api: "GET /v1/gliner-2/jobs/{job_id}"
+---
+
+`GET /v1/gliner-2/jobs/{job_id}`
+
+Consulta un trabajo asíncrono de GLiNER-2 hasta que se complete o falle. Usa la misma API key con la que
+enviaste el trabajo; los trabajos están limitados al usuario autenticado.
+
+El panel OpenAPI de esta página es la fuente de verdad para el parámetro de ruta `job_id` y
+cada campo de la respuesta.
+
+## Ejemplo de solicitud
+
+```bash
+curl "https://api.fastino.ai/v1/gliner-2/jobs/3f08a17f-777a-4aa6-8ec5-879df37775a8" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Respuesta en procesamiento
+
+Sigue consultando mientras `status` sea `pending` o `processing`:
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "pending",
+  "result": null,
+  "error": null,
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": null
+}
+```
+
+## Respuesta completada
+
+Deja de consultar cuando `status` sea `complete`. El `result` sigue el esquema de la
+solicitud de envío:
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "complete",
+  "result": {
+    "entities": [
+      {
+        "text": "Apple",
+        "label": "organization",
+        "score": 0.99,
+        "start": 0,
+        "end": 5
+      }
+    ]
+  },
+  "error": null,
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": "2026-10-07T22:13:42+00:00"
+}
+```
+
+## Respuesta de error
+
+Un trabajo finalizado puede indicar `status: "error"` con un mensaje en `error`:
+
+```json
+{
+  "job_id": "3f08a17f-777a-4aa6-8ec5-879df37775a8",
+  "status": "error",
+  "result": null,
+  "error": "The input could not be processed",
+  "token_usage": 1284307,
+  "created_at": "2026-10-07T22:10:00+00:00",
+  "completed_at": "2026-10-07T22:10:08+00:00"
+}
+```
+
+Un trabajo desconocido, o que pertenezca a otro usuario, devuelve `404`.

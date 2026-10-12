@@ -1,0 +1,89 @@
+---
+title: "Choice"
+sidebarTitle: "Choice"
+description: "Lassen Sie GLiDE eine vom Aufrufer definierte Option auswählen und die vollständige Wahrscheinlichkeitsverteilung zurückgeben."
+---
+
+Eine **Choice**-Frage lässt GLiDE eine Option aus einer festen, vom Aufrufer definierten Menge von 2 bis 255 benannten Optionen auswählen. Die Antwort enthält die ausgewählte Option, einen Konfidenzwert und eine vollständige Wahrscheinlichkeitsverteilung über alle von Ihnen definierten Optionen.
+
+Verwenden Sie eine Choice, wenn die Antwort eine von mehreren ungeordneten Kategorien ist: welches Team ein Ticket bearbeiten soll, zu welcher Kategorie ein Produkt gehört, in welcher Sprache ein Textausschnitt geschrieben ist.
+
+## Anfrage
+
+<ParamField body="type" type="string" required>
+  Immer `"choice"`.
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  Die zu bewertende Frage in natürlicher Sprache.
+</ParamField>
+
+<ParamField body="criteria" type="object" required>
+  Ein Objekt, das 2 bis 255 Optionsschlüssel auf Beschreibungsstrings abbildet, z. B. `{"billing": "Payment or charge disputes", "returns": "Refund or return requests"}`. Eine einzelne Option ist ungültig, da sie weder eine Entscheidung noch einen sinnvollen Konfidenzabstand darstellen kann. Sowohl die Optionsnamen als auch ihre Beschreibungen werden an das Modell gesendet. Formulieren Sie die Beschreibungen daher so, dass sich ähnlich klingende Optionen klar voneinander abgrenzen.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this request?",
+        "criteria": {
+          "billing": "Payment or charge disputes",
+          "returns": "Refund or return requests",
+          "shipping": "Delivery or shipping issues"
+        }
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## Antwortobjekt
+
+Der entsprechende Eintrag in `answers` lautet:
+
+```json
+{
+  "department": {
+    "type": "choice",
+    "choice": "returns",
+    "confidence": 0.9992611288391886,
+    "probabilities": {
+      "billing": 0.00031500429476013744,
+      "returns": 0.9995761331339488,
+      "shipping": 0.00010886257129113499
+    }
+  }
+}
+```
+
+- `choice`: die Option mit der höchsten Wahrscheinlichkeit.
+- `probabilities`: die vollständige Verteilung über alle von Ihnen definierten Optionen. Die Schlüssel entsprechen Ihren `criteria`-Schlüsseln, und die Werte summieren sich auf ~1.
+- `confidence`: `top1 − top2`, der Wahrscheinlichkeitsabstand zwischen der besten und der zweitbesten Option, von `0` (zwei Optionen gleichauf) bis `1` (eine Option vereint nahezu die gesamte Wahrscheinlichkeitsmasse). Wie Sie darauf reagieren, erfahren Sie unter [Konfidenz und Unsicherheit](/de/concepts/glide-capabilities#konfidenz-und-unsicherheit).
+
+## Verwendung des Ergebnisses
+
+```python
+answer = response["answers"]["department"]
+
+queue_map = {"billing": "billing-team", "returns": "returns-desk", "shipping": "logistics"}
+target_queue = queue_map[answer["choice"]]
+
+if answer["confidence"] < 0.5:
+    notify("routing uncertain - runner-up may also apply")
+```
+
+## Alle benötigten Fragen in einem Aufruf stellen
+
+Bewerten Sie mehrere Choice-Fragen anhand desselben `state` in einer einzigen Anfrage, statt eine Anfrage pro Frage zu senden. Die Fragen werden unabhängig voneinander beantwortet: Jede zusätzliche Frage kostet Tokens, verändert die Latenz aber kaum. Ein Support-Triage-Aufruf könnte `department`, `urgency` und `tone` gemeinsam abfragen, statt drei Roundtrips zu benötigen. Ihr Code kann auf `department` reagieren und den Rest ignorieren, bis er ihn braucht. Ein ausgearbeitetes Beispiel finden Sie unter [Mehrere Fragen kombinieren](/de/inference/systemone#mehrere-fragen-kombinieren).
+
+Geben Sie dem Modell die vollständige Liste der tatsächlichen Optionen statt einer Vorauswahl. Eine Choice-Frage akzeptiert 2 bis 255 Optionen, und jede kostet nur wenige Tokens. Fügen Sie eine Option `other` oder `none of the above` hinzu, wenn die Eingabe möglicherweise nicht jeden Fall abdeckt. So kann GLiDE die Wahrscheinlichkeitsmasse dort unterbringen, statt eine schlechte Übereinstimmung mit einer Ihrer benannten Optionen zu erzwingen.

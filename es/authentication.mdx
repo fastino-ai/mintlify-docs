@@ -1,0 +1,54 @@
+---
+title: "Autenticación de la API de Fastino: generar y usar claves"
+sidebarTitle: "Autenticación"
+description: "Autentica solicitudes a la API de Fastino con el encabezado X-API-Key o un token Bearer, y aprende a crear, rotar y revocar tus claves de API."
+---
+
+La mayoría de las operaciones de la API de Fastino requieren tu clave de API. Las rutas de catálogo explícitamente públicas, como
+`GET /v1/models`, se pueden llamar sin ella. Las operaciones autenticadas utilizan un esquema sencillo basado en
+encabezados. No se requiere flujo de OAuth ni intercambio de tokens. Tu clave te identifica y determina
+qué recursos y límites de tasa se aplican a tus solicitudes.
+
+## Obtener una clave de API
+
+1. Inicia sesión en [Fastino](https://agent.fastino.ai).
+2. Ve a **Settings** → **API Keys**.
+3. Haz clic en **Create key**, asígnale un nombre y copia el valor mostrado.
+
+Guarda tu clave en una variable de entorno (por ejemplo `FASTINO_API_KEY`) en lugar de codificarla en archivos fuente.
+
+Las nuevas claves de Fastino empiezan por `fast_sk_`. Las claves heredadas `pio_sk_` están retiradas; crea una
+clave de reemplazo en el panel antes de llamar a la API de Fastino.
+
+## Pasar tu clave de API
+
+Incluye tu clave en el encabezado `X-API-Key` en las solicitudes nativas de Fastino:
+
+```bash cURL
+curl https://api.fastino.ai/v1/models \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+Los SDK compatibles con OpenAI y Anthropic envían, por convención, la misma clave como token Bearer. Configura su opción `api_key` con `$FASTINO_API_KEY`; el SDK añade `Authorization: Bearer ...` por ti.
+
+## Gestión de claves
+
+Crea, rota y revoca claves en **Settings → API Keys** del panel de Fastino. La API pública no expone operaciones de gestión de claves.
+
+### Lista de rotación
+
+1. Crea la clave de reemplazo y cópiala inmediatamente.
+2. Actualiza cada servicio mediante su gestor de secretos o la variable `FASTINO_API_KEY`.
+3. Comprueba que las solicitudes funcionan con la clave nueva.
+4. Revoca la clave anterior en el panel. La revocación es inmediata e irreversible.
+
+## Respuestas de error
+
+| Estado | Significado |
+| --- | --- |
+| `401 Unauthorized` | La clave falta, tiene formato incorrecto, caducó o fue revocada. |
+| `402 Payment Required` | La cuenta no tiene créditos suficientes. Visita **Settings → Billing**. |
+
+<Warning>
+  Trata las claves API como secretos. Nunca las incluyas en código, aplicaciones cliente, URL, registros, ejemplos o mensajes de soporte.
+</Warning>

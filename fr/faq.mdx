@@ -1,0 +1,83 @@
+---
+title: "FAQ Fastino : plans, confidentialité des données, stockage et équipes"
+sidebarTitle: "FAQ"
+description: "Réponses aux questions fréquentes sur les plans Fastino, les coûts de stockage, les pratiques d'entraînement sur les données, la collaboration en équipe et les tarifs spéciaux pour les associations et les étudiants."
+noindex: true
+hidden: true
+---
+
+Retrouvez ci-dessous les réponses aux questions les plus fréquentes sur Fastino. Si vous ne trouvez pas ce que vous cherchez, contactez l'équipe à [support@fastino.ai](mailto:support@fastino.ai). Pour l'état du service en temps réel et les signalements d'incidents, consultez [pioneerai.statuspage.io](https://pioneerai.statuspage.io).
+
+<AccordionGroup>
+  <Accordion title="Quelle est la façon la plus simple de fine-tuner un SLM ?">
+    Fastino est conçu pour rendre le fine-tuning de petits modèles de langage (SLM) aussi simple que possible. L'ensemble du processus se déroule en quatre étapes :
+
+    1. **Créer un dataset** - Importez vos propres données ou générez des exemples synthétiques avec l'outil de données synthétiques intégré à Fastino. Consultez [Données synthétiques](/fr/guides/synthetic-data).
+    2. **Lancer un job d'entraînement** - Choisissez un modèle de base, associez-le à votre dataset et soumettez. Tous les hyperparamètres ont des valeurs par défaut adaptées : vous n'avez rien à régler pour commencer. Consultez [Entraînement](/fr/concepts/training).
+    3. **Attendre la fin** - Votre job passe par les états `pending → running → complete`. Les petits datasets se terminent généralement en quelques minutes.
+    4. **Lancer l'inférence** - Utilisez l'ID de votre job comme identifiant de modèle. Les modèles encodeurs acceptent un texte et un schéma ; les modèles décodeurs sont compatibles OpenAI. Consultez [Inférence](/fr/inference/chat-completions).
+
+    Pour un guide complet, consultez le [guide de fine-tuning NER](https://docs.fastino.ai/guides/fine-tune-ner) ou le [guide de fine-tuning de LLM](https://docs.fastino.ai/guides/fine-tune-llm).
+  </Accordion>
+
+  <Accordion title="Facturez-vous le stockage ?">
+    Non. Le stockage est gratuit pour tous les datasets, quel que soit le plan. Les datasets que vous créez ou importez dans Fastino ne vous sont pas facturés.
+  </Accordion>
+
+  <Accordion title="Comment créer des données synthétiques pour entraîner un LLM ?">
+    Décrivez votre domaine et les libellés sur lesquels vous souhaitez entraîner le modèle, et Fastino génère à grande échelle des exemples annotés réalistes. Vous pouvez ainsi constituer un dataset d'entraînement sans aucune annotation manuelle - utile lorsque vous partez de zéro ou devez élargir la couverture des cas limites.
+  </Accordion>
+
+  <Accordion title="Quels modèles décodeurs puis-je appeler ?">
+    Fastino prend en charge Nemotron 3.5 Lightning, DeepSeek V4 Flash, GLM 5.2, Claude Opus/Sonnet/Haiku 5 ainsi que les familles GPT-5.5 et GPT-5.6, via une API unifiée.
+
+    ```bash
+    curl -X POST https://api.fastino.ai/v1/chat/completions \
+      -H "Authorization: Bearer $FASTINO_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\": \"nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16\", \"messages\": [{\"role\": \"user\", \"content\": \"Summarize this article...\"}]}"
+    ```
+
+    Remplacez le nom du modèle par un autre décodeur pris en charge, comme `deepseek-ai/DeepSeek-V4-Flash`, `zai-org/GLM-5.2`, `claude-sonnet-5` ou `gpt-5.6-terra`. Pour consulter le catalogue complet en temps réel, appelez `GET /v1/base-models`. Consultez [Inférence](/fr/inference/chat-completions) pour tous les détails.
+  </Accordion>
+
+  <Accordion title="Entraînez-vous des modèles sur nos données ?">
+    Oui, par défaut, Fastino peut utiliser vos données pour améliorer ses modèles. Vous pouvez toutefois refuser cette utilisation avec les plans Pro et Custom. Les plans Custom vous permettent également d'effectuer le fine-tuning en privé dans votre propre VPC, afin que vos données ne quittent jamais votre infrastructure.
+
+    [Contactez l'équipe](https://forms.gle/meJ1TuWPi4ryWpHF6) pour en savoir plus sur les options du plan Custom.
+  </Accordion>
+
+  <Accordion title="Puis-je partager des modèles avec mes coéquipiers via Teams ?">
+    Dans Fastino, Teams sert à la facturation partagée : chaque membre conserve son propre espace de travail privé. Le partage de modèles entre coéquipiers n'est pas intégré directement à Teams.
+
+    Si vous devez partager des modèles avec votre équipe, [contactez-nous](mailto:support@fastino.ai) et l'équipe vous présentera la meilleure approche pour votre cas d'usage.
+  </Accordion>
+
+  <Accordion title="Quelle est la différence entre le fine-tuning d'un modèle encodeur et celui d'un modèle décodeur ?">
+    Les modèles encodeurs (comme GLiNER) sont entraînés pour comprendre et extraire des informations structurées à partir de texte ; ils sont idéaux pour les tâches de NER, de classification et d'extraction JSON. Ils sont rapides, efficaces et fonctionnent sur CPU, ce qui les rend peu coûteux à servir à grande échelle. Les modèles décodeurs (comme Nemotron 3.5 Lightning) sont génératifs : ils produisent du texte, ce qui les rend adaptés au résumé, aux questions-réponses, au chat et au suivi d'instructions.
+
+    Fastino prend en charge les deux. Si votre tâche a une structure de sortie définie (extraire ces types d'entités, classer dans ces catégories), utilisez un encodeur. Si votre tâche nécessite de générer du texte libre, utilisez un décodeur. En cas de doute, commencez par un encodeur : il s'entraîne plus vite, coûte moins cher et est plus facile à évaluer.
+  </Accordion>
+
+  <Accordion title="Comment évaluer si mon modèle fine-tuné est suffisamment bon ?">
+    Fastino exécute automatiquement des évaluations après l'entraînement et indique le F1, la précision et le rappel sur votre jeu de validation mis de côté.
+
+    | Score F1 | Signification |
+    | :-- | :-- |
+    | Supérieur à 0,85 | Prêt pour la production pour la plupart des tâches de NER et de classification |
+    | 0,70 – 0,85 | Nécessite davantage de données d'entraînement ou des libellés de meilleure qualité |
+    | Inférieur à 0,70 | Le modèle n'a pas encore suffisamment appris la tâche |
+
+    Si votre score est plus faible que prévu, lancez une évaluation manuelle sur un dataset distinct pour obtenir un signal plus fiable. Vous pouvez aussi examiner les prédictions exemple par exemple pour identifier les points faibles du modèle, puis utiliser ces lacunes pour générer des données synthétiques ciblées. Consultez [Évaluations](/fr/concepts/gliner-agent-skill) et [Données synthétiques](/fr/guides/synthetic-data).
+  </Accordion>
+
+  <Accordion title="Qu'est-ce que GLiNER et quand l'utiliser ?">
+    GLiNER est une architecture de modèle encodeur open source conçue spécifiquement pour la reconnaissance d'entités nommées et l'extraction structurée. Contrairement aux modèles décodeurs qui génèrent du texte token par token, GLiNER classe directement des segments de texte, ce qui le rend nettement plus rapide et plus précis pour les tâches d'extraction.
+
+    Utilisez GLiNER lorsque vous devez extraire des types d'entités spécifiques (personnes, organisations, produits, dates), classer du texte dans des catégories prédéfinies ou exécuter de l'inférence à grand volume lorsque la latence et le coût comptent. Le pipeline de fine-tuning de Fastino est construit autour de GLiNER. Vous pouvez passer d'une description de domaine à un modèle d'extraction prêt pour la production en quelques minutes, sans aucun GPU de votre côté.
+  </Accordion>
+
+  <Accordion title="Quel est l'impact de la récente réglementation américaine sur le contrôle des exportations sur mon accès aux modèles dans Fastino ?">
+    > Dans le cadre de la politique américaine actuelle de contrôle des exportations en matière d'IA, y compris les directives publiées en juin 2026, chaque fournisseur de modèles a mis à jour ses politiques de disponibilité pour s'y conformer.<br />Les utilisateurs situés dans des pays soumis aux sanctions et aux restrictions d'exportation américaines (notamment la Chine, la Russie, l'Iran, la Corée du Nord, Cuba, la Syrie et la Biélorussie) ne peuvent pas accéder aux modèles dans Fastino. <br />Pour la liste complète et à jour des pays pris en charge, consultez directement chaque fournisseur : [OpenAI](https://developers.openai.com/api/docs/supported-countries), [Anthropic](https://www.anthropic.com/supported-countries), [Google Gemini](https://ai.google.dev/gemini-api/docs/available-regions) et [Meta Llama 4](https://www.llama.com/llama4/use-policy/).<br />Ces politiques évoluent activement. Si vous pensez que votre accès a été restreint à tort, veuillez contacter notre équipe d'assistance.
+  </Accordion>
+</AccordionGroup>

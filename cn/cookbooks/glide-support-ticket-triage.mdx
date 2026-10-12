@@ -1,0 +1,173 @@
+---
+title: "实战示例：分诊支持工单"
+sidebarTitle: "分诊支持工单"
+description: "通过一次 GLiDE 调用，将支持工单路由到队列、评定其紧急程度，并判断是否需要人工回复。"
+---
+
+一张新工单在有人阅读之前需要做出三个决策：由哪个队列负责、需要多快答复，以及自动回复是否足够。GLiDE 可以通过一次请求，依据你用自然语言编写的 criteria 回答这三个问题。
+
+## 请求
+
+将工单作为 `state` 发送，并为每个决策提出一个问题。问题名称（`queue`、`urgency`、`needs_human`）由你定义，它们会作为 `answers` 下的键返回。
+
+```bash
+curl -X POST https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "model": "fastino/GLiDE",
+  "state": {
+    "subject": "Charged twice this month??",
+    "plan": "Pro, 14 seats",
+    "message": "Our card was billed $1,190 twice on Oct 1. Finance wants it fixed today before they freeze the card. The invoice download button just spins, too."
+  },
+  "questions": {
+    "queue": {
+      "type": "choice",
+      "instructions": "Which support queue should this ticket go to?",
+      "criteria": {
+        "billing": "Charges, refunds, and invoices",
+        "technical": "Something in the product is broken",
+        "account": "Logins, seats, and permissions"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgent is this ticket?",
+      "criteria": [
+        "Low: no deadline or business impact",
+        "Normal: needs an answer within a few days",
+        "High: blocks money or work today",
+        "Urgent: an outage or a security incident"
+      ]
+    },
+    "needs_human": {
+      "type": "noul",
+      "instructions": "Should a person reply instead of an automated assistant?",
+      "criteria": {
+        "true": "A person should reply",
+        "false": "An automated reply is enough"
+      }
+    }
+  }
+}'
+```
+
+## 请求 schema
+
+| 字段 | 类型 | 在本示例中 |
+| --- | --- | --- |
+| `model` | string | `fastino/GLiDE`。 |
+| `state` | string、object 或 array | 工单内容。使用对象可以让主题、套餐和消息保持清晰的标签。 |
+| `questions.queue` | [Choice](/cn/concepts/glide-choice) | `criteria` 是一个对象。每个键是一个结果，每个值说明该结果何时适用。 |
+| `questions.urgency` | [Score](/cn/concepts/glide-score) | `criteria` 是一个有序数组，最低级别在前。 |
+| `questions.needs_human` | [Noul](/cn/concepts/glide-noul) | 一个是/否问题。`criteria` 描述 `true` 和 `false` 两侧。 |
+| `questions.*.instructions` | string | GLiDE 针对 `state` 回答的问题。 |
+
+## 响应
+
+基于 `https://api.fastino.ai` 实测。置信度值在不同调用之间会略有差异。
+
+```json
+{
+  "model": "glide_v2",
+  "answers": {
+    "queue": {
+      "type": "choice",
+      "choice": "billing",
+      "confidence": 0.993,
+      "probabilities": {
+        "billing": 0.996,
+        "technical": 0.004,
+        "account": 0.0
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 2,
+      "expected_level": 2.001,
+      "confidence": 0.991,
+      "probabilities": {
+        "0": 0.0,
+        "1": 0.002,
+        "2": 0.994,
+        "3": 0.004
+      },
+      "legend": {
+        "0": "Low: no deadline or business impact",
+        "1": "Normal: needs an answer within a few days",
+        "2": "High: blocks money or work today",
+        "3": "Urgent: an outage or a security incident"
+      }
+    },
+    "needs_human": {
+      "type": "noul",
+      "noul": 0.987,
+      "confidence": 0.974
+    }
+  },
+  "usage": {
+    "input_tokens": 422,
+    "output_tokens": 0
+  }
+}
+```
+
+## 响应 schema
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `answers.queue.choice` | string | 胜出的 `criteria` 键。此处为 `billing`。 |
+| `answers.queue.probabilities` | object | 每个结果的概率，总和为 1。 |
+| `answers.urgency.score` | integer | 胜出级别的索引，从 `0` 开始计数。此处 `2` 表示 "High"。 |
+| `answers.urgency.expected_level` | number | 按概率加权的级别，可用于比 `score` 更精细的阈值。 |
+| `answers.urgency.legend` | object | 你提供的级别描述，以索引为键。 |
+| `answers.needs_human.noul` | number | `true` 一侧成立的概率，范围为 0 到 1。 |
+| `answers.*.confidence` | number | GLiDE 对该答案的确定程度，范围为 0 到 1。 |
+| `usage.input_tokens` | integer | 该请求计费的 token 数。 |
+
+## 根据答案执行操作
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.fastino.ai/v1/systemone",
+    headers={"X-API-Key": os.environ["FASTINO_API_KEY"]},
+    json=body,  # the request body above
+    timeout=300,
+)
+response.raise_for_status()
+answers = response.json()["answers"]
+
+queue = answers["queue"]
+urgency = answers["urgency"]["score"]
+needs_human = answers["needs_human"]["noul"] >= 0.5
+
+if queue["confidence"] < 0.7:
+    queue_name = "general"  # let a person pick the queue
+else:
+    queue_name = queue["choice"]
+
+priority = {0: "low", 1: "normal", 2: "high", 3: "urgent"}[urgency]
+assign(ticket, queue=queue_name, priority=priority, auto_reply=not needs_human)
+```
+
+请仅将 `0.7` 和 `0.5` 阈值作为起点，并用你自己的工单样本进行检验。
+
+## 调整示例
+
+- 使用真实的队列名称作为 `criteria` 键，并描述每个队列负责的内容。决定效果的是这些描述。
+- 可以自由增减紧急程度级别。响应始终按你发送的顺序从 `0` 开始为其编号。
+- 将 GLiDE 应考虑的客户事实（例如套餐、合同等级或未结事件）放入 `state`。
+- 在同一请求中提出更多问题，例如 `language` 或 `sentiment`。每个问题都会在 `answers` 中增加一项。
+
+<CardGroup cols={2}>
+  <Card title="分类指南" icon="tags" href="/cn/guides/glide-classification">
+    设计 Choice 问题并处理不确定的标签。
+  </Card>
+  <Card title="GLiDE API 参考" icon="code" href="/cn/api-reference/inference/systemone">
+    `POST /v1/systemone` 的所有字段、限制和错误。
+  </Card>
+</CardGroup>

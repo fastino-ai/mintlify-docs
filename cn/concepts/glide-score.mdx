@@ -1,0 +1,99 @@
+---
+title: "Score"
+sidebarTitle: "Score"
+description: "使用 Score 问题让 GLiDE 按有序量表评级，返回离散 score、连续 expected_level、各等级概率和 legend，并了解请求格式。"
+---
+
+**Score** 问题根据你定义的有序量表对某种情况进行评级。它返回离散的 `score`（胜出等级的索引），以及 `expected_level`（跨所有等级按概率加权得到的连续估计值）、各等级的 `probabilities`，和按索引回显你的等级描述的 `legend`。
+
+当答案是具有明确等级的量表上的某个位置（紧急程度、严重程度、情绪强度），而不是无序类别时，请使用 Score。
+
+<Tip>
+  Score 与 Noul 的区别：如果你只需要一个二元判断关卡，请改用 [Noul](/cn/concepts/glide-noul)。它更简单，返回的是单个概率，而不是各等级上的分布。
+</Tip>
+
+## 请求
+
+<ParamField body="type" type="string" required>
+  始终为 `"score"`。
+</ParamField>
+
+<ParamField body="instructions" type="string" required>
+  以自然语言描述的待评估问题。
+</ParamField>
+
+<ParamField body="criteria" type="string[] | object" required>
+  由等级描述组成的有序数组，索引 `0` 为最低等级：`["low urgency, can wait", "medium urgency, handle soon", "high urgency, handle immediately"]`。
+
+  也接受以数字字符串为键的对象（例如 `{"1": "...", "3": "...", "5": "..."}`）：这些键会先排序再被丢弃，无论你使用什么键，响应始终按 `0..N-1` 重新编号。
+
+  请提供 1 到 255 个等级。
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this request?",
+        "criteria": [
+          "low urgency, can wait",
+          "medium urgency, handle soon",
+          "high urgency, handle immediately"
+        ]
+      }
+    }
+  }'
+```
+
+</CodeGroup>
+
+## 答案对象
+
+`answers` 中对应的条目如下：
+
+```json
+{
+  "urgency": {
+    "type": "score",
+    "score": 0,
+    "expected_level": 0.27621539375795195,
+    "confidence": 0.4999999998141525,
+    "probabilities": {
+      "0": 0.7412615353520668,
+      "1": 0.24126153553791435,
+      "2": 0.017476929110018805
+    },
+    "legend": {
+      "0": "low urgency, can wait",
+      "1": "medium urgency, handle soon",
+      "2": "high urgency, handle immediately"
+    }
+  }
+}
+```
+
+- `score`：离散的整数索引，即 argmax 等级。
+- `expected_level`：`Σ(level × probability)`，即跨所有等级按概率加权的连续位置。当你需要比离散索引更细粒度的阈值时，请使用它。
+- `legend` 并非由模型生成：API 会根据你自己的 `criteria` 按索引构建它。
+- `confidence`：`top1 − top2`，与 Choice 的公式相同，从 `0`（两个相邻等级持平）到 `1`（某个等级占据几乎全部概率质量）。关于如何据此采取行动，请参阅[置信度与不确定性](/cn/concepts/glide-capabilities#置信度与不确定性)。
+
+## 使用结果
+
+```python
+answer = response["answers"]["urgency"]
+
+if answer["score"] >= 2:
+    action = "page_oncall"
+elif answer["expected_level"] >= 1.5:
+    action = "escalate"  # closer to the next level up than a clean 1
+else:
+    action = "standard_queue"
+```
