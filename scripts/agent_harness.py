@@ -92,6 +92,8 @@ COOKBOOK_ENDPOINTS = {
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\((?P<target>/[^)\s]+)\)")
 HREF_LINK = re.compile(r'href=["\'](?P<target>/[^"\']+)["\']')
 LLMS_URL = re.compile(r"https://docs\.fastino\.ai(?P<path>/[^)\s]+)")
+# SDK base URLs are documented prefixes, not operations (the Tinker SDK appends /api/v1/<op>).
+SDK_BASE_PATH_PREFIXES = ("/v1/training/compat/",)
 API_URL = re.compile(r"https://api\.fastino\.ai(?P<path>/v1/[^\"'`\s<\\]+)")
 METHOD_PATH = re.compile(r"\b(?P<method>GET|POST|PATCH|PUT|DELETE)\s+(?P<path>/v1/[^`\s\"'|,)]+)")
 CURL_BODY_START = re.compile(r"-d\s+'")
@@ -647,6 +649,8 @@ def _journey_findings(
                     f"{method.upper()} {path_text}"
                 )
         for match in API_URL.finditer(text):
+            if match.group("path").startswith(SDK_BASE_PATH_PREFIXES):
+                continue  # an SDK base URL: the SDK appends its own paths
             if _operation_for_path(operations, "get", match.group("path")) is None and not any(
                 _operation_for_path(operations, method, match.group("path"))
                 for method in HTTP_METHODS
