@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 from unittest import mock
@@ -26,6 +27,31 @@ SPEC.loader.exec_module(HARNESS)
 
 
 class AgentHarnessTests(unittest.TestCase):
+    def _published_openapi_responses(
+        self,
+        bodies: dict[str, bytes] | None = None,
+        content_types: dict[str, str] | None = None,
+    ) -> dict[str, HARNESS.Response]:
+        canonical = (HARNESS.ROOT / "openapi.json").read_bytes()
+        return {
+            url: HARNESS.Response(
+                200,
+                url,
+                {
+                    "content-type": (content_types or {}).get(
+                        url,
+                        (
+                            "application/json"
+                            if url == HARNESS.PUBLIC_OPENAPI_URLS[0]
+                            else "application/openapi+json;version=3.1"
+                        ),
+                    )
+                },
+                (bodies or {}).get(url, canonical),
+            )
+            for url in HARNESS.PUBLIC_OPENAPI_URLS
+        }
+
     def test_secret_bearing_workflows_are_pinned_to_main(self) -> None:
         daily = (HARNESS.ROOT / ".github/workflows/agent-docs-harness.yml").read_text()
         lifecycle = (
@@ -42,6 +68,135 @@ class AgentHarnessTests(unittest.TestCase):
         operations = HARNESS._validate_openapi(document)
 
         self.assertEqual(HARNESS.REQUIRED_OPERATIONS, set(operations))
+
+    def test_published_openapi_accepts_three_repository_documents(self) -> None:
+        HARNESS._validate_published_openapis(self._published_openapi_responses())
+
+    def test_published_openapi_fetch_collects_transport_failures(self) -> None:
+        api_url = HARNESS.PUBLIC_OPENAPI_URLS[1]
+        expected = self._published_openapi_responses()
+
+        def request(
+            method: str,
+            url: str,
+            *,
+            headers: dict[str, str] | None = None,
+        ) -> HARNESS.Response:
+            self.assertEqual(method, "GET")
+            self.assertEqual(headers, {"Accept": "application/openapi+json"})
+            if url == api_url:
+                raise urllib.error.URLError("connection refused")
+            return expected[url]
+
+        with mock.patch.object(HARNESS, "_request", side_effect=request):
+            responses, findings = HARNESS._fetch_published_openapis()
+
+        self.assertEqual(set(responses), set(HARNESS.PUBLIC_OPENAPI_URLS) - {api_url})
+        self.assertEqual(
+            findings,
+            [f"CONTRACT: {api_url} fetch failed: <urlopen error connection refused>"],
+        )
+
+    def test_published_openapi_rejects_one_host_byte_mismatch(self) -> None:
+        mismatched_url = HARNESS.PUBLIC_OPENAPI_URLS[2]
+        canonical = (HARNESS.ROOT / "openapi.json").read_bytes()
+        responses = self._published_openapi_responses(
+            {mismatched_url: canonical + b"\n"}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "agent.fastino.ai.*byte-for-byte",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_rejects_invalid_api_or_agent_media_type(self) -> None:
+        for url in HARNESS.PUBLIC_OPENAPI_URLS[1:]:
+            with (
+                self.subTest(url=url),
+                self.assertRaisesRegex(
+                    HARNESS.HarnessFailure,
+                    f"{url}.*unexpected Content-Type",
+                ),
+            ):
+                HARNESS._validate_published_openapis(
+                    self._published_openapi_responses(
+                        content_types={url: "application/json"}
+                    )
+                )
+
+    def test_published_openapi_collects_media_and_byte_findings(self) -> None:
+        api_url = HARNESS.PUBLIC_OPENAPI_URLS[1]
+        canonical = (HARNESS.ROOT / "openapi.json").read_bytes()
+        responses = self._published_openapi_responses(
+            bodies={api_url: canonical + b"\n"},
+            content_types={api_url: "application/json"},
+        )
+
+        with self.assertRaises(HARNESS.HarnessFailure) as raised:
+            HARNESS._validate_published_openapis(responses)
+
+        message = str(raised.exception)
+        self.assertIn(f"{api_url} returned unexpected Content-Type", message)
+        self.assertIn(f"{api_url} OpenAPI differs byte-for-byte", message)
+
+    def test_published_openapi_accepts_docs_application_json(self) -> None:
+        HARNESS._validate_published_openapis(
+            self._published_openapi_responses(
+                content_types={
+                    "https://docs.fastino.ai/openapi.json": (
+                        "application/json; charset=utf-8"
+                    )
+                }
+            )
+        )
+
+    def test_published_openapi_rejects_one_host_semantic_mismatch(self) -> None:
+        mismatched_url = HARNESS.PUBLIC_OPENAPI_URLS[2]
+        document = deepcopy(HARNESS._load_openapi())
+        document["info"]["description"] = "stale public contract"
+        responses = self._published_openapi_responses(
+            {mismatched_url: json.dumps(document).encode()}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "agent.fastino.ai.*differs from repository",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_rejects_malformed_host_json(self) -> None:
+        malformed_url = HARNESS.PUBLIC_OPENAPI_URLS[1]
+        responses = self._published_openapi_responses(
+            {malformed_url: b"\xff"}
+        )
+
+        with self.assertRaisesRegex(
+            HARNESS.HarnessFailure,
+            "api.fastino.ai.*not valid JSON",
+        ):
+            HARNESS._validate_published_openapis(responses)
+
+    def test_published_openapi_collects_status_and_sibling_drift(self) -> None:
+        docs_url = HARNESS.PUBLIC_OPENAPI_URLS[0]
+        agent_url = HARNESS.PUBLIC_OPENAPI_URLS[2]
+        canonical = (HARNESS.ROOT / "openapi.json").read_bytes()
+        responses = self._published_openapi_responses(
+            {agent_url: canonical + b"\n"}
+        )
+        responses[docs_url] = HARNESS.Response(
+            500,
+            docs_url,
+            {"content-type": "application/json"},
+            b"\xff",
+        )
+
+        with self.assertRaises(HARNESS.HarnessFailure) as raised:
+            HARNESS._validate_published_openapis(responses)
+
+        message = str(raised.exception)
+        self.assertIn(f"{docs_url} expected HTTP 200, got 500", message)
+        self.assertIn(f"{agent_url} OpenAPI differs byte-for-byte", message)
 
     def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:
         document = HARNESS._load_openapi()

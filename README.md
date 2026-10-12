@@ -81,7 +81,8 @@ The static check validates OpenAPI references, cURL JSON requests on the critica
 pages, local links, and the GLiDE, GLiNER, dataset, authentication, and training journeys
 exposed through `llms.txt`.
 The published check validates content negotiation at `docs.fastino.ai`, public links, and the
-deployed OpenAPI contract. Both run without credentials.
+deployed OpenAPI contract. It requires byte and semantic parity across the docs, API, and agent
+hosts. Both checks run without credentials.
 
 Authenticated canaries use a dedicated account and the
 `FASTINO_DOCS_CANARY_API_KEY` repository secret. Configure these repository variables before

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -28,7 +29,13 @@ from referencing.jsonschema import DRAFT202012
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_ORIGIN = os.getenv("FASTINO_DOCS_ORIGIN", "https://docs.fastino.ai").rstrip("/")
 API_ORIGIN = os.getenv("FASTINO_API_ORIGIN", "https://api.fastino.ai").rstrip("/")
+AGENT_ORIGIN = os.getenv("FASTINO_AGENT_ORIGIN", "https://agent.fastino.ai").rstrip("/")
 USER_AGENT = "FastinoDocsCanary/1.0 (+https://docs.fastino.ai)"
+PUBLIC_OPENAPI_URLS = (
+    f"{DOCS_ORIGIN}/openapi.json",
+    f"{API_ORIGIN}/openapi.json",
+    f"{AGENT_ORIGIN}/openapi.json",
+)
 HTTP_METHODS = frozenset({"delete", "get", "patch", "post", "put"})
 RETRYABLE_STATUSES = frozenset({425, 429, 503})
 LOCALES = frozenset({"cn", "de", "es", "fr"})
@@ -812,6 +819,79 @@ def _published_link(url: str) -> tuple[str, int]:
     return url, response.status
 
 
+def _validate_openapi_media_type(url: str, response: Response) -> None:
+    content_type = response.headers.get("content-type", "")
+    media_type = content_type.partition(";")[0].strip().lower()
+    hostname = urllib.parse.urlsplit(url).hostname
+    docs_hostname = urllib.parse.urlsplit(DOCS_ORIGIN).hostname
+    if hostname == docs_hostname and media_type == "application/json":
+        return
+    if media_type != "application/openapi+json":
+        fail(f"CONTRACT: {url} returned unexpected Content-Type {content_type!r}")
+
+
+def _fetch_published_openapis() -> tuple[dict[str, Response], list[str]]:
+    responses: dict[str, Response] = {}
+    findings: list[str] = []
+    for url in PUBLIC_OPENAPI_URLS:
+        try:
+            responses[url] = _request(
+                "GET",
+                url,
+                headers={"Accept": "application/openapi+json"},
+            )
+        except (
+            OSError,
+            TimeoutError,
+            http.client.HTTPException,
+            urllib.error.URLError,
+        ) as error:
+            findings.append(f"CONTRACT: {url} fetch failed: {error}")
+    return responses, findings
+
+
+def _validate_published_openapis(
+    responses: dict[str, Response],
+    findings: list[str] | None = None,
+) -> None:
+    repository_document = _load_openapi()
+    _validate_openapi(repository_document)
+    repository_body = (ROOT / "openapi.json").read_bytes()
+    collected = list(findings or ())
+    for url, response in responses.items():
+        if response.status != 200:
+            excerpt = response.body[:500].decode("utf-8", errors="replace").replace(
+                "\n",
+                " ",
+            )
+            collected.append(
+                f"CONTRACT: {url} expected HTTP 200, got {response.status}: {excerpt}"
+            )
+            continue
+        try:
+            _validate_openapi_media_type(url, response)
+        except HarnessFailure as error:
+            collected.append(str(error))
+        try:
+            document = response.json()
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            collected.append(f"CONTRACT: {url} OpenAPI is not valid JSON: {error}")
+            continue
+        if not isinstance(document, dict):
+            collected.append(f"CONTRACT: {url} OpenAPI must contain an object")
+            continue
+        if document != repository_document:
+            collected.append(
+                f"CONTRACT: {url} OpenAPI differs from repository openapi.json"
+            )
+        if response.body != repository_body:
+            collected.append(
+                f"CONTRACT: {url} OpenAPI differs byte-for-byte from repository openapi.json"
+            )
+    if collected:
+        fail("\n".join(collected))
+
+
 def run_published() -> None:
     root = _request("GET", f"{DOCS_ORIGIN}/", follow_redirects=False)
     if root.status not in {301, 302, 307, 308}:
@@ -867,14 +947,8 @@ def run_published() -> None:
     if failures:
         fail("\n".join(failures))
 
-    published_openapi = _request("GET", f"{DOCS_ORIGIN}/openapi.json")
-    _require_status(published_openapi, {200}, "CONTRACT published OpenAPI")
-    published_document = published_openapi.json()
-    if published_document != _load_openapi():
-        fail("CONTRACT: published docs OpenAPI differs from repository openapi.json")
-    if not isinstance(published_document, dict):
-        fail("CONTRACT: published OpenAPI must be an object")
-    _validate_openapi(published_document)
+    published_openapis, openapi_findings = _fetch_published_openapis()
+    _validate_published_openapis(published_openapis, openapi_findings)
     print(f"Published agent journey passed: {len(links)} indexed resources")
 
 
