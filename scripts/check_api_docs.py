@@ -49,14 +49,14 @@ TRAINING_OPERATIONS = {
     ("POST", "/v1/training-jobs/{job_id}/terminate"),
 }
 TRAINING_RUN_OPERATIONS = {
-    ("GET", "/v1/training-runs"),
-    ("GET", "/v1/training-runs/{run_id}"),
-    ("GET", "/v1/training-runs/{run_id}/checkpoints"),
-    ("GET", "/v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download"),
+    ("GET", "/v1/training/jobs"),
+    ("GET", "/v1/training/jobs/{job_id}"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"),
 }
 EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS | TRAINING_RUN_OPERATIONS
 # SDK base URLs are documented prefixes, not routes: the SDK appends its own paths.
-SDK_BASE_PATHS = {"/v1/training-runs/sdk"}
+SDK_BASE_PATHS = {"/v1/training/compat/tinker"}
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",

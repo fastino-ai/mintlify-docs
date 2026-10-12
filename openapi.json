@@ -1560,7 +1560,7 @@
         "type": "object"
       },
       "CheckpointDownloadResponse": {
-        "description": "``GET /v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download``: a short-lived signed link.",
+        "description": "``GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download``: a short-lived signed link.",
         "properties": {
           "checkpoint_id": {
             "title": "Checkpoint Id",
@@ -3910,6 +3910,97 @@
         "title": "InferenceRecord",
         "type": "object"
       },
+      "InteractiveJobView": {
+        "description": "An ``interactive`` training job: a Tinker training run, its run id being the job id.",
+        "properties": {
+          "base_model": {
+            "title": "Base Model",
+            "type": "string"
+          },
+          "corrupted": {
+            "default": false,
+            "title": "Corrupted",
+            "type": "boolean"
+          },
+          "is_lora": {
+            "default": true,
+            "title": "Is Lora",
+            "type": "boolean"
+          },
+          "last_checkpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_request_time": {
+            "format": "date-time",
+            "title": "Last Request Time",
+            "type": "string"
+          },
+          "last_sampler_checkpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lora_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lora Rank"
+          },
+          "model_owner": {
+            "title": "Model Owner",
+            "type": "string"
+          },
+          "training_run_id": {
+            "title": "Training Run Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "interactive",
+            "default": "interactive",
+            "title": "Type",
+            "type": "string"
+          },
+          "user_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Metadata"
+          }
+        },
+        "required": [
+          "training_run_id",
+          "base_model",
+          "model_owner",
+          "last_request_time"
+        ],
+        "title": "InteractiveJobView",
+        "type": "object"
+      },
       "JsonObject-Output": {
         "additionalProperties": {
           "$ref": "#/components/schemas/JsonValue-Output"
@@ -6015,13 +6106,6 @@
             "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded, because its seed is unknown. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 — treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
           },
-          "source": {
-            "const": "job",
-            "default": "job",
-            "description": "A managed training job. ``/v1/trained-models`` also lists training runs (``source: run``).",
-            "title": "Source",
-            "type": "string"
-          },
           "started_at": {
             "anyOf": [
               {
@@ -6071,6 +6155,13 @@
             ],
             "description": "Raw training method as persisted: 'lora', 'qlora', or 'full'.",
             "title": "Training Type"
+          },
+          "type": {
+            "const": "config",
+            "default": "config",
+            "description": "A config training job (you give data and a config, Fastino runs the loop). ``/v1/trained-models`` also lists interactive jobs (``type: interactive``).",
+            "title": "Type",
+            "type": "string"
           },
           "updated_at": {
             "title": "Updated At",
@@ -6224,7 +6315,7 @@
         "type": "object"
       },
       "TrainingRunCheckpointListResponse": {
-        "description": "``GET /v1/training-runs/{run_id}/checkpoints``: a run's live checkpoints, newest first.",
+        "description": "``GET /v1/training/jobs/{job_id}/checkpoints``: a run's live checkpoints, newest first.",
         "properties": {
           "checkpoints": {
             "items": {
@@ -6256,15 +6347,15 @@
         "type": "object"
       },
       "TrainingRunListResponse": {
-        "description": "``GET /v1/training-runs``: the team's training runs, newest first.",
+        "description": "``GET /v1/training/jobs?type=interactive``: the interactive jobs the caller may see, newest first.",
         "properties": {
           "count": {
-            "description": "Runs on this page.",
+            "description": "Jobs on this page.",
             "title": "Count",
             "type": "integer"
           },
           "has_more": {
-            "description": "True when more runs follow this page.",
+            "description": "True when more jobs follow this page.",
             "title": "Has More",
             "type": "boolean"
           },
@@ -6274,110 +6365,25 @@
             "type": "boolean"
           },
           "total": {
-            "description": "The team's runs in all.",
+            "description": "Matching jobs in all.",
             "title": "Total",
             "type": "integer"
           },
-          "training_runs": {
+          "training_jobs": {
             "items": {
-              "$ref": "#/components/schemas/TrainingRunView"
+              "$ref": "#/components/schemas/InteractiveJobView"
             },
-            "title": "Training Runs",
+            "title": "Training Jobs",
             "type": "array"
           }
         },
         "required": [
-          "training_runs",
+          "training_jobs",
           "count",
           "total",
           "has_more"
         ],
         "title": "TrainingRunListResponse",
-        "type": "object"
-      },
-      "TrainingRunView": {
-        "description": "A training run (the SDK's ``TrainingRun``).",
-        "properties": {
-          "base_model": {
-            "title": "Base Model",
-            "type": "string"
-          },
-          "corrupted": {
-            "default": false,
-            "title": "Corrupted",
-            "type": "boolean"
-          },
-          "is_lora": {
-            "default": true,
-            "title": "Is Lora",
-            "type": "boolean"
-          },
-          "last_checkpoint": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CheckpointView"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "last_request_time": {
-            "format": "date-time",
-            "title": "Last Request Time",
-            "type": "string"
-          },
-          "last_sampler_checkpoint": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CheckpointView"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "lora_rank": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lora Rank"
-          },
-          "model_owner": {
-            "title": "Model Owner",
-            "type": "string"
-          },
-          "training_run_id": {
-            "title": "Training Run Id",
-            "type": "string"
-          },
-          "user_metadata": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "User Metadata"
-          }
-        },
-        "required": [
-          "training_run_id",
-          "base_model",
-          "model_owner",
-          "last_request_time"
-        ],
-        "title": "TrainingRunView",
         "type": "object"
       },
       "UpdateModelNameRequest": {
@@ -9658,11 +9664,31 @@
         ]
       }
     },
-    "/v1/training-runs": {
+    "/v1/training/jobs": {
       "get": {
-        "description": "List the team's training runs, newest first.",
-        "operationId": "list_runs_v1_training_runs_get",
+        "description": "List interactive training jobs (Tinker training runs), newest first.",
+        "operationId": "list_runs_v1_training_jobs_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "interactive",
+                    "config"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -9695,6 +9721,9 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "config training jobs are served at /v1/training-jobs; this list has type=interactive jobs"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -9708,21 +9737,21 @@
         },
         "summary": "List Runs",
         "tags": [
-          "training-runs"
+          "training"
         ]
       }
     },
-    "/v1/training-runs/{run_id}": {
+    "/v1/training/jobs/{job_id}": {
       "get": {
-        "description": "Get one training run with its latest checkpoints.",
-        "operationId": "get_run_v1_training_runs__run_id__get",
+        "description": "Get one interactive training job (a Tinker training run) with its latest checkpoints.",
+        "operationId": "get_run_v1_training_jobs__job_id__get",
         "parameters": [
           {
             "in": "path",
-            "name": "run_id",
+            "name": "job_id",
             "required": true,
             "schema": {
-              "title": "Run Id",
+              "title": "Job Id",
               "type": "string"
             }
           }
@@ -9732,7 +9761,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TrainingRunView"
+                  "$ref": "#/components/schemas/InteractiveJobView"
                 }
               }
             },
@@ -9751,21 +9780,21 @@
         },
         "summary": "Get Run",
         "tags": [
-          "training-runs"
+          "training"
         ]
       }
     },
-    "/v1/training-runs/{run_id}/checkpoints": {
+    "/v1/training/jobs/{job_id}/checkpoints": {
       "get": {
-        "description": "List a training run's checkpoints, newest first.",
-        "operationId": "list_run_checkpoints_v1_training_runs__run_id__checkpoints_get",
+        "description": "List an interactive training job's checkpoints, newest first.",
+        "operationId": "list_run_checkpoints_v1_training_jobs__job_id__checkpoints_get",
         "parameters": [
           {
             "in": "path",
-            "name": "run_id",
+            "name": "job_id",
             "required": true,
             "schema": {
-              "title": "Run Id",
+              "title": "Job Id",
               "type": "string"
             }
           }
@@ -9794,21 +9823,21 @@
         },
         "summary": "List Run Checkpoints",
         "tags": [
-          "training-runs"
+          "training"
         ]
       }
     },
-    "/v1/training-runs/{run_id}/checkpoints/{checkpoint_id}/download": {
+    "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download": {
       "get": {
         "description": "Get a short-lived signed URL of a tar archive of one of the team's own checkpoints (for sampler weights, the PEFT adapter files). The URL needs no credentials and expires after 15 minutes. Needs the team's weight-download entitlement, as /v1/training-jobs/{job_id}/download does.",
-        "operationId": "download_checkpoint_v1_training_runs__run_id__checkpoints__checkpoint_id__download_get",
+        "operationId": "download_checkpoint_v1_training_jobs__job_id__checkpoints__checkpoint_id__download_get",
         "parameters": [
           {
             "in": "path",
-            "name": "run_id",
+            "name": "job_id",
             "required": true,
             "schema": {
-              "title": "Run Id",
+              "title": "Job Id",
               "type": "string"
             }
           },
@@ -9847,9 +9876,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get a download URL for a training run checkpoint",
+        "summary": "Get a download URL for an interactive training job checkpoint",
         "tags": [
-          "training-runs"
+          "training"
         ]
       }
     }
