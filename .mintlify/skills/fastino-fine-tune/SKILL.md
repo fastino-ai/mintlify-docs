@@ -27,9 +27,8 @@ Authorization: Bearer YOUR_API_KEY
 
 ## Start a Training Job
 
-`model` is required by the upcoming unified Training API. Use a model ID from
-`GET /v1/base-models` or a checkpoint UUID. Native HTTP uses `model`; compatible
-SDK methods retain their `base_model` parameter.
+Use `base_model` with a trainable model ID from
+`GET /v1/base-models?supports_training=true` or a supported checkpoint UUID.
 `datasets` is an array — supports multi-dataset training.
 
 ```http
@@ -38,9 +37,8 @@ X-API-Key: YOUR_API_KEY
 Content-Type: application/json
 
 {
-  "type": "config",
   "model_name": "my-ner-model",
-  "model": "fastino/gliner2-base-v1",
+  "base_model": "fastino/gliner2-base-v1",
   "datasets": [{"name": "YOUR_DATASET_NAME"}],
   "training_type": "lora",
   "nr_epochs": 5,

@@ -12,10 +12,10 @@ l'utilisateur qui indique à votre contrôleur ce qu'il doit faire ensuite.
 | Enregistrement | Contenu | Stocké par |
 | --- | --- | --- |
 | Checkpoint d'état | Poids d'entraînement et état de l'optimiseur représentés par le checkpoint du SDK | Fastino |
-| Enregistrement de la boucle | ID du job, identifiant du checkpoint, étape, curseur du dataset et configuration | Votre application |
+| Enregistrement de la boucle | ID du job source, chemin du checkpoint, étape, curseur du dataset, configuration et lignée de reprise | Votre application |
 
 Le client d'entraînement du SDK représente un job interactif Fastino. Lisez son
-ID canonique dans `training_client.get_info().model_data.model_id`.
+ID canonique dans `training_client.get_info().model_id`.
 
 ## 1. Enregistrer l'état et la progression de la boucle
 
@@ -27,10 +27,10 @@ import json
 from pathlib import Path
 
 
-job_id = training_client.get_info().model_data.model_id
+source_job_id = training_client.get_info().model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
-    "job_id": job_id,
+    "source_job_id": source_job_id,
     "state_path": state.path,
     "model": model_name,
     "dataset_revision": dataset_revision,
@@ -71,9 +71,9 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 ## 3. Valider avant le chargement
 
-Comparez l'enregistrement avec la poursuite demandée :
+Comparez l'enregistrement avec le checkpoint source et la poursuite demandée :
 
-- ID canonique du job
+- ID du job source encodé dans le chemin du checkpoint
 - Modèle de base et configuration entraînable
 - Révision et curseur du dataset
 - Révision de l'implémentation de la récompense
@@ -92,11 +92,14 @@ training_client = (
         str(resume["state_path"])
     )
 )
+resumed_job_id = training_client.get_info().model_id
 ```
 
-Cette opération du SDK correspond au chargement d'un checkpoint Fastino. Ne
-construisez pas directement la requête vers l'adaptateur et ne déduisez aucune
-lignée d'exécution supplémentaire à partir de l'opération.
+Cette fabrique crée un nouveau job interactive, puis charge les poids et l'état
+de l'optimiseur du checkpoint source. L'ID repris diffère normalement de l'ID
+source. Enregistrez `source_job_id`, `state_path` et `resumed_job_id` comme
+lignée gérée par l'application. Ne refusez pas la reprise parce que les ID
+diffèrent et ne construisez pas la requête vers l'adaptateur.
 
 ## 4. Rendre la limite récupérable
 
@@ -118,7 +121,8 @@ terminée avant que son enregistrement ne soit durable.
 ```python
 state = training_client.save_state("step-000100").result()
 sampler = training_client.save_weights_for_sampler(
-    "step-000100"
+    "step-000100",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 ```
 
@@ -126,6 +130,11 @@ Utilisez un checkpoint d'état pour la récupération de l'entraînement. Utilis
 un checkpoint d'échantillonneur pour les rollouts ou l'évaluation. N'utilisez
 pas un checkpoint d'échantillonneur comme point de récupération de l'état de
 l'optimiseur.
+
+`ttl_seconds` vaut `None` par défaut ; sans TTL, le checkpoint n'expire pas
+automatiquement. Les checkpoints actifs comptent dans le stockage. Pour un
+nettoyage automatique, utilisez une valeur comprise entre `3_600` et
+`315_360_000` secondes, bornes incluses.
 
 L'API d'entraînement publique permet de lister les checkpoints. Elle permet de
 télécharger un checkpoint interactif lorsque l'équipe dispose à la fois de
@@ -142,7 +151,9 @@ documentée.
 Avant d'augmenter la taille du workload repris :
 
 1. Chargez le checkpoint d'état sélectionné.
-2. Confirmez l'ID de job canonique du client SDK via `GET /v1/training/jobs/{job_id}`.
+2. Lisez le nouvel ID dans `training_client.get_info().model_id`, enregistrez-le
+   comme `resumed_job_id` et confirmez-le via
+   `GET /v1/training/jobs/{resumed_job_id}`.
 3. Exécutez une petite évaluation sur un ensemble de validation.
 4. Soumettez une mise à jour d'entraînement prise en charge.
 5. Enregistrez un nouveau checkpoint d'état sous un nouveau nom.
@@ -156,4 +167,5 @@ Utilisez le SDK pour toutes les opérations interactives sur le modèle.
 | --- | --- |
 | Une future échoue | Enregistrez l'ID du job et le résultat de l'opération. Ne faites pas avancer l'état dépendant de l'application |
 | Un checkpoint ne peut pas être chargé | Vérifiez son job, son type de checkpoint et l'enregistrement de récupération contrôlé par le client |
-| La recherche du job canonique échoue | Vérifiez que l'ID provient de `get_info().model_data.model_id` et que la même équipe Fastino est authentifiée |
+| Le checkpoint source est refusé | Vérifiez le job source, le type de checkpoint et `state_path` ; n'exigez pas que le nouvel ID égale l'ID source |
+| La recherche du job repris échoue | Vérifiez que l'ID provient de `get_info().model_id` du client repris et que la même équipe Fastino est authentifiée |

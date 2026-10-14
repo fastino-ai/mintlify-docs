@@ -59,9 +59,12 @@ Do not set `TINKER_API_KEY`.
 4. Keep prompt rendering, reward logic, batching, evaluation, and stopping
    criteria in your application.
 
-Capabilities are the source of truth for environment-dependent support. Do not
-carry over model, rank, context, loss, or request-limit assumptions from another
-deployment.
+Capabilities list enabled models and their advertised context lengths. They do
+not enumerate LoRA ranks, optimizers, losses, optional methods, or
+per-operation limits. Fastino currently accepts LoRA ranks from 1 through 32,
+uses `adamw` when creating the client, and supports `cross_entropy`,
+`importance_sampling`, `ppo`, `cispo`, and `dro` losses. The active service
+validates these settings when you submit the client or operation.
 
 ## 4. Run a smoke test
 
@@ -69,11 +72,12 @@ Use the smallest valid datums and optimizer settings from your existing
 workload for a low-cost test that:
 
 - Creates one client with `create_lora_training_client(base_model=...)`
-- Reads `training_client.get_info().model_data.model_id`
-- Saves sampler weights and samples once
+- Reads `training_client.get_info().model_id`
+- Saves sampler weights with an explicit TTL and samples once
 - Runs one supported forward/backward operation and one optimizer step
 - Saves and reloads a state checkpoint
-- Fetches the same ID from `GET /v1/training/jobs/{job_id}`
+- Fetches each client's ID from `GET /v1/training/jobs/{job_id}`; a factory
+  resume creates a new job ID seeded from the source checkpoint
 
 Use the SDK for interactive operations. The adapter is intentionally absent
 from Fastino's OpenAPI and API reference, so do not construct adapter HTTP calls.
@@ -101,8 +105,9 @@ operations on one interactive Fastino job.
 | `SamplingClient.sample` | Samples through the selected checkpoint |
 
 Keep the SDK parameter `base_model` unchanged. Query
-`ServiceClient.get_server_capabilities()` before selecting a model, rank, loss,
-or optional operation.
+`ServiceClient.get_server_capabilities()` before selecting a model. Use the
+documented limits above for rank and loss, and handle validation errors from
+the active service.
 
 ### Futures and administration
 
@@ -131,8 +136,9 @@ Fastino does not support:
 - `save_weights_external`
 - `external_weights_urls`
 
-Do not infer support because a method exists in the installed package. The live
-capability response is authoritative for environment-dependent behavior.
+Do not infer support because a method exists in the installed package. The
+support table documents Fastino's SDK subset; capabilities only report enabled
+models and their context lengths.
 
 ## Troubleshoot the connection
 
@@ -140,17 +146,21 @@ capability response is authoritative for environment-dependent behavior.
 | --- | --- |
 | Authentication fails | Confirm that `TINKER_CREDENTIAL_CMD` prints one current `fast_sk_` key and no extra output |
 | The client cannot connect | Confirm that `TINKER_BASE_URL` is exactly `https://api.fastino.ai/v1/training/compat/tinker` |
-| A model or operation is rejected | Query capabilities again and compare the call with the support table |
-| Canonical job lookup fails | Confirm that the ID came from `get_info().model_data.model_id` and that the same Fastino team is authenticated |
+| The first SDK call returns `404 Not Found` | Interactive training may not be enabled for the team; contact [sales@fastino.ai](mailto:sales@fastino.ai) to request access |
+| A model is rejected | Query capabilities again and choose an enabled model |
+| A rank, loss, or operation is rejected | Compare the call with the documented limits and support table; capabilities do not list these settings |
+| Canonical job lookup fails | Confirm that the ID came from `get_info().model_id` and that the same Fastino team is authenticated |
 
 ## Migration checklist
 
 - [ ] Pin `tinker==0.33.1`.
 - [ ] Set the Fastino adapter base URL.
 - [ ] Deliver a `fast_sk_` key through `TINKER_CREDENTIAL_CMD`.
-- [ ] Confirm interactive training is enabled for the Fastino team.
+- [ ] Request interactive-training access from `sales@fastino.ai`; a generic
+      `404 Not Found` on the first SDK call can indicate missing access.
 - [ ] Check every SDK method against the supported client behavior.
-- [ ] Select the model and optional features from capabilities.
+- [ ] Select an enabled model from capabilities and validate rank, loss, and
+      operations against this guide.
 - [ ] Complete one sampling and training update.
 - [ ] Save and reload one state checkpoint.
 - [ ] Verify the SDK model ID through the canonical job endpoint.

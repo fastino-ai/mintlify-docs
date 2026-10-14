@@ -18,10 +18,10 @@ ejecución de recompensas y el estado de la aplicación permanecen en tu código
 
 ## Antes de comenzar
 
-Completa la [Guía rápida del bucle personalizado](/es/training/quickstart#custom-training-loop) y confirma después mediante las
-capacidades que estén habilitados el modelo y las operaciones elegidos. Los
-fragmentos siguientes se centran en el flujo de recompensas controlado por el
-usuario; adapta la construcción de datums a `tinker==0.33.1` y al modelo elegido.
+Completa la [Guía rápida del bucle personalizado](/es/training/quickstart#custom-training-loop)
+y confirma mediante capabilities que el modelo esté habilitado. Capabilities no
+lista pérdidas ni operaciones de entrenamiento. Los fragmentos usan la pérdida
+documentada `importance_sampling`.
 
 <Note>
   Esta guía no es un programa de entrenamiento independiente listo para copiar y
@@ -60,7 +60,8 @@ el SDK:
 
 ```python
 checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}"
+    f"rollout-{step:06d}",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 sampling_client = service_client.create_sampling_client(
     model_path=checkpoint.path
@@ -113,11 +114,11 @@ if not (
 
 Usa el renderizador y el tokenizador asociados al `base_model` seleccionado.
 Conserva los tokens muestreados y las probabilidades logarítmicas que necesite
-la operación del SDK seleccionada mediante las capacidades.
+la operación documentada del SDK.
 
 ## 5. Actualiza el trabajo interactivo
 
-Para un flujo habilitado de muestreo por importancia, el patrón de llamadas es:
+Para un flujo de muestreo por importancia, el patrón de llamadas es:
 
 ```python
 train_future = training_client.forward_backward(
@@ -142,7 +143,7 @@ state = training_client.save_state(f"step-{step:06d}").result()
 
 Conserva el identificador del checkpoint devuelto con:
 
-- ID canónico del trabajo de `training_client.get_info().model_data.model_id`
+- ID canónico del trabajo de `training_client.get_info().model_id`
 - Paso de la aplicación y cursor del dataset
 - Revisiones del dataset y de la implementación de recompensas
 - Modelo base y configuración de entrenamiento

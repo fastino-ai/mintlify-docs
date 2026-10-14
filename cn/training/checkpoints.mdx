@@ -10,10 +10,10 @@ description: "通过 SDK 保存交互式任务的状态检查点和循环记录�
 | 记录 | 包含内容 | 存储方 |
 | --- | --- | --- |
 | 状态检查点 | SDK 检查点所表示的训练权重和优化器状态 | Fastino |
-| 循环记录 | 任务 ID、检查点标识符、步骤、数据集游标和配置 | 你的应用 |
+| 循环记录 | 来源任务 ID、检查点路径、步骤、数据集游标、配置和恢复沿袭 | 你的应用 |
 
 SDK 训练客户端代表一个 Fastino 交互式任务。从
-`training_client.get_info().model_data.model_id` 读取其规范 ID。
+`training_client.get_info().model_id` 读取其规范 ID。
 
 ## 1. 保存状态和循环进度
 
@@ -24,10 +24,10 @@ import json
 from pathlib import Path
 
 
-job_id = training_client.get_info().model_data.model_id
+source_job_id = training_client.get_info().model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
-    "job_id": job_id,
+    "source_job_id": source_job_id,
     "state_path": state.path,
     "model": model_name,
     "dataset_revision": dataset_revision,
@@ -65,9 +65,9 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 ## 3. 加载前验证
 
-将记录与请求的继续运行进行比较：
+将记录与来源检查点以及请求的继续运行进行比较：
 
-- 规范任务 ID
+- 检查点路径中编码的来源任务 ID
 - 基础模型和可训练配置
 - 数据集修订版和游标
 - 奖励实现修订版
@@ -84,9 +84,13 @@ training_client = (
         str(resume["state_path"])
     )
 )
+resumed_job_id = training_client.get_info().model_id
 ```
 
-此 SDK 操作映射到 Fastino 检查点加载。不要直接构造适配器请求，也不要从该操作推断其他运行沿袭关系。
+此工厂方法先创建新的交互式任务，再将来源检查点的权重和优化器状态加载到新任务中。
+恢复后的任务 ID 通常与来源任务 ID 不同。将 `source_job_id`、`state_path` 和
+`resumed_job_id` 记录为应用负责的沿袭关系。不要因为两个任务 ID 不同而拒绝恢复，
+也不要直接构造适配器请求。
 
 ## 4. 使边界可恢复
 
@@ -106,11 +110,16 @@ training_client = (
 ```python
 state = training_client.save_state("step-000100").result()
 sampler = training_client.save_weights_for_sampler(
-    "step-000100"
+    "step-000100",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 ```
 
 使用状态检查点恢复训练。使用采样器检查点进行 rollout 或评估。不要将采样器检查点用作优化器状态恢复点。
+
+`ttl_seconds` 默认为 `None`，因此省略 TTL 会创建不会自动过期的检查点。存活的
+检查点会计入检查点存储。若要自动清理，请传入 `3_600` 到 `315_360_000`
+秒（1 小时到 10 年）之间的值，包括端点值。
 
 公开的训练 API 可以列出检查点。团队同时拥有交互式训练访问权限和权重下载权限时，
 还可以下载交互式检查点。SDK 还支持检查点删除、发布、保留期和存储用量方法。
@@ -121,7 +130,8 @@ sampler = training_client.save_weights_for_sampler(
 扩大恢复后的工作负载之前：
 
 1. 加载所选状态检查点。
-2. 通过 `GET /v1/training/jobs/{job_id}` 确认 SDK 客户端的规范任务 ID。
+2. 从 `training_client.get_info().model_id` 读取新 ID，将其持久化为
+   `resumed_job_id`，并通过 `GET /v1/training/jobs/{resumed_job_id}` 确认。
 3. 运行小型留出评估。
 4. 提交一次受支持的训练更新。
 5. 使用新名称保存新的状态检查点。
@@ -135,4 +145,5 @@ sampler = training_client.save_weights_for_sampler(
 | --- | --- |
 | Future 失败 | 记录任务 ID 和操作结果。不要推进依赖的应用状态 |
 | 无法加载检查点 | 验证其任务、检查点类型和客户端负责的恢复记录 |
-| 规范任务查找失败 | 确认 ID 来自 `get_info().model_data.model_id`，且已通过同一 Fastino 团队的身份验证 |
+| 来源检查点被拒绝 | 确认其来源任务、检查点类型和持久化的 `state_path`；不要要求新任务 ID 等于来源 ID |
+| 恢复后的任务查找失败 | 确认 ID 来自恢复后客户端的 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |

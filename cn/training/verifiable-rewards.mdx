@@ -15,8 +15,9 @@ prompt -> sample a group -> grade -> center rewards -> build datums -> update
 
 ## 开始之前
 
-完成[自定义循环快速入门](/cn/training/quickstart#custom-training-loop)，然后通过功能确认所选模型和训练操作已启用。
-以下代码片段侧重于用户负责的奖励流程；请根据 `tinker==0.33.1` 和所选模型调整 datum 构建。
+完成[自定义循环快速入门](/cn/training/quickstart#custom-training-loop)，然后通过
+capabilities 确认所选模型已启用。Capabilities 不列出损失或训练操作。以下片段
+使用已记录的 `importance_sampling` 损失。
 
 <Note>
   本指南并不是一个可独立使用、复制粘贴即可运行的训练器。请先从经过验证的 SDK
@@ -48,7 +49,8 @@ def get_reward(response: str, expected: str) -> float:
 
 ```python
 checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}"
+    f"rollout-{step:06d}",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 sampling_client = service_client.create_sampling_client(
     model_path=checkpoint.path
@@ -95,12 +97,12 @@ if not (
     raise ValueError("training datum arrays are not aligned")
 ```
 
-使用与所选 `base_model` 关联的渲染器和 tokenizer。保留从功能中选择的 SDK
-操作所需的采样 token 和对数概率。
+使用与所选 `base_model` 关联的渲染器和 tokenizer。保留已记录的 SDK 操作所需的
+采样 token 和对数概率。
 
 ## 5. 更新交互式任务
 
-对于已启用的重要性采样工作流，SDK 调用形式如下：
+对于重要性采样工作流，SDK 调用形式如下：
 
 ```python
 train_future = training_client.forward_backward(
@@ -124,7 +126,7 @@ state = training_client.save_state(f"step-{step:06d}").result()
 
 将返回的检查点标识符与以下内容一起持久化：
 
-- 来自 `training_client.get_info().model_data.model_id` 的规范任务 ID
+- 来自 `training_client.get_info().model_id` 的规范任务 ID
 - 应用步骤和数据集游标
 - 数据集和奖励实现修订版
 - 基础模型和训练配置

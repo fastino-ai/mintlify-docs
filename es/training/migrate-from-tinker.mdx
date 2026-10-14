@@ -57,9 +57,11 @@ credenciales `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
    la exportación de pesos externos o las URL de pesos externos.
 4. Mantén en tu aplicación el renderizado de prompts, la lógica de recompensas, el procesamiento por lotes, la evaluación y los criterios de parada.
 
-Las capacidades son la fuente de verdad de la compatibilidad dependiente del
-entorno. No traslades supuestos sobre modelos, rangos, contexto, pérdidas o
-límites de solicitudes desde otro despliegue.
+Capabilities solo lista modelos habilitados y sus longitudes de contexto. No
+incluye rangos LoRA, optimizadores, pérdidas, métodos opcionales ni límites de
+operación. Fastino acepta actualmente rangos LoRA de 1 a 32, usa `adamw` al
+crear el cliente y admite `cross_entropy`, `importance_sampling`, `ppo`,
+`cispo` y `dro`. El servicio activo valida estos ajustes al enviarlos.
 
 ## 4. Ejecuta una prueba de humo
 
@@ -67,11 +69,12 @@ Usa los datums válidos más pequeños y los ajustes del optimizador de tu carga
 trabajo existente para realizar una prueba de bajo coste que:
 
 - Cree un cliente con `create_lora_training_client(base_model=...)`
-- Lea `training_client.get_info().model_data.model_id`
+- Lea `training_client.get_info().model_id`
 - Guarde los pesos del muestreador y realice un muestreo
 - Ejecute una operación compatible hacia delante/hacia atrás y un paso del optimizador
 - Guarde y vuelva a cargar un checkpoint de estado
-- Obtenga el mismo ID de `GET /v1/training/jobs/{job_id}`
+- Obtenga el ID de cada cliente de `GET /v1/training/jobs/{job_id}`; una
+  reanudación mediante la fábrica crea un ID nuevo a partir del checkpoint de origen
 
 Usa el SDK para las operaciones interactivas. El adaptador se omite
 intencionadamente del OpenAPI y de la referencia de la API de Fastino, así que
@@ -101,9 +104,9 @@ El adaptador HTTP de Fastino traduce las llamadas compatibles de
 | Crear u obtener un cliente de muestreo | Resuelve los pesos del muestreador |
 | `SamplingClient.sample` | Muestrea mediante el checkpoint seleccionado |
 
-Conserva sin cambios el parámetro `base_model` del SDK. Consulta
-`ServiceClient.get_server_capabilities()` antes de seleccionar un modelo, un
-rango, una pérdida o una operación opcional.
+Conserva sin cambios el parámetro `base_model` del SDK. Elige el modelo mediante
+capabilities; usa los límites documentados para rango y pérdida y gestiona los
+errores de validación del servicio activo.
 
 ### Futures y administración
 
@@ -134,8 +137,8 @@ Fastino no admite:
 - `external_weights_urls`
 
 No deduzcas la compatibilidad porque un método exista en el paquete instalado.
-La respuesta de capacidades activa es la fuente de verdad del comportamiento
-dependiente del entorno.
+La tabla define el subconjunto compatible; capabilities solo informa modelos
+habilitados y longitudes de contexto.
 
 ## Soluciona problemas de conexión
 
@@ -143,17 +146,21 @@ dependiente del entorno.
 | --- | --- |
 | La autenticación falla | Confirma que `TINKER_CREDENTIAL_CMD` imprima una única clave `fast_sk_` actual y ninguna salida adicional |
 | El cliente no puede conectarse | Confirma que `TINKER_BASE_URL` sea exactamente `https://api.fastino.ai/v1/training/compat/tinker` |
-| Se rechaza un modelo o una operación | Vuelve a consultar las capacidades y compara la llamada con la tabla de compatibilidad |
-| Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_data.model_id` y que esté autenticado el mismo equipo de Fastino |
+| La primera llamada del SDK devuelve `404 Not Found` | Puede que el equipo no tenga entrenamiento interactivo; solicita acceso en [sales@fastino.ai](mailto:sales@fastino.ai) |
+| Se rechaza un modelo | Vuelve a consultar capabilities y elige un modelo habilitado |
+| Se rechaza un rango, pérdida u operación | Compara la llamada con los límites documentados y la tabla de compatibilidad |
+| Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_id` y que esté autenticado el mismo equipo de Fastino |
 
 ## Lista de comprobación de la migración
 
 - [ ] Fija `tinker==0.33.1`.
 - [ ] Establece la URL base del adaptador de Fastino.
 - [ ] Proporciona una clave `fast_sk_` mediante `TINKER_CREDENTIAL_CMD`.
-- [ ] Confirma que el entrenamiento interactivo esté habilitado para el equipo de Fastino.
+- [ ] Solicita acceso al entrenamiento interactivo en `sales@fastino.ai`; un
+      `404 Not Found` genérico en la primera llamada puede indicar falta de acceso.
 - [ ] Comprueba cada método del SDK con el comportamiento compatible del cliente.
-- [ ] Selecciona el modelo y las funciones opcionales a partir de las capacidades.
+- [ ] Elige un modelo habilitado mediante capabilities y valida rango, pérdida
+      y operaciones opcionales con esta guía.
 - [ ] Completa una actualización de muestreo y entrenamiento.
 - [ ] Guarda y vuelve a cargar un checkpoint de estado.
 - [ ] Verifica el ID de modelo del SDK mediante el endpoint canónico del trabajo.

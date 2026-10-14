@@ -24,13 +24,15 @@ for their final model artifact.
 
 <ParamField path="checkpoint_id" type="string" required>
   Checkpoint identifier returned by the checkpoint list, such as
-  `weights/checkpoint-1` or `sampler_weights/checkpoint-1`.
+  `weights/checkpoint-1` or `sampler_weights/checkpoint-1`. Keep the `/` in the
+  path; do not URL-encode the entire identifier.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/download" \
+CHECKPOINT_ID="sampler_weights/checkpoint-1"
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/download" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -41,16 +43,59 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/d
 The response contains a signed archive URL that expires after 15 minutes. Treat
 the URL as a credential: do not log, share, or persist it.
 
+<ResponseField name="success" type="boolean">
+  Whether the request succeeded.
+</ResponseField>
+
+<ResponseField name="run_id" type="string">
+  Interactive job that owns the checkpoint.
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  Downloadable interactive checkpoint identifier.
+</ResponseField>
+
+<ResponseField name="download_url" type="string">
+  Signed archive URL. No API key is required when fetching it.
+</ResponseField>
+
+<ResponseField name="expires_in_seconds" type="integer">
+  Remaining lifetime of the signed URL. New links expire after 900 seconds.
+</ResponseField>
+
+<ResponseField name="file_name" type="string">
+  Suggested `.tar` file name for the archive.
+</ResponseField>
+
 <ResponseExample>
 
 ```json Response
 {
-  "url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
-  "expires_in_seconds": 900
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoint_id": "sampler_weights/checkpoint-1",
+  "download_url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "session-1_train_0-sampler_weights-checkpoint-1.tar"
 }
 ```
 
 </ResponseExample>
 
 This operation requires interactive-training access and the team's
-weight-download entitlement.
+weight-download entitlement. Without interactive-training access, the endpoint
+returns the same generic `404 Not Found` used for an unavailable route. Without
+the weight-download entitlement, it returns `403`. Contact
+[sales@fastino.ai](mailto:sales@fastino.ai) to request either capability.
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400` | `checkpoint_id` is not `weights/<name>` or `sampler_weights/<name>`. |
+| `403` | The team lacks weight-download access, is being erased, or the signed URL is invalid or expired. |
+| `404` | The job or checkpoint is unavailable, the checkpoint has no downloadable files, or it was deleted after the URL was issued. |
+
+Fetching `download_url` returns an `application/x-tar` attachment. The signed
+URL is the credential. It returns `403` after expiry or if its token is changed,
+and `404` if the checkpoint becomes unavailable after the link is issued.

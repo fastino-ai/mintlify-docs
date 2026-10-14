@@ -61,9 +61,12 @@ nicht leere Anmeldedaten ausgeben. Verwenden Sie einen normalen Fastino-
 4. Behalten Sie Prompt-Rendering, Reward-Logik, Batching, Evaluierung und
    Abbruchkriterien in Ihrer Anwendung.
 
-Die Fähigkeiten sind die verbindliche Quelle für umgebungsabhängige
-Unterstützung. Übernehmen Sie keine Annahmen zu Modell, Rang, Kontext, Loss oder
-Request-Limits aus einer anderen Bereitstellung.
+Capabilities listen nur aktivierte Modelle und deren Kontextlängen auf. Sie
+enthalten keine LoRA-Ränge, Optimizer, Losses, optionalen Methoden oder
+Operationslimits. Fastino akzeptiert derzeit LoRA-Ränge von 1 bis 32, verwendet
+bei der Client-Erstellung `adamw` und unterstützt `cross_entropy`,
+`importance_sampling`, `ppo`, `cispo` und `dro`. Der aktive Dienst validiert
+diese Einstellungen beim Senden.
 
 ## 4. Smoke-Test ausführen
 
@@ -71,11 +74,12 @@ Verwenden Sie die kleinsten gültigen Datums und Optimierer-Einstellungen aus
 Ihrem bestehenden Workload für einen kostengünstigen Test, der:
 
 - einen Client mit `create_lora_training_client(base_model=...)` erstellt,
-- `training_client.get_info().model_data.model_id` liest,
+- `training_client.get_info().model_id` liest,
 - Sampler-Gewichte speichert und einmal sampelt,
 - eine unterstützte Forward-/Backward-Operation und einen Optimierungsschritt ausführt,
 - einen Status-Checkpoint speichert und erneut lädt,
-- dieselbe ID über `GET /v1/training/jobs/{job_id}` abruft.
+- die ID jedes Clients über `GET /v1/training/jobs/{job_id}` abruft; eine
+  Factory-Wiederaufnahme erstellt eine neue Job-ID aus dem Quell-Checkpoint.
 
 Verwenden Sie das SDK für interaktive Operationen. Der Adapter fehlt
 absichtlich in Fastinos OpenAPI und API-Referenz; konstruieren Sie daher keine
@@ -105,9 +109,9 @@ Operationen für einen interaktiven Fastino-Job.
 | Sampling-Client erstellen oder abrufen | Löst Sampler-Gewichte auf |
 | `SamplingClient.sample` | Sampelt über den ausgewählten Checkpoint |
 
-Behalten Sie den SDK-Parameter `base_model` unverändert bei. Fragen Sie
-`ServiceClient.get_server_capabilities()` ab, bevor Sie ein Modell, einen Rang,
-einen Loss oder eine optionale Operation auswählen.
+Behalten Sie den SDK-Parameter `base_model` unverändert bei. Wählen Sie das
+Modell über Capabilities; verwenden Sie für Rang und Loss die dokumentierten
+Grenzen und behandeln Sie Validierungsfehler des aktiven Dienstes.
 
 ### Futures und Verwaltung
 
@@ -138,8 +142,8 @@ Fastino unterstützt Folgendes nicht:
 - `external_weights_urls`
 
 Leiten Sie Unterstützung nicht allein daraus ab, dass eine Methode im
-installierten Paket vorhanden ist. Die aktuelle Antwort zu den Fähigkeiten ist
-für umgebungsabhängiges Verhalten maßgeblich.
+installierten Paket vorhanden ist. Die Tabelle definiert Fastinos SDK-Teilmenge;
+Capabilities melden nur aktivierte Modelle und Kontextlängen.
 
 ## Verbindungsprobleme beheben
 
@@ -147,8 +151,10 @@ für umgebungsabhängiges Verhalten maßgeblich.
 | --- | --- |
 | Authentifizierung schlägt fehl | Prüfen Sie, ob `TINKER_CREDENTIAL_CMD` genau einen aktuellen `fast_sk_`-Schlüssel und keine zusätzliche Ausgabe ausgibt |
 | Der Client kann keine Verbindung herstellen | Prüfen Sie, ob `TINKER_BASE_URL` exakt `https://api.fastino.ai/v1/training/compat/tinker` ist |
-| Modell oder Operation wird abgelehnt | Fragen Sie die Fähigkeiten erneut ab und vergleichen Sie den Aufruf mit der Unterstützungstabelle |
-| Kanonischer Job kann nicht abgerufen werden | Prüfen Sie, ob die ID aus `get_info().model_data.model_id` stammt und dasselbe Fastino-Team authentifiziert ist |
+| Der erste SDK-Aufruf liefert `404 Not Found` | Interaktives Training ist möglicherweise nicht aktiviert; fordern Sie Zugriff bei [sales@fastino.ai](mailto:sales@fastino.ai) an |
+| Ein Modell wird abgelehnt | Fragen Sie Capabilities erneut ab und wählen Sie ein aktiviertes Modell |
+| Rang, Loss oder Operation wird abgelehnt | Vergleichen Sie den Aufruf mit den dokumentierten Grenzen und der Unterstützungstabelle |
+| Kanonischer Job kann nicht abgerufen werden | Prüfen Sie, ob die ID aus `get_info().model_id` stammt und dasselbe Fastino-Team authentifiziert ist |
 
 ## Migrationscheckliste
 

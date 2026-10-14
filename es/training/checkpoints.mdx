@@ -12,11 +12,11 @@ usuario que indica al controlador qué debe hacer después.
 | Registro | Contiene | Almacenado por |
 | --- | --- | --- |
 | Checkpoint de estado | Pesos de entrenamiento y estado del optimizador representados por el checkpoint del SDK | Fastino |
-| Registro del bucle | ID del trabajo, identificador del checkpoint, paso, cursor del dataset y configuración | Tu aplicación |
+| Registro del bucle | ID del trabajo de origen, ruta del checkpoint, paso, cursor del dataset, configuración y linaje de reanudación | Tu aplicación |
 
 El cliente de entrenamiento del SDK representa un trabajo interactivo de
 Fastino. Lee su ID canónico de
-`training_client.get_info().model_data.model_id`.
+`training_client.get_info().model_id`.
 
 ## 1. Guarda el estado y el progreso del bucle
 
@@ -28,10 +28,10 @@ import json
 from pathlib import Path
 
 
-job_id = training_client.get_info().model_data.model_id
+source_job_id = training_client.get_info().model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
-    "job_id": job_id,
+    "source_job_id": source_job_id,
     "state_path": state.path,
     "model": model_name,
     "dataset_revision": dataset_revision,
@@ -71,9 +71,9 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 ## 3. Valida antes de cargar
 
-Compara el registro con la continuación solicitada:
+Compara el registro con el checkpoint de origen y la continuación solicitada:
 
-- ID canónico del trabajo
+- ID del trabajo de origen codificado en la ruta del checkpoint
 - Modelo base y configuración entrenable
 - Revisión y cursor del dataset
 - Revisión de la implementación de recompensas
@@ -91,11 +91,14 @@ training_client = (
         str(resume["state_path"])
     )
 )
+resumed_job_id = training_client.get_info().model_id
 ```
 
-Esta operación del SDK se asigna a la carga de checkpoints de Fastino. No
-construyas directamente la solicitud al adaptador ni deduzcas un linaje de
-ejecuciones adicional de la operación.
+Esta fábrica crea un nuevo trabajo interactive y después carga los pesos y el
+estado del optimizador del checkpoint de origen. El ID reanudado normalmente
+difiere del ID de origen. Guarda `source_job_id`, `state_path` y
+`resumed_job_id` como linaje de la aplicación. No rechaces la continuación
+porque los IDs difieran ni construyas la solicitud al adaptador.
 
 ## 4. Haz recuperable el límite
 
@@ -116,13 +119,19 @@ confianza. No marques un paso como completado antes de que su registro sea durad
 ```python
 state = training_client.save_state("step-000100").result()
 sampler = training_client.save_weights_for_sampler(
-    "step-000100"
+    "step-000100",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 ```
 
 Usa un checkpoint de estado para recuperar el entrenamiento y uno de muestreador
 para rollouts o evaluación. No uses un checkpoint de muestreador como punto de
 recuperación del estado del optimizador.
+
+`ttl_seconds` tiene el valor predeterminado `None`; sin TTL, el checkpoint no
+caduca automáticamente. Los checkpoints activos cuentan para el almacenamiento.
+Para la limpieza automática, usa un valor inclusivo entre `3_600` y
+`315_360_000` segundos.
 
 La API pública de entrenamiento permite listar checkpoints. Puede descargar un
 checkpoint interactivo cuando el equipo tiene acceso al entrenamiento
@@ -136,7 +145,9 @@ periodo de retención no documentado.
 Antes de aumentar la carga reanudada:
 
 1. Carga el checkpoint de estado seleccionado.
-2. Confirma el ID canónico del cliente del SDK mediante `GET /v1/training/jobs/{job_id}`.
+2. Lee el ID nuevo de `training_client.get_info().model_id`, guárdalo como
+   `resumed_job_id` y confírmalo mediante
+   `GET /v1/training/jobs/{resumed_job_id}`.
 3. Ejecuta una pequeña evaluación con datos reservados.
 4. Envía una actualización de entrenamiento compatible.
 5. Guarda un checkpoint de estado nuevo con otro nombre.
@@ -150,4 +161,5 @@ Usa el SDK para todas las operaciones interactivas del modelo.
 | --- | --- |
 | Falla un future | Registra el ID del trabajo y el resultado de la operación. No avances el estado dependiente de la aplicación |
 | No se puede cargar un checkpoint | Verifica su trabajo, su tipo de checkpoint y el registro de recuperación controlado por el cliente |
-| Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_data.model_id` y que esté autenticado el mismo equipo de Fastino |
+| Se rechaza el checkpoint de origen | Comprueba el trabajo de origen, el tipo de checkpoint y `state_path`; no exijas que el ID nuevo coincida con el de origen |
+| Falla la consulta del trabajo reanudado | Confirma que el ID proceda de `get_info().model_id` del cliente reanudado y que esté autenticado el mismo equipo de Fastino |

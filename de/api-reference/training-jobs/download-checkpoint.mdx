@@ -24,13 +24,15 @@ Modellartefakt
 
 <ParamField path="checkpoint_id" type="string" required>
   Von der Checkpoint-Liste zurückgegebene Checkpoint-Kennung, beispielsweise
-  `weights/checkpoint-1` oder `sampler_weights/checkpoint-1`.
+  `weights/checkpoint-1` oder `sampler_weights/checkpoint-1`. Behalten Sie den
+  `/` im Pfad bei; kodieren Sie nicht die gesamte Kennung als URL.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/download" \
+CHECKPOINT_ID="sampler_weights/checkpoint-1"
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/download" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -46,12 +48,31 @@ Sie sie nicht dauerhaft.
 
 ```json Response
 {
-  "url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
-  "expires_in_seconds": 900
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoint_id": "sampler_weights/checkpoint-1",
+  "download_url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "session-1_train_0-sampler_weights-checkpoint-1.tar"
 }
 ```
 
 </ResponseExample>
 
 Dieser Vorgang erfordert Zugang zu interaktivem Training und die Berechtigung
-des Teams zum Herunterladen von Gewichten.
+des Teams zum Herunterladen von Gewichten. Ohne interaktiven Trainingszugriff
+gibt der Endpunkt ein allgemeines `404 Not Found` zurück, ohne
+Downloadberechtigung `403`. Fordern Sie den Zugriff bei
+[sales@fastino.ai](mailto:sales@fastino.ai) an.
+
+## Fehler
+
+| Status | Bedeutung |
+| --- | --- |
+| `400` | `checkpoint_id` ist nicht `weights/<name>` oder `sampler_weights/<name>`. |
+| `403` | Dem Team fehlt die Downloadberechtigung, Teamdaten werden gelöscht oder die signierte URL ist ungültig oder abgelaufen. |
+| `404` | Job oder Checkpoint ist nicht verfügbar, der Checkpoint hat keine herunterladbaren Dateien oder wurde nach Ausstellung der URL gelöscht. |
+
+Der Abruf von `download_url` liefert einen `application/x-tar`-Anhang. Die
+signierte URL ist das Zugangsmittel. Sie liefert nach Ablauf oder Änderung des
+Tokens `403` und `404`, wenn der Checkpoint danach nicht mehr verfügbar ist.

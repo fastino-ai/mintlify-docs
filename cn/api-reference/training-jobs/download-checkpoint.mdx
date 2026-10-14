@@ -23,13 +23,15 @@ api: "GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"
 
 <ParamField path="checkpoint_id" type="string" required>
   检查点列表返回的检查点标识符，例如 `weights/checkpoint-1` 或
-  `sampler_weights/checkpoint-1`。
+  `sampler_weights/checkpoint-1`。请在路径中保留 `/`，不要对整个标识符进行
+  URL 编码。
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/download" \
+CHECKPOINT_ID="sampler_weights/checkpoint-1"
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/download" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -43,11 +45,28 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/d
 
 ```json Response
 {
-  "url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
-  "expires_in_seconds": 900
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoint_id": "sampler_weights/checkpoint-1",
+  "download_url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "session-1_train_0-sampler_weights-checkpoint-1.tar"
 }
 ```
 
 </ResponseExample>
 
-此操作需要交互式训练访问权限以及团队的权重下载权限。
+此操作需要交互式训练访问权限以及团队的权重下载权限。没有交互式训练权限时，
+端点返回通用的 `404 Not Found`；没有权重下载权限时返回 `403`。请联系
+[sales@fastino.ai](mailto:sales@fastino.ai) 申请权限。
+
+## 错误
+
+| 状态 | 含义 |
+| --- | --- |
+| `400` | `checkpoint_id` 不是 `weights/<name>` 或 `sampler_weights/<name>`。 |
+| `403` | 团队没有权重下载权限、正在删除数据，或签名 URL 无效或已过期。 |
+| `404` | 任务或检查点不可用、检查点没有可下载文件，或 URL 签发后检查点被删除。 |
+
+获取 `download_url` 会返回 `application/x-tar` 附件。签名 URL 本身就是凭据；
+过期或令牌被修改时返回 `403`，检查点之后变得不可用时返回 `404`。

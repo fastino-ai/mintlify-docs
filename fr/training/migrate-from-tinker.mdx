@@ -60,10 +60,12 @@ identifiants `tml-` sont rejetés. Ne définissez pas `TINKER_API_KEY`.
 4. Conservez dans votre application le rendu des prompts, la logique de
    récompense, la mise en lots, l'évaluation et les critères d'arrêt.
 
-Les capacités constituent la source de vérité pour la prise en charge propre à
-l'environnement. Ne conservez pas les hypothèses relatives au modèle, au rang,
-au contexte, à la fonction de perte ou aux limites de requête provenant d'un
-autre déploiement.
+Capabilities liste uniquement les modèles activés et leurs longueurs de
+contexte. Il n'énumère pas les rangs LoRA, optimiseurs, pertes, méthodes
+facultatives ou limites d'opération. Fastino accepte actuellement les rangs LoRA
+de 1 à 32, utilise `adamw` à la création et prend en charge `cross_entropy`,
+`importance_sampling`, `ppo`, `cispo` et `dro`. Le service actif valide ces
+réglages lors de leur soumission.
 
 ## 4. Exécuter un test de fumée
 
@@ -71,11 +73,12 @@ Utilisez les plus petits datums valides et les paramètres d'optimisation de
 votre workload existant pour un test peu coûteux qui :
 
 - Crée un client avec `create_lora_training_client(base_model=...)`
-- Lit `training_client.get_info().model_data.model_id`
+- Lit `training_client.get_info().model_id`
 - Enregistre les poids d'échantillonneur et effectue un échantillonnage
 - Exécute une opération avant/arrière prise en charge et une étape d'optimisation
 - Enregistre et recharge un checkpoint d'état
-- Récupère le même ID depuis `GET /v1/training/jobs/{job_id}`
+- Récupère l'ID de chaque client via `GET /v1/training/jobs/{job_id}` ; une
+  reprise par la fabrique crée un nouvel ID à partir du checkpoint source
 
 Utilisez le SDK pour les opérations interactives. L'adaptateur est
 volontairement absent de l'OpenAPI et de la référence API de Fastino ; ne
@@ -105,9 +108,9 @@ L'adaptateur HTTP de Fastino traduit les appels pris en charge de
 | Créer ou obtenir un client d'échantillonnage | Résout les poids de l'échantillonneur |
 | `SamplingClient.sample` | Échantillonne via le checkpoint sélectionné |
 
-Conservez le paramètre SDK `base_model` inchangé. Interrogez
-`ServiceClient.get_server_capabilities()` avant de sélectionner un modèle, un
-rang, une fonction de perte ou une opération facultative.
+Conservez le paramètre SDK `base_model` inchangé. Choisissez le modèle avec
+capabilities ; utilisez les limites documentées pour le rang et la perte, puis
+gérez les erreurs de validation du service actif.
 
 ### Futures et administration
 
@@ -138,8 +141,8 @@ Fastino ne prend pas en charge :
 - `external_weights_urls`
 
 Ne déduisez pas la prise en charge d'une méthode uniquement parce qu'elle
-existe dans le paquet installé. La réponse de capacités active fait foi pour le
-comportement propre à l'environnement.
+existe dans le paquet installé. Le tableau définit le sous-ensemble pris en
+charge ; capabilities ne rapporte que les modèles activés et longueurs de contexte.
 
 ## Résoudre les problèmes de connexion
 
@@ -147,8 +150,10 @@ comportement propre à l'environnement.
 | --- | --- |
 | Échec de l'authentification | Vérifiez que `TINKER_CREDENTIAL_CMD` affiche une seule clé `fast_sk_` actuelle sans sortie supplémentaire |
 | Le client ne parvient pas à se connecter | Vérifiez que `TINKER_BASE_URL` correspond exactement à `https://api.fastino.ai/v1/training/compat/tinker` |
-| Un modèle ou une opération est rejeté | Interrogez de nouveau les capacités et comparez l'appel avec le tableau de prise en charge |
-| La recherche du job canonique échoue | Vérifiez que l'ID provient de `get_info().model_data.model_id` et que la même équipe Fastino est authentifiée |
+| Le premier appel SDK renvoie `404 Not Found` | L'entraînement interactif peut ne pas être activé ; demandez l'accès à [sales@fastino.ai](mailto:sales@fastino.ai) |
+| Un modèle est rejeté | Interrogez de nouveau capabilities et choisissez un modèle activé |
+| Un rang, une perte ou une opération est rejeté | Comparez l'appel aux limites documentées et au tableau de prise en charge |
+| La recherche du job canonique échoue | Vérifiez que l'ID provient de `get_info().model_id` et que la même équipe Fastino est authentifiée |
 
 ## Checklist de migration
 

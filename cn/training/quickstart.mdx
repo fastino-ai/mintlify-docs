@@ -146,20 +146,28 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 使用以 `fast_sk_` 开头的普通 Fastino 密钥。以 `tml-` 开头的凭据会被拒绝。
 不要设置 `TINKER_API_KEY`。
 
+<Note>
+  自定义训练循环需要团队权限。没有权限时，SDK 的第一个请求（包括
+  `get_server_capabilities()`）会返回通用的 `404 Not Found`。请联系
+  [sales@fastino.ai](mailto:sales@fastino.ai) 申请权限。
+</Note>
+
 ### 5. 选择已启用的模型
 
-调用 `ServiceClient.get_server_capabilities()`，并从其响应中选择模型和 LoRA 秩：
+调用 `ServiceClient.get_server_capabilities()` 选择已启用的模型。Capabilities
+仅报告模型名称和上下文长度，不报告 LoRA 秩、优化器、损失函数、可选方法或操作限制。
+Fastino 当前接受 1 到 32 的 LoRA 秩，默认值为 32。
 
 <CodeGroup>
 
 ```bash macOS/Linux
 export FASTINO_TRAINING_MODEL="<model from capabilities>"
-export FASTINO_TRAINING_LORA_RANK="<supported rank>"
+export FASTINO_TRAINING_LORA_RANK="32"
 ```
 
 ```powershell Windows
 $env:FASTINO_TRAINING_MODEL = "<model from capabilities>"
-$env:FASTINO_TRAINING_LORA_RANK = "<supported rank>"
+$env:FASTINO_TRAINING_LORA_RANK = "32"
 ```
 
 </CodeGroup>
@@ -185,11 +193,12 @@ try:
         rank=int(os.environ["FASTINO_TRAINING_LORA_RANK"]),
     )
 
-    job_id = training_client.get_info().model_data.model_id
+    job_id = training_client.get_info().model_id
     print(f"TRAINING_JOB_ID={job_id}")
 
     checkpoint = training_client.save_weights_for_sampler(
-        "quickstart-sampler"
+        "quickstart-sampler",
+        ttl_seconds=24 * 60 * 60,
     ).result()
     sampling_client = service_client.create_sampling_client(
         model_path=checkpoint.path

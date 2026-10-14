@@ -12,12 +12,13 @@ represents one interactive Fastino job throughout the loop.
 
 <Steps>
   <Step title="Create the interactive job">
-    Choose a `base_model` and other options from the capability response, then
-    call `create_lora_training_client(...)`. Read the canonical job ID from
-    `training_client.get_info().model_data.model_id`.
+    Choose an enabled `base_model` from the capability response, then call
+    `create_lora_training_client(...)` with documented settings. Capabilities
+    do not report ranks, losses, or operation limits. Read the canonical job ID
+    from `training_client.get_info().model_id`.
   </Step>
   <Step title="Checkpoint weights for sampling">
-    Call `save_weights_for_sampler(name)`, then create a sampling client from
+    Call `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)`, then create a sampling client from
     the returned checkpoint path. This ties the rollout policy to an explicit
     artifact of the same job.
   </Step>
@@ -27,11 +28,12 @@ represents one interactive Fastino job throughout the loop.
   </Step>
   <Step title="Compute rewards and advantages">
     Score each response, then transform rewards into the advantages required by
-    your selected, capability-supported training operation.
+    your selected documented training operation.
   </Step>
   <Step title="Build training datums">
     Combine model inputs, sampled response tokens, sampling metadata, and
-    token-level training signals in the SDK's expected shape.
+    token-level training signals in the SDK's expected shape for the selected
+    documented training operation.
   </Step>
   <Step title="Update the same job">
     Submit supported forward/backward work, then an optimizer step, through the
@@ -72,8 +74,9 @@ used by the selected model:
 
 <Warning>
   Prompt rendering, tokenization, datum construction, and reward execution are
-  client-owned. Validate their shapes against `tinker==0.33.1` and the live
-  capability response before a larger workload.
+  client-owned. Validate their shapes against `tinker==0.33.1` and the
+  documented operation contract before a larger workload. The capability
+  response only lists enabled models and advertised context lengths.
 </Warning>
 
 ## Keep dependent work ordered
@@ -97,3 +100,7 @@ determine which work completed without replaying an update.
 
 For the recovery sequence and checkpoint kinds, follow
 [Checkpoints and recovery](/training/checkpoints).
+
+One `TrainingClient` updates one job during its lifetime. Creating a client from
+a saved state starts a new interactive job seeded from the source checkpoint;
+persist both job IDs as application-owned lineage.

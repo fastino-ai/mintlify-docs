@@ -11,19 +11,19 @@ description: "由你的应用控制采样、评分和更新时机，在一个 Fa
 
 <Steps>
   <Step title="创建交互式任务">
-    从功能响应中选择 `base_model` 和其他选项，然后调用
-    `create_lora_training_client(...)`。从
-    `training_client.get_info().model_data.model_id` 读取规范任务 ID。
+    从 capabilities 中选择已启用的 `base_model`，并使用记录的设置调用
+    `create_lora_training_client(...)`。Capabilities 不报告秩、损失或操作限制。从
+    `training_client.get_info().model_id` 读取规范任务 ID。
   </Step>
   <Step title="为采样创建权重检查点">
-    调用 `save_weights_for_sampler(name)`，然后使用返回的检查点路径创建采样客户端。
+    调用 `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)`，然后使用返回的检查点路径创建采样客户端。
     这会将 rollout 策略绑定到同一个任务的明确工件。
   </Step>
   <Step title="收集 rollout 组">
     为每个提示词采样多个候选响应。你的应用负责提示词构建、响应渲染和分组。
   </Step>
   <Step title="计算奖励和优势值">
-    为每个响应评分，然后将奖励转换为所选且功能支持的训练操作所需的优势值。
+    为每个响应评分，然后将奖励转换为所选且已记录的训练操作所需的优势值。
   </Step>
   <Step title="构建训练 datum">
     按 SDK 预期的形式组合模型输入、采样响应 token、采样元数据和 token 级训练信号。
@@ -63,7 +63,8 @@ SDK 模型 ID 就是规范的 Fastino 任务 ID。Future 和采样客户端不�
 
 <Warning>
   提示词渲染、token 化、datum 构建和奖励执行均由客户端负责。在运行更大的工作负载前，
-  请根据 `tinker==0.33.1` 和实时功能响应验证它们的形式。
+  请根据 `tinker==0.33.1` 和已记录的操作契约验证它们的形式。Capabilities
+  仅报告已启用的模型及其上下文长度。
 </Warning>
 
 ## 保持依赖工作有序
@@ -81,3 +82,6 @@ SDK 执行这些交互式操作。不要将它们复现为直接 HTTP 调用。
 这样，重启后的控制器无需重放更新即可确定哪些工作已完成。
 
 有关恢复顺序和检查点类型，请参阅[检查点与恢复](/cn/training/checkpoints)。
+
+一个 `TrainingClient` 在其生命周期内更新一个任务。从保存的状态创建客户端会从
+来源检查点启动新的交互式任务。请将两个任务 ID 记录为应用负责的沿袭关系。

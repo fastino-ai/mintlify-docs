@@ -52,18 +52,22 @@ SDK 会将 `/api/v1/{operation}` 追加到 `TINKER_BASE_URL`。每次请求令�
 3. 移除对不受支持的批量 future 检索、外部权重导出或外部权重 URL 的依赖。
 4. 将提示词渲染、奖励逻辑、批处理、评估和停止条件保留在你的应用中。
 
-功能是环境相关支持的权威来源。不要沿用其他部署中的模型、秩、上下文、损失或请求限制假设。
+Capabilities 仅列出已启用的模型及其上下文长度，不列出 LoRA 秩、优化器、损失、
+可选方法或操作限制。Fastino 当前接受 1 到 32 的 LoRA 秩，创建客户端时使用
+`adamw`，并支持 `cross_entropy`、`importance_sampling`、`ppo`、`cispo`
+和 `dro` 损失。活动服务会在提交客户端或操作时验证这些设置。
 
 ## 4. 运行冒烟测试
 
 使用现有工作负载中最小的有效 datum 和优化器设置，执行一项低成本测试，以：
 
 - 使用 `create_lora_training_client(base_model=...)` 创建一个客户端
-- 读取 `training_client.get_info().model_data.model_id`
+- 读取 `training_client.get_info().model_id`
 - 保存采样器权重并采样一次
 - 运行一次受支持的前向/反向操作和一次优化器步骤
 - 保存并重新加载状态检查点
-- 从 `GET /v1/training/jobs/{job_id}` 获取相同的 ID
+- 通过 `GET /v1/training/jobs/{job_id}` 获取每个客户端的 ID；工厂恢复会从来源
+  检查点创建一个新的任务 ID
 
 使用 SDK 执行交互式操作。适配器有意不出现在 Fastino 的 OpenAPI 和 API 参考中，
 因此请勿构造适配器 HTTP 调用。
@@ -91,8 +95,8 @@ Fastino 的 HTTP 适配器将 `tinker==0.33.1` 中受支持的调用转换为对
 | 创建或获取采样客户端 | 解析采样器权重 |
 | `SamplingClient.sample` | 通过所选检查点采样 |
 
-保持 SDK 参数 `base_model` 不变。在选择模型、秩、损失或可选操作之前，请查询
-`ServiceClient.get_server_capabilities()`。
+保持 SDK 参数 `base_model` 不变。使用 capabilities 选择模型；秩和损失使用上面
+记录的限制，并处理活动服务返回的验证错误。
 
 ### Future 和管理
 
@@ -120,7 +124,8 @@ Fastino 不支持：
 - `save_weights_external`
 - `external_weights_urls`
 
-不要仅因为已安装的软件包中存在某个方法就推断其受支持。实时功能响应是环境相关行为的权威来源。
+不要仅因为已安装的软件包中存在某个方法就推断其受支持。支持表定义 Fastino
+支持的 SDK 子集；capabilities 仅报告已启用的模型及其上下文长度。
 
 ## 排查连接问题
 
@@ -128,17 +133,20 @@ Fastino 不支持：
 | --- | --- |
 | 身份验证失败 | 确认 `TINKER_CREDENTIAL_CMD` 打印一个当前的 `fast_sk_` 密钥，且没有额外输出 |
 | 客户端无法连接 | 确认 `TINKER_BASE_URL` 恰好为 `https://api.fastino.ai/v1/training/compat/tinker` |
-| 模型或操作被拒绝 | 重新查询功能，并将调用与支持表进行比较 |
-| 规范任务查找失败 | 确认 ID 来自 `get_info().model_data.model_id`，且已通过同一 Fastino 团队的身份验证 |
+| 第一个 SDK 调用返回 `404 Not Found` | 团队可能未启用交互式训练；请联系 [sales@fastino.ai](mailto:sales@fastino.ai) 申请权限 |
+| 模型被拒绝 | 重新查询 capabilities 并选择已启用的模型 |
+| 秩、损失或操作被拒绝 | 对照记录的限制和支持表检查调用；capabilities 不列出这些设置 |
+| 规范任务查找失败 | 确认 ID 来自 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |
 
 ## 迁移检查清单
 
 - [ ] 锁定 `tinker==0.33.1`。
 - [ ] 设置 Fastino 适配器基础 URL。
 - [ ] 通过 `TINKER_CREDENTIAL_CMD` 提供 `fast_sk_` 密钥。
-- [ ] 确认已为 Fastino 团队启用交互式训练。
+- [ ] 通过 `sales@fastino.ai` 申请交互式训练权限；第一个 SDK 调用返回通用
+      `404 Not Found` 可能表示缺少权限。
 - [ ] 对照受支持的客户端行为检查每个 SDK 方法。
-- [ ] 从功能中选择模型和可选功能。
+- [ ] 从 capabilities 中选择已启用的模型，并根据本指南验证秩、损失和可选操作。
 - [ ] 完成一次采样和训练更新。
 - [ ] 保存并重新加载一个状态检查点。
 - [ ] 通过规范任务端点验证 SDK 模型 ID。

@@ -24,13 +24,15 @@ para el artefacto de su modelo final.
 
 <ParamField path="checkpoint_id" type="string" required>
   Identificador de checkpoint devuelto por la lista de checkpoints, como
-  `weights/checkpoint-1` o `sampler_weights/checkpoint-1`.
+  `weights/checkpoint-1` o `sampler_weights/checkpoint-1`. Conserva la `/` en
+  la ruta; no codifiques como URL el identificador completo.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/download" \
+CHECKPOINT_ID="sampler_weights/checkpoint-1"
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/download" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -45,12 +47,31 @@ Trata la URL como una credencial: no la registres, compartas ni conserves.
 
 ```json Response
 {
-  "url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
-  "expires_in_seconds": 900
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoint_id": "sampler_weights/checkpoint-1",
+  "download_url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "session-1_train_0-sampler_weights-checkpoint-1.tar"
 }
 ```
 
 </ResponseExample>
 
 Esta operación requiere acceso al entrenamiento interactivo y que el equipo
-tenga derecho a descargar los pesos.
+tenga derecho a descargar los pesos. Sin acceso al entrenamiento interactivo,
+el endpoint devuelve un `404 Not Found` genérico; sin derecho de descarga,
+devuelve `403`. Solicita acceso en
+[sales@fastino.ai](mailto:sales@fastino.ai).
+
+## Errores
+
+| Estado | Significado |
+| --- | --- |
+| `400` | `checkpoint_id` no es `weights/<name>` ni `sampler_weights/<name>`. |
+| `403` | El equipo no puede descargar pesos, se están borrando sus datos, o la URL firmada no es válida o ha caducado. |
+| `404` | El trabajo o checkpoint no está disponible, no tiene archivos descargables, o se eliminó después de emitir la URL. |
+
+Obtener `download_url` devuelve un adjunto `application/x-tar`. La URL firmada
+es la credencial. Devuelve `403` al caducar o si cambia el token, y `404` si el
+checkpoint deja de estar disponible después de emitir el enlace.

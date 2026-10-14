@@ -1,7 +1,7 @@
 ---
 title: "列出训练检查点"
 sidebarTitle: "列出检查点"
-description: "通过 GET /v1/training/jobs/{job_id}/checkpoints 列出训练任务的检查点及其 epoch、step、损失值和可部署标志。"
+description: "列出配置或交互式训练任务的检查点，并为每种任务类型使用正确的标识符。"
 api: "GET /v1/training/jobs/{job_id}/checkpoints"
 ---
 
@@ -16,7 +16,7 @@ api: "GET /v1/training/jobs/{job_id}/checkpoints"
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  训练任务 UUID。
+  配置任务 UUID 或受支持的 SDK 返回的交互式任务 ID。
 </ParamField>
 
 <RequestExample>
@@ -35,12 +35,17 @@ curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/checkpoints \
 </ResponseField>
 
 <ResponseField name="checkpoints" type="object[]">
-  已保存的检查点。每一项可能包含 `id`、`job_id`、`epoch`、`step`、损失值、`accuracy`、`learning_rate`、GPU 显存值、`checkpoint_path`、`is_deployable`、`is_best`、`is_final` 以及时间戳。
+  已保存的检查点。条目结构取决于任务类型。
 </ResponseField>
 
 <ResponseField name="count" type="integer">
   返回的检查点数量。
 </ResponseField>
+
+### 配置任务
+
+配置检查点包含 `id`、`job_id`、epoch、step、损失、指标、部署和时间戳字段。
+其 `id` 不能用于交互式检查点下载端点。
 
 <ResponseExample>
 
@@ -60,6 +65,37 @@ curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/checkpoints \
       "is_final": true,
       "created_at": "2026-09-22T20:30:00Z",
       "updated_at": "2026-09-22T20:30:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+</ResponseExample>
+
+### 交互式任务
+
+交互式任务还返回 `run_id`，检查点按从新到旧排序。将 `checkpoint_id`
+（例如 `sampler_weights/checkpoint-1`）传给
+[交互式检查点下载端点](/cn/api-reference/training-jobs/download-checkpoint)。
+不要传递配置检查点的 `id` 或 `tinker_path`。
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoints": [
+    {
+      "checkpoint_id": "sampler_weights/checkpoint-1",
+      "checkpoint_type": "sampler",
+      "time": "2026-09-22T20:30:00Z",
+      "tinker_path": "tinker://session-1:train:0/sampler_weights/checkpoint-1",
+      "size_bytes": 12345,
+      "public": false,
+      "user_metadata": null,
+      "expires_at": null
     }
   ],
   "count": 1

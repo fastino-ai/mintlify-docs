@@ -1,7 +1,7 @@
 ---
 title: "Trainings-Checkpoints auflisten"
 sidebarTitle: "Checkpoints auflisten"
-description: "Listen Sie mit GET /v1/training/jobs/{job_id}/checkpoints die Checkpoints eines Trainingsjobs mit Epoch, Step, Loss, Genauigkeit und Deploybarkeit auf."
+description: "Listen Sie Checkpoints von Config- oder Interactive-Jobs auf und verwenden Sie die richtige Kennung für jeden Jobtyp."
 api: "GET /v1/training/jobs/{job_id}/checkpoints"
 ---
 
@@ -16,7 +16,7 @@ Gibt die für einen Trainingsjob sichtbaren Checkpoints zurück.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID des Trainingsjobs.
+  UUID eines Config-Jobs oder vom unterstützten SDK zurückgegebene ID eines Interactive-Jobs.
 </ParamField>
 
 <RequestExample>
@@ -35,12 +35,18 @@ curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/checkpoints \
 </ResponseField>
 
 <ResponseField name="checkpoints" type="object[]">
-  Gespeicherte Checkpoints. Jeder Eintrag kann `id`, `job_id`, `epoch`, `step`, Loss-Werte, `accuracy`, `learning_rate`, GPU-Speicherwerte, `checkpoint_path`, `is_deployable`, `is_best`, `is_final` sowie Zeitstempel enthalten.
+  Gespeicherte Checkpoints. Die Form der Einträge hängt vom Jobtyp ab.
 </ResponseField>
 
 <ResponseField name="count" type="integer">
   Anzahl der zurückgegebenen Checkpoints.
 </ResponseField>
+
+### Config-Job
+
+Config-Checkpoints enthalten `id`, `job_id`, Epoch, Step, Loss-, Metrik-,
+Deployment- und Zeitstempelfelder. Ihre `id` wird vom Download-Endpunkt für
+interaktive Checkpoints nicht akzeptiert.
 
 <ResponseExample>
 
@@ -60,6 +66,38 @@ curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/checkpoints \
       "is_final": true,
       "created_at": "2026-09-22T20:30:00Z",
       "updated_at": "2026-09-22T20:30:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+</ResponseExample>
+
+### Interactive-Job
+
+Interactive-Jobs geben zusätzlich `run_id` zurück. Die Checkpoints sind vom
+neuesten zum ältesten sortiert. Verwenden Sie `checkpoint_id`, zum Beispiel
+`sampler_weights/checkpoint-1`, mit dem
+[Download-Endpunkt für interaktive Checkpoints](/de/api-reference/training-jobs/download-checkpoint).
+Übergeben Sie nicht die Config-Checkpoint-`id` oder `tinker_path`.
+
+<ResponseExample>
+
+```json Response
+{
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoints": [
+    {
+      "checkpoint_id": "sampler_weights/checkpoint-1",
+      "checkpoint_type": "sampler",
+      "time": "2026-09-22T20:30:00Z",
+      "tinker_path": "tinker://session-1:train:0/sampler_weights/checkpoint-1",
+      "size_bytes": 12345,
+      "public": false,
+      "user_metadata": null,
+      "expires_at": null
     }
   ],
   "count": 1

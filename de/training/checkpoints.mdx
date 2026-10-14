@@ -12,11 +12,11 @@ Status, der Ihrem Controller vorgibt, was als Nächstes zu tun ist.
 | Datensatz | Enthält | Gespeichert von |
 | --- | --- | --- |
 | Status-Checkpoint | Durch den SDK-Checkpoint repräsentierte Trainingsgewichte und Optimizer-Status | Fastino |
-| Loop-Datensatz | Job-ID, Checkpoint-ID, Schritt, Datensatz-Cursor und Konfiguration | Ihre Anwendung |
+| Loop-Datensatz | Quell-Job-ID, Checkpoint-Pfad, Schritt, Datensatz-Cursor, Konfiguration und Wiederherstellungslinie | Ihre Anwendung |
 
 Der SDK-Trainingsclient repräsentiert einen interaktiven Fastino-Job. Lesen Sie
 seine kanonische ID aus
-`training_client.get_info().model_data.model_id`.
+`training_client.get_info().model_id`.
 
 ## 1. Status und Loop-Fortschritt speichern
 
@@ -29,10 +29,10 @@ import json
 from pathlib import Path
 
 
-job_id = training_client.get_info().model_data.model_id
+source_job_id = training_client.get_info().model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
-    "job_id": job_id,
+    "source_job_id": source_job_id,
     "state_path": state.path,
     "model": model_name,
     "dataset_revision": dataset_revision,
@@ -73,9 +73,9 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 ## 3. Vor dem Laden validieren
 
-Vergleichen Sie den Datensatz mit der gewünschten Fortsetzung:
+Vergleichen Sie den Datensatz mit dem Quell-Checkpoint und der gewünschten Fortsetzung:
 
-- kanonische Job-ID,
+- im Checkpoint-Pfad kodierte Quell-Job-ID,
 - Basismodell und trainierbare Konfiguration,
 - Datensatzrevision und -Cursor,
 - Revision der Reward-Implementierung,
@@ -95,11 +95,14 @@ training_client = (
         str(resume["state_path"])
     )
 )
+resumed_job_id = training_client.get_info().model_id
 ```
 
-Diese SDK-Operation wird dem Laden eines Fastino-Checkpoints zugeordnet.
-Konstruieren Sie den Adapter-Request nicht direkt und leiten Sie aus der
-Operation keine zusätzliche Laufabstammung ab.
+Diese Factory erstellt zuerst einen neuen Interactive-Job und lädt dann Gewichte
+und Optimizer-Status des Quell-Checkpoints. Die neue Job-ID unterscheidet sich
+normalerweise von der Quell-ID. Speichern Sie `source_job_id`, `state_path` und
+`resumed_job_id` als anwendungseigene Linie. Lehnen Sie die Fortsetzung nicht
+wegen unterschiedlicher IDs ab und konstruieren Sie den Adapter-Request nicht direkt.
 
 ## 4. Grenze wiederherstellbar gestalten
 
@@ -121,7 +124,8 @@ Schritt nicht als abgeschlossen, bevor sein Datensatz dauerhaft gespeichert ist.
 ```python
 state = training_client.save_state("step-000100").result()
 sampler = training_client.save_weights_for_sampler(
-    "step-000100"
+    "step-000100",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 ```
 
@@ -129,6 +133,11 @@ Verwenden Sie einen Status-Checkpoint zur Wiederherstellung des Trainings.
 Verwenden Sie einen Sampler-Checkpoint für Rollouts oder Evaluierung. Verwenden
 Sie einen Sampler-Checkpoint nicht als Wiederherstellungspunkt für den
 Optimizer-Status.
+
+`ttl_seconds` ist standardmäßig `None`; ohne TTL läuft ein Checkpoint nicht
+automatisch ab. Aktive Checkpoints zählen zum Checkpoint-Speicher. Für
+automatische Bereinigung sind Werte von `3_600` bis `315_360_000` Sekunden
+einschließlich zulässig.
 
 Die öffentliche Training API kann Checkpoints auflisten. Sie kann einen
 interaktiven Checkpoint herunterladen, wenn das Team sowohl Zugriff auf
@@ -143,7 +152,9 @@ einer undokumentierten Aufbewahrungsdauer aus.
 Vor dem Skalieren des fortgesetzten Workloads:
 
 1. Laden Sie den ausgewählten Status-Checkpoint.
-2. Bestätigen Sie die kanonische Job-ID des SDK-Clients über `GET /v1/training/jobs/{job_id}`.
+2. Lesen Sie die neue ID aus `training_client.get_info().model_id`, speichern
+   Sie sie als `resumed_job_id` und bestätigen Sie sie über
+   `GET /v1/training/jobs/{resumed_job_id}`.
 3. Führen Sie eine kleine zurückgehaltene Evaluierung aus.
 4. Senden Sie ein unterstütztes Trainingsupdate.
 5. Speichern Sie einen neuen Status-Checkpoint unter einem neuen Namen.
@@ -157,4 +168,5 @@ Verwenden Sie das SDK für alle interaktiven Modelloperationen.
 | --- | --- |
 | Ein Future schlägt fehl | Zeichnen Sie Job-ID und Operationsergebnis auf. Setzen Sie abhängigen Anwendungsstatus nicht fort |
 | Ein Checkpoint kann nicht geladen werden | Prüfen Sie Job, Checkpoint-Art und den clientseitigen Wiederherstellungsdatensatz |
-| Kanonischer Job kann nicht abgerufen werden | Prüfen Sie, ob die ID aus `get_info().model_data.model_id` stammt und dasselbe Fastino-Team authentifiziert ist |
+| Quell-Checkpoint wird abgelehnt | Prüfen Sie Quell-Job, Checkpoint-Art und `state_path`; verlangen Sie nicht, dass neue und alte Job-ID gleich sind |
+| Fortgesetzter Job kann nicht abgerufen werden | Prüfen Sie, ob die ID vom fortgesetzten Client aus `get_info().model_id` stammt und dasselbe Fastino-Team authentifiziert ist |

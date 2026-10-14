@@ -3,6 +3,8 @@ from __future__ import annotations
 import dataclasses
 import importlib.util
 import io
+import json
+import re
 import sys
 import tempfile
 import unittest
@@ -76,6 +78,66 @@ def _snippet(page: str, ordinal: int) -> object:
 
 
 class AgentTrainingSnippetsTests(unittest.TestCase):
+    def test_sdk_contract_examples_do_not_use_stale_fields(self) -> None:
+        corpus = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in ROOT.rglob("*.mdx")
+        )
+        self.assertNotIn("model_data.model_id", corpus)
+        self.assertNotIn("plans to rename that request field", corpus)
+
+        skill = (ROOT / ".mintlify/skills/fastino-fine-tune/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"base_model": "fastino/gliner2-base-v1"', skill)
+        self.assertNotIn('"type": "config"', skill)
+        self.assertNotIn('"model": "fastino/gliner2-base-v1"', skill)
+        self.assertNotIn("upcoming unified Training API", skill)
+
+    def test_checkpoint_download_examples_match_openapi_response_fields(self) -> None:
+        expected = {
+            "success",
+            "run_id",
+            "checkpoint_id",
+            "download_url",
+            "expires_in_seconds",
+            "file_name",
+        }
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}api-reference/training-jobs/download-checkpoint.mdx"
+            text = path.read_text(encoding="utf-8")
+            match = re.search(r"```json Response\n(?P<body>\{.*?\})\n```", text, re.DOTALL)
+            self.assertIsNotNone(match, path)
+            payload = json.loads(match.group("body"))
+            self.assertEqual(set(payload), expected, path)
+            self.assertNotIn("url", payload, path)
+
+    def test_checkpoint_list_documents_config_and_interactive_shapes(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}api-reference/training-jobs/checkpoints.mdx"
+            text = path.read_text(encoding="utf-8")
+            self.assertIn('"job_id":', text, path)
+            self.assertIn('"run_id":', text, path)
+            self.assertIn('"checkpoint_id": "sampler_weights/', text, path)
+
+    def test_stop_and_terminate_distinguish_path_and_body_validation(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            for operation in ("stop", "terminate"):
+                path = ROOT / f"{prefix}api-reference/training-jobs/{operation}.mdx"
+                text = path.read_text(encoding="utf-8")
+                self.assertRegex(text, r"\| `400` \|[^\n]+UUID", path)
+                self.assertRegex(text, r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)", path)
+
+    def test_sampler_checkpoint_examples_set_an_explicit_ttl(self) -> None:
+        for path in ROOT.glob("**/training/*.mdx"):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"save_weights_for_sampler\(", text):
+                call = text[match.start():match.start() + 180]
+                self.assertIn("ttl_seconds=", call, f"{path}: {call}")
+
     def test_inventory_is_exactly_47_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()

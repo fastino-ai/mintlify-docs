@@ -24,13 +24,15 @@ utilisent
 
 <ParamField path="checkpoint_id" type="string" required>
   Identifiant du checkpoint renvoyé par la liste des checkpoints, tel que
-  `weights/checkpoint-1` ou `sampler_weights/checkpoint-1`.
+  `weights/checkpoint-1` ou `sampler_weights/checkpoint-1`. Conservez le `/`
+  dans le chemin ; n'encodez pas l'identifiant entier comme une URL.
 </ParamField>
 
 <RequestExample>
 
 ```bash cURL
-curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/CHECKPOINT_ID/download" \
+CHECKPOINT_ID="sampler_weights/checkpoint-1"
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/download" \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
 
@@ -46,12 +48,32 @@ logs, ne la partagez pas et ne la conservez pas.
 
 ```json Response
 {
-  "url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
-  "expires_in_seconds": 900
+  "success": true,
+  "run_id": "session-1:train:0",
+  "checkpoint_id": "sampler_weights/checkpoint-1",
+  "download_url": "https://api.fastino.ai/v1/training/archives/SIGNED_TOKEN",
+  "expires_in_seconds": 900,
+  "file_name": "session-1_train_0-sampler_weights-checkpoint-1.tar"
 }
 ```
 
 </ResponseExample>
 
 Cette opération nécessite l'accès à l'entraînement interactif ainsi que
-l'autorisation de téléchargement des poids pour l'équipe.
+l'autorisation de téléchargement des poids pour l'équipe. Sans accès à
+l'entraînement interactif, l'endpoint renvoie un `404 Not Found` générique ;
+sans autorisation de téléchargement, il renvoie `403`. Demandez l'accès à
+[sales@fastino.ai](mailto:sales@fastino.ai).
+
+## Erreurs
+
+| Statut | Signification |
+| --- | --- |
+| `400` | `checkpoint_id` n'est ni `weights/<name>` ni `sampler_weights/<name>`. |
+| `403` | L'équipe ne peut pas télécharger les poids, ses données sont en cours d'effacement, ou l'URL signée est invalide ou expirée. |
+| `404` | Le job ou checkpoint est indisponible, n'a aucun fichier téléchargeable, ou a été supprimé après l'émission de l'URL. |
+
+La récupération de `download_url` renvoie une pièce jointe
+`application/x-tar`. L'URL signée est l'identifiant d'accès. Elle renvoie `403`
+après expiration ou modification du jeton, et `404` si le checkpoint devient
+indisponible après l'émission du lien.

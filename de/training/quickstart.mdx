@@ -159,21 +159,30 @@ Verwenden Sie einen normalen Fastino-Schlüssel, der mit `fast_sk_` beginnt.
 Anmeldedaten, die mit `tml-` beginnen, werden abgelehnt. Setzen Sie
 `TINKER_API_KEY` nicht.
 
+<Note>
+  Eigene Trainingsabläufe erfordern Teamzugriff. Ohne Zugriff liefert bereits
+  der erste SDK-Aufruf, einschließlich `get_server_capabilities()`, ein
+  allgemeines `404 Not Found`. Fordern Sie den Zugriff bei
+  [sales@fastino.ai](mailto:sales@fastino.ai) an.
+</Note>
+
 ### 5. Aktiviertes Modell auswählen
 
-Rufen Sie `ServiceClient.get_server_capabilities()` auf und wählen Sie aus der
-Antwort ein Modell und einen LoRA-Rang:
+Rufen Sie `ServiceClient.get_server_capabilities()` auf und wählen Sie ein
+aktiviertes Modell. Capabilities melden Modellnamen und Kontextlängen, aber
+keine LoRA-Ränge, Optimizer, Losses, optionalen Methoden oder Operationslimits.
+Fastino akzeptiert derzeit LoRA-Ränge von 1 bis 32 und verwendet standardmäßig 32.
 
 <CodeGroup>
 
 ```bash macOS/Linux
 export FASTINO_TRAINING_MODEL="<model from capabilities>"
-export FASTINO_TRAINING_LORA_RANK="<supported rank>"
+export FASTINO_TRAINING_LORA_RANK="32"
 ```
 
 ```powershell Windows
 $env:FASTINO_TRAINING_MODEL = "<model from capabilities>"
-$env:FASTINO_TRAINING_LORA_RANK = "<supported rank>"
+$env:FASTINO_TRAINING_LORA_RANK = "32"
 ```
 
 </CodeGroup>
@@ -199,11 +208,12 @@ try:
         rank=int(os.environ["FASTINO_TRAINING_LORA_RANK"]),
     )
 
-    job_id = training_client.get_info().model_data.model_id
+    job_id = training_client.get_info().model_id
     print(f"TRAINING_JOB_ID={job_id}")
 
     checkpoint = training_client.save_weights_for_sampler(
-        "quickstart-sampler"
+        "quickstart-sampler",
+        ttl_seconds=24 * 60 * 60,
     ).result()
     sampling_client = service_client.create_sampling_client(
         model_path=checkpoint.path

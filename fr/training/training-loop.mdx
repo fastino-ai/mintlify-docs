@@ -13,12 +13,13 @@ la boucle.
 
 <Steps>
   <Step title="Créer le job interactif">
-    Choisissez un `base_model` et d'autres options à partir de la réponse de
-    capacités, puis appelez `create_lora_training_client(...)`. Lisez l'ID
-    canonique du job dans `training_client.get_info().model_data.model_id`.
+    Choisissez un `base_model` activé dans capabilities, puis utilisez des
+    réglages documentés avec `create_lora_training_client(...)`. Capabilities
+    ne rapporte ni rangs, ni pertes, ni limites d'opération. Lisez l'ID
+    canonique dans `training_client.get_info().model_id`.
   </Step>
   <Step title="Créer un checkpoint des poids pour l'échantillonnage">
-    Appelez `save_weights_for_sampler(name)`, puis créez un client
+    Appelez `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)`, puis créez un client
     d'échantillonnage à partir du chemin de checkpoint renvoyé. Cela associe la
     politique de rollout à un artefact explicite du même job.
   </Step>
@@ -29,8 +30,7 @@ la boucle.
   </Step>
   <Step title="Calculer les récompenses et les avantages">
     Évaluez chaque réponse, puis transformez les récompenses en avantages requis
-    par l'opération d'entraînement sélectionnée et prise en charge par les
-    capacités.
+    par l'opération d'entraînement documentée sélectionnée.
   </Step>
   <Step title="Construire les datums d'entraînement">
     Combinez les entrées du modèle, les tokens des réponses échantillonnées, les
@@ -79,8 +79,9 @@ sélectionné :
 <Warning>
   Le rendu des prompts, la tokenisation, la construction des datums et
   l'exécution des récompenses sont contrôlés par le client. Validez leurs formes
-  par rapport à `tinker==0.33.1` et à la réponse de capacités active avant
-  d'exécuter un workload plus important.
+  par rapport à `tinker==0.33.1` et au contrat d'opération documenté avant
+  d'exécuter un workload plus important. Capabilities ne rapporte que les
+  modèles activés et longueurs de contexte.
 </Warning>
 
 ## Maintenir l'ordre du travail dépendant
@@ -106,3 +107,7 @@ rejouer une mise à jour.
 
 Pour la séquence de récupération et les types de checkpoints, consultez
 [Checkpoints et récupération](/fr/training/checkpoints).
+
+Un `TrainingClient` met à jour un job pendant sa durée de vie. Créer un client
+depuis un état enregistré démarre un nouveau job interactive à partir du
+checkpoint source. Enregistrez les deux ID comme lignée gérée par l'application.

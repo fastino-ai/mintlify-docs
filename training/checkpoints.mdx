@@ -12,10 +12,10 @@ next.
 | Record | Contains | Stored by |
 | --- | --- | --- |
 | State checkpoint | Training weights and optimizer state represented by the SDK checkpoint | Fastino |
-| Loop record | Job ID, checkpoint identifier, step, dataset cursor, and configuration | Your application |
+| Loop record | Source job ID, checkpoint path, step, dataset cursor, configuration, and resume lineage | Your application |
 
 The SDK training client represents one interactive Fastino job. Read its
-canonical ID from `training_client.get_info().model_data.model_id`.
+canonical ID from `training_client.get_info().model_id`.
 
 ## 1. Save state and loop progress
 
@@ -27,10 +27,10 @@ import json
 from pathlib import Path
 
 
-job_id = training_client.get_info().model_data.model_id
+source_job_id = training_client.get_info().model_id
 state = training_client.save_state(f"step-{step:06d}").result()
 record = {
-    "job_id": job_id,
+    "source_job_id": source_job_id,
     "state_path": state.path,
     "model": model_name,
     "dataset_revision": dataset_revision,
@@ -45,7 +45,7 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
 ```
 
 Use unique checkpoint names so each loop record identifies an unambiguous
-recovery boundary. Do not assume an undocumented checkpoint lifetime.
+recovery boundary.
 
 ## 2. Read the newest complete record
 
@@ -70,9 +70,9 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 ## 3. Validate before loading
 
-Compare the record with the requested continuation:
+Compare the record with the source checkpoint and requested continuation:
 
-- Canonical job ID
+- Source job ID encoded by the checkpoint path
 - Base model and trainable configuration
 - Dataset revision and cursor
 - Reward implementation revision
@@ -90,10 +90,14 @@ training_client = (
         str(resume["state_path"])
     )
 )
+resumed_job_id = training_client.get_info().model_id
 ```
 
-This SDK operation maps to Fastino checkpoint loading. Do not construct the
-adapter request directly or infer additional run lineage from the operation.
+This factory creates a new interactive job, then loads the source checkpoint's
+weights and optimizer state into it. The resumed job ID normally differs from
+the source job ID. Record `source_job_id`, `state_path`, and `resumed_job_id` as
+application-owned lineage. Do not reject a continuation because the two job IDs
+differ. Do not construct the adapter request directly.
 
 ## 4. Make the boundary recoverable
 
@@ -114,13 +118,19 @@ mark a step complete before its record is durable.
 ```python
 state = training_client.save_state("step-000100").result()
 sampler = training_client.save_weights_for_sampler(
-    "step-000100"
+    "step-000100",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 ```
 
 Use a state checkpoint for training recovery. Use a sampler checkpoint for
 rollouts or evaluation. Do not use a sampler checkpoint as an optimizer-state
 recovery point.
+
+`ttl_seconds` defaults to `None`, so an omitted TTL creates a checkpoint with no
+automatic expiration. Live checkpoints count toward checkpoint storage. To
+enable automatic cleanup, pass an inclusive value from `3_600` to
+`315_360_000` seconds (1 hour to 10 years).
 
 The public Training API can list checkpoints. It can download an interactive
 checkpoint when the team has both interactive-training and weight-download
@@ -133,8 +143,9 @@ Do not construct adapter requests or assume an undocumented retention period.
 Before scaling the resumed workload:
 
 1. Load the selected state checkpoint.
-2. Confirm the SDK client's canonical job ID through
-   `GET /v1/training/jobs/{job_id}`.
+2. Read the new ID from `training_client.get_info().model_id`, persist it as
+   `resumed_job_id`, and confirm it through
+   `GET /v1/training/jobs/{resumed_job_id}`.
 3. Run a small held-out evaluation.
 4. Submit one supported training update.
 5. Save a new state checkpoint under a new name.
@@ -148,4 +159,5 @@ Use the SDK for all interactive model operations.
 | --- | --- |
 | A future fails | Record the job ID and operation result. Do not advance dependent application state |
 | A checkpoint cannot be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
-| Canonical job lookup fails | Confirm that the ID came from `get_info().model_data.model_id` and that the same Fastino team is authenticated |
+| Source checkpoint is rejected | Confirm its source job, checkpoint kind, and persisted `state_path`; do not require the new job ID to equal the source ID |
+| Resumed job lookup fails | Confirm that the ID came from the resumed client's `get_info().model_id` and that the same Fastino team is authenticated |

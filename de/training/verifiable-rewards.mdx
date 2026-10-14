@@ -18,11 +18,10 @@ Anwendungsstatus bleiben in Ihrem Code.
 
 ## Bevor Sie beginnen
 
-Schließen Sie den [Schnellstart für benutzerdefinierte Loops](/de/training/quickstart#custom-training-loop) ab und prüfen Sie
-anschließend über die Fähigkeiten, ob das ausgewählte Modell und die
-Trainingsoperationen aktiviert sind. Die folgenden Snippets konzentrieren sich
-auf den benutzereigenen Reward-Ablauf; passen Sie die Erstellung der Datums an
-`tinker==0.33.1` und Ihr ausgewähltes Modell an.
+Schließen Sie den [Schnellstart für benutzerdefinierte Loops](/de/training/quickstart#custom-training-loop)
+ab und bestätigen Sie über Capabilities, dass das Modell aktiviert ist.
+Capabilities listen keine Losses oder Trainingsoperationen auf. Die folgenden
+Snippets verwenden den dokumentierten Loss `importance_sampling`.
 
 <Note>
   Dieser Leitfaden ist kein eigenständiges Trainingsprogramm zum Kopieren und
@@ -60,7 +59,8 @@ Sie ihn anschließend über das SDK auf:
 
 ```python
 checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}"
+    f"rollout-{step:06d}",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 sampling_client = service_client.create_sampling_client(
     model_path=checkpoint.path
@@ -114,12 +114,11 @@ if not (
 
 Verwenden Sie den Renderer und Tokenizer, die dem ausgewählten `base_model`
 zugeordnet sind. Behalten Sie die gesampelten Tokens und
-Log-Wahrscheinlichkeiten, die von der aus den Fähigkeiten ausgewählten
-SDK-Operation benötigt werden.
+Log-Wahrscheinlichkeiten, die von der dokumentierten SDK-Operation benötigt werden.
 
 ## 5. Interaktiven Job aktualisieren
 
-Für einen aktivierten Importance-Sampling-Workflow lautet das SDK-Aufrufmuster:
+Für einen Importance-Sampling-Workflow lautet das SDK-Aufrufmuster:
 
 ```python
 train_future = training_client.forward_backward(
@@ -144,7 +143,7 @@ state = training_client.save_state(f"step-{step:06d}").result()
 
 Persistieren Sie die zurückgegebene Checkpoint-ID mit:
 
-- der kanonischen Job-ID aus `training_client.get_info().model_data.model_id`,
+- der kanonischen Job-ID aus `training_client.get_info().model_id`,
 - Anwendungsschritt und Datensatz-Cursor,
 - Revisionen von Datensatz und Reward-Implementierung,
 - Basismodell und Trainingskonfiguration,

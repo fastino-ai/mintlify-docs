@@ -18,11 +18,10 @@ des récompenses et l'état de l'application restent dans votre code.
 
 ## Avant de commencer
 
-Terminez le [démarrage rapide de la boucle personnalisée](/fr/training/quickstart#custom-training-loop), puis confirmez via les
-capacités que le modèle et les opérations d'entraînement choisis sont activés.
-Les extraits ci-dessous se concentrent sur le flux de récompense contrôlé par
-l'utilisateur ; adaptez la construction des datums à `tinker==0.33.1` et au
-modèle sélectionné.
+Terminez le [démarrage rapide de la boucle personnalisée](/fr/training/quickstart#custom-training-loop),
+puis confirmez via capabilities que le modèle est activé. Capabilities ne liste
+ni pertes ni opérations d'entraînement. Les extraits utilisent la perte
+documentée `importance_sampling`.
 
 <Note>
   Ce guide n'est pas un programme d'entraînement autonome prêt à être copié-collé.
@@ -60,7 +59,8 @@ résolvez-le via le SDK :
 
 ```python
 checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}"
+    f"rollout-{step:06d}",
+    ttl_seconds=24 * 60 * 60,
 ).result()
 sampling_client = service_client.create_sampling_client(
     model_path=checkpoint.path
@@ -114,11 +114,11 @@ if not (
 
 Utilisez le renderer et le tokenizer associés au `base_model` sélectionné.
 Conservez les tokens échantillonnés et les log-probabilités nécessaires à
-l'opération SDK sélectionnée à partir des capacités.
+l'opération SDK documentée.
 
 ## 5. Mettre à jour le job interactif
 
-Pour un workflow activé fondé sur l'échantillonnage d'importance, le schéma
+Pour un workflow fondé sur l'échantillonnage d'importance, le schéma
 d'appels du SDK est le suivant :
 
 ```python
@@ -144,7 +144,7 @@ state = training_client.save_state(f"step-{step:06d}").result()
 
 Conservez l'identifiant de checkpoint renvoyé avec :
 
-- L'ID canonique du job provenant de `training_client.get_info().model_data.model_id`
+- L'ID canonique du job provenant de `training_client.get_info().model_id`
 - L'étape de l'application et le curseur du dataset
 - Les révisions du dataset et de l'implémentation de la récompense
 - Le modèle de base et la configuration d'entraînement

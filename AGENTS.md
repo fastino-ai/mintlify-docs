@@ -18,8 +18,9 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   [Training API](https://docs.fastino.ai/training) custom-loop guidance and use
   the documented Python client. The client's HTTP compatibility adapter stays
   out of OpenAPI and is not a customer-authored REST API.
-- Custom training loops require team access. Verify capabilities before
-  planning or running a workload.
+- Custom training loops require team access. Without it, the first SDK call,
+  including `get_server_capabilities()`, returns a generic `404 Not Found`.
+  Direct users to `sales@fastino.ai` to request access.
 
 ## API conventions
 
