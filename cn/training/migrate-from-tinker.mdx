@@ -104,11 +104,11 @@ Fastino 的 HTTP 适配器将 `tinker==0.33.1` 中受支持的调用转换为对
 | --- | --- |
 | Future result/get | 获取一个异步结果 |
 | Future cancel | 请求取消一个 future |
-| `RestClient` 列出或获取训练运行 | 读取规范的 Fastino 任务 |
+| `RestClient` 列出或获取训练运行 | 仅读取交互式运行；使用 `/v1/training/jobs` 读取配置任务和交互式任务 |
 | 列出检查点 | 读取属于该任务的检查点 |
-| 下载检查点归档 | 下载交互式检查点 |
+| 下载检查点归档 | 下载交互式检查点；需要团队的权重下载权限 |
 | 删除检查点 | 通过 SDK 删除检查点 |
-| 发布或取消发布检查点 | 通过 SDK 更改检查点的发布状态 |
+| 发布或取消发布检查点 | 在所属团队内更改发布状态；不会允许其他团队加载该路径 |
 | 设置或清除检查点 TTL | 通过 SDK 更改检查点保留期 |
 | 检查点存储用量 | 通过 SDK 读取当前检查点存储用量 |
 | 计费用量 | 通过 SDK 读取按小时统计的用量事件 |
@@ -123,6 +123,17 @@ Fastino 不支持：
 - 通过 `retrieve_futures` 批量检索 future
 - `save_weights_external`
 - `external_weights_urls`
+- 导出会话跟踪
+- 审计日志条目
+- 不使用 `SamplingClient` 及其采样会话进行采样
+- `target_prompt_logprobs` 或正数 `prompt_alt_tokens_k`
+- `encoded_text` 以外的提示词块
+- AdamW 以外的优化器
+- 超出 1 到 32 范围的 LoRA 秩
+
+这些限制描述使用普通 Fastino API 密钥时的行为。沙箱运行密钥的写入范围更窄：
+它也不能删除或发布检查点、修改检查点 TTL、重新分配会话项目或导出外部权重。
+对应操作仍可使用普通 API 密钥。
 
 不要仅因为已安装的软件包中存在某个方法就推断其受支持。支持表定义 Fastino
 支持的 SDK 子集；capabilities 仅报告已启用的模型及其上下文长度。
@@ -133,6 +144,7 @@ Fastino 不支持：
 | --- | --- |
 | 身份验证失败 | 确认 `TINKER_CREDENTIAL_CMD` 打印一个当前的 `fast_sk_` 密钥，且没有额外输出 |
 | 客户端无法连接 | 确认 `TINKER_BASE_URL` 恰好为 `https://api.fastino.ai/v1/training/compat/tinker` |
+| SDK 调用或检查点下载返回 `403`，并显示团队数据正在擦除 | 团队删除正在进行。不要重试；如果删除并非预期，请联系账户管理员或 Fastino 支持 |
 | 模型被拒绝 | 重新查询 capabilities 并选择已启用的模型 |
 | 秩、损失或操作被拒绝 | 对照记录的限制和支持表检查调用；capabilities 不列出这些设置 |
 | 规范任务查找失败 | 确认 ID 来自 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |

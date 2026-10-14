@@ -119,11 +119,11 @@ Grenzen und behandeln Sie Validierungsfehler des aktiven Dienstes.
 | --- | --- |
 | Future result/get | Ruft ein asynchrones Ergebnis ab |
 | Future cancel | Fordert den Abbruch eines Future an |
-| Trainingsläufe mit `RestClient` auflisten oder abrufen | Liest kanonische Fastino-Jobs |
+| Trainingsläufe mit `RestClient` auflisten oder abrufen | Liest nur interaktive Läufe; `/v1/training/jobs` liest Config- und Interactive-Jobs |
 | Checkpoints auflisten | Liest Checkpoints, die zum Job gehören |
-| Checkpoint-Archiv herunterladen | Lädt einen interaktiven Checkpoint herunter |
+| Checkpoint-Archiv herunterladen | Lädt einen interaktiven Checkpoint herunter; erfordert die Downloadberechtigung des Teams |
 | Checkpoint löschen | Löscht einen Checkpoint über das SDK |
-| Checkpoint veröffentlichen oder Veröffentlichung aufheben | Ändert die Veröffentlichung des Checkpoints über das SDK |
+| Checkpoint veröffentlichen oder Veröffentlichung aufheben | Ändert die Veröffentlichung innerhalb des besitzenden Teams; ein anderes Team kann den Pfad dadurch nicht laden |
 | Checkpoint-TTL setzen oder entfernen | Ändert die Aufbewahrung des Checkpoints über das SDK |
 | Checkpoint-Speichernutzung | Liest die aktuelle Checkpoint-Speichernutzung über das SDK |
 | Abrechnungsnutzung | Liest stündliche Nutzungsereignisse über das SDK |
@@ -140,6 +140,19 @@ Fastino unterstützt Folgendes nicht:
 - Batch-Abruf von Futures über `retrieve_futures`
 - `save_weights_external`
 - `external_weights_urls`
+- Export von Session-Traces
+- Audit-Log-Einträge
+- Sampling ohne `SamplingClient` und dessen Sampling-Session
+- `target_prompt_logprobs` oder ein positives `prompt_alt_tokens_k`
+- Andere Prompt-Chunks als `encoded_text`
+- Andere Optimizer als AdamW
+- LoRA-Ränge außerhalb von 1 bis 32
+
+Diese Einschränkungen gelten für normale Fastino-API-Schlüssel. Ein
+Sandbox-Run-Key hat einen engeren Schreibumfang: Er kann außerdem keine
+Checkpoints löschen, veröffentlichen oder deren TTL ändern, kein Projekt einer
+Session neu zuweisen und keine externen Gewichte exportieren. Die entsprechenden
+Operationen bleiben mit normalen API-Schlüsseln unterstützt.
 
 Leiten Sie Unterstützung nicht allein daraus ab, dass eine Methode im
 installierten Paket vorhanden ist. Die Tabelle definiert Fastinos SDK-Teilmenge;
@@ -151,6 +164,7 @@ Capabilities melden nur aktivierte Modelle und Kontextlängen.
 | --- | --- |
 | Authentifizierung schlägt fehl | Prüfen Sie, ob `TINKER_CREDENTIAL_CMD` genau einen aktuellen `fast_sk_`-Schlüssel und keine zusätzliche Ausgabe ausgibt |
 | Der Client kann keine Verbindung herstellen | Prüfen Sie, ob `TINKER_BASE_URL` exakt `https://api.fastino.ai/v1/training/compat/tinker` ist |
+| Ein SDK-Aufruf oder Checkpoint-Download liefert `403` mit einer Meldung zur Löschung von Teamdaten | Die Löschung des Teams läuft. Wiederholen Sie den Vorgang nicht; wenden Sie sich bei einer unerwarteten Löschung an den Kontoadministrator oder Fastino-Support |
 | Ein Modell wird abgelehnt | Fragen Sie Capabilities erneut ab und wählen Sie ein aktiviertes Modell |
 | Rang, Loss oder Operation wird abgelehnt | Vergleichen Sie den Aufruf mit den dokumentierten Grenzen und der Unterstützungstabelle |
 | Kanonischer Job kann nicht abgerufen werden | Prüfen Sie, ob die ID aus `get_info().model_id` stammt und dasselbe Fastino-Team authentifiziert ist |
