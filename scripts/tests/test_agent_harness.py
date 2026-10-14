@@ -117,6 +117,13 @@ class AgentHarnessTests(unittest.TestCase):
             [],
         )
 
+    def test_public_openapi_has_no_compatibility_paths(self) -> None:
+        operations = CHECKS._operations(HARNESS._load_openapi())
+
+        self.assertFalse(
+            any(path.startswith("/v1/training/compat/tinker") for _, path in operations)
+        )
+
     def test_api_reference_has_only_inference_and_training_groups(self) -> None:
         config = json.loads((HARNESS.ROOT / "docs.json").read_text())
         english = next(

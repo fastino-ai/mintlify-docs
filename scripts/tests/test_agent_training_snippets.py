@@ -222,14 +222,30 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             self.assertIn('"run_id":', text, path)
             self.assertIn('"checkpoint_id": "sampler_weights/', text, path)
 
-    def test_stop_and_terminate_distinguish_path_and_body_validation(self) -> None:
+    def test_stop_separates_interactive_and_config_behavior(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
-            for operation in ("stop", "terminate"):
-                path = ROOT / f"{prefix}api-reference/training-jobs/{operation}.mdx"
-                text = path.read_text(encoding="utf-8")
-                self.assertRegex(text, r"\| `400` \|[^\n]+UUID", path)
-                self.assertRegex(text, r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)", path)
+            stop_path = ROOT / f"{prefix}api-reference/training-jobs/stop.mdx"
+            stop = stop_path.read_text(encoding="utf-8")
+            for field in ("`success`", "`job_id`", "`status`"):
+                self.assertIn(field, stop, stop_path)
+            self.assertIn("`202`", stop, stop_path)
+            self.assertRegex(stop, r"(?:config|Config|配置)", stop_path)
+            self.assertNotRegex(stop, r"(?:interactive|交互).{0,30}UUID", stop_path)
+            self.assertRegex(
+                stop,
+                r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)",
+                stop_path,
+            )
+
+            terminate_path = ROOT / f"{prefix}api-reference/training-jobs/terminate.mdx"
+            terminate = terminate_path.read_text(encoding="utf-8")
+            self.assertRegex(terminate, r"\| `400` \|[^\n]+UUID", terminate_path)
+            self.assertRegex(
+                terminate,
+                r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)",
+                terminate_path,
+            )
 
     def test_sampler_checkpoint_examples_set_an_explicit_ttl(self) -> None:
         for path in ROOT.glob("**/training/*.mdx"):
@@ -309,8 +325,30 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 self.assertNotIn(phrase, text, page)
 
         loop = (ROOT / "training/training-loop.mdx").read_text(encoding="utf-8")
-        self.assertIn("Only sampling futures can be cancelled", loop)
+        self.assertIn("Only sample operations can be cancelled", loop)
         self.assertNotIn("Resolve or cancel futures individually", loop)
+
+    def test_native_interactive_semantics_are_documented(self) -> None:
+        interactive = ROOT / "api-reference/training-jobs/interactive"
+        create = (interactive / "create.mdx").read_text(encoding="utf-8")
+        operation = (interactive / "get-operation.mdx").read_text(encoding="utf-8")
+        cancel = (interactive / "cancel-operation.mdx").read_text(encoding="utf-8")
+        sample = (interactive / "sample.mdx").read_text(encoding="utf-8")
+        usage = (interactive / "storage-usage.mdx").read_text(encoding="utf-8")
+
+        self.assertIn("`base_model`", create)
+        self.assertIn("`from_checkpoint`", create)
+        self.assertIn("`load_optimizer`", create)
+        self.assertIn("do not send `seq_id` values or heartbeats", create)
+        self.assertIn("at most 25 seconds", operation)
+        for status in ("`completed`", "`failed`", "`cancelled`"):
+            self.assertIn(status, operation)
+        self.assertIn("sample operation", cancel.lower())
+        self.assertIn("Training operations cannot be cancelled", cancel)
+        self.assertIn("after the interactive job is stopped", sample)
+        self.assertIn("checkpoint storage", usage.lower())
+        self.assertIn("team-scoped", usage)
+        self.assertIn("does not report compute usage or total billing", usage)
 
     def test_localized_training_pages_keep_english_code_and_identifiers(self) -> None:
         for page in PARITY_PAGES:

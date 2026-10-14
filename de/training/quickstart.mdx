@@ -104,9 +104,50 @@ Eignung für die Bereitstellung.
 
 ## Benutzerdefinierter Trainingsloop
 
-Benutzerdefinierte Trainingsloops erfordern Python 3.11 oder höher. Greifen Sie
-über die folgenden Methoden des unterstützten Tinker-SDK auf die Training API
-zu. Konstruieren Sie keine entsprechenden HTTP-Requests.
+Wählen Sie eine unterstützte Schnittstelle:
+
+- Native JSON-Clients rufen
+  [`POST /v1/training/jobs/interactive`](/de/api-reference/training-jobs/interactive/create)
+  auf, reihen Modelloperationen unter `/v1/training/jobs/{job_id}` ein und fragen
+  jede zurückgegebene `operation_id` ab, bis sie `completed`, `failed` oder
+  `cancelled` ist.
+- Bestehende Tinker-Programme behalten `tinker==0.32.0` und verwenden die
+  folgende Einrichtung.
+
+Native Clients senden weder `seq_id` noch Heartbeats. Der Server weist die
+Operationsreihenfolge zu und hält die interne Sitzung aktiv. Ein Request mit
+`wait=true` wartet höchstens 25 Sekunden. Der Client muss eine nicht
+abgeschlossene Operation daher weiter abfragen. Die native Routenfolge finden
+Sie unter [Benutzerdefinierten Trainingsloop erstellen](/de/training/training-loop).
+
+### Nativer JSON-Weg
+
+1. Rufen Sie
+   [`POST /v1/training/jobs/interactive`](/de/api-reference/training-jobs/interactive/create)
+   mit `base_model` oder mit `from_checkpoint` und `load_optimizer` auf.
+2. Fragen Sie die zurückgegebene Erstell-`operation_id` über
+   [Operation abrufen](/de/api-reference/training-jobs/interactive/get-operation)
+   ab, bis sie `completed`, `failed` oder `cancelled` ist.
+3. Reihen Sie
+   [forward-backward](/de/api-reference/training-jobs/interactive/forward-backward)
+   und [einen Optimizer-Schritt](/de/api-reference/training-jobs/interactive/optim-step)
+   ein. Fragen Sie jede `operation_id` bis zu einem Endstatus ab, bevor Sie den
+   nächsten abhängigen Schritt starten.
+4. [Speichern Sie Sampler-Gewichte](/de/api-reference/training-jobs/interactive/save-checkpoint)
+   und fragen Sie die Speicheroperation bis zu einem Endstatus ab.
+5. Stoppen Sie den Job über den gemeinsamen
+   [Stopp-Vorgang](/de/api-reference/training-jobs/stop).
+6. [Sampeln Sie nach dem Stopp aus dem gespeicherten Checkpoint](/de/api-reference/training-jobs/interactive/sample)
+   und fragen Sie die Sampling-Operation bis zu einem Endstatus ab.
+
+Nur eine eingereihte oder laufende Sample-Operation kann abgebrochen werden.
+Eine HTTP-Ablehnung bedeutet, dass der Server die Operation nicht eingereiht
+hat. Eine eingereihte Operation kann stattdessen mit `status: "failed"` enden.
+
+### Tinker-SDK-Weg
+
+Der Tinker-Weg erfordert Python 3.11 oder neuer. Konstruieren Sie keine privaten
+Kompatibilitäts-Unterpfade.
 
 ### 3. Getesteten Client installieren
 
@@ -269,7 +310,8 @@ Invoke-RestMethod `
 Die Antwort beschreibt denselben Job, der von
 `create_lora_training_client(...)` erstellt wurde. Verwenden Sie weiterhin den
 SDK-Client für Modelloperationen und die kanonische Jobs-API für dokumentierte
-Job-Lesezugriffe.
+Job-Lesezugriffe. Native JSON-Clients verwenden die öffentlichen Seiten für
+interaktive Operationen.
 
 ## Fortfahren
 

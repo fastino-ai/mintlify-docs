@@ -6,17 +6,18 @@ description: "Reliez l'échantillonnage, les récompenses, les mises à jour et 
 
 Votre application décide quoi échantillonner, comment l'évaluer et quand
 effectuer une mise à jour. Fastino exécute les opérations interactives du
-modèle. Un `TrainingClient` représente un job interactif Fastino pendant toute
-la boucle.
+modèle. Un client natif identifie le job par `job_id`. Un `TrainingClient`
+Tinker représente le même job.
 
 ## La boucle de contrôle
 
 <Steps>
   <Step title="Créer le job interactif">
-    Choisissez un `base_model` activé dans capabilities, puis utilisez des
-    réglages documentés avec `create_lora_training_client(...)`. Capabilities
-    ne rapporte ni rangs, ni pertes, ni limites d'opération. Lisez l'ID
-    canonique dans `training_client.get_info().model_id`.
+    Un client natif appelle
+    [`POST /v1/training/jobs/interactive`](/fr/api-reference/training-jobs/interactive/create)
+    avec `base_model`, ou avec `from_checkpoint` et `load_optimizer`. Un client
+    Tinker appelle `create_lora_training_client(...)`. Les clients natifs
+    n'envoient ni `seq_id` ni signal de présence.
   </Step>
   <Step title="Créer un checkpoint des poids pour l'échantillonnage">
     Appelez `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)`, puis créez un client
@@ -91,12 +92,18 @@ terminée, et résolvez la future de l'optimiseur avant de créer un checkpoint 
 l'état mis à jour. Ne laissez pas des contrôleurs indépendants modifier le même
 job sans coordination au niveau de l'application.
 
-Le SDK exécute ces opérations interactives. Ne les reproduisez pas sous forme
-d'appels HTTP directs.
+Les clients JSON natifs appellent
+[`forward-backward`](/fr/api-reference/training-jobs/interactive/forward-backward)
+et [`optim-step`](/fr/api-reference/training-jobs/interactive/optim-step). Chaque
+réponse de mise en file contient un `operation_id`. Interrogez
+[`get-operation`](/fr/api-reference/training-jobs/interactive/get-operation)
+jusqu'à l'état `completed`, `failed` ou `cancelled`. Une requête avec
+`wait=true` peut répondre avant la fin.
 
-Suivez chaque future renvoyée par un appel pris en charge. Résolvez les futures
-individuellement. Seules les futures d'échantillonnage peuvent être annulées.
-La récupération par lots via `retrieve_futures` n'est pas prise en charge.
+Les clients Tinker suivent chaque future renvoyée par un appel pris en charge et
+résolvent les futures individuellement. Sur les deux interfaces, seules les
+opérations sample peuvent être annulées. La récupération par lots via
+`retrieve_futures` n'est pas prise en charge.
 
 ## Récupérer la boucle
 
@@ -108,6 +115,7 @@ rejouer une mise à jour.
 Pour la séquence de récupération et les types de checkpoints, consultez
 [Checkpoints et récupération](/fr/training/checkpoints).
 
-Un `TrainingClient` met à jour un job pendant sa durée de vie. Créer un client
-depuis un état enregistré démarre un nouveau job interactive à partir du
+Un contrôleur met à jour un job pendant sa durée de vie. Un client natif peut
+créer depuis un checkpoint, et un client Tinker peut créer depuis un état
+enregistré. Les deux voies démarrent un nouveau job interactive à partir du
 checkpoint source. Enregistrez les deux ID comme lignée gérée par l'application.

@@ -7,7 +7,8 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
-Detiene un trabajo en ejecución y preserva los checkpoints creados antes de la detención.
+Detiene un trabajo en ejecución y preserva los checkpoints creados antes de la
+detención.
 
 ## Solicitud
 
@@ -16,10 +17,12 @@ Detiene un trabajo en ejecución y preserva los checkpoints creados antes de la 
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID del trabajo de entrenamiento.
+  UUID del trabajo config o ID del trabajo interactivo.
 </ParamField>
 
-El cuerpo JSON es opcional.
+### Trabajo config
+
+El cuerpo JSON es opcional para un trabajo config.
 
 <ParamField body="reason" type="string">
   Por qué se detuvo el trabajo.
@@ -33,6 +36,13 @@ El cuerpo JSON es opcional.
   Ruta o paso del checkpoint asociado con la detención.
 </ParamField>
 
+### Trabajo interactivo
+
+No envíes un cuerpo de solicitud. La respuesta incluye los campos comunes
+verificados `success`, `job_id` y `status`.
+
+### Ejemplo de solicitud para un trabajo config
+
 <RequestExample>
 
 ```bash cURL
@@ -44,7 +54,18 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </RequestExample>
 
-## Respuesta
+### Ejemplo de solicitud para un trabajo interactivo
+
+<RequestExample>
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Respuesta de un trabajo config
 
 <ResponseExample>
 
@@ -68,13 +89,33 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </ResponseExample>
 
-Después de un `202`, consulta `GET /v1/training/jobs/{job_id}`; no repitas la
-solicitud de detención mientras la cancelación esté pendiente.
+El campo `message`, la respuesta `202` y la regla de consulta se aplican solo a
+los trabajos config. Después de un `202` de un trabajo config, consulta
+`GET /v1/training/jobs/{job_id}`. No repitas la solicitud de detención mientras
+la cancelación esté pendiente.
+
+## Respuesta de un trabajo interactivo
+
+Un trabajo interactivo usa la misma operación sin cuerpo. La respuesta incluye
+los campos comunes `success`, `job_id` y `status`. No exijas el campo `message`,
+que es exclusivo de los trabajos config.
+
+```json Response
+{
+  "success": true,
+  "job_id": "YOUR_INTERACTIVE_JOB_ID",
+  "status": "stopped"
+}
+```
+
+## Estados de trabajos config
+
+Los siguientes estados y detalles de error solo se aplican a trabajos config.
 
 | Estado | Significado |
 | --- | --- |
 | `200` | El trabajo está detenido y los checkpoints existentes siguen disponibles. |
 | `202` | La cancelación del proveedor todavía se está confirmando. |
-| `400` | `job_id` no es un UUID válido de un trabajo config. |
+| `400` | El ID del trabajo config o la solicitud no son válidos. |
 | `409 training_job_already_finished` | El trabajo alcanzó un estado terminal antes de la detención. |
-| `422` | El cuerpo JSON de la solicitud no es válido. |
+| `422` | El cuerpo JSON de la solicitud del trabajo config no es válido. |

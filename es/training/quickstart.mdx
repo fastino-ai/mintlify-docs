@@ -102,9 +102,52 @@ estado final, los checkpoints, los logs y la posibilidad de despliegue.
 
 ## Bucle de entrenamiento personalizado
 
-Los bucles de entrenamiento personalizados requieren Python 3.11 o posterior.
-Accede a la API de entrenamiento mediante los siguientes métodos del SDK de
-Tinker compatible. No construyas solicitudes HTTP equivalentes.
+Elige una interfaz compatible:
+
+- Los clientes JSON nativos llaman a
+  [`POST /v1/training/jobs/interactive`](/es/api-reference/training-jobs/interactive/create),
+  encolan operaciones del modelo bajo `/v1/training/jobs/{job_id}` y consultan
+  cada `operation_id` devuelto hasta que esté `completed`, `failed` o
+  `cancelled`.
+- Los programas Tinker existentes mantienen `tinker==0.32.0` y usan la
+  configuración siguiente.
+
+Los clientes nativos no envían `seq_id` ni latidos. El servidor asigna el orden
+de las operaciones y mantiene activa la sesión interna. Una solicitud con
+`wait=true` espera como máximo 25 segundos. Por tanto, el cliente debe seguir
+consultando una operación no terminal. Sigue
+[Construye un bucle de entrenamiento personalizado](/es/training/training-loop)
+para ver la secuencia de rutas nativas.
+
+### Vía JSON nativa
+
+1. Llama a
+   [`POST /v1/training/jobs/interactive`](/es/api-reference/training-jobs/interactive/create)
+   con `base_model`, o con `from_checkpoint` y `load_optimizer`.
+2. Consulta la `operation_id` de creación mediante
+   [Obtener una operación](/es/api-reference/training-jobs/interactive/get-operation)
+   hasta que esté `completed`, `failed` o `cancelled`.
+3. Encola
+   [forward-backward](/es/api-reference/training-jobs/interactive/forward-backward)
+   y [un paso del optimizador](/es/api-reference/training-jobs/interactive/optim-step).
+   Consulta cada `operation_id` hasta un estado terminal antes del siguiente
+   paso dependiente.
+4. [Guarda pesos del sampler](/es/api-reference/training-jobs/interactive/save-checkpoint)
+   y consulta la operación de guardado hasta un estado terminal.
+5. Detén el trabajo mediante la
+   [operación compartida de detención](/es/api-reference/training-jobs/stop).
+6. [Muestrea desde el checkpoint guardado](/es/api-reference/training-jobs/interactive/sample)
+   después de detener el trabajo y consulta la operación de muestreo hasta un
+   estado terminal.
+
+Solo se puede cancelar una operación sample encolada o en ejecución. Un rechazo
+HTTP significa que el servidor no encoló la operación. Una operación encolada
+puede terminar con `status: "failed"`.
+
+### Vía del SDK de Tinker
+
+La vía de Tinker requiere Python 3.11 o posterior. No construyas rutas hijas
+privadas de compatibilidad.
 
 ### 3. Instala el cliente probado
 
@@ -266,7 +309,8 @@ Invoke-RestMethod `
 La respuesta describe el mismo trabajo creado por
 `create_lora_training_client(...)`. Sigue usando el cliente del SDK para las
 operaciones del modelo y la API canónica de trabajos para las lecturas de
-trabajos documentadas.
+trabajos documentadas. Los clientes JSON nativos usan las páginas públicas de
+operaciones interactivas.
 
 ## Continúa
 

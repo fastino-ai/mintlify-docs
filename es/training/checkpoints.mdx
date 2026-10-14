@@ -83,7 +83,10 @@ Compara el registro con el checkpoint de origen y la continuación solicitada:
 Detente para solicitar una decisión explícita si estos campos entran en
 conflicto. No combines silenciosamente un checkpoint con otro experimento.
 
-Después usa el flujo compatible del SDK para cargar el estado:
+Los clientes nativos crean un trabajo nuevo con `from_checkpoint` o llaman a
+[`load checkpoint`](/es/api-reference/training-jobs/interactive/load-checkpoint)
+en un trabajo compatible. Los clientes Tinker usan el flujo compatible para
+cargar el estado:
 
 ```python
 training_client = (
@@ -98,7 +101,7 @@ Esta fábrica crea un nuevo trabajo interactive y después carga los pesos y el
 estado del optimizador del checkpoint de origen. El ID reanudado normalmente
 difiere del ID de origen. Guarda `source_job_id`, `state_path` y
 `resumed_job_id` como linaje de la aplicación. No rechaces la continuación
-porque los IDs difieran ni construyas la solicitud HTTP del SDK.
+porque los IDs difieran. No construyas rutas hijas privadas de compatibilidad.
 
 ## 4. Haz recuperable el límite
 
@@ -133,13 +136,15 @@ caduca automáticamente. Los checkpoints activos cuentan para el almacenamiento.
 Para la limpieza automática, usa un valor inclusivo entre `3_600` y
 `315_360_000` segundos.
 
-La API pública de entrenamiento permite listar checkpoints. Puede descargar un
-checkpoint interactivo. La ruta pública y el método del SDK `get_checkpoint_archive_url`
-requieren ambos el permiso de descarga de pesos. Consulta
-[Migrar desde Tinker](/es/training/migrate-from-tinker). El SDK también admite métodos para eliminar, publicar y
-retener checkpoints, y para consultar el uso de almacenamiento. Son operaciones
-del SDK, no rutas públicas de la API de entrenamiento. No construyas solicitudes HTTP equivalentes del SDK ni supongas un
-periodo de retención no documentado.
+La API pública de entrenamiento permite guardar, cargar, muestrear, inspeccionar,
+eliminar, publicar, retirar la publicación y establecer la retención de
+checkpoints interactivos. El tipo de guardado `state` corresponde a `weights`.
+El tipo `sampler` corresponde a `sampler_weights`. El muestreo desde un
+checkpoint del sampler guardado sigue disponible después de detener el trabajo.
+Las rutas compartidas de lista y descarga cubren los checkpoints interactivos.
+La descarga sigue requiriendo el permiso para descargar pesos. Tinker ofrece
+métodos equivalentes del SDK. No construyas rutas hijas privadas de compatibilidad
+ni supongas un periodo de retención no documentado.
 
 ## 6. Verifica la continuación
 
@@ -154,7 +159,7 @@ Antes de aumentar la carga reanudada:
 5. Guarda un checkpoint de estado nuevo con otro nombre.
 6. Conserva el siguiente registro del bucle.
 
-Usa el SDK para todas las operaciones interactivas del modelo.
+Usa las rutas JSON nativas o el SDK de Tinker compatible para las operaciones interactivas del modelo.
 
 ## Diagnostica errores de recuperación
 

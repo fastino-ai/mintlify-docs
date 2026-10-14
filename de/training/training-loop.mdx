@@ -6,17 +6,18 @@ description: "Verbinden Sie Sampling, Rewards, Updates und Checkpoints innerhalb
 
 Ihre Anwendung entscheidet, was gesampelt, wie es bewertet und wann es
 aktualisiert wird. Fastino führt die interaktiven Modelloperationen aus. Ein
-`TrainingClient` repräsentiert während des gesamten Loops einen interaktiven
-Fastino-Job.
+nativer Client adressiert den Job über `job_id`. Ein Tinker-`TrainingClient`
+repräsentiert denselben Job.
 
 ## Der Kontrollloop
 
 <Steps>
   <Step title="Interaktiven Job erstellen">
-    Wählen Sie ein aktiviertes `base_model` aus Capabilities und verwenden Sie
-    dokumentierte Einstellungen mit `create_lora_training_client(...)`.
-    Capabilities melden keine Ränge, Losses oder Operationslimits. Lesen Sie die
-    kanonische Job-ID aus `training_client.get_info().model_id`.
+    Ein nativer Client ruft
+    [`POST /v1/training/jobs/interactive`](/de/api-reference/training-jobs/interactive/create)
+    mit `base_model` oder mit `from_checkpoint` und `load_optimizer` auf. Ein
+    Tinker-Client ruft `create_lora_training_client(...)` auf. Native Clients
+    senden weder `seq_id` noch Heartbeats.
   </Step>
   <Step title="Gewichte für Sampling als Checkpoint speichern">
     Rufen Sie `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)` auf und erstellen Sie
@@ -92,12 +93,18 @@ aktualisierten Status als Checkpoint speichern. Lassen Sie nicht mehrere
 unabhängige Controller denselben Job ohne Koordination auf Anwendungsebene
 verändern.
 
-Das SDK führt diese interaktiven Operationen aus. Bilden Sie sie nicht als
-direkte HTTP-Aufrufe nach.
+Native JSON-Clients rufen
+[`forward-backward`](/de/api-reference/training-jobs/interactive/forward-backward)
+und [`optim-step`](/de/api-reference/training-jobs/interactive/optim-step) auf.
+Jede Einreihungsantwort enthält eine `operation_id`. Fragen Sie
+[`get-operation`](/de/api-reference/training-jobs/interactive/get-operation)
+ab, bis der Status `completed`, `failed` oder `cancelled` ist. Ein einzelner
+Request mit `wait=true` kann vor dem Abschluss zurückkehren.
 
-Verfolgen Sie jedes Future, das ein unterstützter Aufruf zurückgibt. Lösen Sie
-Futures einzeln auf. Nur Sampling-Futures können abgebrochen werden. Der
-Batch-Abruf über `retrieve_futures` wird nicht unterstützt.
+Tinker-Clients verfolgen jedes Future, das ein unterstützter Aufruf zurückgibt,
+und lösen Futures einzeln auf. Auf beiden Schnittstellen können nur
+Sample-Operationen abgebrochen werden. Der Batch-Abruf über `retrieve_futures`
+wird nicht unterstützt.
 
 ## Loop wiederherstellen
 
@@ -109,7 +116,7 @@ wurde, ohne ein Update zu wiederholen.
 Die Wiederherstellungsreihenfolge und die Checkpoint-Arten finden Sie unter
 [Checkpoints und Wiederherstellung](/de/training/checkpoints).
 
-Ein `TrainingClient` aktualisiert während seiner Lebensdauer einen Job. Das
-Erstellen eines Clients aus gespeichertem Status startet einen neuen
-Interactive-Job aus dem Quell-Checkpoint. Speichern Sie beide IDs als
-anwendungseigene Linie.
+Ein Controller aktualisiert einen Job während dessen Lebensdauer. Ein nativer
+Client kann aus einem Checkpoint erstellen. Ein Tinker-Client kann aus
+gespeichertem Status erstellen. Beide Wege starten einen neuen Interactive-Job
+aus dem Quell-Checkpoint. Speichern Sie beide IDs als anwendungseigene Linie.

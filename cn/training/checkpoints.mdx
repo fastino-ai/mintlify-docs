@@ -76,7 +76,9 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 如果这些字段冲突，请停止并要求明确决策。不要悄然将检查点与其他实验组合。
 
-然后使用 SDK 支持的状态加载流程：
+原生客户端使用 `from_checkpoint` 创建新任务，或在兼容任务上调用
+[`load checkpoint`](/cn/api-reference/training-jobs/interactive/load-checkpoint)。
+Tinker 客户端使用受支持的状态加载流程：
 
 ```python
 training_client = (
@@ -89,8 +91,8 @@ resumed_job_id = training_client.get_info().model_id
 
 此工厂方法先创建新的交互式任务，再将来源检查点的权重和优化器状态加载到新任务中。
 恢复后的任务 ID 通常与来源任务 ID 不同。将 `source_job_id`、`state_path` 和
-`resumed_job_id` 记录为应用负责的沿袭关系。不要因为两个任务 ID 不同而拒绝恢复，
-也不要直接构造 SDK 的 HTTP 请求。
+`resumed_job_id` 记录为应用负责的沿袭关系。不要因为两个任务 ID 不同而拒绝恢复。
+请勿构造私有兼容性子路由。
 
 ## 4. 使边界可恢复
 
@@ -121,9 +123,11 @@ sampler = training_client.save_weights_for_sampler(
 检查点会计入检查点存储。若要自动清理，请传入 `3_600` 到 `315_360_000`
 秒（1 小时到 10 年）之间的值，包括端点值。
 
-公开的训练 API 可以列出检查点。它可以下载交互式检查点。公开路由和 SDK 方法
-`get_checkpoint_archive_url` 都需要权重下载权限。请参阅[从 Tinker 迁移](/cn/training/migrate-from-tinker)。SDK 还支持检查点删除、发布、保留期和存储用量方法。
-这些是 SDK 操作，而不是公开的训练 API 路由。请勿构造等效的 SDK HTTP 请求，也不要假设未记录的保留期限。
+公开训练 API 可以保存、加载、采样、检查、删除、发布、取消发布交互式检查点，
+并设置其保留期。保存类型 `state` 映射到 `weights`，保存类型 `sampler` 映射到
+`sampler_weights`。停止任务后仍可从已保存的采样器检查点采样。共享的列表和下载
+路由适用于交互式检查点，下载仍需要权重下载权限。Tinker 提供匹配的 SDK 方法。
+请勿构造私有兼容性子路由，也不要假设未记录的保留期。
 
 ## 6. 验证继续运行
 
@@ -137,7 +141,7 @@ sampler = training_client.save_weights_for_sampler(
 5. 使用新名称保存新的状态检查点。
 6. 持久化下一条循环记录。
 
-所有交互式模型操作均使用 SDK。
+交互式模型操作可以使用原生 JSON 路由或受支持的 Tinker SDK。
 
 ## 诊断恢复错误
 

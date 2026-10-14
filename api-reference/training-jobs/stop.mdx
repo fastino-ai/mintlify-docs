@@ -16,10 +16,12 @@ Stops a running job and preserves checkpoints created before the stop.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Training-job UUID.
+  Config-job UUID or interactive job ID.
 </ParamField>
 
-The JSON body is optional.
+### Config job
+
+The JSON body is optional for a config job.
 
 <ParamField body="reason" type="string">
   Why the job was stopped.
@@ -33,6 +35,13 @@ The JSON body is optional.
   Checkpoint path or step associated with the stop.
 </ParamField>
 
+### Interactive job
+
+Send no request body. The response includes the verified common fields
+`success`, `job_id`, and `status`.
+
+### Config-job request example
+
 <RequestExample>
 
 ```bash cURL
@@ -44,7 +53,18 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </RequestExample>
 
-## Response
+### Interactive-job request example
+
+<RequestExample>
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Config-job response
 
 <ResponseExample>
 
@@ -68,13 +88,32 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </ResponseExample>
 
-Poll `GET /v1/training/jobs/{job_id}` after a `202`; do not repeat the stop
-request while cancellation is pending.
+The `message` field, `202` response, and polling rule apply only to config jobs.
+Poll `GET /v1/training/jobs/{job_id}` after a config-job `202`; do not repeat
+the stop request while cancellation is pending.
+
+## Interactive-job response
+
+An interactive job uses the same operation without a body. It returns the
+common fields `success`, `job_id`, and `status`. Do not require the config-only
+`message` field from an interactive response.
+
+```json Response
+{
+  "success": true,
+  "job_id": "YOUR_INTERACTIVE_JOB_ID",
+  "status": "stopped"
+}
+```
+
+## Config-job statuses
+
+The following statuses and error details apply only to config jobs.
 
 | Status | Meaning |
 | --- | --- |
 | `200` | The job is stopped and existing checkpoints remain available. |
 | `202` | Provider cancellation is still being confirmed. |
-| `400` | `job_id` is not a valid config-job UUID. |
+| `400` | The config-job ID or request is invalid. |
 | `409 training_job_already_finished` | The job reached a terminal state before the stop. |
-| `422` | The JSON request body is invalid. |
+| `422` | The config-job JSON request body is invalid. |

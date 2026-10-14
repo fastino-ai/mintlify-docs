@@ -12,7 +12,7 @@ loop, then use `/v1/training/jobs` to inspect the job.
     Provide a dataset and configuration. Fastino runs the training loop.
   </Card>
   <Card title="Custom training loop" icon="code" href="/training/quickstart#custom-training-loop">
-    Use a supported SDK client while your application controls each update.
+    Use native JSON operations or the Tinker SDK while your application controls each update.
   </Card>
   <Card title="Auto Train" icon="sparkles" href="/training/auto">
     Delegate the training lifecycle to Fastino's autonomous training agent.
@@ -27,16 +27,16 @@ Every job has a `type`:
 | Type | Who controls the loop? | How it starts |
 | --- | --- | --- |
 | `config` | Fastino | Send a dataset and configuration to `POST /v1/training/jobs`. |
-| `interactive` | Your application | Create a training client through a supported SDK client. |
+| `interactive` | Your application | Call `POST /v1/training/jobs/interactive` or create a Tinker training client. |
 
 Both types share the same job identity. Canonical reads use
 `GET /v1/training/jobs`, `GET /v1/training/jobs/{job_id}`, and
 `GET /v1/training/jobs/{job_id}/checkpoints`.
 
-For custom loops, access the Training API through the supported Tinker SDK. The
-SDK's HTTP interface is not a second training service, and its operations stay
-out of OpenAPI and the API reference. Do not construct equivalent HTTP requests
-yourself.
+Native JSON clients use the public interactive operations under
+`/v1/training/jobs`. Existing Tinker clients keep `tinker==0.32.0` and set only
+`TINKER_BASE_URL=https://api.fastino.ai/v1/training/compat/tinker` and
+`TINKER_CREDENTIAL_CMD`. Do not construct private compatibility child routes.
 
 ## Config-job lifecycle
 
@@ -67,7 +67,9 @@ terminal failure. `status` remains the persisted value, such as `errored`.
 | [Get a job](/api-reference/training-jobs/get) | Supported | Supported |
 | [List checkpoints](/api-reference/training-jobs/checkpoints) | Supported | Supported |
 | [Download an interactive checkpoint](/api-reference/training-jobs/download-checkpoint) | — | Supported |
-| [Create through native REST](/api-reference/training-jobs/create) | Supported | Use the SDK |
+| Create through native REST | [Config job](/api-reference/training-jobs/create) | [Interactive job](/api-reference/training-jobs/interactive/create) |
+| Forward, forward-backward, and optimizer operations | — | [Supported](/api-reference/training-jobs/interactive/forward) |
+| Interactive checkpoint administration and sampling | — | [Supported](/api-reference/training-jobs/interactive/save-checkpoint) |
 | Update or delete the job | Supported | — |
 | [Stop](/api-reference/training-jobs/stop), [terminate](/api-reference/training-jobs/terminate), or [sync](/api-reference/training-jobs/sync) | Supported | — |
 | Config-job [logs](/api-reference/training-jobs/logs) and [billing](/api-reference/training-jobs/billing) endpoints | Supported | — |
@@ -83,9 +85,11 @@ is metered daily at its GB-month rate.
 
 Creating a model, applying an optimizer step, and saving or loading checkpoints
 do not add interactive-training usage charges. Account and project spending
-controls still apply when starting or extending compute. Use the SDK billing
-methods to read interactive usage; the REST billing endpoint in the table above
-is for config jobs.
+controls still apply when starting or extending compute. Use
+[`GET /v1/training/usage`](/api-reference/training-jobs/interactive/storage-usage)
+to read team-scoped interactive checkpoint storage and its monthly price. It
+does not report compute or total billing. The job billing endpoint in the table
+above is for config jobs.
 
 ## Next steps
 

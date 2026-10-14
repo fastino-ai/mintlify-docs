@@ -86,8 +86,10 @@ Halten Sie an und fordern Sie eine ausdrückliche Entscheidung an, wenn diese
 Felder im Konflikt stehen. Kombinieren Sie einen Checkpoint nicht
 stillschweigend mit einem anderen Experiment.
 
-Verwenden Sie anschließend den unterstützten Ablauf des SDK zum Laden des
-Status:
+Native Clients erstellen einen neuen Job mit `from_checkpoint` oder rufen
+[`load checkpoint`](/de/api-reference/training-jobs/interactive/load-checkpoint)
+für einen kompatiblen Job auf. Tinker-Clients verwenden den unterstützten
+Ablauf zum Laden des Status:
 
 ```python
 training_client = (
@@ -102,7 +104,8 @@ Diese Factory erstellt zuerst einen neuen Interactive-Job und lädt dann Gewicht
 und Optimizer-Status des Quell-Checkpoints. Die neue Job-ID unterscheidet sich
 normalerweise von der Quell-ID. Speichern Sie `source_job_id`, `state_path` und
 `resumed_job_id` als anwendungseigene Linie. Lehnen Sie die Fortsetzung nicht
-wegen unterschiedlicher IDs ab und konstruieren Sie den SDK-HTTP-Request nicht direkt.
+wegen unterschiedlicher IDs ab. Konstruieren Sie keine privaten
+Kompatibilitäts-Unterpfade.
 
 ## 4. Grenze wiederherstellbar gestalten
 
@@ -139,14 +142,16 @@ automatisch ab. Aktive Checkpoints zählen zum Checkpoint-Speicher. Für
 automatische Bereinigung sind Werte von `3_600` bis `315_360_000` Sekunden
 einschließlich zulässig.
 
-Die öffentliche Training API kann Checkpoints auflisten. Sie kann einen
-interaktiven Checkpoint herunterladen. Die öffentliche Route und die SDK-Methode
-`get_checkpoint_archive_url` erfordern beide die Berechtigung zum Herunterladen
-von Gewichten. Siehe [Von Tinker migrieren](/de/training/migrate-from-tinker).
-Das SDK unterstützt außerdem Methoden zum Löschen,
-Veröffentlichen und Aufbewahren von Checkpoints sowie zur Speichernutzung. Das
-sind SDK-Operationen, keine öffentlichen Routen der Training API. Konstruieren Sie keine entsprechenden SDK-HTTP-Requests und gehen Sie nicht von
-einer undokumentierten Aufbewahrungsdauer aus.
+Die öffentliche Training API kann interaktive Checkpoints speichern, laden,
+sampeln, prüfen, löschen, veröffentlichen, die Veröffentlichung aufheben und
+ihre Aufbewahrung festlegen. Die Speicherart `state` entspricht `weights`. Die
+Speicherart `sampler` entspricht `sampler_weights`. Sampling aus einem
+gespeicherten Sampler-Checkpoint bleibt nach dem Stoppen des Jobs möglich. Die
+gemeinsamen Listen- und Downloadrouten gelten für interaktive Checkpoints. Der
+Download erfordert weiterhin die Berechtigung zum Herunterladen von Gewichten.
+Tinker bietet entsprechende SDK-Methoden. Konstruieren Sie keine privaten
+Kompatibilitäts-Unterpfade und nehmen Sie keine undokumentierte
+Aufbewahrungsdauer an.
 
 ## 6. Fortsetzung prüfen
 
@@ -161,7 +166,7 @@ Vor dem Skalieren des fortgesetzten Workloads:
 5. Speichern Sie einen neuen Status-Checkpoint unter einem neuen Namen.
 6. Persistieren Sie den nächsten Loop-Datensatz.
 
-Verwenden Sie das SDK für alle interaktiven Modelloperationen.
+Verwenden Sie für interaktive Modelloperationen entweder native JSON-Routen oder das unterstützte Tinker-SDK.
 
 ## Wiederherstellungsfehler diagnostizieren
 

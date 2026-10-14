@@ -16,10 +16,12 @@ Arrête un job en cours et conserve les checkpoints créés avant l'arrêt.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID du job d'entraînement.
+  UUID du job de configuration ou ID du job interactif.
 </ParamField>
 
-Le corps JSON est optionnel.
+### Job de configuration
+
+Le corps JSON est facultatif pour un job de configuration.
 
 <ParamField body="reason" type="string">
   Raison pour laquelle le job a été arrêté.
@@ -33,6 +35,13 @@ Le corps JSON est optionnel.
   Chemin ou pas du checkpoint associé à l'arrêt.
 </ParamField>
 
+### Job interactif
+
+N'envoyez aucun corps de requête. La réponse contient les champs communs
+vérifiés `success`, `job_id` et `status`.
+
+### Exemple de requête pour un job de configuration
+
 <RequestExample>
 
 ```bash cURL
@@ -44,7 +53,18 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </RequestExample>
 
-## Réponse
+### Exemple de requête pour un job interactif
+
+<RequestExample>
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Réponse d'un job de configuration
 
 <ResponseExample>
 
@@ -68,14 +88,34 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </ResponseExample>
 
-Après une réponse `202`, interrogez
-`GET /v1/training/jobs/{job_id}` ; ne répétez pas la requête d'arrêt pendant
-que l'annulation est en attente.
+Le champ `message`, la réponse `202` et la règle d'interrogation concernent
+uniquement les jobs de configuration. Après une réponse `202` pour un job de
+configuration, interrogez `GET /v1/training/jobs/{job_id}`. Ne répétez pas la
+requête d'arrêt pendant que l'annulation est en attente.
+
+## Réponse d'un job interactif
+
+Un job interactif utilise la même opération sans corps. La réponse contient les
+champs communs `success`, `job_id` et `status`. N'exigez pas le champ `message`,
+propre aux jobs de configuration.
+
+```json Response
+{
+  "success": true,
+  "job_id": "YOUR_INTERACTIVE_JOB_ID",
+  "status": "stopped"
+}
+```
+
+## Statuts des jobs de configuration
+
+Les statuts et détails d'erreur suivants concernent uniquement les jobs de
+configuration.
 
 | Statut | Signification |
 | --- | --- |
 | `200` | Le job est arrêté et les checkpoints existants restent disponibles. |
 | `202` | La confirmation de l'annulation par le fournisseur est toujours en attente. |
-| `400` | `job_id` n'est pas un UUID valide de job config. |
+| `400` | L'ID du job de configuration ou la requête n'est pas valide. |
 | `409 training_job_already_finished` | Le job a atteint un état terminal avant l'arrêt. |
-| `422` | Le corps JSON de la requête n'est pas valide. |
+| `422` | Le corps JSON de la requête du job de configuration n'est pas valide. |

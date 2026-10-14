@@ -16,10 +16,12 @@ Stoppt einen laufenden Job und erhält die vor dem Stopp erstellten Checkpoints.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID des Trainingsjobs.
+  UUID des Config-Jobs oder ID des interaktiven Jobs.
 </ParamField>
 
-Der JSON-Body ist optional.
+### Config-Job
+
+Der JSON-Body ist für einen Config-Job optional.
 
 <ParamField body="reason" type="string">
   Grund für das Stoppen des Jobs.
@@ -33,6 +35,13 @@ Der JSON-Body ist optional.
   Checkpoint-Pfad oder -Schritt, der dem Stopp zugeordnet ist.
 </ParamField>
 
+### Interaktiver Job
+
+Senden Sie keinen Request-Body. Die Antwort enthält die bestätigten gemeinsamen
+Felder `success`, `job_id` und `status`.
+
+### Request-Beispiel für einen Config-Job
+
 <RequestExample>
 
 ```bash cURL
@@ -44,7 +53,18 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </RequestExample>
 
-## Response
+### Request-Beispiel für einen interaktiven Job
+
+<RequestExample>
+
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Antwort für einen Config-Job
 
 <ResponseExample>
 
@@ -68,14 +88,33 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 </ResponseExample>
 
-Fragen Sie nach einer `202`-Antwort
+Das Feld `message`, die Antwort `202` und die Polling-Regel gelten nur für
+Config-Jobs. Fragen Sie nach einer `202`-Antwort für einen Config-Job
 `GET /v1/training/jobs/{job_id}` ab. Wiederholen Sie den Stopp-Request nicht,
 solange der Abbruch aussteht.
+
+## Antwort für einen interaktiven Job
+
+Ein interaktiver Job verwendet denselben Vorgang ohne Request-Body. Die Antwort
+enthält die gemeinsamen Felder `success`, `job_id` und `status`. Verlangen Sie
+nicht das Config-spezifische Feld `message`.
+
+```json Response
+{
+  "success": true,
+  "job_id": "YOUR_INTERACTIVE_JOB_ID",
+  "status": "stopped"
+}
+```
+
+## Status für Config-Jobs
+
+Die folgenden Status- und Fehlerangaben gelten nur für Config-Jobs.
 
 | Status | Bedeutung |
 | --- | --- |
 | `200` | Der Job ist gestoppt und vorhandene Checkpoints bleiben verfügbar. |
 | `202` | Die Bestätigung des Anbieterabbruchs steht noch aus. |
-| `400` | `job_id` ist keine gültige UUID eines Config-Jobs. |
+| `400` | Die Config-Job-ID oder der Request ist ungültig. |
 | `409 training_job_already_finished` | Der Job hat vor dem Stopp einen Endzustand erreicht. |
-| `422` | Der JSON-Request-Body ist ungültig. |
+| `422` | Der JSON-Request-Body des Config-Jobs ist ungültig. |

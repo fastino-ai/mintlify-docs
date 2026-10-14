@@ -5,7 +5,8 @@ description: "Save interactive-job state and application progress, then recover 
 
 A state checkpoint protects server-side training state. A complete recovery
 record also protects the user-owned state that tells your controller what to do
-next.
+next. Native JSON clients use the public checkpoint operations. Tinker clients
+use the matching SDK methods.
 
 ## What to save
 
@@ -82,7 +83,9 @@ Compare the record with the source checkpoint and requested continuation:
 Stop for an explicit decision if these fields conflict. Do not silently combine
 a checkpoint with a different experiment.
 
-Then use the SDK's supported state-load flow:
+Native clients create a new job with `from_checkpoint`, or call
+[`load checkpoint`](/api-reference/training-jobs/interactive/load-checkpoint)
+on a compatible job. Tinker clients use the supported state-load flow:
 
 ```python
 training_client = (
@@ -97,7 +100,7 @@ This factory creates a new interactive job, then loads the source checkpoint's
 weights and optimizer state into it. The resumed job ID normally differs from
 the source job ID. Record `source_job_id`, `state_path`, and `resumed_job_id` as
 application-owned lineage. Do not reject a continuation because the two job IDs
-differ. Do not construct the SDK's HTTP request directly.
+differ. Do not construct private compatibility child routes.
 
 ## 4. Make the boundary recoverable
 
@@ -132,13 +135,13 @@ automatic expiration. Live checkpoints count toward checkpoint storage. To
 enable automatic cleanup, pass an inclusive value from `3_600` to
 `315_360_000` seconds (1 hour to 10 years).
 
-The public Training API can list checkpoints. It can download an interactive
-checkpoint. The public route and the SDK method `get_checkpoint_archive_url`
-both require weight-download access. See
-[Migrate from Tinker](/training/migrate-from-tinker). The SDK also supports
-checkpoint deletion, publication, retention, and
-storage-usage methods. These are SDK operations, not public Training API routes.
-Do not construct equivalent SDK HTTP requests or assume an undocumented
+The public Training API can save, load, sample, inspect, delete, publish,
+unpublish, and set retention for interactive checkpoints. Save kind `state`
+maps to `weights`; save kind `sampler` maps to `sampler_weights`. Sampling from
+a saved sampler checkpoint remains available after the job is stopped. The
+shared list and download routes cover interactive checkpoints, and download
+still requires weight-download access. Tinker provides matching SDK methods.
+Do not construct private compatibility child routes or assume an undocumented
 retention period.
 
 ## 6. Verify the continuation
@@ -154,7 +157,8 @@ Before scaling the resumed workload:
 5. Save a new state checkpoint under a new name.
 6. Persist the next loop record.
 
-Use the SDK for all interactive model operations.
+Use either the native JSON operations or the supported Tinker SDK for
+interactive model operations.
 
 ## Diagnose recovery errors
 

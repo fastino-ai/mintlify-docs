@@ -95,8 +95,39 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
 
 ## 自定义训练循环
 
-自定义训练循环需要 Python 3.11 或更高版本。请通过下面受支持的 Tinker SDK
-方法访问训练 API，不要自行构造等效的 HTTP 请求。
+选择一种受支持的接口：
+
+- 原生 JSON 客户端调用
+  [`POST /v1/training/jobs/interactive`](/cn/api-reference/training-jobs/interactive/create)，
+  在 `/v1/training/jobs/{job_id}` 下排队模型操作，并轮询返回的每个
+  `operation_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
+- 现有 Tinker 程序保留 `tinker==0.32.0`，并使用下面的设置。
+
+原生客户端不发送 `seq_id` 或心跳。服务器分配操作顺序并保持内部会话处于活动状态。
+带有 `wait=true` 的请求最多等待 25 秒，因此客户端必须继续轮询未终止的操作。原生路由
+顺序请参阅[构建自定义训练循环](/cn/training/training-loop)。
+
+### 原生 JSON 路径
+
+1. 使用 `base_model`，或使用 `from_checkpoint` 和 `load_optimizer`，调用
+   [`POST /v1/training/jobs/interactive`](/cn/api-reference/training-jobs/interactive/create)。
+2. 通过[获取操作](/cn/api-reference/training-jobs/interactive/get-operation)轮询返回的创建
+   `operation_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
+3. 排队 [forward-backward](/cn/api-reference/training-jobs/interactive/forward-backward)
+   和[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)。在执行下一个依赖步骤
+   之前，将每个 `operation_id` 轮询到终止状态。
+4. [保存采样器权重](/cn/api-reference/training-jobs/interactive/save-checkpoint)，并将保存操作
+   轮询到终止状态。
+5. 通过共享的[停止操作](/cn/api-reference/training-jobs/stop)停止任务。
+6. 停止后，[从已保存的检查点采样](/cn/api-reference/training-jobs/interactive/sample)，然后将
+   采样操作轮询到终止状态。
+
+只有已排队或正在运行的 sample 操作可以取消。HTTP 拒绝表示服务器没有将操作排队。
+已排队的操作可能改为以 `status: "failed"` 结束。
+
+### Tinker SDK 路径
+
+Tinker 路径需要 Python 3.11 或更高版本。请勿构造私有兼容性子路由。
 
 ### 3. 安装经过测试的客户端
 
@@ -254,7 +285,8 @@ Invoke-RestMethod `
 </CodeGroup>
 
 响应描述的任务与 `create_lora_training_client(...)` 创建的任务相同。继续使用 SDK
-客户端执行模型操作，并使用规范任务 API 执行有文档说明的任务读取。
+客户端执行模型操作，并使用规范任务 API 执行有文档说明的任务读取。原生 JSON 客户端
+使用公开的交互式操作页面。
 
 ## 继续了解
 
