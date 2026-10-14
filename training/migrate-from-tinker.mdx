@@ -115,11 +115,11 @@ the active service.
 | --- | --- |
 | Future result/get | Retrieves one asynchronous result |
 | Future cancel | Requests cancellation of one future |
-| `RestClient` list or get training runs | Reads canonical Fastino jobs |
+| `RestClient` list or get training runs | Reads interactive runs only; use `/v1/training/jobs` for config and interactive jobs |
 | List checkpoints | Reads checkpoints that belong to the job |
-| Download checkpoint archive | Downloads an interactive checkpoint |
+| Download checkpoint archive | Downloads an interactive checkpoint; requires the team's weight-download entitlement |
 | Delete checkpoint | Deletes a checkpoint through the SDK |
-| Publish or unpublish checkpoint | Changes checkpoint publication through the SDK |
+| Publish or unpublish checkpoint | Changes publication within the owning team; it does not make the path loadable by another team |
 | Set or clear checkpoint TTL | Changes checkpoint retention through the SDK |
 | Checkpoint storage usage | Reads current checkpoint storage through the SDK |
 | Billing usage | Reads hourly usage events through the SDK |
@@ -135,6 +135,19 @@ Fastino does not support:
 - Batch future retrieval through `retrieve_futures`
 - `save_weights_external`
 - `external_weights_urls`
+- Session trace export
+- Audit-log entries
+- Sampling without a `SamplingClient` and its sampling session
+- `target_prompt_logprobs` or a positive `prompt_alt_tokens_k`
+- Prompt chunks other than `encoded_text`
+- Optimizers other than AdamW
+- LoRA ranks outside 1 through 32
+
+These restrictions describe normal Fastino API-key behavior. A sandbox run key
+has a narrower write scope: it also cannot delete, publish, or change the TTL of
+a checkpoint, reassign a session's project, or export external weights. Those
+run-key restrictions do not make the corresponding API-key operations
+unsupported.
 
 Do not infer support because a method exists in the installed package. The
 support table documents Fastino's SDK subset; capabilities only report enabled
@@ -146,6 +159,7 @@ models and their context lengths.
 | --- | --- |
 | Authentication fails | Confirm that `TINKER_CREDENTIAL_CMD` prints one current `fast_sk_` key and no extra output |
 | The client cannot connect | Confirm that `TINKER_BASE_URL` is exactly `https://api.fastino.ai/v1/training/compat/tinker` |
+| An SDK call or checkpoint download returns `403` with a team-data-erasure message | Team deletion is in progress. Do not retry the operation; contact your account administrator or Fastino support if the deletion is unexpected |
 | A model is rejected | Query capabilities again and choose an enabled model |
 | A rank, loss, or operation is rejected | Compare the call with the documented limits and support table; capabilities do not list these settings |
 | Canonical job lookup fails | Confirm that the ID came from `get_info().model_id` and that the same Fastino team is authenticated |

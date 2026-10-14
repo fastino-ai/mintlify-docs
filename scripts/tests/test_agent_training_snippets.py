@@ -138,6 +138,34 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 call = text[match.start():match.start() + 180]
                 self.assertIn("ttl_seconds=", call, f"{path}: {call}")
 
+    def test_interactive_billing_and_sdk_limits_are_documented_in_every_locale(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            overview = (ROOT / f"{prefix}training.mdx").read_text(encoding="utf-8")
+            migration = (ROOT / f"{prefix}training/migrate-from-tinker.mdx").read_text(
+                encoding="utf-8"
+            )
+
+            for marker in ("forward", "checkpoint"):
+                self.assertIn(marker, overview.lower(), f"{prefix}training.mdx")
+            for marker in (
+                "/v1/training/jobs",
+                "target_prompt_logprobs",
+                "prompt_alt_tokens_k",
+                "encoded_text",
+                "AdamW",
+                "`403`",
+            ):
+                self.assertIn(marker, migration, f"{prefix}training/migrate-from-tinker.mdx")
+
+        english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
+        english_overview = (ROOT / "training.mdx").read_text(encoding="utf-8")
+        self.assertIn("GB-month", english_overview)
+        self.assertIn("Reads interactive runs only", english)
+        self.assertIn("weight-download entitlement", english)
+        self.assertIn("does not make the path loadable by another team", english)
+        self.assertNotIn("Reads canonical Fastino jobs", english)
+
     def test_inventory_is_exactly_47_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()

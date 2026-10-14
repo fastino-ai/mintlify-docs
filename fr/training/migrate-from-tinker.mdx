@@ -118,11 +118,11 @@ gérez les erreurs de validation du service actif.
 | --- | --- |
 | Résultat/obtention d'une future | Récupère un résultat asynchrone |
 | Annulation d'une future | Demande l'annulation d'une future |
-| Lister ou obtenir des exécutions d'entraînement avec `RestClient` | Lit les jobs Fastino canoniques |
+| Lister ou obtenir des exécutions d'entraînement avec `RestClient` | Lit uniquement les exécutions interactives ; `/v1/training/jobs` lit les jobs de configuration et interactifs |
 | Lister les checkpoints | Lit les checkpoints qui appartiennent au job |
-| Télécharger l'archive d'un checkpoint | Télécharge un checkpoint interactif |
+| Télécharger l'archive d'un checkpoint | Télécharge un checkpoint interactif ; nécessite l'autorisation de téléchargement des poids de l'équipe |
 | Supprimer un checkpoint | Supprime un checkpoint via le SDK |
-| Publier ou dépublier un checkpoint | Modifie la publication du checkpoint via le SDK |
+| Publier ou dépublier un checkpoint | Modifie la publication au sein de l'équipe propriétaire ; une autre équipe ne peut pas charger ce chemin |
 | Définir ou effacer le TTL d'un checkpoint | Modifie la rétention du checkpoint via le SDK |
 | Utilisation du stockage des checkpoints | Lit le stockage actuel des checkpoints via le SDK |
 | Utilisation facturée | Lit les événements d'utilisation horaires via le SDK |
@@ -139,6 +139,19 @@ Fastino ne prend pas en charge :
 - La récupération par lots des futures via `retrieve_futures`
 - `save_weights_external`
 - `external_weights_urls`
+- L'export des traces de session
+- Les entrées du journal d'audit
+- L'échantillonnage sans `SamplingClient` et sa session d'échantillonnage
+- `target_prompt_logprobs` ou une valeur positive de `prompt_alt_tokens_k`
+- Les fragments de prompt autres que `encoded_text`
+- Les optimiseurs autres qu'AdamW
+- Les rangs LoRA hors de l'intervalle 1 à 32
+
+Ces restrictions décrivent le comportement avec une clé API Fastino normale.
+Une clé d'exécution sandbox possède une portée d'écriture plus étroite : elle
+ne peut pas non plus supprimer ou publier un checkpoint, modifier son TTL,
+réaffecter le projet d'une session ni exporter des poids externes. Les
+opérations correspondantes restent prises en charge avec une clé API normale.
 
 Ne déduisez pas la prise en charge d'une méthode uniquement parce qu'elle
 existe dans le paquet installé. Le tableau définit le sous-ensemble pris en
@@ -150,6 +163,7 @@ charge ; capabilities ne rapporte que les modèles activés et longueurs de cont
 | --- | --- |
 | Échec de l'authentification | Vérifiez que `TINKER_CREDENTIAL_CMD` affiche une seule clé `fast_sk_` actuelle sans sortie supplémentaire |
 | Le client ne parvient pas à se connecter | Vérifiez que `TINKER_BASE_URL` correspond exactement à `https://api.fastino.ai/v1/training/compat/tinker` |
+| Un appel SDK ou téléchargement de checkpoint renvoie `403` avec un message d'effacement des données de l'équipe | La suppression de l'équipe est en cours. Ne réessayez pas l'opération ; contactez l'administrateur du compte ou le support Fastino si cette suppression est inattendue |
 | Un modèle est rejeté | Interrogez de nouveau capabilities et choisissez un modèle activé |
 | Un rang, une perte ou une opération est rejeté | Comparez l'appel aux limites documentées et au tableau de prise en charge |
 | La recherche du job canonique échoue | Vérifiez que l'ID provient de `get_info().model_id` et que la même équipe Fastino est authentifiée |

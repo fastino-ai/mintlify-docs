@@ -114,11 +114,11 @@ errores de validación del servicio activo.
 | --- | --- |
 | Resultado/obtención de future | Obtiene un resultado asíncrono |
 | Cancelación de future | Solicita la cancelación de un future |
-| Listar u obtener ejecuciones de entrenamiento con `RestClient` | Lee trabajos canónicos de Fastino |
+| Listar u obtener ejecuciones de entrenamiento con `RestClient` | Lee solo ejecuciones interactivas; `/v1/training/jobs` lee trabajos de configuración e interactivos |
 | Listar checkpoints | Lee los checkpoints que pertenecen al trabajo |
-| Descargar el archivo de un checkpoint | Descarga un checkpoint interactivo |
+| Descargar el archivo de un checkpoint | Descarga un checkpoint interactivo; requiere el derecho de descarga de pesos del equipo |
 | Eliminar un checkpoint | Elimina un checkpoint mediante el SDK |
-| Publicar o despublicar un checkpoint | Cambia la publicación del checkpoint mediante el SDK |
+| Publicar o despublicar un checkpoint | Cambia la publicación dentro del equipo propietario; no permite que otro equipo cargue la ruta |
 | Establecer o borrar el TTL de un checkpoint | Cambia la retención del checkpoint mediante el SDK |
 | Uso de almacenamiento de checkpoints | Lee el almacenamiento actual de checkpoints mediante el SDK |
 | Uso de facturación | Lee eventos de uso por hora mediante el SDK |
@@ -135,6 +135,19 @@ Fastino no admite:
 - Recuperación de futures por lotes mediante `retrieve_futures`
 - `save_weights_external`
 - `external_weights_urls`
+- Exportación de trazas de sesión
+- Entradas del registro de auditoría
+- Muestreo sin un `SamplingClient` y su sesión de muestreo
+- `target_prompt_logprobs` o un `prompt_alt_tokens_k` positivo
+- Fragmentos de prompt distintos de `encoded_text`
+- Optimizadores distintos de AdamW
+- Rangos LoRA fuera del intervalo de 1 a 32
+
+Estas restricciones describen el comportamiento con claves de API normales de
+Fastino. Una clave de ejecución de sandbox tiene un ámbito de escritura más
+reducido: tampoco puede eliminar o publicar checkpoints, cambiar su TTL,
+reasignar el proyecto de una sesión ni exportar pesos externos. Las operaciones
+correspondientes siguen siendo compatibles con claves de API normales.
 
 No deduzcas la compatibilidad porque un método exista en el paquete instalado.
 La tabla define el subconjunto compatible; capabilities solo informa modelos
@@ -146,6 +159,7 @@ habilitados y longitudes de contexto.
 | --- | --- |
 | La autenticación falla | Confirma que `TINKER_CREDENTIAL_CMD` imprima una única clave `fast_sk_` actual y ninguna salida adicional |
 | El cliente no puede conectarse | Confirma que `TINKER_BASE_URL` sea exactamente `https://api.fastino.ai/v1/training/compat/tinker` |
+| Una llamada del SDK o descarga de checkpoint devuelve `403` con un mensaje sobre el borrado de datos del equipo | El equipo se está eliminando. No reintentes la operación; contacta con el administrador de la cuenta o con el soporte de Fastino si la eliminación es inesperada |
 | Se rechaza un modelo | Vuelve a consultar capabilities y elige un modelo habilitado |
 | Se rechaza un rango, pérdida u operación | Compara la llamada con los límites documentados y la tabla de compatibilidad |
 | Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_id` y que esté autenticado el mismo equipo de Fastino |
