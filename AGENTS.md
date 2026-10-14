@@ -15,9 +15,9 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
 - Use only customer-authored HTTP operations present in that OpenAPI specification.
 - Use [https://docs.fastino.ai/concepts/models](https://docs.fastino.ai/concepts/models) for documented model IDs and `GET /v1/base-models` for current availability.
 - For reinforcement learning and custom post-training, follow the
-  [Training API](https://docs.fastino.ai/training) custom-loop guidance and use
-  the documented Python client. The client's HTTP compatibility adapter stays
-  out of OpenAPI and is not a customer-authored REST API.
+  [Training API](https://docs.fastino.ai/training) custom-loop guidance and
+  access the Training API through the documented Tinker SDK. The SDK's HTTP
+  interface stays out of OpenAPI and is not a customer-authored REST API.
 ## API conventions
 
 - API base URL: `https://api.fastino.ai`
@@ -37,8 +37,8 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   [GLiNER Inference](https://docs.fastino.ai/inference/chat-completions). Use
   `POST /v1/chat/completions` with `model`, `messages`, and `schema`.
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
-- Use `/v1/training/jobs` for canonical job operations. A supported SDK client
-  uses the hidden HTTP compatibility adapter for custom-loop model operations.
+- Use `/v1/training/jobs` for canonical job operations. Access custom-loop
+  model operations through the supported Tinker SDK.
   Auto Train is private access and has no public route. Direct interested
   users to `sales@fastino.ai`.
 - For custom loops, start with the
@@ -48,8 +48,8 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   Fastino run the loop; interactive jobs let the application direct each step.
 - Query `ServiceClient.get_server_capabilities()` before selecting a model for
   a custom loop.
-- Do not construct compatibility-adapter HTTP routes directly. Configure the
-  supported client with
+- Do not construct the SDK's HTTP requests directly. Configure the supported
+  Tinker SDK with
   `TINKER_BASE_URL=https://api.fastino.ai/v1/training/compat/tinker` and
   `TINKER_CREDENTIAL_CMD` that prints the normal `fast_sk_...` credential.
 - Never wrap a Fastino key with `tml-`; `tml-` credentials are rejected.

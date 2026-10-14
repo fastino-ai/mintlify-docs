@@ -85,6 +85,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         )
         self.assertNotIn("model_data.model_id", corpus)
         self.assertNotIn("plans to rename that request field", corpus)
+        self.assertNotIn("compatibility adapter", corpus.lower())
 
         skill = (ROOT / ".mintlify/skills/fastino-fine-tune/SKILL.md").read_text(
             encoding="utf-8"
