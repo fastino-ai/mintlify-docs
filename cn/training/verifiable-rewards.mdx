@@ -4,24 +4,27 @@ sidebarTitle: "可验证奖励"
 description: "用确定性评分器检查数学答案、测试结果等响应，将奖励转换为优势值，并在同一个 Fastino 交互式任务中完成采样、更新和检查点。"
 ---
 
-当代码可以检查响应（例如数学答案、测试结果、架构约束、精确抽取或工具结果）时，请使用可验证奖励。
+当代码可以检查响应时（例如数学答案、测试结果、schema 约束、精确抽取或工具结果），请使用可验证奖励。
 
 ```text
 prompt -> sample a group -> grade -> center rewards -> build datums -> update
 ```
 
-采样、前向/反向工作、优化器步骤和检查点都属于同一个 Fastino 交互式任务。
-奖励执行和应用状态保留在你的代码中。
+采样、forward-backward、优化器步骤和检查点都属于同一个 Fastino 交互式任务。奖励计算和应用状态保留在你的代码中。
 
 ## 开始之前
 
-完成[自定义循环快速入门](/cn/training/quickstart#custom-training-loop)，然后通过
-capabilities 确认所选模型已启用。Capabilities 不列出损失或训练操作。以下片段
-使用已记录的 `importance_sampling` 损失。
+先完成[自定义循环快速入门](/cn/training/quickstart#custom-training-loop)。下面的代码片段复用其中的
+`call` 和 `wait` 辅助函数、`tokenizer` 以及一个 `job_id`。它们使用内置的 `importance_sampling`
+损失函数，重点介绍由用户负责的奖励流程。
 
 <Note>
-  本指南并不是一个可独立使用、复制粘贴即可运行的训练器。请先从经过验证的 SDK
-  工作负载开始，确保其渲染器和 datum 构建方式与所选模型匹配，然后再添加下述奖励流程。
+  本指南不是可直接复制粘贴的独立训练器。请从快速入门脚本开始，确认其 datum 能够训练，再添加下面的奖励流程。
+</Note>
+
+<Note>
+  任务只运行内置损失函数：`cross_entropy`、`importance_sampling`、`ppo`、`cispo` 和 `dro`。
+  在你自己的代码中编写的损失函数无法在任务上运行。请将奖励表达为其中某个损失函数的优势。
 </Note>
 
 <Warning>
@@ -30,7 +33,7 @@ capabilities 确认所选模型已启用。Capabilities 不列出损失或训练
 
 ## 1. 定义范围明确的评分器
 
-将解析与评分分开，以便观察格式错误的输出：
+将解析与评分分开，以便发现格式错误的输出：
 
 ```python
 def get_reward(response: str, expected: str) -> float:
@@ -40,37 +43,48 @@ def get_reward(response: str, expected: str) -> float:
     return 1.0 if actual == expected else 0.0
 ```
 
-保留一组冻结的测试数据，其中包括正确、错误、格式错误和等价格式的答案。
-将解析失败与格式有效但答案错误的响应分开记录。
+维护一组固定的测试用例，包括正确、错误、格式错误以及格式不同但等价的答案。将解析失败与有效但错误的响应分开记录。
 
-## 2. 为采样创建任务快照
+## 2. 为采样保存任务快照
 
-从当前权重创建采样器检查点，然后通过 SDK 解析：
+从当前权重保存 sampler 检查点，然后从中采样一组响应：
 
 ```python
-checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}",
-    ttl_seconds=24 * 60 * 60,
-).result()
-sampling_client = service_client.create_sampling_client(
-    model_path=checkpoint.path
+name = f"rollout-{step:06d}"
+saved = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
 )
+wait(job_id, saved["future_id"])
 
-sample_result = sampling_client.sample(
-    prompt=model_input,
-    num_samples=group_size,
-    sampling_params=sampling_params,
-).result()
+prompt_tokens = tokenizer.apply_chat_template(
+    [{"role": "user", "content": question}],
+    add_generation_prompt=True,
+    return_dict=False,
+)
+sampled = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/sample",
+    {
+        "checkpoint": name,
+        "prompt_tokens": prompt_tokens,
+        "num_samples": group_size,
+        "sampling_params": {"max_tokens": 512, "temperature": 1.0},
+    },
+)
+sample_result = wait(job_id, sampled["future_id"])
 ```
 
-这不会创建另一个训练运行。检查点和采样工作与同一个交互式任务关联。
+这不会创建新任务。检查点和样本都属于同一个 交互式任务。
 
-## 3. 将奖励转换为优势值
+## 3. 将奖励转换为优势
 
 ```python
+sequences = sample_result["sequences"]
 rewards = [
-    get_reward(render_response(sequence.tokens), expected)
-    for sequence in sample_result.sequences
+    get_reward(tokenizer.decode(sequence["tokens"]), expected)
+    for sequence in sequences
 ]
 
 mean_reward = sum(rewards) / len(rewards)
@@ -80,69 +94,87 @@ if all(advantage == 0.0 for advantage in advantages):
     continue
 ```
 
-跟踪奖励没有差异的组。它们可能表明任务过于简单、过于困难或解析有误。
+跟踪奖励没有方差的组。这可能说明任务过于简单、过于困难，或者解析有误。
 
 ## 4. 构建对齐的 datum
 
-提示词是上下文，因此提示词位置通常获得零优势值。补全位置获得响应的组相对优势值。
-如果模型输入、目标、对数概率和优势值的长度不同，datum 构建器应在提交前失败：
+提示是上下文，因此提示位置的优势为零。补全位置使用该响应的组相对优势和 sampler 的对数概率。每个张量在每个输入位置上都有一个值：
 
 ```python
-if not (
-    model_input.length
-    == len(target_tokens)
-    == len(padded_logprobs)
-    == len(padded_advantages)
-):
-    raise ValueError("training datum arrays are not aligned")
+def rl_datum(prompt_tokens, sequence, advantage):
+    completion = sequence["tokens"]
+    tokens = prompt_tokens + completion
+    padding = [0.0] * (len(prompt_tokens) - 1)
+    logprobs = padding + sequence["logprobs"]
+    advantages = padding + [advantage] * len(completion)
+    if not (len(tokens) - 1 == len(logprobs) == len(advantages)):
+        raise ValueError("training datum arrays are not aligned")
+    return {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": tokens[:-1]}]},
+        "loss_fn_inputs": {
+            "target_tokens": {"data": tokens[1:], "dtype": "int64"},
+            "logprobs": {"data": logprobs, "dtype": "float32"},
+            "advantages": {"data": advantages, "dtype": "float32"},
+        },
+    }
+
+
+datums = [
+    rl_datum(prompt_tokens, sequence, advantage)
+    for sequence, advantage in zip(sequences, advantages)
+]
 ```
 
-使用与所选 `base_model` 关联的渲染器和 tokenizer。保留已记录的 SDK 操作所需的
-采样 token 和对数概率。
+提示和解码都使用任务 `base_model` 的 tokenizer。
 
-## 5. 更新交互式任务
-
-对于重要性采样工作流，SDK 调用形式如下：
+## 5. 更新 交互式任务
 
 ```python
-train_future = training_client.forward_backward(
-    datums,
-    loss_fn="importance_sampling",
+backward = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/forward-backward",
+    {"datums": datums, "loss_fn": "importance_sampling"},
 )
-train_result = train_future.result()
-
-optim_future = training_client.optim_step(optimizer_params)
-optim_result = optim_future.result()
+update = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/optim-step",
+    {"adam_params": {"learning_rate": 1e-5}},
+)
+train_result = wait(job_id, backward["future_id"])
+optim_result = wait(job_id, update["future_id"])
 ```
 
-两个操作都会修改现有的交互式任务。在推进应用步骤前解析并记录每项结果。
-不要构造等效的适配器 HTTP 请求。
+两个 operation 按发送顺序更新同一个任务。在推进应用步骤之前，请等待并记录每个结果。对于带裁剪的目标，请使用 `ppo` 或 `cispo`，并在 `loss_fn_config` 中设置阈值。
 
 ## 6. 保存恢复边界
 
 ```python
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 ```
 
-将返回的检查点标识符与以下内容一起持久化：
+将返回的 `path` 与以下信息一起持久化：
 
-- 来自 `training_client.get_info().model_id` 的规范任务 ID
+- 任务 ID
 - 应用步骤和数据集游标
-- 数据集和奖励实现修订版
+- 数据集和奖励实现的修订版本
 - 基础模型和训练配置
 - 评估指标
 
-这些元数据让控制器无需根据名称猜测即可选择检查点。
+有了这些元数据，控制器无需根据名称猜测就能选择检查点。
 
-## 扩大规模前进行验证
+## 扩大规模前验证
 
-- 评分器能区分已知的正确和错误测试数据。
+- 评分器能够区分已知的正确和错误用例。
 - 格式错误的响应不会使应用循环崩溃。
-- 至少一个采样组存在奖励差异。
-- Datum 数组符合已安装 SDK 预期的形式。
-- 前向/反向传播和优化器 future 在同一个任务上完成。
-- 可以使用客户端恢复元数据加载状态检查点。
-- 留出评估与训练奖励批次保持独立。
+- 至少有一个样本组存在奖励方差。
+- 每个 datum 的张量在每个输入位置上都有一个值。
+- forward-backward 和优化器步骤 operation 在同一个任务上完成。
+- 新任务可以凭借客户端持有的恢复元数据，从状态检查点启动。
+- 留出集评估与训练奖励批次保持分离。
 
-有关完整生命周期，请阅读
-[构建自定义训练循环](/cn/training/training-loop)。
+关于完整的生命周期，请阅读[构建自定义训练循环](/cn/training/training-loop)。

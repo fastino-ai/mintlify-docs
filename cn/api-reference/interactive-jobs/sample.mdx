@@ -1,0 +1,67 @@
+---
+title: "从交互式任务采样"
+sidebarTitle: "采样"
+description: "调用 POST /v1/training/jobs/{job_id}/sample，为分词后的提示生成续写。"
+api: "POST /v1/training/jobs/{job_id}/sample"
+---
+
+`POST /v1/training/jobs/{job_id}/sample`
+
+使用任务的某个 `sampler` 检查点为分词后的提示生成续写。任务停止后仍可采样。生成的 token 位于已完成
+future 的 `result.sequences` 中，请使用同一个 tokenizer 解码。
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  交互式任务 ID。
+</ParamField>
+
+<ParamField body="checkpoint" type="string" required>
+  该任务保存的 sampler 检查点名称，或其 `tinker://<job_id>/sampler_weights/<name>` 路径。
+</ParamField>
+
+<ParamField body="prompt_tokens" type="integer[]" required>
+  来自基础模型 tokenizer 的提示 token ID，至少一个。
+</ParamField>
+
+<ParamField body="num_samples" type="integer" default="1">
+  续写数量。
+</ParamField>
+
+<ParamField body="sampling_params" type="object">
+  解码设置：`max_tokens`、`temperature`（默认 `1.0`）、`top_p`（`1.0`）、`top_k`（`-1` 表示关闭）、`stop`、`seed`。
+</ParamField>
+
+<ParamField body="prompt_logprobs" type="boolean" default="false">
+  同时返回每个提示 token 的对数概率。
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "checkpoint": "step-000100",
+    "prompt_tokens": [151644, 872, 198, 3838],
+    "num_samples": 2,
+    "sampling_params": {"max_tokens": 64, "temperature": 0.7}
+  }'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "sample"
+}
+```
+
+</ResponseExample>

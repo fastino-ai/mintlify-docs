@@ -1,0 +1,70 @@
+---
+title: "Échantillonner depuis une tâche interactive"
+sidebarTitle: "Échantillonner"
+description: "Appelez POST /v1/training/jobs/{job_id}/sample pour générer des continuations d’un prompt tokenisé."
+api: "POST /v1/training/jobs/{job_id}/sample"
+---
+
+`POST /v1/training/jobs/{job_id}/sample`
+
+Génère des continuations d’un prompt tokenisé avec l’un des checkpoints `sampler` de la tâche.
+Fonctionne aussi après l’arrêt de la tâche. Lisez les tokens générés dans `result.sequences` du
+future terminé et décodez-les avec le même tokenizer.
+
+<ParamField header="X-API-Key" type="string" required>
+  Votre clé API Fastino.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID de la tâche interactive.
+</ParamField>
+
+<ParamField body="checkpoint" type="string" required>
+  Le nom d’un checkpoint sampler enregistré par cette tâche, ou son chemin
+  `tinker://<job_id>/sampler_weights/<name>`.
+</ParamField>
+
+<ParamField body="prompt_tokens" type="integer[]" required>
+  IDs de tokens du prompt issus du tokenizer du modèle de base. Au moins un.
+</ParamField>
+
+<ParamField body="num_samples" type="integer" default="1">
+  Nombre de continuations.
+</ParamField>
+
+<ParamField body="sampling_params" type="object">
+  Réglages de décodage : `max_tokens`, `temperature` (par défaut `1.0`), `top_p` (`1.0`),
+  `top_k` (`-1` le désactive), `stop` et `seed`.
+</ParamField>
+
+<ParamField body="prompt_logprobs" type="boolean" default="false">
+  Renvoie aussi la log-probabilité de chaque token du prompt.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "checkpoint": "step-000100",
+    "prompt_tokens": [151644, 872, 198, 3838],
+    "num_samples": 2,
+    "sampling_params": {"max_tokens": 64, "temperature": 0.7}
+  }'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "sample"
+}
+```
+
+</ResponseExample>

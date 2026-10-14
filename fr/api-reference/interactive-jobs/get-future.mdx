@@ -1,0 +1,62 @@
+---
+title: "Obtenir un future d’une tâche interactive"
+sidebarTitle: "Obtenir un future"
+description: "Appelez GET /v1/training/jobs/{job_id}/futures/{future_id} pour lire l’état d’un future et son résultat une fois terminé."
+api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
+---
+
+`GET /v1/training/jobs/{job_id}/futures/{future_id}`
+
+Lisez le future jusqu’à ce que son `status` vaille `completed`, `failed` ou `cancelled`. Les
+résultats sont conservés une heure. Avec `wait=true`, la requête attend jusqu’à 25 secondes.
+
+- `type` : `create`, `load`, `forward`, `forward_backward`, `optim_step`, `save` ou `sample`.
+- `result` (si `completed`) : `loss_fn_outputs` et `metrics` pour forward ; `sequences` (chacune
+  avec `tokens`, `logprobs` et `stop_reason`) pour `sample` ; le chemin du checkpoint pour `save`.
+- `error` (si `failed` ou `cancelled`) : `message` et `category` (`user` ou `server`).
+
+<RequestExample>
+
+```bash cURL
+curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_ID?wait=true" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Pending
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "forward_backward",
+  "status": "pending",
+  "queue_state": "paused_capacity",
+  "queue_state_reason": null,
+  "result": null,
+  "error": null
+}
+```
+
+```json Completed sample
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "sample",
+  "status": "completed",
+  "queue_state": null,
+  "queue_state_reason": null,
+  "result": {
+    "sequences": [
+      {"tokens": [59604, 13, 151645], "logprobs": [-0.21, -0.05, -0.01], "stop_reason": "stop", "topk_logprobs": null}
+    ],
+    "prompt_logprobs": null,
+    "topk_prompt_logprobs": null,
+    "prompt_cache_hit_tokens": 0
+  },
+  "error": null
+}
+```
+
+</ResponseExample>

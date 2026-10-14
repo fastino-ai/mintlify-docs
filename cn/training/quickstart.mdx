@@ -4,8 +4,8 @@ sidebarTitle: "快速入门"
 description: "完成身份验证后选择托管训练或自定义训练循环：准备数据集并选择模型启动训练任务，或由你的应用控制采样、奖励和更新，然后验证规范任务 ID。"
 ---
 
-本快速入门涵盖训练 API 的两种路径。希望由 Fastino 运行循环时，请使用托管训练。
-当你的应用必须控制采样、奖励和模型更新时，请使用自定义训练循环。
+本快速入门涵盖训练 API 的两种路径。要微调 GLiNER 编码器并由 Fastino 运行循环，请使用托管训练。
+要训练解码器 LLM，且你的应用必须控制采样、奖励和模型更新时，请使用自定义训练循环。
 
 ## 1. 身份验证
 
@@ -34,8 +34,8 @@ $env:FASTINO_API_KEY = "fast_sk_..."
 
 | 目标 | 路径 |
 | --- | --- |
-| 提供数据和配置，然后由 Fastino 运行训练 | [托管训练](#managed-training) |
-| 在你的应用中控制采样、奖励和更新 | [自定义训练循环](#custom-training-loop) |
+| 基于数据集微调 GLiNER 编码器，由 Fastino 运行训练 | [托管训练](#managed-training) |
+| 训练解码器 LLM，并在你的应用中控制采样、奖励和更新 | [自定义训练循环](#custom-training-loop) |
 
 <span id="managed-training" />
 
@@ -47,7 +47,7 @@ $env:FASTINO_API_KEY = "fast_sk_..."
 
 ### 4. 选择模型
 
-提交前查询实时目录：
+托管训练支持 `fastino/gliner2-multi-v1` 和 `fastino/GLiNER-2.5-Decide`。提交前查询实时目录：
 
 ```bash
 curl "https://api.fastino.ai/v1/base-models?supports_training=true" \
@@ -95,135 +95,183 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
 
 ## 自定义训练循环
 
-自定义训练循环需要 Python 3.11 或更高版本。受支持的 SDK 客户端与
-Fastino 隐藏的 HTTP 兼容适配器通信。请使用下面的客户端方法，不要自行构造适配器请求。
+自定义循环会在解码器模型上创建 `interactive` 任务。你的代码负责分词、以 JSON 发送每个训练步骤并读取结果。
+所有调用都使用同一个 Fastino API 密钥；无需为请求编号，也无需发送心跳。
 
-### 3. 安装经过测试的客户端
+### 3. 安装客户端库
+
+需要 Python 3.10 或更高版本。`transformers` 提供模型的 tokenizer；训练本身在 Fastino 上运行。
 
 <CodeGroup>
 
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add "tinker==0.33.1"
+uv add requests transformers
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.33.1"
-```
-
-```powershell pip · Windows
-mkdir fastino-training
-cd fastino-training
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install "tinker==0.33.1"
+pip install requests transformers
 ```
 
 </CodeGroup>
 
-### 4. 配置客户端
+### 4. 选择模型
 
-每次请求令牌时都会执行 `TINKER_CREDENTIAL_CMD`，该命令必须打印一个非空凭据。
+| 模型 ID | 上下文长度（token） |
+| --- | --- |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 |
+
+支持 1 到 32 的 LoRA 秩，默认值为 32。
 
 <CodeGroup>
 
 ```bash macOS/Linux
-export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
-export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
+export FASTINO_TRAINING_MODEL="Qwen/Qwen3.6-35B-A3B"
 ```
 
 ```powershell Windows
-$env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
-$env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
+$env:FASTINO_TRAINING_MODEL = "Qwen/Qwen3.6-35B-A3B"
 ```
 
 </CodeGroup>
 
-使用以 `fast_sk_` 开头的普通 Fastino 密钥。以 `tml-` 开头的凭据会被拒绝。
-不要设置 `TINKER_API_KEY`。
+### 5. 创建任务
 
-### 5. 选择已启用的模型
-
-调用 `ServiceClient.get_server_capabilities()` 选择已启用的模型。Capabilities
-仅报告模型名称和上下文长度，不报告 LoRA 秩、优化器、损失函数、可选方法或操作限制。
-Fastino 当前接受 1 到 32 的 LoRA 秩，默认值为 32。
-
-<CodeGroup>
-
-```bash macOS/Linux
-export FASTINO_TRAINING_MODEL="<model from capabilities>"
-export FASTINO_TRAINING_LORA_RANK="32"
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"base_model": "Qwen/Qwen3.6-35B-A3B", "lora_config": {"rank": 32}}'
 ```
 
-```powershell Windows
-$env:FASTINO_TRAINING_MODEL = "<model from capabilities>"
-$env:FASTINO_TRAINING_LORA_RANK = "32"
+响应包含 `job_id` 以及该任务 `create` future 的 `future_id`：
+
+```json
+{
+  "job_id": "SESSION_ID:train:0",
+  "type": "interactive",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "future_id": "FUTURE_ID",
+  "load_future_id": null
+}
 ```
 
-</CodeGroup>
+每个执行工作的调用都会返回一个 future。读取它，直到 `status` 为 `completed`。使用 `wait=true` 时，请求最多等待 25 秒：
 
-### 6. 创建任务并采样
+```bash
+curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_ID?wait=true" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+### 6. 训练、保存并采样
+
+下面的脚本运行完整循环：创建任务，运行三次 forward-backward 和优化器步骤，保存 sampler 检查点，从中采样，然后停止任务。
 
 创建 `quickstart.py`：
 
 ```python
 import os
 
-import tinker
+import requests
+from transformers import AutoTokenizer
+
+API = "https://api.fastino.ai"
+MODEL = os.environ["FASTINO_TRAINING_MODEL"]
+
+session = requests.Session()
+session.headers["X-API-Key"] = os.environ["FASTINO_API_KEY"]
 
 
-service_client = tinker.ServiceClient()
-outcome = "errored"
+def call(method, path, body=None):
+    response = session.request(method, API + path, json=body, timeout=60)
+    response.raise_for_status()
+    return response.json() if response.content else None
+
+
+def wait(job_id, future_id):
+    path = f"/v1/training/jobs/{job_id}/futures/{future_id}?wait=true"
+    while True:
+        future = call("GET", path)
+        if future["status"] == "completed":
+            return future["result"]
+        if future["status"] in ("failed", "cancelled"):
+            raise RuntimeError(future["error"])
+
+
+def datum(prompt_tokens, completion_tokens):
+    tokens = prompt_tokens + completion_tokens
+    weights = [0.0] * (len(prompt_tokens) - 1) + [1.0] * len(completion_tokens)
+    return {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": tokens[:-1]}]},
+        "loss_fn_inputs": {
+            "target_tokens": {"data": tokens[1:], "dtype": "int64"},
+            "weights": {"data": weights, "dtype": "float32"},
+        },
+    }
+
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL)
+prompt = tokenizer.apply_chat_template(
+    [{"role": "user", "content": "What is the capital of France?"}],
+    add_generation_prompt=True,
+    return_dict=False,
+)
+completion = tokenizer.encode("Paris.", add_special_tokens=False)
+completion.append(tokenizer.eos_token_id)
+batch = {"datums": [datum(prompt, completion)], "loss_fn": "cross_entropy"}
+
+created = call(
+    "POST",
+    "/v1/training/jobs/create-model",
+    {"base_model": MODEL, "lora_config": {"rank": 32}},
+)
+job_id = created["job_id"]
+jobs = f"/v1/training/jobs/{job_id}"
+print(f"TRAINING_JOB_ID={job_id}")
+
 try:
-    capabilities = service_client.get_server_capabilities()
-    print(capabilities)
+    wait(job_id, created["future_id"])
 
-    training_client = service_client.create_lora_training_client(
-        base_model=os.environ["FASTINO_TRAINING_MODEL"],
-        rank=int(os.environ["FASTINO_TRAINING_LORA_RANK"]),
+    for step in range(3):
+        backward = call("POST", f"{jobs}/forward-backward", batch)
+        update = call(
+            "POST",
+            f"{jobs}/optim-step",
+            {"adam_params": {"learning_rate": 1e-4}},
+        )
+        result = wait(job_id, backward["future_id"])
+        wait(job_id, update["future_id"])
+        print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
+
+    saved = call(
+        "POST",
+        f"{jobs}/save-weights-for-sampler",
+        {"name": "quickstart", "ttl_seconds": 24 * 60 * 60},
     )
+    wait(job_id, saved["future_id"])
 
-    job_id = training_client.get_info().model_id
-    print(f"TRAINING_JOB_ID={job_id}")
-
-    checkpoint = training_client.save_weights_for_sampler(
-        "quickstart-sampler",
-        ttl_seconds=24 * 60 * 60,
-    ).result()
-    sampling_client = service_client.create_sampling_client(
-        model_path=checkpoint.path
+    sample = call(
+        "POST",
+        f"{jobs}/sample",
+        {
+            "checkpoint": "quickstart",
+            "prompt_tokens": prompt,
+            "sampling_params": {"max_tokens": 32},
+        },
     )
-
-    tokenizer = sampling_client.get_tokenizer()
-    prompt_tokens = tokenizer.apply_chat_template(
-        conversation=[
-            {
-                "role": "user",
-                "content": "Explain the purpose of a reward function in one sentence.",
-            }
-        ],
-        add_generation_prompt=True,
-        return_dict=False,
-    )
-    result = sampling_client.sample(
-        prompt=tinker.types.ModelInput.from_ints(prompt_tokens),
-        num_samples=1,
-        sampling_params=tinker.types.SamplingParams(max_tokens=64),
-    ).result()
-
-    print(tokenizer.decode(result.sequences[0].tokens))
-except KeyboardInterrupt:
-    outcome = "interrupted"
-    raise
-else:
-    outcome = "success"
+    sequence = wait(job_id, sample["future_id"])["sequences"][0]
+    print(tokenizer.decode(sequence["tokens"]))
 finally:
-    service_client.close(outcome).result()
+    call("POST", f"{jobs}/stop")
 ```
+
+优化器步骤在 forward-backward 之后立即排队，无需等待。任务按接收顺序运行 operation。
 
 运行脚本：
 
@@ -232,6 +280,10 @@ python quickstart.py
 ```
 
 复制 `TRAINING_JOB_ID=` 后打印的值。
+
+<Note>
+  交互式任务 30 分钟内没有调用就会被释放，其检查点会保留。停止任务会立即释放它；你仍可从其 sampler 检查点采样并下载。
+</Note>
 
 ### 7. 验证规范任务
 
@@ -253,17 +305,17 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-响应描述的任务与 `create_lora_training_client(...)` 创建的任务相同。继续使用 SDK
-客户端执行模型操作，并使用规范任务 API 执行有文档说明的任务读取。
+响应描述了 `type` 为 `interactive` 的任务及其最新检查点。要以 PEFT LoRA 文件下载 sampler 检查点，请使用
+[下载 交互式检查点](/cn/api-reference/training-jobs/download-checkpoint)。
 
-## 继续了解
+## 继续
 
 <CardGroup cols={3}>
   <Card title="数据集" icon="database" href="/cn/concepts/datasets">
-    准备并验证训练数据。
+    准备并验证 GLiNER 训练数据。
   </Card>
-  <Card title="任务参考" icon="book" href="/cn/api-reference/training-jobs/create">
-    查看完整的请求和响应契约。
+  <Card title="交互式任务参考" icon="book" href="/cn/api-reference/interactive-jobs/create">
+    查看 交互式任务的每个请求和响应。
   </Card>
   <Card title="训练循环" icon="repeat-2" href="/cn/training/training-loop">
     为自定义循环添加奖励、更新和恢复。

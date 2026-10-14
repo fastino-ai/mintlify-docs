@@ -55,8 +55,8 @@ EXPECTED_EMPTY_PAGES = (
 EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
     "training/quickstart.mdx": 16,
-    "training/migrate-from-tinker.mdx": 4,
-    "concepts/datasets.mdx": 8,
+    "training/migrate-from-tinker.mdx": 5,
+    "concepts/datasets.mdx": 7,
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
     "training/verifiable-rewards.mdx": 7,
@@ -89,9 +89,9 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         skill = (ROOT / ".mintlify/skills/fastino-fine-tune/SKILL.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn('"base_model": "fastino/gliner2-base-v1"', skill)
+        self.assertIn('"base_model": "fastino/gliner2-multi-v1"', skill)
         self.assertNotIn('"type": "config"', skill)
-        self.assertNotIn('"model": "fastino/gliner2-base-v1"', skill)
+        self.assertNotIn('"model": "fastino/gliner2-multi-v1"', skill)
         self.assertNotIn("upcoming unified Training API", skill)
 
     def test_checkpoint_download_examples_match_openapi_response_fields(self) -> None:
@@ -289,13 +289,13 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(inference.coverage, "static")
         self.assertEqual(inference.mapped_command, "blocker")
 
-        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 3))
+        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 2))
         self.assertEqual(upload.coverage, "static")
         self.assertEqual(upload.mapped_command, "blocker")
 
     def test_missing_placeholders_print_skip_and_do_not_guess(self) -> None:
         job = _snippet("training/quickstart.mdx", 4)
-        dataset = _snippet("concepts/datasets.mdx", 6)
+        dataset = _snippet("concepts/datasets.mdx", 5)
         catalog = _snippet("training/quickstart.mdx", 2)
 
         skipped_job = SNIPPETS.plan_live(job, SNIPPETS.classify(job), {})
@@ -414,7 +414,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             page="probe.mdx",
             ordinal=0,
             language="json",
-            body='{"type": "config", "model": "fastino/gliner2-base-v1"}\n',
+            body='{"type": "config", "model": "fastino/gliner2-multi-v1"}\n',
             body_sha256="0" * 64,
         )
         classification = SNIPPETS.classify(snippet)

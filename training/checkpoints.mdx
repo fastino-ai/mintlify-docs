@@ -7,19 +7,19 @@ A state checkpoint protects server-side training state. A complete recovery
 record also protects the user-owned state that tells your controller what to do
 next.
 
+The examples use the `call` and `wait` helpers from the
+[Quickstart script](/training/quickstart#custom-training-loop).
+
 ## What to save
 
 | Record | Contains | Stored by |
 | --- | --- | --- |
-| State checkpoint | Training weights and optimizer state represented by the SDK checkpoint | Fastino |
+| State checkpoint | LoRA weights and optimizer state | Fastino |
 | Loop record | Source job ID, checkpoint path, step, dataset cursor, configuration, and resume lineage | Your application |
-
-The SDK training client represents one interactive Fastino job. Read its
-canonical ID from `training_client.get_info().model_id`.
 
 ## 1. Save state and loop progress
 
-Save state through the SDK, then persist the returned checkpoint with the
+Save the state with `save-weights`, wait for it, then persist its path with the
 client-owned fields needed to continue:
 
 ```python
@@ -27,14 +27,18 @@ import json
 from pathlib import Path
 
 
-source_job_id = training_client.get_info().model_id
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 record = {
-    "source_job_id": source_job_id,
-    "state_path": state.path,
+    "source_job_id": job_id,
+    "state_path": state["path"],
     "model": model_name,
     "dataset_revision": dataset_revision,
-    "optimizer": optimizer_config,
+    "optimizer": adam_params,
     "step": step,
     "dataset_cursor": dataset_cursor,
     "reward_version": reward_version,
@@ -45,7 +49,8 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
 ```
 
 Use unique checkpoint names so each loop record identifies an unambiguous
-recovery boundary.
+recovery boundary. Names use 1–128 characters from `A-Z`, `a-z`, `0-9`, `.`,
+`_`, and `-`.
 
 ## 2. Read the newest complete record
 
@@ -72,92 +77,115 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 Compare the record with the source checkpoint and requested continuation:
 
-- Source job ID encoded by the checkpoint path
-- Base model and trainable configuration
+- Source job ID in the checkpoint path
+- Base model and LoRA configuration
 - Dataset revision and cursor
 - Reward implementation revision
-- Optimizer configuration
-- Renderer and tokenizer assumptions
+- Optimizer settings
+- Tokenizer and chat-template assumptions
 
-Stop for an explicit decision if these fields conflict. Do not silently combine
+Stop for an explicit decision if these fields conflict. Don't silently combine
 a checkpoint with a different experiment.
 
-Then use the SDK's supported state-load flow:
+Then choose how to continue:
+
+| Situation | Call |
+| --- | --- |
+| The source job is still active and you want to roll back | `POST /v1/training/jobs/{job_id}/load-weights` with `{"path": name, "optimizer": true}` |
+| The source job was stopped or released | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `load_optimizer` |
+
+To continue in a new job:
 
 ```python
-training_client = (
-    service_client.create_training_client_from_state_with_optimizer(
-        str(resume["state_path"])
-    )
+resumed = call(
+    "POST",
+    "/v1/training/jobs/create-model",
+    {"from_checkpoint": resume["state_path"], "load_optimizer": True},
 )
-resumed_job_id = training_client.get_info().model_id
+wait(resumed["job_id"], resumed["future_id"])
+wait(resumed["job_id"], resumed["load_future_id"])
+resumed_job_id = resumed["job_id"]
 ```
 
-This factory creates a new interactive job, then loads the source checkpoint's
-weights and optimizer state into it. The resumed job ID normally differs from
-the source job ID. Record `source_job_id`, `state_path`, and `resumed_job_id` as
-application-owned lineage. Do not reject a continuation because the two job IDs
-differ. Do not construct the adapter request directly.
+The new job takes the checkpoint's base model and LoRA settings, so don't send
+`lora_config`. Its ID differs from the source job ID. Record `source_job_id`,
+`state_path`, and `resumed_job_id` as application-owned lineage.
 
 ## 4. Make the boundary recoverable
 
 Use this order:
 
-1. Resolve the forward/backward and optimizer futures.
-2. Save the state checkpoint.
-3. Persist the loop record containing its identifier.
+1. Wait for the forward-backward and optimizer-step futures to complete.
+2. Save the state checkpoint and wait for the save future.
+3. Persist the loop record containing its path.
 4. Mark the application step complete.
 5. Begin the next step.
 
 If the process exits after saving the checkpoint but before persisting the loop
-record, keep the previous complete record as the trusted recovery point. Do not
+record, keep the previous complete record as the trusted recovery point. Don't
 mark a step complete before its record is durable.
 
 ## 5. Keep checkpoint kinds separate
 
 ```python
-state = training_client.save_state("step-000100").result()
-sampler = training_client.save_weights_for_sampler(
-    "step-000100",
-    ttl_seconds=24 * 60 * 60,
-).result()
+name = f"step-{step:06d}"
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": name},
+)
+sampler = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
+)
 ```
 
-Use a state checkpoint for training recovery. Use a sampler checkpoint for
-rollouts or evaluation. Do not use a sampler checkpoint as an optimizer-state
-recovery point.
+| Saved with | Path | Use it for |
+| --- | --- | --- |
+| `save-weights` | `weights/<name>` | Training recovery: load it or start a new job from it |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | Rollouts, evaluation, and download as PEFT LoRA files |
 
-`ttl_seconds` defaults to `None`, so an omitted TTL creates a checkpoint with no
-automatic expiration. Live checkpoints count toward checkpoint storage. To
-enable automatic cleanup, pass an inclusive value from `3_600` to
-`315_360_000` seconds (1 hour to 10 years).
+Don't use a sampler checkpoint as a recovery point; it has no optimizer state
+and a new job can't start from it.
 
-The public Training API can list checkpoints. It can download an interactive
-checkpoint when the team has weight-download access. The SDK also supports
-checkpoint deletion, publication, retention, and
-storage-usage methods. These are SDK operations, not public Training API routes.
-Do not construct adapter requests or assume an undocumented retention period.
+`ttl_seconds` defaults to `null`, so an omitted TTL keeps the checkpoint until
+you delete it. Live checkpoints count toward checkpoint storage. To enable
+automatic cleanup, pass a value from `3600` to `315360000` seconds (1 hour to
+10 years).
+
+Manage checkpoints with these routes:
+
+| Task | Route |
+| --- | --- |
+| List a job's checkpoints | [`GET /v1/training/jobs/{job_id}/checkpoints`](/api-reference/training-jobs/checkpoints) |
+| Get one checkpoint | [`GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/api-reference/interactive-jobs/get-checkpoint) |
+| Download as a `.tar` archive | [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/api-reference/training-jobs/download-checkpoint) |
+| Change its TTL | [`PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl`](/api-reference/interactive-jobs/set-checkpoint-ttl) |
+| Publish or unpublish | [`POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish`](/api-reference/interactive-jobs/publish-checkpoint) |
+| Delete | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/api-reference/interactive-jobs/delete-checkpoint) |
+| Read storage usage | [`GET /v1/training/usage`](/api-reference/interactive-jobs/usage) |
+
+Downloading needs the team's weight-download access.
 
 ## 6. Verify the continuation
 
 Before scaling the resumed workload:
 
-1. Load the selected state checkpoint.
-2. Read the new ID from `training_client.get_info().model_id`, persist it as
-   `resumed_job_id`, and confirm it through
+1. Start the new job from the selected state checkpoint.
+2. Persist its ID as `resumed_job_id`, and confirm it through
    `GET /v1/training/jobs/{resumed_job_id}`.
 3. Run a small held-out evaluation.
-4. Submit one supported training update.
+4. Submit one training update.
 5. Save a new state checkpoint under a new name.
 6. Persist the next loop record.
-
-Use the SDK for all interactive model operations.
 
 ## Diagnose recovery errors
 
 | Symptom | Check |
 | --- | --- |
-| A future fails | Record the job ID and operation result. Do not advance dependent application state |
-| A checkpoint cannot be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
-| Source checkpoint is rejected | Confirm its source job, checkpoint kind, and persisted `state_path`; do not require the new job ID to equal the source ID |
-| Resumed job lookup fails | Confirm that the ID came from the resumed client's `get_info().model_id` and that the same Fastino team is authenticated |
+| A future fails | Record the job ID and the future's `error`. Don't advance dependent application state |
+| A training call returns `400` after a pause | The job was stopped or released after 30 idle minutes. Start a new job from the latest state checkpoint |
+| A checkpoint can't be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
+| `from_checkpoint` is rejected | Confirm it is a `weights/<name>` path from your team; sampler checkpoints can't seed a job |
+| Resumed job lookup fails | Confirm that the ID came from the new job's create response and that the same Fastino team is authenticated |

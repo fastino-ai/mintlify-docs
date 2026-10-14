@@ -11,27 +11,33 @@ test result, schema constraint, exact extraction, or tool outcome.
 prompt -> sample a group -> grade -> center rewards -> build datums -> update
 ```
 
-Sampling, forward/backward work, optimizer steps, and checkpoints all belong to
-the same interactive Fastino job. Reward execution and application state remain
-in your code.
+Sampling, forward-backward passes, optimizer steps, and checkpoints all belong
+to the same interactive Fastino job. Reward execution and application state
+remain in your code.
 
 ## Before you start
 
-Complete the [custom-loop Quickstart](/training/quickstart#custom-training-loop),
-then use capabilities to confirm that your chosen model is enabled. Capabilities
-do not list losses or training operations. The snippets below use the documented
-`importance_sampling` loss and focus on the user-owned reward flow; adapt datum
-construction to `tinker==0.33.1` and your selected model.
+Complete the [custom-loop Quickstart](/training/quickstart#custom-training-loop).
+The snippets below reuse its `call` and `wait` helpers, its `tokenizer`, and a
+`job_id`. They use the built-in `importance_sampling` loss and focus on the
+user-owned reward flow.
 
 <Note>
-  This guide is not a standalone copy-and-paste trainer. Begin with a validated
-  SDK workload whose renderer and datum construction match the selected model,
-  then add the reward flow below.
+  This guide is not a standalone copy-and-paste trainer. Start from the
+  Quickstart script, confirm that its datums train, then add the reward flow
+  below.
+</Note>
+
+<Note>
+  The job runs only the built-in losses: `cross_entropy`,
+  `importance_sampling`, `ppo`, `cispo`, and `dro`. A loss function written in
+  your own code can't run on the job. Express your reward as advantages for one
+  of these losses.
 </Note>
 
 <Warning>
   Run generated code or tools only in an isolated, resource-limited
-  environment. Fastino does not execute your reward function or manage its side
+  environment. Fastino doesn't execute your reward function or manage its side
   effects.
 </Warning>
 
@@ -53,34 +59,46 @@ incorrect responses.
 
 ## 2. Snapshot the job for sampling
 
-Create a sampler checkpoint from the current weights, then resolve it through
-the SDK:
+Save a sampler checkpoint from the current weights, then sample a group from
+it:
 
 ```python
-checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}",
-    ttl_seconds=24 * 60 * 60,
-).result()
-sampling_client = service_client.create_sampling_client(
-    model_path=checkpoint.path
+name = f"rollout-{step:06d}"
+saved = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
 )
+wait(job_id, saved["future_id"])
 
-sample_result = sampling_client.sample(
-    prompt=model_input,
-    num_samples=group_size,
-    sampling_params=sampling_params,
-).result()
+prompt_tokens = tokenizer.apply_chat_template(
+    [{"role": "user", "content": question}],
+    add_generation_prompt=True,
+    return_dict=False,
+)
+sampled = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/sample",
+    {
+        "checkpoint": name,
+        "prompt_tokens": prompt_tokens,
+        "num_samples": group_size,
+        "sampling_params": {"max_tokens": 512, "temperature": 1.0},
+    },
+)
+sample_result = wait(job_id, sampled["future_id"])
 ```
 
-This does not create another training run. The checkpoint and sampling work are
-associated with the same interactive job.
+This doesn't create another job. The checkpoint and the samples belong to the
+same interactive job.
 
 ## 3. Convert rewards to advantages
 
 ```python
+sequences = sample_result["sequences"]
 rewards = [
-    get_reward(render_response(sequence.tokens), expected)
-    for sequence in sample_result.sequences
+    get_reward(tokenizer.decode(sequence["tokens"]), expected)
+    for sequence in sequences
 ]
 
 mean_reward = sum(rewards) / len(rewards)
@@ -95,53 +113,72 @@ easy, too hard, or parsed incorrectly.
 
 ## 4. Build aligned datums
 
-The prompt is context, so prompt positions normally receive zero advantage.
-Completion positions receive the response's group-relative advantage. A datum
-builder should fail before submission if model input, target, log-probability,
-and advantage lengths differ:
+The prompt is context, so prompt positions receive zero advantage. Completion
+positions receive the response's group-relative advantage and the sampler's log
+probabilities. Every tensor has one value per input position:
 
 ```python
-if not (
-    model_input.length
-    == len(target_tokens)
-    == len(padded_logprobs)
-    == len(padded_advantages)
-):
-    raise ValueError("training datum arrays are not aligned")
+def rl_datum(prompt_tokens, sequence, advantage):
+    completion = sequence["tokens"]
+    tokens = prompt_tokens + completion
+    padding = [0.0] * (len(prompt_tokens) - 1)
+    logprobs = padding + sequence["logprobs"]
+    advantages = padding + [advantage] * len(completion)
+    if not (len(tokens) - 1 == len(logprobs) == len(advantages)):
+        raise ValueError("training datum arrays are not aligned")
+    return {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": tokens[:-1]}]},
+        "loss_fn_inputs": {
+            "target_tokens": {"data": tokens[1:], "dtype": "int64"},
+            "logprobs": {"data": logprobs, "dtype": "float32"},
+            "advantages": {"data": advantages, "dtype": "float32"},
+        },
+    }
+
+
+datums = [
+    rl_datum(prompt_tokens, sequence, advantage)
+    for sequence, advantage in zip(sequences, advantages)
+]
 ```
 
-Use the renderer and tokenizer associated with the selected `base_model`. Keep
-the sampled tokens and log probabilities needed by the SDK operation you
-selected from the documented support table.
+Use the tokenizer of the job's `base_model` for both prompts and decoding.
 
 ## 5. Update the interactive job
 
-For an importance-sampling workflow, the SDK call pattern is:
-
 ```python
-train_future = training_client.forward_backward(
-    datums,
-    loss_fn="importance_sampling",
+backward = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/forward-backward",
+    {"datums": datums, "loss_fn": "importance_sampling"},
 )
-train_result = train_future.result()
-
-optim_future = training_client.optim_step(optimizer_params)
-optim_result = optim_future.result()
+update = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/optim-step",
+    {"adam_params": {"learning_rate": 1e-5}},
+)
+train_result = wait(job_id, backward["future_id"])
+optim_result = wait(job_id, update["future_id"])
 ```
 
-Both operations mutate the existing interactive job. Resolve and record each
-result before advancing the application step. Do not construct equivalent
-adapter HTTP requests.
+Both calls update the same job, in the order they were sent. Wait for and
+record each result before advancing the application step. For clipped
+objectives, use `ppo` or `cispo` with `loss_fn_config` thresholds.
 
 ## 6. Save a recovery boundary
 
 ```python
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 ```
 
-Persist the returned checkpoint identifier with:
+Persist the returned `path` with:
 
-- Canonical job ID from `training_client.get_info().model_id`
+- Job ID
 - Application step and dataset cursor
 - Dataset and reward implementation revisions
 - Base model and training configuration
@@ -153,11 +190,12 @@ name.
 ## Verify before scaling
 
 - The grader distinguishes known correct and incorrect fixtures.
-- Malformed responses do not crash the application loop.
+- Malformed responses don't crash the application loop.
 - At least one sample group has reward variance.
-- Datum arrays satisfy the installed SDK's expected shapes.
-- Forward/backward and optimizer futures complete on the same job.
-- A state checkpoint can be loaded with its client-owned resume metadata.
+- Every datum's tensors have one value per input position.
+- Forward-backward passes and optimizer steps complete on the same job.
+- A new job can start from a state checkpoint with its client-owned resume
+  metadata.
 - Held-out evaluation remains separate from the training reward batch.
 
 For the surrounding lifecycle, read

@@ -13,8 +13,7 @@ kontrolliert, und prüfen Sie den Job anschließend über `/v1/training/jobs`.
     Trainingsloop aus.
   </Card>
   <Card title="Benutzerdefinierter Trainingsloop" icon="code" href="/de/training/quickstart#custom-training-loop">
-    Verwenden Sie einen unterstützten SDK-Client, während Ihre Anwendung jedes
-    Update steuert.
+    Rufen Sie REST-Routen für jeden Forward-Backward-Durchlauf, Optimiererschritt und jedes Sampling auf.
   </Card>
   <Card title="Auto Train" icon="sparkles" href="/de/training/auto">
     Delegieren Sie den Trainingslebenszyklus an Fastinos autonomen
@@ -27,19 +26,28 @@ kontrolliert, und prüfen Sie den Job anschließend über `/v1/training/jobs`.
 
 Jeder Job hat einen `type`:
 
-| Typ | Wer kontrolliert den Loop? | Start |
-| --- | --- | --- |
-| `config` | Fastino | Senden Sie einen Datensatz und eine Konfiguration an `POST /v1/training/jobs`. |
-| `interactive` | Ihre Anwendung | Erstellen Sie über einen unterstützten SDK-Client einen Trainingsclient. |
+| Typ | Wer steuert den Loop? | Modelle | Start |
+| --- | --- | --- | --- |
+| `config` | Fastino | GLiNER-Encoder | Senden Sie ein Dataset und eine Konfiguration an `POST /v1/training/jobs`. |
+| `interactive` | Ihre Anwendung | Decoder-LLMs | Senden Sie ein Basismodell an `POST /v1/training/jobs/create-model`. |
 
-Beide Typen verwenden dieselbe Job-Identität. Kanonische Lesezugriffe erfolgen
-über `GET /v1/training/jobs`, `GET /v1/training/jobs/{job_id}` und
+Beide Typen teilen dieselbe Job-Identität. Kanonische Lesezugriffe verwenden
+`GET /v1/training/jobs`, `GET /v1/training/jobs/{job_id}` und
 `GET /v1/training/jobs/{job_id}/checkpoints`.
 
-Bei benutzerdefinierten Loops verwendet der SDK-Client Fastinos
-HTTP-Kompatibilitätsadapter. Der Adapter ist weder ein SDK noch ein zweiter
-Trainingsdienst. Seine Operationen sind nicht in OpenAPI und der API-Referenz
-enthalten. Konstruieren Sie Adapter-Requests nicht selbst.
+## Trainierbare Modelle
+
+| Modell-ID | Jobtyp | Kontextlänge |
+| --- | --- | --- |
+| `fastino/gliner2-multi-v1` | `config` | 8.192 Token |
+| `fastino/GLiNER-2.5-Decide` | `config` | 8.192 Token |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | `interactive` | 65.536 Token |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | `interactive` | 32.768 Token |
+| `Qwen/Qwen3.6-35B-A3B` | `interactive` | 32.768 Token |
+
+Interaktive Jobs trainieren LoRA-Adapter mit Rang 1 bis 32 (Standard 32). Um
+einen Decoder zu trainieren, verwenden Sie einen interaktiven Job. Config-Jobs
+trainieren nur GLiNER-Encoder.
 
 ## Lebenszyklus von Config-Jobs
 
@@ -64,6 +72,17 @@ nicht aus dieser Tabelle ab.
 bei einem endgültigen Fehler. `status` bleibt der gespeicherte Wert,
 beispielsweise `errored`.
 
+## Lebenszyklus interaktiver Jobs
+
+Ein interaktiver Job führt die Operationen aus, die Sie senden, in der
+Reihenfolge des Eingangs. Jeder Aufruf gibt eine `future_id` zurück; lesen
+Sie das Ergebnis unter `GET /v1/training/jobs/{job_id}/futures/{future_id}`.
+
+- Sie nummerieren keine Anfragen und senden keine Heartbeats.
+- Ein Job ohne Aufrufe für 30 Minuten wird freigegeben. Seine Checkpoints bleiben erhalten.
+- `POST /v1/training/jobs/{job_id}/stop` gibt den Job sofort frei.
+  Sampler-Checkpoints lassen sich danach weiter samplen und herunterladen.
+
 ## Unterstützte Operationen
 
 | Operation | `config` | `interactive` |
@@ -71,26 +90,31 @@ beispielsweise `errored`.
 | [Jobs auflisten](/de/api-reference/training-jobs/list) | Unterstützt | Unterstützt |
 | [Job abrufen](/de/api-reference/training-jobs/get) | Unterstützt | Unterstützt |
 | [Checkpoints auflisten](/de/api-reference/training-jobs/checkpoints) | Unterstützt | Unterstützt |
+| [Erstellen](/de/api-reference/training-jobs/create) | Unterstützt | [Interaktiven Job erstellen](/de/api-reference/interactive-jobs/create) |
+| [Forward, Forward-Backward und Optimiererschritt](/de/api-reference/interactive-jobs/forward-backward) | — | Unterstützt |
+| [Checkpoints speichern, laden und samplen](/de/api-reference/interactive-jobs/save-weights) | — | Unterstützt |
 | [Interaktiven Checkpoint herunterladen](/de/api-reference/training-jobs/download-checkpoint) | — | Unterstützt |
-| [Über natives REST erstellen](/de/api-reference/training-jobs/create) | Unterstützt | SDK verwenden |
+| [Stoppen](/de/api-reference/training-jobs/stop) | Unterstützt | Unterstützt |
 | Job aktualisieren oder löschen | Unterstützt | — |
-| [Stoppen](/de/api-reference/training-jobs/stop), [terminieren](/de/api-reference/training-jobs/terminate) oder [synchronisieren](/de/api-reference/training-jobs/sync) | Unterstützt | — |
+| [Beenden](/de/api-reference/training-jobs/terminate) oder [synchronisieren](/de/api-reference/training-jobs/sync) | Unterstützt | — |
 | [Logs](/de/api-reference/training-jobs/logs) und [Abrechnung](/de/api-reference/training-jobs/billing) | Unterstützt | — |
-| Bereitstellungen und Checkpoint-Bereitstellung | Unterstützt | — |
-| [Endgültiges Modell herunterladen](/de/api-reference/training-jobs/download) | Unterstützt | — |
-| Umbenennen oder an den Hugging Face Hub übertragen | Unterstützt | — |
+| Deployments und Checkpoint-Deployment | Unterstützt | — |
+| [Finales Modell herunterladen](/de/api-reference/training-jobs/download) | Unterstützt | — |
+| Umbenennen oder zum Hugging Face Hub pushen | Unterstützt | — |
 
 ## Nächste Schritte
 
 <CardGroup cols={3}>
   <Card title="Schnellstart" icon="play" href="/de/training/quickstart">
-    Führen Sie verwaltetes Training aus oder starten Sie einen
-    benutzerdefinierten Trainingsloop.
+    Starten Sie verwaltetes Training oder einen benutzerdefinierten Trainingsloop.
   </Card>
-  <Card title="Von Tinker migrieren" icon="arrow-right-arrow-left" href="/de/training/migrate-from-tinker">
-    Verlagern Sie einen vorhandenen kompatiblen Workload zu Fastino.
+  <Card title="Trainingsloop" icon="repeat-2" href="/de/training/training-loop">
+    Datums erstellen, das Modell aktualisieren und aus Checkpoints samplen.
   </Card>
   <Card title="GLiNER feinabstimmen" icon="tags" href="/de/guides/fine-tune-gliner">
-    Bereiten Sie Entitätsdaten vor und trainieren Sie ein GLiNER-Modell.
+    Entitätsdaten vorbereiten und ein GLiNER-Modell trainieren.
   </Card>
 </CardGroup>
+
+Sie migrieren einen bestehenden Tinker-SDK-Workload? Siehe
+[Von Tinker migrieren](/de/training/migrate-from-tinker).

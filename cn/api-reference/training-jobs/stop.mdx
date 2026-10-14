@@ -9,6 +9,9 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 停止一个运行中的任务,并保留在停止之前创建的检查点。
 
+对于 `interactive` 任务，停止操作会在其排队的 operation 完成后释放任务。之后任务不再接受训练
+operation，但仍可从其 sampler 检查点采样并下载。交互式任务会忽略请求体。
+
 ## 请求
 
 <ParamField header="X-API-Key" type="string" required>
@@ -16,7 +19,7 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  训练任务 UUID。
+  配置任务 UUID 或交互式任务 ID。
 </ParamField>
 
 JSON 请求体为可选。
@@ -66,6 +69,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+```json Interactive job
+{
+  "success": true,
+  "job_id": "SESSION_ID:train:0",
+  "status": "stopped"
+}
+```
+
 </ResponseExample>
 
 收到 `202` 后，请轮询 `GET /v1/training/jobs/{job_id}`；在等待确认取消期间，请勿重复发送停止请求。
@@ -74,6 +85,6 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 | --- | --- |
 | `200` | 任务已停止，现有检查点仍然可用。 |
 | `202` | 仍在确认提供方取消操作。 |
-| `400` | `job_id` 不是有效的配置任务 UUID。 |
+| `400` | `job_id` 既不是配置任务 UUID，也不是交互式任务 ID。 |
 | `409 training_job_already_finished` | 任务在停止前已进入最终状态。 |
 | `422` | JSON 请求体无效。 |

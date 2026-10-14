@@ -37,6 +37,12 @@ JOB_GET_TEMPLATES = frozenset(
         "/v1/training/jobs/{job_id}/checkpoints",
     }
 )
+INTERACTIVE_JOB_PATH = re.compile(
+    r"/v1/training/(?:usage|jobs/(?:create-model|[^/]+/(?:forward|forward-backward|optim-step"
+    r"|save-weights|save-weights-for-sampler|load-weights|sample|stop|futures/.+"
+    r"|checkpoints(?:/.+)?)))"
+)
+REST_PYTHON_MARKERS = ("import requests", "call(", "wait(", "loss_fn_inputs")
 INCOMPLETE_PYTHON_NAMES = frozenset(
     {
         "advantages",
@@ -256,6 +262,14 @@ def _rule_python(snippet: FencedSnippet) -> Classification | None:
             risk="custom-loop",
             mapped_command="blocker",
         )
+    if any(marker in snippet.body for marker in REST_PYTHON_MARKERS):
+        return Classification(
+            kind="python-rest",
+            rule="python-rest-compile",
+            coverage="static",
+            risk="custom-loop",
+            mapped_command="blocker",
+        )
     if _is_known_incomplete_python(snippet.body):
         return Classification(
             kind="python-incomplete",
@@ -325,6 +339,16 @@ def _classify_http(language: str, method: str, path: str, body: str) -> Classifi
             coverage="static",
             risk="mutating",
             method="POST",
+            path=path,
+            mapped_command="blocker",
+        )
+    if INTERACTIVE_JOB_PATH.fullmatch(concrete):
+        return Classification(
+            kind=f"{family}-interactive",
+            rule="http-interactive-job",
+            coverage="static",
+            risk="none" if method == "GET" else "mutating",
+            method=method,
             path=path,
             mapped_command="blocker",
         )

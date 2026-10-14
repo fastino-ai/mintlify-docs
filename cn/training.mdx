@@ -1,7 +1,7 @@
 ---
 title: "训练 API 概览：任务类型与生命周期"
 sidebarTitle: "概览"
-description: "选择托管训练、自定义训练循环或 Auto Train，了解 config 与 interactive 任务类型及配置任务生命周期，并检查训练任务。"
+description: "选择托管训练、自定义训练循环或 Auto Train，了解 config 与 交互式任务类型及配置任务生命周期，并检查训练任务。"
 ---
 
 每个 Fastino 训练工作负载都是一个任务。先选择由谁控制训练循环，然后使用
@@ -12,7 +12,7 @@ description: "选择托管训练、自定义训练循环或 Auto Train，了解 
     提供数据集和配置。Fastino 运行训练循环。
   </Card>
   <Card title="自定义训练循环" icon="code" href="/cn/training/quickstart#custom-training-loop">
-    使用受支持的 SDK 客户端，由你的应用控制每次更新。
+    为每次 forward-backward、优化器步骤和采样调用 REST 路由。
   </Card>
   <Card title="Auto Train" icon="sparkles" href="/cn/training/auto">
     将训练生命周期委托给 Fastino 的自治训练智能体。
@@ -24,17 +24,26 @@ description: "选择托管训练、自定义训练循环或 Auto Train，了解 
 
 每个任务都有一个 `type`：
 
-| 类型 | 谁控制循环？ | 如何启动 |
+| 类型 | 谁控制训练循环？ | 模型 | 如何启动 |
+| --- | --- | --- | --- |
+| `config` | Fastino | GLiNER 编码器 | 将数据集和配置发送到 `POST /v1/training/jobs`。 |
+| `interactive` | 你的应用 | 解码器 LLM | 将基础模型发送到 `POST /v1/training/jobs/create-model`。 |
+
+两种类型共用同一任务标识。规范读取使用 `GET /v1/training/jobs`、
+`GET /v1/training/jobs/{job_id}` 和 `GET /v1/training/jobs/{job_id}/checkpoints`。
+
+## 可训练模型
+
+| 模型 ID | 任务类型 | 上下文长度 |
 | --- | --- | --- |
-| `config` | Fastino | 将数据集和配置发送到 `POST /v1/training/jobs`。 |
-| `interactive` | 你的应用 | 通过受支持的 SDK 客户端创建训练客户端。 |
+| `fastino/gliner2-multi-v1` | `config` | 8,192 token |
+| `fastino/GLiNER-2.5-Decide` | `config` | 8,192 token |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | `interactive` | 65,536 token |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | `interactive` | 32,768 token |
+| `Qwen/Qwen3.6-35B-A3B` | `interactive` | 32,768 token |
 
-两种类型共享同一套任务标识。规范读取操作使用
-`GET /v1/training/jobs`、`GET /v1/training/jobs/{job_id}` 和
-`GET /v1/training/jobs/{job_id}/checkpoints`。
-
-对于自定义循环，SDK 客户端使用 Fastino 的 HTTP 兼容适配器。该适配器既不是 SDK，
-也不是第二套训练服务。其操作不会出现在 OpenAPI 和 API 参考中。请勿自行构造适配器请求。
+交互式任务训练秩为 1 到 32（默认 32）的 LoRA 适配器。训练解码器请使用 交互式任务。
+config 任务仅训练 GLiNER 编码器。
 
 ## 配置任务生命周期
 
@@ -56,6 +65,15 @@ description: "选择托管训练、自定义训练循环或 Auto Train，了解 
 `normalized_status` 提供稳定的轮询值，包括以 `failed` 表示最终失败状态。
 `status` 则保留持久化值，例如 `errored`。
 
+## 交互式任务生命周期
+
+交互式任务按接收顺序运行你发送的 operation。每次调用都会返回 `future_id`；
+在 `GET /v1/training/jobs/{job_id}/futures/{future_id}` 读取结果。
+
+- 无需为请求编号，也无需发送心跳。
+- 任务 30 分钟内没有调用就会被释放，其检查点会保留。
+- `POST /v1/training/jobs/{job_id}/stop` 会立即释放任务。停止后仍可从 sampler 检查点采样并下载。
+
 ## 操作支持情况
 
 | 操作 | `config` | `interactive` |
@@ -63,12 +81,15 @@ description: "选择托管训练、自定义训练循环或 Auto Train，了解 
 | [列出任务](/cn/api-reference/training-jobs/list) | 支持 | 支持 |
 | [获取任务](/cn/api-reference/training-jobs/get) | 支持 | 支持 |
 | [列出检查点](/cn/api-reference/training-jobs/checkpoints) | 支持 | 支持 |
-| [下载交互式检查点](/cn/api-reference/training-jobs/download-checkpoint) | — | 支持 |
-| [通过原生 REST 创建](/cn/api-reference/training-jobs/create) | 支持 | 使用 SDK |
+| [创建](/cn/api-reference/training-jobs/create) | 支持 | [创建 交互式任务](/cn/api-reference/interactive-jobs/create) |
+| [Forward、forward-backward 和优化器步骤](/cn/api-reference/interactive-jobs/forward-backward) | — | 支持 |
+| [保存、加载检查点并从中采样](/cn/api-reference/interactive-jobs/save-weights) | — | 支持 |
+| [下载 交互式检查点](/cn/api-reference/training-jobs/download-checkpoint) | — | 支持 |
+| [停止](/cn/api-reference/training-jobs/stop) | 支持 | 支持 |
 | 更新或删除任务 | 支持 | — |
-| [停止](/cn/api-reference/training-jobs/stop)、[终止](/cn/api-reference/training-jobs/terminate)或[同步](/cn/api-reference/training-jobs/sync) | 支持 | — |
+| [终止](/cn/api-reference/training-jobs/terminate)或[同步](/cn/api-reference/training-jobs/sync) | 支持 | — |
 | [日志](/cn/api-reference/training-jobs/logs)和[计费](/cn/api-reference/training-jobs/billing) | 支持 | — |
-| 部署和检查点部署 | 支持 | — |
+| 部署与检查点部署 | 支持 | — |
 | [下载最终模型](/cn/api-reference/training-jobs/download) | 支持 | — |
 | 重命名或推送到 Hugging Face Hub | 支持 | — |
 
@@ -76,12 +97,14 @@ description: "选择托管训练、自定义训练循环或 Auto Train，了解 
 
 <CardGroup cols={3}>
   <Card title="快速入门" icon="play" href="/cn/training/quickstart">
-    运行托管训练或启动自定义训练循环。
+    运行托管训练，或开始自定义训练循环。
   </Card>
-  <Card title="从 Tinker 迁移" icon="arrow-right-arrow-left" href="/cn/training/migrate-from-tinker">
-    将现有的兼容工作负载迁移到 Fastino。
+  <Card title="训练循环" icon="repeat-2" href="/cn/training/training-loop">
+    构建 datum、更新模型并从检查点采样。
   </Card>
   <Card title="微调 GLiNER" icon="tags" href="/cn/guides/fine-tune-gliner">
     准备实体数据并训练 GLiNER 模型。
   </Card>
 </CardGroup>
+
+要迁移现有的 Tinker SDK 工作负载？请参阅[从 Tinker 迁移](/cn/training/migrate-from-tinker)。

@@ -1,0 +1,60 @@
+---
+title: "Load a training state into an interactive job"
+sidebarTitle: "Load weights"
+description: "Call POST /v1/training/jobs/{job_id}/load-weights to restore one of the job's saved training states."
+api: "POST /v1/training/jobs/{job_id}/load-weights"
+---
+
+`POST /v1/training/jobs/{job_id}/load-weights`
+
+Restores one of this job's `weights/<name>` checkpoints into the same job, for
+example to roll back a bad update. To continue from a checkpoint in a new job,
+pass its path as `from_checkpoint` to
+[`POST /v1/training/jobs/create-model`](/api-reference/interactive-jobs/create).
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  Interactive job ID.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  The name of a state checkpoint saved by this job, or its
+  `tinker://<job_id>/weights/<name>` path.
+</ParamField>
+
+<ParamField body="optimizer" type="boolean" default="false">
+  Also restore the optimizer state.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/load-weights" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "step-000100", "optimizer": true}'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "load"
+}
+```
+
+</ResponseExample>
+
+| Status | Meaning |
+| --- | --- |
+| `400` | `path` is another job's checkpoint or a sampler checkpoint, or the job was stopped. |
+| `404` | The job doesn't exist or belongs to another team. |

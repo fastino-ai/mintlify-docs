@@ -7,6 +7,11 @@ Fastino 支持将 `tinker` SDK 的一个明确子集用作交互式训练任务�
 迁移后的训练客户端是 `/v1/training/jobs` 中的一个 Fastino 任务；其 SDK 模型 ID
 与规范的 Fastino 任务 ID 相同。
 
+你有两种选择：
+
+- **继续使用 SDK。** 将 `tinker` 指向 Fastino 的兼容基础 URL，并使用 Fastino API 密钥进行身份验证。按照下面的步骤 1–4 操作。
+- **切换到原生路由。** 使用 JSON 和同一个 API 密钥调用 Fastino 的 REST 路由。请参阅[切换到原生路由](#switch-to-the-native-routes)。
+
 将现有程序作为验收测试。更改连接、检查每项操作，并在恢复生产工作负载规模之前运行小型冒烟测试。
 
 ## 1. 锁定经过测试的软件包
@@ -44,6 +49,15 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 SDK 会将 `/api/v1/{operation}` 追加到 `TINKER_BASE_URL`。每次请求令牌时都会运行
 `TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
 密钥；`tml-` 凭据会被拒绝。不要设置 `TINKER_API_KEY`。
+
+在更改其他任何内容之前，先确认连接：
+
+```python
+import tinker
+
+service_client = tinker.ServiceClient()
+print(service_client.get_server_capabilities())
+```
 
 ## 3. 检查工作负载
 
@@ -148,6 +162,44 @@ Fastino 不支持：
 - [ ] 保存并重新加载一个状态检查点。
 - [ ] 通过规范任务端点验证 SDK 模型 ID。
 - [ ] 仅在冒烟测试通过后增加工作负载规模。
+
+<span id="switch-to-the-native-routes" />
+
+## 切换到原生路由
+
+上面的每个 SDK 调用在 `/v1/training/jobs` 下都有对应的原生 REST 路由。使用同一个 `fast_sk_` 密钥，
+以 `X-API-Key` 或 `Authorization: Bearer` 发送 JSON。你不需要会话、请求序号或心跳：Fastino 按接收顺序排列每个任务的
+operation，并在你持续调用时保持任务存活。交互式任务 30 分钟内没有调用就会被释放，其检查点会保留。
+
+每个执行工作的路由都会返回 `future_id`。使用
+`GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true` 读取结果；它取代了 `future.result()`。
+
+| Tinker 调用 | 原生路由 |
+| --- | --- |
+| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model`，传入 `base_model` 和 `lora_config` |
+| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint` 和 `"load_optimizer": true` |
+| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
+| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
+| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
+| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step`，传入 `adam_params` |
+| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
+| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`，传入 `ttl_seconds` |
+| `load_state(path)` / `load_state_with_optimizer(path)` | 同一任务的状态使用 `POST /v1/training/jobs/{job_id}/load-weights`，传入 `path` 和 `optimizer`；其他任务的状态请使用 `from_checkpoint` 创建任务 |
+| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample`，传入 `checkpoint` 和 `prompt_tokens` |
+| future 的 `result()` | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
+| 采样 future 的 `cancel()` | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
+| `RestClient` 列出或获取训练运行 | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
+| 列出检查点 | `GET /v1/training/jobs/{job_id}/checkpoints` |
+| 下载检查点归档 | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
+| 删除检查点 | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
+| 发布或取消发布检查点 | `POST` 或 `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
+| 设置或清除检查点 TTL | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
+| 检查点存储用量 | `GET /v1/training/usage` |
+| `ServiceClient.close()` / 卸载模型 | `POST /v1/training/jobs/{job_id}/stop` |
+
+datum 以 JSON 保持 SDK 的结构：`model_input.chunks[].tokens` 加上 `loss_fn_inputs` 张量，例如
+`{"data": [...], "dtype": "int64"}`。请使用模型的 Hugging Face tokenizer（`transformers.AutoTokenizer`）分词。
+[快速入门](/cn/training/quickstart#custom-training-loop)中有完整脚本。
 
 <Card title="构建训练循环" icon="diagram-project" href="/cn/training/training-loop">
   在一个任务中连接采样、奖励、更新和检查点。

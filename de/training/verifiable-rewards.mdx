@@ -5,29 +5,35 @@ description: "Wandeln Sie einen deterministischen Grader in ein Lernsignal für 
 ---
 
 Verwenden Sie einen verifizierbaren Reward, wenn Code eine Antwort prüfen kann,
-etwa eine mathematische Antwort, ein Testergebnis, eine Schemabedingung, eine
+etwa ein Mathematikergebnis, ein Testergebnis, eine Schema-Bedingung, eine
 exakte Extraktion oder ein Tool-Ergebnis.
 
 ```text
 prompt -> sample a group -> grade -> center rewards -> build datums -> update
 ```
 
-Sampling, Forward-/Backward-Arbeit, Optimierungsschritte und Checkpoints gehören
-alle zu demselben interaktiven Fastino-Job. Reward-Ausführung und
-Anwendungsstatus bleiben in Ihrem Code.
+Sampling, Forward-Backward-Durchläufe, Optimiererschritte und Checkpoints
+gehören alle zum selben interaktiven Fastino-Job. Reward-Berechnung und
+Anwendungszustand bleiben in Ihrem Code.
 
 ## Bevor Sie beginnen
 
-Schließen Sie den [Schnellstart für benutzerdefinierte Loops](/de/training/quickstart#custom-training-loop)
-ab und bestätigen Sie über Capabilities, dass das Modell aktiviert ist.
-Capabilities listen keine Losses oder Trainingsoperationen auf. Die folgenden
-Snippets verwenden den dokumentierten Loss `importance_sampling`.
+Schließen Sie den [Schnellstart für den benutzerdefinierten Loop](/de/training/quickstart#custom-training-loop)
+ab. Die folgenden Ausschnitte verwenden dessen Helfer `call` und `wait`, seinen
+`tokenizer` und eine `job_id`. Sie nutzen den eingebauten Loss
+`importance_sampling` und konzentrieren sich auf den nutzereigenen Reward-Ablauf.
 
 <Note>
-  Dieser Leitfaden ist kein eigenständiges Trainingsprogramm zum Kopieren und
-  Einfügen. Beginnen Sie mit einem validierten SDK-Workload, dessen Renderer und
-  Datum-Erstellung zum ausgewählten Modell passen, und ergänzen Sie anschließend
-  den folgenden Reward-Ablauf.
+  Dieser Leitfaden ist kein eigenständiger Trainer zum Kopieren und Einfügen.
+  Beginnen Sie mit dem Schnellstart-Skript, prüfen Sie, dass seine Datums
+  trainieren, und ergänzen Sie dann den folgenden Reward-Ablauf.
+</Note>
+
+<Note>
+  Der Job führt nur die eingebauten Losses aus: `cross_entropy`,
+  `importance_sampling`, `ppo`, `cispo` und `dro`. Eine Loss-Funktion aus Ihrem
+  eigenen Code kann nicht auf dem Job laufen. Drücken Sie Ihren Reward als
+  Advantages für einen dieser Losses aus.
 </Note>
 
 <Warning>
@@ -36,9 +42,9 @@ Snippets verwenden den dokumentierten Loss `importance_sampling`.
   verwaltet ihre Seiteneffekte nicht.
 </Warning>
 
-## 1. Eng gefassten Grader definieren
+## 1. Einen engen Grader definieren
 
-Trennen Sie Parsing und Bewertung, damit fehlerhafte Ausgaben beobachtbar sind:
+Trennen Sie Parsing und Bewertung, damit fehlerhafte Ausgaben sichtbar werden:
 
 ```python
 def get_reward(response: str, expected: str) -> float:
@@ -48,40 +54,52 @@ def get_reward(response: str, expected: str) -> float:
     return 1.0 if actual == expected else 0.0
 ```
 
-Verwenden Sie eine unveränderliche Fixture-Sammlung mit richtigen, falschen,
-fehlerhaften und gleichwertig formatierten Antworten. Protokollieren Sie
-Parsing-Fehler getrennt von gültigen, aber falschen Antworten.
+Halten Sie einen festen Satz von Testfällen mit korrekten, falschen, fehlerhaften
+und gleichwertig formatierten Antworten vor. Protokollieren Sie Parsing-Fehler
+getrennt von gültigen, aber falschen Antworten.
 
-## 2. Job für Sampling als Snapshot speichern
+## 2. Job für das Sampling sichern
 
-Erstellen Sie aus den aktuellen Gewichten einen Sampler-Checkpoint und lösen
-Sie ihn anschließend über das SDK auf:
+Speichern Sie einen Sampler-Checkpoint aus den aktuellen Gewichten und samplen
+Sie daraus eine Gruppe:
 
 ```python
-checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}",
-    ttl_seconds=24 * 60 * 60,
-).result()
-sampling_client = service_client.create_sampling_client(
-    model_path=checkpoint.path
+name = f"rollout-{step:06d}"
+saved = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
 )
+wait(job_id, saved["future_id"])
 
-sample_result = sampling_client.sample(
-    prompt=model_input,
-    num_samples=group_size,
-    sampling_params=sampling_params,
-).result()
+prompt_tokens = tokenizer.apply_chat_template(
+    [{"role": "user", "content": question}],
+    add_generation_prompt=True,
+    return_dict=False,
+)
+sampled = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/sample",
+    {
+        "checkpoint": name,
+        "prompt_tokens": prompt_tokens,
+        "num_samples": group_size,
+        "sampling_params": {"max_tokens": 512, "temperature": 1.0},
+    },
+)
+sample_result = wait(job_id, sampled["future_id"])
 ```
 
-Dadurch wird kein weiterer Trainingslauf erstellt. Der Checkpoint und die
-Sampling-Arbeit sind demselben interaktiven Job zugeordnet.
+Dadurch entsteht kein weiterer Job. Checkpoint und Samples gehören zum selben
+interaktiven Job.
 
 ## 3. Rewards in Advantages umwandeln
 
 ```python
+sequences = sample_result["sequences"]
 rewards = [
-    get_reward(render_response(sequence.tokens), expected)
-    for sequence in sample_result.sequences
+    get_reward(tokenizer.decode(sequence["tokens"]), expected)
+    for sequence in sequences
 ]
 
 mean_reward = sum(rewards) / len(rewards)
@@ -92,75 +110,97 @@ if all(advantage == 0.0 for advantage in advantages):
 ```
 
 Verfolgen Sie Gruppen ohne Reward-Varianz. Sie können darauf hindeuten, dass die
-Aufgabe zu leicht oder zu schwer ist oder falsch geparst wird.
+Aufgabe zu leicht, zu schwer oder falsch geparst ist.
 
 ## 4. Ausgerichtete Datums erstellen
 
-Der Prompt ist Kontext und erhält daher normalerweise einen Advantage von null.
-Positionen der Vervollständigung erhalten den gruppenrelativen Advantage der
-Antwort. Ein Datum-Builder sollte vor dem Senden fehlschlagen, wenn sich die
-Längen von Modelleingabe, Ziel, Log-Wahrscheinlichkeit und Advantage
-unterscheiden:
+Der Prompt ist Kontext, daher erhalten Prompt-Positionen einen Advantage von
+null. Antwort-Positionen erhalten den gruppenrelativen Advantage der Antwort und
+die Log-Wahrscheinlichkeiten des Samplers. Jeder Tensor hat einen Wert pro
+Eingabeposition:
 
 ```python
-if not (
-    model_input.length
-    == len(target_tokens)
-    == len(padded_logprobs)
-    == len(padded_advantages)
-):
-    raise ValueError("training datum arrays are not aligned")
+def rl_datum(prompt_tokens, sequence, advantage):
+    completion = sequence["tokens"]
+    tokens = prompt_tokens + completion
+    padding = [0.0] * (len(prompt_tokens) - 1)
+    logprobs = padding + sequence["logprobs"]
+    advantages = padding + [advantage] * len(completion)
+    if not (len(tokens) - 1 == len(logprobs) == len(advantages)):
+        raise ValueError("training datum arrays are not aligned")
+    return {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": tokens[:-1]}]},
+        "loss_fn_inputs": {
+            "target_tokens": {"data": tokens[1:], "dtype": "int64"},
+            "logprobs": {"data": logprobs, "dtype": "float32"},
+            "advantages": {"data": advantages, "dtype": "float32"},
+        },
+    }
+
+
+datums = [
+    rl_datum(prompt_tokens, sequence, advantage)
+    for sequence, advantage in zip(sequences, advantages)
+]
 ```
 
-Verwenden Sie den Renderer und Tokenizer, die dem ausgewählten `base_model`
-zugeordnet sind. Behalten Sie die gesampelten Tokens und
-Log-Wahrscheinlichkeiten, die von der dokumentierten SDK-Operation benötigt werden.
+Verwenden Sie den Tokenizer des `base_model` des Jobs für Prompts und Dekodierung.
 
 ## 5. Interaktiven Job aktualisieren
 
-Für einen Importance-Sampling-Workflow lautet das SDK-Aufrufmuster:
-
 ```python
-train_future = training_client.forward_backward(
-    datums,
-    loss_fn="importance_sampling",
+backward = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/forward-backward",
+    {"datums": datums, "loss_fn": "importance_sampling"},
 )
-train_result = train_future.result()
-
-optim_future = training_client.optim_step(optimizer_params)
-optim_result = optim_future.result()
+update = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/optim-step",
+    {"adam_params": {"learning_rate": 1e-5}},
+)
+train_result = wait(job_id, backward["future_id"])
+optim_result = wait(job_id, update["future_id"])
 ```
 
-Beide Operationen verändern den bestehenden interaktiven Job. Lösen Sie jedes
-Ergebnis auf und zeichnen Sie es auf, bevor Sie den Anwendungsschritt
-fortsetzen. Konstruieren Sie keine entsprechenden Adapter-HTTP-Requests.
+Beide Operationen aktualisieren denselben Job in der Reihenfolge, in der sie
+gesendet wurden. Warten Sie auf jedes Ergebnis und protokollieren Sie es, bevor
+Sie den Anwendungsschritt fortschreiben. Für geclippte Ziele verwenden Sie `ppo`
+oder `cispo` mit Schwellenwerten in `loss_fn_config`.
 
-## 6. Wiederherstellungsgrenze speichern
+## 6. Wiederherstellungspunkt speichern
 
 ```python
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 ```
 
-Persistieren Sie die zurückgegebene Checkpoint-ID mit:
+Persistieren Sie den zurückgegebenen `path` zusammen mit:
 
-- der kanonischen Job-ID aus `training_client.get_info().model_id`,
-- Anwendungsschritt und Datensatz-Cursor,
-- Revisionen von Datensatz und Reward-Implementierung,
-- Basismodell und Trainingskonfiguration,
-- Evaluierungsmetriken.
+- Job-ID
+- Anwendungsschritt und Dataset-Cursor
+- Revisionen von Dataset und Reward-Implementierung
+- Basismodell und Trainingskonfiguration
+- Evaluierungsmetriken
 
-Mit diesen Metadaten kann ein Controller einen Checkpoint auswählen, ohne
-anhand seines Namens raten zu müssen.
+Mit diesen Metadaten kann ein Controller einen Checkpoint wählen, ohne ihn aus
+dem Namen zu erraten.
 
 ## Vor dem Skalieren prüfen
 
-- Der Grader unterscheidet bekannte richtige und falsche Fixtures.
+- Der Grader unterscheidet bekannte korrekte und falsche Testfälle.
 - Fehlerhafte Antworten bringen den Anwendungsloop nicht zum Absturz.
-- Mindestens eine Sample-Gruppe weist Reward-Varianz auf.
-- Datum-Arrays entsprechen den erwarteten Formen des installierten SDK.
-- Forward-/Backward- und Optimizer-Futures werden auf demselben Job abgeschlossen.
-- Ein Status-Checkpoint kann mit seinen clientseitigen Metadaten zur Fortsetzung geladen werden.
-- Die zurückgehaltene Evaluierung bleibt vom Trainings-Reward-Batch getrennt.
+- Mindestens eine Sample-Gruppe hat Reward-Varianz.
+- Die Tensoren jedes Datums haben einen Wert pro Eingabeposition.
+- Forward-Backward- und Optimiererschritt-Operationen werden auf demselben Job abgeschlossen.
+- Ein neuer Job kann aus einem Zustands-Checkpoint mit seinen clienteigenen
+  Fortsetzungsmetadaten starten.
+- Die Evaluierung auf zurückgehaltenen Daten bleibt vom Reward-Batch des
+  Trainings getrennt.
 
-Den umgebenden Lebenszyklus finden Sie unter
+Für den umgebenden Lebenszyklus lesen Sie
 [Benutzerdefinierten Trainingsloop erstellen](/de/training/training-loop).

@@ -1,11 +1,18 @@
 ---
 name: fastino-fine-tune
-description: Fine-tune a GLiNER or decoder model on Fastino from a labeled dataset, then monitor training until the model is ready for inference.
+description: Fine-tune a GLiNER model on Fastino from a labeled dataset, then monitor training until the model is ready for inference.
 ---
 
 # Fastino Fine-Tune
 
-Fine-tune a custom model on Fastino's GPU infrastructure.
+Fine-tune a custom GLiNER model on Fastino's GPU infrastructure. Config jobs
+train `fastino/gliner2-multi-v1` and `fastino/GLiNER-2.5-Decide`.
+
+To train a decoder model (`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
+`nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`, or `Qwen/Qwen3.6-35B-A3B`),
+don't use this flow. Create an interactive job with
+`POST /v1/training/jobs/interactive` and follow
+https://docs.fastino.ai/training/quickstart#custom-training-loop.
 
 ## Authentication
 
@@ -38,7 +45,7 @@ Content-Type: application/json
 
 {
   "model_name": "my-ner-model",
-  "base_model": "fastino/gliner2-base-v1",
+  "base_model": "fastino/gliner2-multi-v1",
   "datasets": [{"name": "YOUR_DATASET_NAME"}],
   "training_type": "lora",
   "nr_epochs": 5,

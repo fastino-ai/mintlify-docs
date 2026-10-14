@@ -1,0 +1,85 @@
+---
+title: "创建交互式训练任务"
+sidebarTitle: "创建 交互式任务"
+description: "调用 POST /v1/training/jobs/create-model，启动由你的应用逐步驱动的 LoRA 训练任务。"
+api: "POST /v1/training/jobs/create-model"
+---
+
+`POST /v1/training/jobs/create-model`
+
+在解码器基础模型上创建 `interactive` LoRA 训练任务，或从已保存的训练状态创建新任务。
+之后由你的应用发送每次 forward-backward、优化器步骤、检查点和采样。托管式 GLiNER 训练请使用
+[`POST /v1/training/jobs`](/cn/api-reference/training-jobs/create)。
+
+`create` operation 完成后任务即可使用。每个执行工作的调用都会返回一个 future。请使用 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future) 读取结果。
+
+## 请求
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+`base_model` 和 `from_checkpoint` 必须且只能发送一个。
+
+<ParamField body="base_model" type="string">
+  `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`、
+  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` 或 `Qwen/Qwen3.6-35B-A3B`。
+</ParamField>
+
+<ParamField body="from_checkpoint" type="string">
+  你的某个任务的训练状态检查点（`weights/<name>`）的 `path`。新任务沿用该检查点的基础模型和
+  LoRA 设置，因此不要发送 `lora_config`。不接受 sampler 检查点。
+</ParamField>
+
+<ParamField body="load_optimizer" type="boolean" default="false">
+  与 `from_checkpoint` 一起使用时，同时恢复优化器状态。
+</ParamField>
+
+<ParamField body="lora_config" type="object">
+  新任务的 LoRA 设置：`rank`（1 到 32，默认 32）、`seed`、`train_attn`、`train_mlp`、`train_unembed`。
+</ParamField>
+
+<ParamField body="optimizer_config" type="object">
+  优化器类型。仅支持 `{"type": "adamw"}`（默认值）。
+</ParamField>
+
+<ParamField body="project_id" type="string">
+  任务及其用量所属的项目。默认为你的默认项目。
+</ParamField>
+
+<ParamField body="user_metadata" type="object">
+  你自己的任务 JSON 元数据。
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_model": "Qwen/Qwen3.6-35B-A3B",
+    "lora_config": {"rank": 32}
+  }'
+```
+
+</RequestExample>
+
+## 响应
+
+响应包含 `job_id`、`type`（始终为 `interactive`）、`base_model`、`create` operation 的
+`future_id`，以及使用 `from_checkpoint` 时加载检查点的 `load_future_id`。
+
+<ResponseExample>
+
+```json Response
+{
+  "job_id": "SESSION_ID:train:0",
+  "type": "interactive",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "future_id": "FUTURE_ID",
+  "load_future_id": null
+}
+```
+
+</ResponseExample>

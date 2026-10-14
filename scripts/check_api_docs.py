@@ -49,7 +49,25 @@ TRAINING_OPERATIONS = {
     ("POST", "/v1/training/jobs/{job_id}/sync"),
     ("POST", "/v1/training/jobs/{job_id}/terminate"),
 }
-EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
+INTERACTIVE_TRAINING_OPERATIONS = {
+    ("POST", "/v1/training/jobs/create-model"),
+    ("POST", "/v1/training/jobs/{job_id}/forward"),
+    ("POST", "/v1/training/jobs/{job_id}/forward-backward"),
+    ("POST", "/v1/training/jobs/{job_id}/optim-step"),
+    ("GET", "/v1/training/jobs/{job_id}/futures/{future_id}"),
+    ("POST", "/v1/training/jobs/{job_id}/futures/{future_id}/cancel"),
+    ("POST", "/v1/training/jobs/{job_id}/save-weights"),
+    ("POST", "/v1/training/jobs/{job_id}/save-weights-for-sampler"),
+    ("POST", "/v1/training/jobs/{job_id}/load-weights"),
+    ("POST", "/v1/training/jobs/{job_id}/sample"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
+    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
+    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
+    ("PUT", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl"),
+    ("GET", "/v1/training/usage"),
+}
+EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS | INTERACTIVE_TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",

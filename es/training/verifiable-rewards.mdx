@@ -5,41 +5,46 @@ description: "Convierte un evaluador determinista en una señal de aprendizaje p
 ---
 
 Usa una recompensa verificable cuando el código pueda comprobar una respuesta,
-como una respuesta matemática, el resultado de una prueba, una restricción de
+como un resultado matemático, el resultado de una prueba, una restricción de
 esquema, una extracción exacta o el resultado de una herramienta.
 
 ```text
 prompt -> sample a group -> grade -> center rewards -> build datums -> update
 ```
 
-El muestreo, el trabajo hacia delante/hacia atrás, los pasos del optimizador y
-los checkpoints pertenecen al mismo trabajo interactivo de Fastino. La
-ejecución de recompensas y el estado de la aplicación permanecen en tu código.
+El muestreo, las pasadas forward-backward, los pasos del optimizador y los
+checkpoints pertenecen al mismo trabajo interactivo de Fastino. El cálculo de
+recompensas y el estado de la aplicación permanecen en tu código.
 
-## Antes de comenzar
+## Antes de empezar
 
-Completa la [Guía rápida del bucle personalizado](/es/training/quickstart#custom-training-loop)
-y confirma mediante capabilities que el modelo esté habilitado. Capabilities no
-lista pérdidas ni operaciones de entrenamiento. Los fragmentos usan la pérdida
-documentada `importance_sampling`.
+Completa la [guía rápida del bucle personalizado](/es/training/quickstart#custom-training-loop).
+Los fragmentos siguientes reutilizan sus helpers `call` y `wait`, su `tokenizer`
+y un `job_id`. Usan la pérdida integrada `importance_sampling` y se centran en el
+flujo de recompensas propio del usuario.
 
 <Note>
-  Esta guía no es un programa de entrenamiento independiente listo para copiar y
-  pegar. Parte de una carga de trabajo validada del SDK cuyo renderizador y cuya
-  construcción de datums correspondan al modelo seleccionado; después, añade el
-  flujo de recompensas que se muestra a continuación.
+  Esta guía no es un entrenador independiente para copiar y pegar. Parte del
+  script de la guía rápida, confirma que sus datums entrenan y después añade el
+  flujo de recompensas siguiente.
+</Note>
+
+<Note>
+  El trabajo solo ejecuta las pérdidas integradas: `cross_entropy`,
+  `importance_sampling`, `ppo`, `cispo` y `dro`. Una función de pérdida escrita
+  en tu propio código no puede ejecutarse en el trabajo. Expresa tu recompensa
+  como ventajas para una de estas pérdidas.
 </Note>
 
 <Warning>
-  Ejecuta el código o las herramientas generados únicamente en un entorno
-  aislado y con recursos limitados. Fastino no ejecuta tu función de recompensa
-  ni administra sus efectos secundarios.
+  Ejecuta código o herramientas generados solo en un entorno aislado y con
+  recursos limitados. Fastino no ejecuta tu función de recompensa ni gestiona
+  sus efectos secundarios.
 </Warning>
 
-## 1. Define un evaluador específico
+## 1. Define un evaluador acotado
 
-Separa el análisis de la puntuación para que los resultados con formato
-incorrecto sean observables:
+Separa el análisis de la puntuación para que la salida mal formada sea visible:
 
 ```python
 def get_reward(response: str, expected: str) -> float:
@@ -49,40 +54,52 @@ def get_reward(response: str, expected: str) -> float:
     return 1.0 if actual == expected else 0.0
 ```
 
-Mantén un conjunto fijo de fixtures con respuestas correctas, incorrectas, con
-formato incorrecto y con formatos equivalentes. Registra los errores de análisis
-por separado de las respuestas válidas pero incorrectas.
+Mantén un conjunto fijo de casos que incluya respuestas correctas, incorrectas,
+mal formadas y con formatos equivalentes. Registra los fallos de análisis por
+separado de las respuestas válidas pero incorrectas.
 
-## 2. Captura el trabajo para el muestreo
+## 2. Captura el trabajo para muestrear
 
-Crea un checkpoint de muestreador con los pesos actuales y resuélvelo mediante
-el SDK:
+Guarda un checkpoint sampler a partir de los pesos actuales y muestrea un grupo
+desde él:
 
 ```python
-checkpoint = training_client.save_weights_for_sampler(
-    f"rollout-{step:06d}",
-    ttl_seconds=24 * 60 * 60,
-).result()
-sampling_client = service_client.create_sampling_client(
-    model_path=checkpoint.path
+name = f"rollout-{step:06d}"
+saved = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
 )
+wait(job_id, saved["future_id"])
 
-sample_result = sampling_client.sample(
-    prompt=model_input,
-    num_samples=group_size,
-    sampling_params=sampling_params,
-).result()
+prompt_tokens = tokenizer.apply_chat_template(
+    [{"role": "user", "content": question}],
+    add_generation_prompt=True,
+    return_dict=False,
+)
+sampled = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/sample",
+    {
+        "checkpoint": name,
+        "prompt_tokens": prompt_tokens,
+        "num_samples": group_size,
+        "sampling_params": {"max_tokens": 512, "temperature": 1.0},
+    },
+)
+sample_result = wait(job_id, sampled["future_id"])
 ```
 
-Esto no crea otra ejecución de entrenamiento. El checkpoint y el muestreo se
-asocian al mismo trabajo interactivo.
+Esto no crea otro trabajo. El checkpoint y las muestras pertenecen al mismo
+trabajo interactivo.
 
-## 3. Convierte las recompensas en ventajas
+## 3. Convierte recompensas en ventajas
 
 ```python
+sequences = sample_result["sequences"]
 rewards = [
-    get_reward(render_response(sequence.tokens), expected)
-    for sequence in sample_result.sequences
+    get_reward(tokenizer.decode(sequence["tokens"]), expected)
+    for sequence in sequences
 ]
 
 mean_reward = sum(rewards) / len(rewards)
@@ -92,75 +109,98 @@ if all(advantage == 0.0 for advantage in advantages):
     continue
 ```
 
-Controla los grupos sin varianza en las recompensas. Pueden indicar que la tarea
-es demasiado fácil, demasiado difícil o que se analiza incorrectamente.
+Haz seguimiento de los grupos sin varianza de recompensa. Pueden indicar que la
+tarea es demasiado fácil, demasiado difícil o que se analiza mal.
 
 ## 4. Construye datums alineados
 
-El prompt es contexto, por lo que sus posiciones suelen recibir una ventaja de
-cero. Las posiciones de la finalización reciben la ventaja relativa al grupo.
-El constructor de datums debe fallar antes del envío si difieren las longitudes
-de la entrada, el objetivo, las probabilidades logarítmicas y las ventajas:
+El prompt es contexto, así que sus posiciones reciben ventaja cero. Las
+posiciones de la respuesta reciben la ventaja relativa al grupo y las
+log-probabilidades del sampler. Cada tensor tiene un valor por posición de
+entrada:
 
 ```python
-if not (
-    model_input.length
-    == len(target_tokens)
-    == len(padded_logprobs)
-    == len(padded_advantages)
-):
-    raise ValueError("training datum arrays are not aligned")
+def rl_datum(prompt_tokens, sequence, advantage):
+    completion = sequence["tokens"]
+    tokens = prompt_tokens + completion
+    padding = [0.0] * (len(prompt_tokens) - 1)
+    logprobs = padding + sequence["logprobs"]
+    advantages = padding + [advantage] * len(completion)
+    if not (len(tokens) - 1 == len(logprobs) == len(advantages)):
+        raise ValueError("training datum arrays are not aligned")
+    return {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": tokens[:-1]}]},
+        "loss_fn_inputs": {
+            "target_tokens": {"data": tokens[1:], "dtype": "int64"},
+            "logprobs": {"data": logprobs, "dtype": "float32"},
+            "advantages": {"data": advantages, "dtype": "float32"},
+        },
+    }
+
+
+datums = [
+    rl_datum(prompt_tokens, sequence, advantage)
+    for sequence, advantage in zip(sequences, advantages)
+]
 ```
 
-Usa el renderizador y el tokenizador asociados al `base_model` seleccionado.
-Conserva los tokens muestreados y las probabilidades logarítmicas que necesite
-la operación documentada del SDK.
+Usa el tokenizador del `base_model` del trabajo tanto para los prompts como para
+decodificar.
 
 ## 5. Actualiza el trabajo interactivo
 
-Para un flujo de muestreo por importancia, el patrón de llamadas es:
-
 ```python
-train_future = training_client.forward_backward(
-    datums,
-    loss_fn="importance_sampling",
+backward = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/forward-backward",
+    {"datums": datums, "loss_fn": "importance_sampling"},
 )
-train_result = train_future.result()
-
-optim_future = training_client.optim_step(optimizer_params)
-optim_result = optim_future.result()
+update = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/optim-step",
+    {"adam_params": {"learning_rate": 1e-5}},
+)
+train_result = wait(job_id, backward["future_id"])
+optim_result = wait(job_id, update["future_id"])
 ```
 
-Ambas operaciones mutan el trabajo interactivo existente. Resuelve y registra
-cada resultado antes de avanzar el paso de la aplicación. No construyas
-solicitudes HTTP equivalentes al adaptador.
+Ambas operaciones actualizan el mismo trabajo, en el orden en que se enviaron.
+Espera y registra cada resultado antes de avanzar el paso de la aplicación. Para
+objetivos con recorte, usa `ppo` o `cispo` con umbrales en `loss_fn_config`.
 
-## 6. Guarda un límite de recuperación
+## 6. Guarda un punto de recuperación
 
 ```python
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 ```
 
-Conserva el identificador del checkpoint devuelto con:
+Persiste el `path` devuelto junto con:
 
-- ID canónico del trabajo de `training_client.get_info().model_id`
+- ID del trabajo
 - Paso de la aplicación y cursor del dataset
 - Revisiones del dataset y de la implementación de recompensas
 - Modelo base y configuración de entrenamiento
 - Métricas de evaluación
 
-Estos metadatos permiten que un controlador elija un checkpoint sin deducirlo
-por su nombre.
+Estos metadatos permiten que un controlador elija un checkpoint sin deducirlo de
+su nombre.
 
-## Verifica antes de aumentar la carga
+## Verifica antes de escalar
 
-- El evaluador distingue fixtures correctos e incorrectos conocidos.
-- Las respuestas con formato incorrecto no bloquean el bucle.
-- Al menos un grupo de muestras tiene varianza en las recompensas.
-- Los arrays de datums cumplen las formas esperadas por el SDK instalado.
-- Los futures hacia delante/hacia atrás y del optimizador se completan en el mismo trabajo.
-- Se puede cargar un checkpoint de estado con sus metadatos de reanudación del cliente.
-- La evaluación con datos reservados permanece separada del lote de recompensas de entrenamiento.
+- El evaluador distingue casos conocidos correctos e incorrectos.
+- Las respuestas mal formadas no rompen el bucle de la aplicación.
+- Al menos un grupo de muestras tiene varianza de recompensa.
+- Los tensores de cada datum tienen un valor por posición de entrada.
+- Las operaciones forward-backward y del optimizador terminan en el mismo trabajo.
+- Un trabajo nuevo puede iniciarse desde un checkpoint de estado con sus
+  metadatos de reanudación propios del cliente.
+- La evaluación con datos reservados se mantiene separada del lote de
+  recompensas de entrenamiento.
 
-Para consultar el ciclo de vida circundante, lee
+Para el ciclo de vida completo, lee
 [Construye un bucle de entrenamiento personalizado](/es/training/training-loop).

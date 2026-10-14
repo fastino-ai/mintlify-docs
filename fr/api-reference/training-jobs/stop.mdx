@@ -9,6 +9,11 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 Arrête un job en cours et conserve les checkpoints créés avant l'arrêt.
 
+Pour un job `interactive`, l'arrêt libère le job une fois ses opérations en
+file terminées. Il n'accepte ensuite plus d'opérations d'entraînement, mais ses
+checkpoints sampler restent échantillonnables et téléchargeables. Les jobs
+interactifs ignorent le corps de la requête.
+
 ## Requête
 
 <ParamField header="X-API-Key" type="string" required>
@@ -16,7 +21,7 @@ Arrête un job en cours et conserve les checkpoints créés avant l'arrêt.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID du job d'entraînement.
+  UUID d'un job config ou ID d'un job interactif.
 </ParamField>
 
 Le corps JSON est optionnel.
@@ -66,6 +71,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+```json Interactive job
+{
+  "success": true,
+  "job_id": "SESSION_ID:train:0",
+  "status": "stopped"
+}
+```
+
 </ResponseExample>
 
 Après une réponse `202`, interrogez
@@ -76,6 +89,6 @@ que l'annulation est en attente.
 | --- | --- |
 | `200` | Le job est arrêté et les checkpoints existants restent disponibles. |
 | `202` | La confirmation de l'annulation par le fournisseur est toujours en attente. |
-| `400` | `job_id` n'est pas un UUID valide de job config. |
+| `400` | `job_id` n'est ni un UUID de job config ni un ID de job interactif. |
 | `409 training_job_already_finished` | Le job a atteint un état terminal avant l'arrêt. |
 | `422` | Le corps JSON de la requête n'est pas valide. |

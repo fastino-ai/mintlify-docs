@@ -12,7 +12,7 @@ loop, then use `/v1/training/jobs` to inspect the job.
     Provide a dataset and configuration. Fastino runs the training loop.
   </Card>
   <Card title="Custom training loop" icon="code" href="/training/quickstart#custom-training-loop">
-    Use a supported SDK client while your application controls each update.
+    Call REST routes for each forward-backward pass, optimizer step, and sample.
   </Card>
   <Card title="Auto Train" icon="sparkles" href="/training/auto">
     Delegate the training lifecycle to Fastino's autonomous training agent.
@@ -24,18 +24,28 @@ loop, then use `/v1/training/jobs` to inspect the job.
 
 Every job has a `type`:
 
-| Type | Who controls the loop? | How it starts |
-| --- | --- | --- |
-| `config` | Fastino | Send a dataset and configuration to `POST /v1/training/jobs`. |
-| `interactive` | Your application | Create a training client through a supported SDK client. |
+| Type | Who controls the loop? | Models | How it starts |
+| --- | --- | --- | --- |
+| `config` | Fastino | GLiNER encoders | Send a dataset and configuration to `POST /v1/training/jobs`. |
+| `interactive` | Your application | Decoder LLMs | Send a base model to `POST /v1/training/jobs/create-model`. |
 
 Both types share the same job identity. Canonical reads use
 `GET /v1/training/jobs`, `GET /v1/training/jobs/{job_id}`, and
 `GET /v1/training/jobs/{job_id}/checkpoints`.
 
-For custom loops, the SDK client uses Fastino's HTTP compatibility adapter. The
-adapter is not an SDK or a second training service. Its operations stay out of
-OpenAPI and the API reference. Do not construct adapter requests yourself.
+## Trainable models
+
+| Model ID | Job type | Context length |
+| --- | --- | --- |
+| `fastino/gliner2-multi-v1` | `config` | 8,192 tokens |
+| `fastino/GLiNER-2.5-Decide` | `config` | 8,192 tokens |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | `interactive` | 65,536 tokens |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | `interactive` | 32,768 tokens |
+| `Qwen/Qwen3.6-35B-A3B` | `interactive` | 32,768 tokens |
+
+Interactive jobs train LoRA adapters with ranks from 1 through 32 (default
+32). To train a decoder, use an interactive job. Config jobs train GLiNER
+encoders only.
 
 ## Config-job lifecycle
 
@@ -58,6 +68,17 @@ have caller-controlled behavior; do not infer their lifecycle from this table.
 `normalized_status` provides the stable polling value, including `failed` for a
 terminal failure. `status` remains the persisted value, such as `errored`.
 
+## Interactive-job lifecycle
+
+An interactive job runs the calls you send it, in the order it receives
+them. Each call returns a `future_id`; read its result at
+`GET /v1/training/jobs/{job_id}/futures/{future_id}`.
+
+- You don't number requests or send heartbeats.
+- A job with no calls for 30 minutes is released. Its checkpoints are kept.
+- `POST /v1/training/jobs/{job_id}/stop` releases the job right away.
+  Sampler checkpoints can still be sampled and downloaded after a stop.
+
 ## Operation support
 
 | Operation | `config` | `interactive` |
@@ -65,10 +86,13 @@ terminal failure. `status` remains the persisted value, such as `errored`.
 | [List jobs](/api-reference/training-jobs/list) | Supported | Supported |
 | [Get a job](/api-reference/training-jobs/get) | Supported | Supported |
 | [List checkpoints](/api-reference/training-jobs/checkpoints) | Supported | Supported |
+| [Create](/api-reference/training-jobs/create) | Supported | [Create an interactive job](/api-reference/interactive-jobs/create) |
+| [Forward, forward-backward, and optimizer step](/api-reference/interactive-jobs/forward-backward) | — | Supported |
+| [Save, load, and sample checkpoints](/api-reference/interactive-jobs/save-weights) | — | Supported |
 | [Download an interactive checkpoint](/api-reference/training-jobs/download-checkpoint) | — | Supported |
-| [Create through native REST](/api-reference/training-jobs/create) | Supported | Use the SDK |
+| [Stop](/api-reference/training-jobs/stop) | Supported | Supported |
 | Update or delete the job | Supported | — |
-| [Stop](/api-reference/training-jobs/stop), [terminate](/api-reference/training-jobs/terminate), or [sync](/api-reference/training-jobs/sync) | Supported | — |
+| [Terminate](/api-reference/training-jobs/terminate) or [sync](/api-reference/training-jobs/sync) | Supported | — |
 | [Logs](/api-reference/training-jobs/logs) and [billing](/api-reference/training-jobs/billing) | Supported | — |
 | Deployments and checkpoint deployment | Supported | — |
 | [Download the final model](/api-reference/training-jobs/download) | Supported | — |
@@ -80,10 +104,13 @@ terminal failure. `status` remains the persisted value, such as `errored`.
   <Card title="Quickstart" icon="play" href="/training/quickstart">
     Run managed training or start a custom training loop.
   </Card>
-  <Card title="Migrate from Tinker" icon="arrow-right-arrow-left" href="/training/migrate-from-tinker">
-    Move an existing compatible workload to Fastino.
+  <Card title="Training loop" icon="repeat-2" href="/training/training-loop">
+    Build datums, update the model, and sample from checkpoints.
   </Card>
   <Card title="Fine-tune GLiNER" icon="tags" href="/guides/fine-tune-gliner">
     Prepare entity data and train a GLiNER model.
   </Card>
 </CardGroup>
+
+Moving an existing Tinker SDK workload? See
+[Migrate from Tinker](/training/migrate-from-tinker).

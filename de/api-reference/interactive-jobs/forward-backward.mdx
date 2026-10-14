@@ -1,0 +1,94 @@
+---
+title: "Einen Forward-Backward-Durchlauf einreihen"
+sidebarTitle: "Forward-Backward"
+description: "Rufen Sie POST /v1/training/jobs/{job_id}/forward-backward auf, um den Loss eines Batches zu berechnen und Gradienten für den nächsten Optimiererschritt zu sammeln."
+api: "POST /v1/training/jobs/{job_id}/forward-backward"
+---
+
+`POST /v1/training/jobs/{job_id}/forward-backward`
+
+Berechnet den Loss eines Batches von Datums auf Token-Ebene und sammelt die Gradienten. Der
+nächste [Optimiererschritt](/de/api-reference/interactive-jobs/optim-step) wendet sie an. Jeder Aufruf, der Arbeit ausführt, gibt ein Future zurück. Lesen Sie sein Ergebnis mit [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/interactive-jobs/get-future).
+[`POST /v1/training/jobs/{job_id}/forward`](/de/api-reference/interactive-jobs/forward) nimmt
+denselben Body an und berechnet den Loss ohne Gradienten.
+
+## Anfrage
+
+<ParamField header="X-API-Key" type="string" required>
+  Ihr Fastino-API-Schlüssel.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID des interaktiven Jobs.
+</ParamField>
+
+<ParamField body="datums" type="object[]" required>
+  Ein oder mehrere Trainingsbeispiele, die Sie selbst mit dem Tokenizer des Basismodells
+  tokenisieren. Jedes Datum hat `model_input` (`{"chunks": [{"type": "encoded_text", "tokens": [...]}]}`,
+  N Token) und `loss_fn_inputs` (Tensoren `{"data": [...], "dtype": "int64" | "float32"}` mit N
+  Werten): `target_tokens` (`int64`, erforderlich); `weights` (`float32`, `0` im Prompt und `1` in
+  der Antwort); `logprobs` und `advantages` (`float32`), erforderlich für jeden Loss außer
+  `cross_entropy`.
+</ParamField>
+
+<ParamField body="loss_fn" type="string" default="cross_entropy">
+  `cross_entropy`, `importance_sampling`, `ppo`, `cispo` oder `dro`.
+</ParamField>
+
+<ParamField body="loss_fn_config" type="object">
+  Loss-Einstellungen. `ppo` und `cispo` nehmen `clip_low_threshold` und `clip_high_threshold`;
+  `dro` nimmt `beta`.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-backward" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "loss_fn": "cross_entropy",
+    "datums": [
+      {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": [151644, 872, 198, 3838]}]},
+        "loss_fn_inputs": {
+          "target_tokens": {"data": [872, 198, 3838, 30], "dtype": "int64"},
+          "weights": {"data": [0, 0, 1, 1], "dtype": "float32"}
+        }
+      }
+    ]
+  }'
+```
+
+</RequestExample>
+
+## Antwort
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "forward_backward"
+}
+```
+
+```json Completed future
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "forward_backward",
+  "status": "completed",
+  "result": {
+    "loss_fn_output_type": "ArrayRecord",
+    "loss_fn_outputs": [
+      {"logprobs": {"data": [-3.1, -0.4, -1.2, -0.8], "dtype": "float32", "shape": [4]}}
+    ],
+    "metrics": {"loss:sum": 2.0}
+  },
+  "error": null
+}
+```
+
+</ResponseExample>

@@ -4,37 +4,41 @@ description: "Enregistrez l'état d'un job interactif et la progression de l'app
 ---
 
 Un checkpoint d'état protège l'état d'entraînement côté serveur. Un
-enregistrement de récupération complet protège également l'état contrôlé par
-l'utilisateur qui indique à votre contrôleur ce qu'il doit faire ensuite.
+enregistrement de reprise complet protège aussi l'état propre à l'utilisateur
+qui indique à votre contrôleur quoi faire ensuite.
 
-## Éléments à enregistrer
+Les exemples utilisent les helpers `call` et `wait` du
+[script du démarrage rapide](/fr/training/quickstart#custom-training-loop).
+
+## Que sauvegarder
 
 | Enregistrement | Contenu | Stocké par |
 | --- | --- | --- |
-| Checkpoint d'état | Poids d'entraînement et état de l'optimiseur représentés par le checkpoint du SDK | Fastino |
-| Enregistrement de la boucle | ID du job source, chemin du checkpoint, étape, curseur du dataset, configuration et lignée de reprise | Votre application |
-
-Le client d'entraînement du SDK représente un job interactif Fastino. Lisez son
-ID canonique dans `training_client.get_info().model_id`.
+| Checkpoint d'état | Poids LoRA et état de l'optimiseur | Fastino |
+| Enregistrement de boucle | ID du job source, chemin du checkpoint, étape, curseur du dataset, configuration et lignée de reprise | Votre application |
 
 ## 1. Enregistrer l'état et la progression de la boucle
 
-Enregistrez l'état via le SDK, puis conservez le checkpoint renvoyé avec les
-champs contrôlés par le client nécessaires à la poursuite :
+Enregistrez l'état avec `save-weights`, attendez la fin du future, puis
+conservez son chemin avec les champs côté client nécessaires pour continuer :
 
 ```python
 import json
 from pathlib import Path
 
 
-source_job_id = training_client.get_info().model_id
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 record = {
-    "source_job_id": source_job_id,
-    "state_path": state.path,
+    "source_job_id": job_id,
+    "state_path": state["path"],
     "model": model_name,
     "dataset_revision": dataset_revision,
-    "optimizer": optimizer_config,
+    "optimizer": adam_params,
     "step": step,
     "dataset_cursor": dataset_cursor,
     "reward_version": reward_version,
@@ -44,14 +48,14 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
-Utilisez des noms de checkpoint uniques afin que chaque enregistrement de
-boucle identifie une limite de récupération sans ambiguïté. Ne supposez pas une
-durée de vie de checkpoint non documentée.
+Utilisez des noms de checkpoint uniques afin que chaque enregistrement
+identifie un point de reprise sans ambiguïté. Les noms comptent 1 à
+128 caractères parmi `A-Z`, `a-z`, `0-9`, `.`, `_` et `-`.
 
 ## 2. Lire l'enregistrement complet le plus récent
 
 Un processus peut s'arrêter pendant l'écriture de la dernière ligne. Parcourez
-les lignes à rebours et ignorez une fin mal formée :
+le fichier à rebours et ignorez une fin mal formée :
 
 ```python
 def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
@@ -69,102 +73,121 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
     return None
 ```
 
-## 3. Valider avant le chargement
+## 3. Valider avant de charger
 
-Comparez l'enregistrement avec le checkpoint source et la poursuite demandée :
+Comparez l'enregistrement avec le checkpoint source et la reprise demandée :
 
-- ID du job source encodé dans le chemin du checkpoint
-- Modèle de base et configuration entraînable
+- ID du job source dans le chemin du checkpoint
+- Modèle de base et configuration LoRA
 - Révision et curseur du dataset
-- Révision de l'implémentation de la récompense
-- Configuration de l'optimiseur
-- Hypothèses du renderer et du tokenizer
+- Révision de l'implémentation des récompenses
+- Réglages de l'optimiseur
+- Hypothèses sur le tokenizer et le modèle de chat
 
-Arrêtez-vous pour obtenir une décision explicite si ces champs sont
-incompatibles. Ne combinez pas silencieusement un checkpoint avec une
-expérience différente.
+Arrêtez-vous pour une décision explicite si ces champs se contredisent. Ne
+combinez pas silencieusement un checkpoint avec une autre expérience.
 
-Utilisez ensuite le flux de chargement d'état pris en charge par le SDK :
+Choisissez ensuite comment continuer :
+
+| Situation | Appel |
+| --- | --- |
+| Le job source est encore actif et vous voulez revenir en arrière | `POST /v1/training/jobs/{job_id}/load-weights` avec `{"path": name, "optimizer": true}` |
+| Le job source a été arrêté ou libéré | `POST /v1/training/jobs/create-model` avec `from_checkpoint` et `load_optimizer` |
+
+Pour continuer dans un nouveau job :
 
 ```python
-training_client = (
-    service_client.create_training_client_from_state_with_optimizer(
-        str(resume["state_path"])
-    )
+resumed = call(
+    "POST",
+    "/v1/training/jobs/create-model",
+    {"from_checkpoint": resume["state_path"], "load_optimizer": True},
 )
-resumed_job_id = training_client.get_info().model_id
+wait(resumed["job_id"], resumed["future_id"])
+wait(resumed["job_id"], resumed["load_future_id"])
+resumed_job_id = resumed["job_id"]
 ```
 
-Cette fabrique crée un nouveau job interactive, puis charge les poids et l'état
-de l'optimiseur du checkpoint source. L'ID repris diffère normalement de l'ID
-source. Enregistrez `source_job_id`, `state_path` et `resumed_job_id` comme
-lignée gérée par l'application. Ne refusez pas la reprise parce que les ID
-diffèrent et ne construisez pas la requête vers l'adaptateur.
+Le nouveau job reprend le modèle de base et les paramètres LoRA du checkpoint :
+n'envoyez donc pas `lora_config`. Son ID diffère de celui du job source.
+Enregistrez `source_job_id`, `state_path` et `resumed_job_id` comme lignée gérée
+par l'application.
 
-## 4. Rendre la limite récupérable
+## 4. Rendre la frontière récupérable
 
-Respectez cet ordre :
+Suivez cet ordre :
 
-1. Résolvez les futures de passe avant/arrière et d'optimisation.
-2. Enregistrez le checkpoint d'état.
-3. Conservez l'enregistrement de boucle contenant son identifiant.
+1. Attendez la fin des futures forward-backward et d'étape d'optimiseur.
+2. Enregistrez le checkpoint d'état et attendez le future d'enregistrement.
+3. Conservez l'enregistrement de boucle contenant son chemin.
 4. Marquez l'étape de l'application comme terminée.
 5. Commencez l'étape suivante.
 
-Si le processus s'arrête après l'enregistrement du checkpoint, mais avant la
-persistance de l'enregistrement de boucle, conservez l'enregistrement complet
-précédent comme point de récupération fiable. Ne marquez pas une étape comme
-terminée avant que son enregistrement ne soit durable.
+Si le processus s'arrête après l'enregistrement du checkpoint mais avant la
+sauvegarde de l'enregistrement de boucle, gardez l'enregistrement complet
+précédent comme point de reprise fiable. Ne marquez pas une étape comme terminée
+avant que son enregistrement soit durable.
 
 ## 5. Séparer les types de checkpoints
 
 ```python
-state = training_client.save_state("step-000100").result()
-sampler = training_client.save_weights_for_sampler(
-    "step-000100",
-    ttl_seconds=24 * 60 * 60,
-).result()
+name = f"step-{step:06d}"
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": name},
+)
+sampler = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
+)
 ```
 
-Utilisez un checkpoint d'état pour la récupération de l'entraînement. Utilisez
-un checkpoint d'échantillonneur pour les rollouts ou l'évaluation. N'utilisez
-pas un checkpoint d'échantillonneur comme point de récupération de l'état de
-l'optimiseur.
+| Enregistré avec | Chemin | Usage |
+| --- | --- | --- |
+| `state` | `weights/<name>` | Reprise de l'entraînement : le charger ou démarrer un nouveau job depuis celui-ci |
+| `sampler` | `sampler_weights/<name>` | Rollouts, évaluation et téléchargement en fichiers PEFT LoRA |
 
-`ttl_seconds` vaut `None` par défaut ; sans TTL, le checkpoint n'expire pas
-automatiquement. Les checkpoints actifs comptent dans le stockage. Pour un
-nettoyage automatique, utilisez une valeur comprise entre `3_600` et
-`315_360_000` secondes, bornes incluses.
+N'utilisez pas un checkpoint sampler comme point de reprise : il ne contient pas
+l'état de l'optimiseur et aucun nouveau job ne peut démarrer depuis celui-ci.
 
-L'API d'entraînement publique permet de lister les checkpoints. Elle permet de
-télécharger un checkpoint interactif lorsque l'équipe dispose de l'autorisation
-de télécharger les poids. Le SDK prend aussi en charge des méthodes
-de suppression, de publication, de rétention et d'utilisation du stockage des
-checkpoints. Ce sont des opérations SDK, et non des routes publiques de l'API
-d'entraînement. Ne construisez pas
-de requêtes vers l'adaptateur et ne supposez pas une durée de rétention non
-documentée.
+`ttl_seconds` vaut `null` par défaut : sans TTL, le checkpoint est conservé
+jusqu'à sa suppression. Les checkpoints actifs comptent dans le stockage des
+checkpoints. Pour activer le nettoyage automatique, passez une valeur de `3600`
+à `315360000` secondes (1 heure à 10 ans).
 
-## 6. Vérifier la poursuite
+Gérez les checkpoints avec ces routes :
 
-Avant d'augmenter la taille du workload repris :
+| Tâche | Route |
+| --- | --- |
+| Lister les checkpoints d'un job | [`GET /v1/training/jobs/{job_id}/checkpoints`](/fr/api-reference/training-jobs/checkpoints) |
+| Obtenir un checkpoint | [`GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/fr/api-reference/interactive-jobs/get-checkpoint) |
+| Télécharger une archive `.tar` | [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/fr/api-reference/training-jobs/download-checkpoint) |
+| Modifier son TTL | [`PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl`](/fr/api-reference/interactive-jobs/set-checkpoint-ttl) |
+| Publier ou dépublier | [`POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish`](/fr/api-reference/interactive-jobs/publish-checkpoint) |
+| Supprimer | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/fr/api-reference/interactive-jobs/delete-checkpoint) |
+| Lire l'usage du stockage | [`GET /v1/training/usage`](/fr/api-reference/interactive-jobs/usage) |
 
-1. Chargez le checkpoint d'état sélectionné.
-2. Lisez le nouvel ID dans `training_client.get_info().model_id`, enregistrez-le
-   comme `resumed_job_id` et confirmez-le via
+Le téléchargement nécessite l'accès de l'équipe au téléchargement des poids.
+
+## 6. Vérifier la reprise
+
+Avant de faire monter en charge la reprise :
+
+1. Démarrez le nouveau job depuis le checkpoint d'état choisi.
+2. Conservez son ID comme `resumed_job_id` et confirmez-le avec
    `GET /v1/training/jobs/{resumed_job_id}`.
-3. Exécutez une petite évaluation sur un ensemble de validation.
-4. Soumettez une mise à jour d'entraînement prise en charge.
+3. Lancez une petite évaluation sur des données réservées.
+4. Envoyez une mise à jour d'entraînement.
 5. Enregistrez un nouveau checkpoint d'état sous un nouveau nom.
 6. Conservez l'enregistrement de boucle suivant.
 
-Utilisez le SDK pour toutes les opérations interactives sur le modèle.
-
-## Diagnostiquer les erreurs de récupération
+## Diagnostiquer les erreurs de reprise
 
 | Symptôme | Vérification |
 | --- | --- |
-| Une future échoue | Enregistrez l'ID du job et le résultat de l'opération. Ne faites pas avancer l'état dépendant de l'application |
-| Un checkpoint ne peut pas être chargé | Vérifiez son job, son type de checkpoint et l'enregistrement de récupération contrôlé par le client |
-| Le checkpoint source est refusé | Vérifiez le job source, le type de checkpoint et `state_path` ; n'exigez pas que le nouvel ID égale l'ID source |
-| La recherche du job repris échoue | Vérifiez que l'ID provient de `get_info().model_id` du client repris et que la même équipe Fastino est authentifiée |
+| Un future échoue | Notez l'ID du job et l'`error` du future. Ne faites pas avancer l'état dépendant de l'application |
+| Un appel d'entraînement renvoie `400` après une pause | Le job a été arrêté ou libéré après 30 minutes d'inactivité. Démarrez un nouveau job depuis le dernier checkpoint d'état |
+| Un checkpoint ne peut pas être chargé | Vérifiez son job, son type et l'enregistrement de reprise côté client |
+| `from_checkpoint` est refusé | Confirmez qu'il s'agit d'un chemin `weights/<name>` de votre équipe ; les checkpoints sampler ne peuvent pas démarrer un job |
+| La recherche du job repris échoue | Confirmez que l'ID provient de la réponse de création du nouveau job et que vous êtes authentifié dans la même équipe Fastino |

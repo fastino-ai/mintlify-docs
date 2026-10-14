@@ -9,6 +9,11 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 Detiene un trabajo en ejecución y preserva los checkpoints creados antes de la detención.
 
+Para un trabajo `interactive`, la detención libera el trabajo cuando terminan sus
+operaciones en cola. Después ya no acepta operaciones de entrenamiento, pero sus
+checkpoints sampler se pueden seguir muestreando y descargando. Los trabajos
+interactivos ignoran el cuerpo de la solicitud.
+
 ## Solicitud
 
 <ParamField header="X-API-Key" type="string" required>
@@ -16,7 +21,7 @@ Detiene un trabajo en ejecución y preserva los checkpoints creados antes de la 
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID del trabajo de entrenamiento.
+  UUID de un trabajo config o ID de un trabajo interactivo.
 </ParamField>
 
 El cuerpo JSON es opcional.
@@ -66,6 +71,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+```json Interactive job
+{
+  "success": true,
+  "job_id": "SESSION_ID:train:0",
+  "status": "stopped"
+}
+```
+
 </ResponseExample>
 
 Después de un `202`, consulta `GET /v1/training/jobs/{job_id}`; no repitas la
@@ -75,6 +88,6 @@ solicitud de detención mientras la cancelación esté pendiente.
 | --- | --- |
 | `200` | El trabajo está detenido y los checkpoints existentes siguen disponibles. |
 | `202` | La cancelación del proveedor todavía se está confirmando. |
-| `400` | `job_id` no es un UUID válido de un trabajo config. |
+| `400` | `job_id` no es un UUID de trabajo config ni un ID de trabajo interactivo. |
 | `409 training_job_already_finished` | El trabajo alcanzó un estado terminal antes de la detención. |
 | `422` | El cuerpo JSON de la solicitud no es válido. |

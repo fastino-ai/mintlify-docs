@@ -9,6 +9,11 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 Stoppt einen laufenden Job und erhält die vor dem Stopp erstellten Checkpoints.
 
+Bei einem `interactive`-Job gibt der Stopp den Job frei, sobald seine
+eingereihten Operationen abgeschlossen sind. Danach nimmt er keine
+Trainingsoperationen mehr an, seine Sampler-Checkpoints lassen sich aber weiter
+samplen und herunterladen. Interaktive Jobs ignorieren den Request-Body.
+
 ## Request
 
 <ParamField header="X-API-Key" type="string" required>
@@ -16,7 +21,7 @@ Stoppt einen laufenden Job und erhält die vor dem Stopp erstellten Checkpoints.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID des Trainingsjobs.
+  UUID eines Config-Jobs oder ID eines interaktiven Jobs.
 </ParamField>
 
 Der JSON-Body ist optional.
@@ -66,6 +71,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+```json Interactive job
+{
+  "success": true,
+  "job_id": "SESSION_ID:train:0",
+  "status": "stopped"
+}
+```
+
 </ResponseExample>
 
 Fragen Sie nach einer `202`-Antwort
@@ -76,6 +89,6 @@ solange der Abbruch aussteht.
 | --- | --- |
 | `200` | Der Job ist gestoppt und vorhandene Checkpoints bleiben verfügbar. |
 | `202` | Die Bestätigung des Anbieterabbruchs steht noch aus. |
-| `400` | `job_id` ist keine gültige UUID eines Config-Jobs. |
+| `400` | `job_id` ist weder eine Config-Job-UUID noch eine ID eines interaktiven Jobs. |
 | `409 training_job_already_finished` | Der Job hat vor dem Stopp einen Endzustand erreicht. |
 | `422` | Der JSON-Request-Body ist ungültig. |

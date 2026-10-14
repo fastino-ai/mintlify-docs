@@ -8,6 +8,13 @@ para trabajos de entrenamiento interactivos. Un cliente de entrenamiento
 migrado es un trabajo de Fastino en `/v1/training/jobs`; su ID de modelo del SDK
 y su ID canónico de trabajo de Fastino son idénticos.
 
+Tienes dos opciones:
+
+- **Mantener el SDK.** Apunta `tinker` a la URL base de compatibilidad de
+  Fastino y autentícate con una clave de API de Fastino. Sigue los pasos 1–4.
+- **Cambiar a las rutas nativas.** Llama a las rutas REST de Fastino con JSON y
+  la misma clave de API. Consulta [Cambia a las rutas nativas](#switch-to-the-native-routes).
+
 Trata tu programa existente como prueba de aceptación. Cambia la conexión,
 comprueba cada operación y ejecuta una pequeña prueba de humo antes de
 restablecer los tamaños de las cargas de producción.
@@ -48,6 +55,15 @@ El SDK añade `/api/v1/{operation}` a `TINKER_BASE_URL`.
 `TINKER_CREDENTIAL_CMD` se ejecuta con cada solicitud de token y debe imprimir
 una credencial no vacía. Usa una clave normal `fast_sk_` de Fastino; las
 credenciales `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
+
+Confirma la conexión antes de cambiar nada más:
+
+```python
+import tinker
+
+service_client = tinker.ServiceClient()
+print(service_client.get_server_capabilities())
+```
 
 ## 3. Comprueba la carga de trabajo
 
@@ -162,6 +178,49 @@ habilitados y longitudes de contexto.
 - [ ] Guarda y vuelve a cargar un checkpoint de estado.
 - [ ] Verifica el ID de modelo del SDK mediante el endpoint canónico del trabajo.
 - [ ] Aumenta el tamaño de la carga solo después de superar la prueba de humo.
+
+<span id="switch-to-the-native-routes" />
+
+## Cambia a las rutas nativas
+
+Cada llamada del SDK anterior tiene una ruta REST nativa bajo
+`/v1/training/jobs`. Envía JSON con la misma clave `fast_sk_` como `X-API-Key` o
+`Authorization: Bearer`. No necesitas sesiones, números de secuencia ni
+heartbeats: Fastino ordena las operaciones de cada trabajo según las recibe y
+mantiene vivo el trabajo mientras lo llamas. Un trabajo interactivo sin llamadas
+durante 30 minutos se libera; sus checkpoints se conservan.
+
+Cada ruta que hace trabajo devuelve un `future_id`. Lee su resultado con
+`GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true`; esto
+sustituye a `future.result()`.
+
+| Llamada de Tinker | Ruta nativa |
+| --- | --- |
+| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` con `base_model` y `lora_config` |
+| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` con `from_checkpoint` y `"load_optimizer": true` |
+| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
+| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
+| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
+| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step` con `adam_params` |
+| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
+| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` con `ttl_seconds` |
+| `load_state(path)` / `load_state_with_optimizer(path)` | `POST /v1/training/jobs/{job_id}/load-weights` con `path` y `optimizer` para el estado del mismo trabajo; para el estado de otro trabajo, crea un trabajo con `from_checkpoint` |
+| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample` con `checkpoint` y `prompt_tokens` |
+| `result()` de un future | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
+| `cancel()` de un future de muestreo | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
+| `RestClient`: listar u obtener ejecuciones | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
+| Listar checkpoints | `GET /v1/training/jobs/{job_id}/checkpoints` |
+| Descargar el archivo de un checkpoint | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
+| Eliminar un checkpoint | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
+| Publicar o despublicar un checkpoint | `POST` o `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
+| Definir o quitar el TTL de un checkpoint | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
+| Uso de almacenamiento de checkpoints | `GET /v1/training/usage` |
+| `ServiceClient.close()` / descargar el modelo | `POST /v1/training/jobs/{job_id}/stop` |
+
+Los datums conservan la forma del SDK en JSON: `model_input.chunks[].tokens`
+más tensores `loss_fn_inputs` como `{"data": [...], "dtype": "int64"}`. Tokeniza
+con el tokenizador de Hugging Face del modelo (`transformers.AutoTokenizer`). La
+[guía rápida](/es/training/quickstart#custom-training-loop) tiene un script completo.
 
 <Card title="Construye el bucle de entrenamiento" icon="diagram-project" href="/es/training/training-loop">
   Conecta el muestreo, las recompensas, las actualizaciones y los checkpoints en un trabajo.

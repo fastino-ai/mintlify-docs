@@ -4,104 +4,122 @@ sidebarTitle: "Bucle de entrenamiento"
 description: "Conecta el muestreo, las recompensas, las actualizaciones y los checkpoints dentro de un trabajo interactivo de Fastino."
 ---
 
-Tu aplicación decide qué muestrear, cómo puntuarlo y cuándo actualizar. Fastino
-ejecuta las operaciones interactivas del modelo. Un `TrainingClient` representa
-un trabajo interactivo de Fastino durante todo el bucle.
+Tu aplicación decide qué muestrear, cómo puntuarlo y cuándo actualizar.
+Fastino ejecuta cada operación del modelo en un trabajo interactivo. Cada paso es
+una solicitud JSON a una ruta bajo `/v1/training/jobs/{job_id}`.
 
 ## El bucle de control
 
 <Steps>
   <Step title="Crea el trabajo interactivo">
-    Elige un `base_model` habilitado mediante capabilities, usa ajustes
-    documentados con `create_lora_training_client(...)` y lee el ID canónico de
-    `training_client.get_info().model_id`. Capabilities no informa rangos,
-    pérdidas ni límites de operación.
+    Llama a `POST /v1/training/jobs/create-model` con un `base_model` y un
+    `lora_config` opcional. Guarda el `job_id` devuelto y espera a que termine el
+    future `create`.
   </Step>
-  <Step title="Captura los pesos para el muestreo">
-    Llama a `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)` y crea un cliente de muestreo con
-    la ruta del checkpoint devuelta. Esto vincula la política de rollout a un
-    artefacto explícito del mismo trabajo.
+  <Step title="Guarda pesos para muestrear">
+    Llama a `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` con un
+    nombre. Muestrea desde ese checkpoint para que cada rollout quede ligado a
+    un artefacto explícito del mismo trabajo.
   </Step>
-  <Step title="Recopila grupos de rollouts">
-    Muestrea varias respuestas candidatas para cada prompt. Tu aplicación
-    controla la construcción de prompts, el renderizado y la agrupación.
+  <Step title="Recoge grupos de rollouts">
+    Muestrea varias respuestas candidatas por prompt con
+    `POST /v1/training/jobs/{job_id}/sample`, indicando ese checkpoint.
+    Tu aplicación se encarga de construir los prompts, tokenizar y agrupar.
   </Step>
   <Step title="Calcula recompensas y ventajas">
-    Puntúa cada respuesta y transforma las recompensas en las ventajas que
-    requiera la operación de entrenamiento documentada seleccionada.
+    Puntúa cada respuesta y convierte las recompensas en las ventajas que
+    necesita tu función de pérdida.
   </Step>
   <Step title="Construye los datums de entrenamiento">
-    Combina entradas del modelo, tokens de respuestas muestreadas, metadatos de
-    muestreo y señales de entrenamiento por token con la forma esperada del SDK.
+    Combina los tokens del prompt y de la respuesta con objetivos, pesos,
+    log-probabilidades o ventajas por posición.
   </Step>
   <Step title="Actualiza el mismo trabajo">
-    Envía el trabajo compatible hacia delante/hacia atrás y después un paso del
-    optimizador mediante el `TrainingClient` existente.
+    Envía `POST /v1/training/jobs/{job_id}/forward-backward` y después
+    `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
-  <Step title="Guarda un límite de recuperación">
-    Guarda un checkpoint de estado y conserva su identificador con el paso de
-    la aplicación y el cursor del dataset antes de iniciar la siguiente iteración.
+  <Step title="Guarda un punto de recuperación">
+    Guarda el estado con `POST /v1/training/jobs/{job_id}/save-weights` y persiste su ruta junto con el paso de la
+    aplicación y el cursor del dataset antes de empezar la siguiente iteración.
   </Step>
 </Steps>
 
-## Modelo de objetos
+## Rutas
 
-| Objeto | Función |
+| Paso | Ruta |
 | --- | --- |
-| `ServiceClient` | Consulta capacidades y crea clientes del SDK |
-| `TrainingClient` | Representa un trabajo interactivo de Fastino y envía sus operaciones del modelo |
-| `SamplingClient` | Muestrea desde un checkpoint resuelto |
-| `RestClient` | Lista u obtiene trabajos canónicos y administra checkpoints con métodos compatibles del SDK |
-| Future | Realiza el seguimiento de una operación enviada al trabajo |
+| Crear un trabajo | [`POST /v1/training/jobs/create-model`](/es/api-reference/interactive-jobs/create) |
+| Calcular la pérdida y los gradientes | [`POST /v1/training/jobs/{job_id}/forward-backward`](/es/api-reference/interactive-jobs/forward-backward) |
+| Calcular solo la pérdida | [`POST /v1/training/jobs/{job_id}/forward`](/es/api-reference/interactive-jobs/forward) |
+| Aplicar los gradientes | [`POST /v1/training/jobs/{job_id}/optim-step`](/es/api-reference/interactive-jobs/optim-step) |
+| Leer un resultado | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/es/api-reference/interactive-jobs/get-future) |
+| Guardar el estado de entrenamiento | [`POST /v1/training/jobs/{job_id}/save-weights`](/es/api-reference/interactive-jobs/save-weights) |
+| Guardar pesos para muestrear | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/es/api-reference/interactive-jobs/save-weights-for-sampler) |
+| Muestrear | [`POST /v1/training/jobs/{job_id}/sample`](/es/api-reference/interactive-jobs/sample) |
+| Detener el trabajo | [`POST /v1/training/jobs/{job_id}/stop`](/es/api-reference/training-jobs/stop) |
 
-El ID de modelo del SDK es el ID canónico del trabajo de Fastino. Los futures y
-los clientes de muestreo no crean ejecuciones independientes.
-
-Para convertir una evaluación determinista en ventajas relativas al grupo,
-sigue [Entrenar con recompensas verificables](/es/training/verifiable-rewards).
+Para convertir una evaluación determinista en ventajas relativas al grupo, sigue
+[Entrena con recompensas verificables](/es/training/verifiable-rewards).
 
 ## Construye datums alineados
 
-En un bucle de muestreo por importancia, el prompt es el contexto y la
-finalización muestreada es la acción. Mantén los arrays de tokens alineados con
-el SDK y el renderizador del modelo seleccionado:
+Un datum contiene N tokens de entrada y tensores de N valores en
+`loss_fn_inputs`. Tokeniza con el tokenizador de Hugging Face del modelo base
+(`transformers.AutoTokenizer.from_pretrained(base_model)`) y usa el mismo
+tokenizador para decodificar las muestras.
 
-- Entrada del modelo con tokens del prompt y de la finalización
-- Tokens objetivo alineados con la entrada del modelo
-- Probabilidades logarítmicas de muestreo alineadas con los tokens generados
-- Ventajas aplicadas a las posiciones de la finalización
+| Función de pérdida | Entradas obligatorias |
+| --- | --- |
+| `cross_entropy` | `target_tokens`; `weights` opcional (`1` en todas partes por defecto) |
+| `importance_sampling`, `ppo`, `cispo`, `dro` | `target_tokens`, `logprobs` y `advantages` |
+
+Para un prompt seguido de una respuesta:
+
+- `model_input` es cada token excepto el último.
+- `target_tokens` es cada token excepto el primero.
+- `weights` vale `0` en las posiciones del prompt y `1` en las de la respuesta.
+- `logprobs` son las log-probabilidades del sampler para los tokens de la
+  respuesta, y `0` en las posiciones del prompt.
+- `advantages` contiene la ventaja de la respuesta en sus posiciones, y `0` en
+  las del prompt.
 
 <Warning>
-  El renderizado de prompts, la tokenización, la construcción de datums y la
-  ejecución de recompensas pertenecen al cliente. Valida sus formas con
-  `tinker==0.33.1` y el contrato de operación documentado antes de aumentar la
-  carga. Capabilities solo informa modelos habilitados y longitudes de contexto.
+  La plantilla del prompt, la tokenización, la construcción de datums y el
+  cálculo de recompensas se ejecutan en tu código. Comprueba la longitud de los
+  tensores antes de enviar un lote. Valida un lote pequeño antes de una carga
+  mayor. Un datum más largo que la longitud de contexto del modelo hace fallar
+  la operación.
 </Warning>
+
+Solo se admiten las funciones de pérdida integradas anteriores. Una pérdida
+escrita en tu propio código no puede ejecutarse en el trabajo.
 
 ## Mantén ordenado el trabajo dependiente
 
-Resuelve un future hacia delante/hacia atrás antes de considerar completa esa
-etapa y el future del optimizador antes de crear el checkpoint del estado
-actualizado. No permitas que controladores independientes muten el mismo trabajo
-sin coordinación en la aplicación.
+El trabajo ejecuta las operaciones en el orden en que las recibe, así que puedes
+encolar un paso del optimizador justo después de una pasada forward-backward.
+Lee el resultado de forward-backward antes de dar el paso por completado. Espera
+a que termine el paso del optimizador antes de guardar el estado actualizado.
 
-El SDK realiza estas operaciones interactivas. No las reproduzcas como llamadas
-HTTP directas.
+No dejes que controladores independientes envíen actualizaciones al mismo
+trabajo sin coordinarse. Para cancelar un muestreo sin terminar, llama a
+`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`. Las
+operaciones de entrenamiento no se pueden cancelar.
 
-Haz un seguimiento de cada future que devuelva una llamada compatible. Resuelve
-o cancela los futures de forma individual. No se admite la recuperación por
-lotes mediante `retrieve_futures`.
+Un trabajo interactivo sin llamadas durante 30 minutos se libera y las
+llamadas de entrenamiento posteriores fallan. Sus checkpoints se conservan, así
+que puedes iniciar un trabajo nuevo desde el último checkpoint de estado.
 
 ## Recupera el bucle
 
-Conserva el ID canónico del trabajo, el paso de la aplicación, el cursor del
-dataset y los identificadores de futures o checkpoints relevantes. Así, un
-controlador reiniciado puede determinar qué trabajo se completó sin repetir una
-actualización.
+Persiste el ID del trabajo, el paso de la aplicación, el cursor del dataset y la
+ruta del último checkpoint. Así, un controlador reiniciado sabe qué trabajo se
+completó sin repetir una actualización.
 
-Para conocer la secuencia de recuperación y los tipos de checkpoint, sigue
+Para la secuencia de recuperación y los tipos de checkpoint, sigue
 [Checkpoints y recuperación](/es/training/checkpoints).
 
-Un `TrainingClient` actualiza un trabajo durante su vida. Crear un cliente desde
-un estado guardado inicia un trabajo interactive nuevo desde el checkpoint de
-origen. Guarda ambos IDs como linaje de la aplicación.
+Para continuar desde un estado guardado en un trabajo nuevo, pasa el
+`path` del checkpoint como `from_checkpoint` a
+`POST /v1/training/jobs/create-model`. El trabajo nuevo tiene otro ID; persiste
+ambos IDs como linaje propio de la aplicación.

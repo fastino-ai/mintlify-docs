@@ -64,6 +64,8 @@ Each line of your JSONL must be a single JSON object. The required columns depen
 
 **Decoder (`dataset_type: "decoder"`)**
 
+Training jobs don't train decoders from uploaded datasets. Decoder training uses interactive jobs (`POST /v1/training/jobs/interactive`) with client-tokenized examples sent in each request.
+
 - `messages` (list of `{role, content}` objects) — chat-style supervision. `role` must be one of `system`, `user`, `assistant`.
 
 ```jsonl

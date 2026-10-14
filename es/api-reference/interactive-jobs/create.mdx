@@ -1,0 +1,88 @@
+---
+title: "Crear un trabajo de entrenamiento interactivo"
+sidebarTitle: "Crear un trabajo interactivo"
+description: "Llama a POST /v1/training/jobs/create-model para iniciar un trabajo de entrenamiento LoRA que tu aplicación dirige paso a paso."
+api: "POST /v1/training/jobs/create-model"
+---
+
+`POST /v1/training/jobs/create-model`
+
+Crea un trabajo de entrenamiento LoRA `interactive` sobre un modelo base decodificador, o un
+trabajo nuevo a partir de un estado de entrenamiento guardado. Después, tu aplicación envía cada
+pasada forward-backward, paso del optimizador, checkpoint y muestreo. Para el entrenamiento
+gestionado de GLiNER, usa [`POST /v1/training/jobs`](/es/api-reference/training-jobs/create).
+
+El trabajo está listo cuando su operación `create` termina. Cada llamada que hace trabajo devuelve un future. Lee su resultado con [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/es/api-reference/interactive-jobs/get-future).
+
+## Solicitud
+
+<ParamField header="X-API-Key" type="string" required>
+  Tu clave de API de Fastino.
+</ParamField>
+
+Envía exactamente uno de `base_model` y `from_checkpoint`.
+
+<ParamField body="base_model" type="string">
+  `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
+  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` o `Qwen/Qwen3.6-35B-A3B`.
+</ParamField>
+
+<ParamField body="from_checkpoint" type="string">
+  `path` de un checkpoint de estado (`weights/<name>`) de uno de tus trabajos. El trabajo
+  nuevo toma su modelo base y su configuración LoRA, así que omite `lora_config`. Los checkpoints
+  sampler se rechazan.
+</ParamField>
+
+<ParamField body="load_optimizer" type="boolean" default="false">
+  Con `from_checkpoint`, restaura también el estado del optimizador.
+</ParamField>
+
+<ParamField body="lora_config" type="object">
+  Configuración LoRA de un trabajo nuevo: `rank` (de 1 a 32, 32 por defecto), `seed`,
+  `train_attn`, `train_mlp` y `train_unembed`.
+</ParamField>
+
+<ParamField body="optimizer_config" type="object">
+  Familia de optimizador. Solo se sirve `{"type": "adamw"}`, el valor por defecto.
+</ParamField>
+
+<ParamField body="project_id" type="string">
+  Proyecto al que pertenecen el trabajo y su uso. Por defecto, tu proyecto predeterminado.
+</ParamField>
+
+<ParamField body="user_metadata" type="object">
+  Tus propios metadatos JSON del trabajo.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_model": "Qwen/Qwen3.6-35B-A3B",
+    "lora_config": {"rank": 32}
+  }'
+```
+
+</RequestExample>
+
+## Respuesta
+
+La respuesta contiene `job_id`, `type` (siempre `interactive`), `base_model`, el `future_id`
+de la operación `create` y, con `from_checkpoint`, el `load_future_id` que carga el checkpoint.
+
+<ResponseExample>
+
+```json Response
+{
+  "job_id": "SESSION_ID:train:0",
+  "type": "interactive",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "future_id": "FUTURE_ID",
+  "load_future_id": null
+}
+```
+
+</ResponseExample>

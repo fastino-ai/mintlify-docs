@@ -4,112 +4,124 @@ sidebarTitle: "Trainingsloop"
 description: "Verbinden Sie Sampling, Rewards, Updates und Checkpoints innerhalb eines interaktiven Fastino-Jobs."
 ---
 
-Ihre Anwendung entscheidet, was gesampelt, wie es bewertet und wann es
-aktualisiert wird. Fastino führt die interaktiven Modelloperationen aus. Ein
-`TrainingClient` repräsentiert während des gesamten Loops einen interaktiven
-Fastino-Job.
+Ihre Anwendung entscheidet, was gesampelt wird, wie es bewertet wird und wann
+aktualisiert wird. Fastino führt jede Modelloperation auf einem interaktiven Job
+aus. Jeder Schritt ist eine JSON-Anfrage an eine Route unter
+`/v1/training/jobs/{job_id}`.
 
 ## Der Kontrollloop
 
 <Steps>
   <Step title="Interaktiven Job erstellen">
-    Wählen Sie ein aktiviertes `base_model` aus Capabilities und verwenden Sie
-    dokumentierte Einstellungen mit `create_lora_training_client(...)`.
-    Capabilities melden keine Ränge, Losses oder Operationslimits. Lesen Sie die
-    kanonische Job-ID aus `training_client.get_info().model_id`.
+    Rufen Sie `POST /v1/training/jobs/create-model` mit einem `base_model` und
+    optional `lora_config` auf. Speichern Sie die zurückgegebene `job_id` und
+    warten Sie, bis das `create`-Future abgeschlossen ist.
   </Step>
-  <Step title="Gewichte für Sampling als Checkpoint speichern">
-    Rufen Sie `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)` auf und erstellen Sie
-    anschließend aus dem zurückgegebenen Checkpoint-Pfad einen Sampling-Client.
-    Dadurch wird die Rollout-Policy an ein explizites Artefakt desselben Jobs
-    gebunden.
+  <Step title="Gewichte zum Samplen speichern">
+    Rufen Sie `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` mit
+    einem Namen auf. Samplen Sie aus diesem Checkpoint, damit jeder
+    Rollout an ein explizites Artefakt desselben Jobs gebunden ist.
   </Step>
   <Step title="Rollout-Gruppen sammeln">
-    Sampeln Sie für jeden Prompt mehrere Antwortkandidaten. Ihre Anwendung ist
-    für Prompt-Erstellung, Rendering der Antworten und Gruppierung
-    verantwortlich.
+    Samplen Sie mehrere Kandidatenantworten pro Prompt mit
+    `POST /v1/training/jobs/{job_id}/sample` unter Angabe dieses Checkpoints.
+    Ihre Anwendung verantwortet Prompt-Aufbau, Tokenisierung und Gruppierung.
   </Step>
   <Step title="Rewards und Advantages berechnen">
-    Bewerten Sie jede Antwort und wandeln Sie die Rewards anschließend in die
-    Advantages um, die von der ausgewählten dokumentierten Trainingsoperation
-    benötigt werden.
+    Bewerten Sie jede Antwort und wandeln Sie die Rewards in die Advantages um,
+    die Ihre Loss-Funktion benötigt.
   </Step>
   <Step title="Trainings-Datums erstellen">
-    Kombinieren Sie Modelleingaben, gesampelte Antwort-Tokens,
-    Sampling-Metadaten und Trainingssignale auf Token-Ebene in der vom SDK
-    erwarteten Form.
+    Kombinieren Sie Prompt- und Antwort-Token mit Zielen, Gewichten,
+    Log-Wahrscheinlichkeiten oder Advantages pro Position.
   </Step>
   <Step title="Denselben Job aktualisieren">
-    Senden Sie unterstützte Forward-/Backward-Arbeit und anschließend einen
-    Optimierungsschritt über den bestehenden `TrainingClient`.
+    Senden Sie `POST /v1/training/jobs/{job_id}/forward-backward` und danach
+    `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
-  <Step title="Wiederherstellungsgrenze speichern">
-    Speichern Sie einen Status-Checkpoint und persistieren Sie seine ID mit dem
-    Anwendungsschritt und Datensatz-Cursor, bevor die nächste Iteration beginnt.
+  <Step title="Wiederherstellungspunkt speichern">
+    Speichern Sie den Zustand mit `POST /v1/training/jobs/{job_id}/save-weights` und persistieren Sie seinen Pfad
+    zusammen mit dem Anwendungsschritt und dem Dataset-Cursor, bevor Sie die
+    nächste Iteration beginnen.
   </Step>
 </Steps>
 
-## Objektmodell
+## Routen
 
-| Objekt | Rolle |
+| Schritt | Route |
 | --- | --- |
-| `ServiceClient` | Fragt Fähigkeiten ab und erstellt SDK-Clients |
-| `TrainingClient` | Repräsentiert einen interaktiven Fastino-Job und sendet dessen Modelloperationen |
-| `SamplingClient` | Sampelt aus einem aufgelösten Checkpoint |
-| `RestClient` | Listet kanonische Jobs auf oder ruft sie ab und verwaltet Checkpoints über unterstützte SDK-Methoden |
-| Future | Verfolgt eine an den Job gesendete Operation |
+| Job erstellen | [`POST /v1/training/jobs/create-model`](/de/api-reference/interactive-jobs/create) |
+| Loss und Gradienten berechnen | [`POST /v1/training/jobs/{job_id}/forward-backward`](/de/api-reference/interactive-jobs/forward-backward) |
+| Nur den Loss berechnen | [`POST /v1/training/jobs/{job_id}/forward`](/de/api-reference/interactive-jobs/forward) |
+| Gradienten anwenden | [`POST /v1/training/jobs/{job_id}/optim-step`](/de/api-reference/interactive-jobs/optim-step) |
+| Ergebnis lesen | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/interactive-jobs/get-future) |
+| Trainingszustand speichern | [`POST /v1/training/jobs/{job_id}/save-weights`](/de/api-reference/interactive-jobs/save-weights) |
+| Gewichte zum Samplen speichern | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/de/api-reference/interactive-jobs/save-weights-for-sampler) |
+| Samplen | [`POST /v1/training/jobs/{job_id}/sample`](/de/api-reference/interactive-jobs/sample) |
+| Job stoppen | [`POST /v1/training/jobs/{job_id}/stop`](/de/api-reference/training-jobs/stop) |
 
-Die SDK-Modell-ID ist die kanonische Fastino-Job-ID. Futures und
-Sampling-Clients erstellen keine unabhängigen Läufe.
-
-Wie Sie deterministisches Grading in gruppenrelative Advantages umwandeln,
-erfahren Sie unter
-[Mit verifizierbaren Rewards trainieren](/de/training/verifiable-rewards).
+Um eine deterministische Bewertung in gruppenrelative Advantages umzuwandeln,
+folgen Sie [Mit verifizierbaren Rewards trainieren](/de/training/verifiable-rewards).
 
 ## Ausgerichtete Datums erstellen
 
-Bei einem Loop im Importance-Sampling-Stil ist der Prompt der Kontext und die
-gesampelte Vervollständigung die Aktion. Halten Sie Token-Arrays auf das SDK und
-den Renderer des ausgewählten Modells ausgerichtet:
+Ein Datum enthält N Eingabe-Token und Tensoren mit N Werten in
+`loss_fn_inputs`. Tokenisieren Sie mit dem Hugging-Face-Tokenizer des
+Basismodells (`transformers.AutoTokenizer.from_pretrained(base_model)`) und
+dekodieren Sie Samples mit demselben Tokenizer.
 
-- Modelleingabe mit Prompt- und Vervollständigungs-Tokens
-- An der Modelleingabe ausgerichtete Ziel-Tokens
-- An generierten Tokens ausgerichtete Sampling-Log-Wahrscheinlichkeiten
-- Auf Positionen der Vervollständigung angewendete Advantages
+| Loss-Funktion | Erforderliche Eingaben |
+| --- | --- |
+| `cross_entropy` | `target_tokens`; optional `weights` (standardmäßig überall `1`) |
+| `importance_sampling`, `ppo`, `cispo`, `dro` | `target_tokens`, `logprobs` und `advantages` |
+
+Für einen Prompt gefolgt von einer Antwort:
+
+- `model_input` ist jedes Token außer dem letzten.
+- `target_tokens` ist jedes Token außer dem ersten.
+- `weights` ist `0` an Prompt-Positionen und `1` an Antwort-Positionen.
+- `logprobs` sind die Log-Wahrscheinlichkeiten des Samplers für die
+  Antwort-Token und `0` an Prompt-Positionen.
+- `advantages` enthält den Advantage der Antwort an ihren Positionen und `0` an
+  Prompt-Positionen.
 
 <Warning>
-  Prompt-Rendering, Tokenisierung, Erstellung von Datums und Reward-Ausführung
-  liegen beim Client. Validieren Sie ihre Formen anhand von `tinker==0.33.1`
-  und dem dokumentierten Operationsvertrag, bevor Sie einen größeren Workload
-  ausführen. Capabilities melden nur aktivierte Modelle und Kontextlängen.
+  Prompt-Rendering, Tokenisierung, Datum-Aufbau und Reward-Berechnung laufen in
+  Ihrem Code. Prüfen Sie die Tensorlängen, bevor Sie einen Batch senden.
+  Validieren Sie einen kleinen Batch vor einem größeren Workload. Ein Datum, das
+  länger als die Kontextlänge des Modells ist, lässt die Operation fehlschlagen.
 </Warning>
+
+Nur die oben genannten eingebauten Loss-Funktionen werden unterstützt. Ein Loss
+aus Ihrem eigenen Code kann nicht auf dem Job laufen.
 
 ## Abhängige Arbeit geordnet halten
 
-Lösen Sie ein Forward-/Backward-Future auf, bevor Sie diese Phase als
-abgeschlossen behandeln, und lösen Sie das Optimizer-Future auf, bevor Sie den
-aktualisierten Status als Checkpoint speichern. Lassen Sie nicht mehrere
-unabhängige Controller denselben Job ohne Koordination auf Anwendungsebene
-verändern.
+Der Job führt Operationen in der Reihenfolge des Eingangs aus, daher können Sie
+einen Optimiererschritt direkt nach einem Forward-Backward-Durchlauf einreihen.
+Lesen Sie das Forward-Backward-Ergebnis, bevor Sie den Schritt als abgeschlossen
+behandeln. Warten Sie auf den Abschluss des Optimiererschritts, bevor Sie den
+aktualisierten Zustand speichern.
 
-Das SDK führt diese interaktiven Operationen aus. Bilden Sie sie nicht als
-direkte HTTP-Aufrufe nach.
+Lassen Sie unabhängige Controller nicht unkoordiniert Updates an denselben Job
+senden. Um ein unfertiges Sampling abzubrechen, rufen Sie
+`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` auf.
+Trainingsoperationen können nicht abgebrochen werden.
 
-Verfolgen Sie jedes Future, das ein unterstützter Aufruf zurückgibt. Lösen Sie
-Futures einzeln auf oder brechen Sie sie einzeln ab. Der Batch-Abruf über
-`retrieve_futures` wird nicht unterstützt.
+Ein interaktiver Job ohne Aufrufe für 30 Minuten wird freigegeben, und spätere
+Trainingsaufrufe schlagen fehl. Seine Checkpoints bleiben erhalten, sodass Sie
+einen neuen Job aus dem letzten Zustands-Checkpoint starten können.
 
 ## Loop wiederherstellen
 
-Speichern Sie die kanonische Job-ID, den Anwendungsschritt, den
-Datensatz-Cursor und die relevanten Future- oder Checkpoint-IDs dauerhaft. Ein
-neu gestarteter Controller kann dann ermitteln, welche Arbeit abgeschlossen
-wurde, ohne ein Update zu wiederholen.
+Persistieren Sie die Job-ID, den Anwendungsschritt, den Dataset-Cursor und den
+Pfad des letzten Checkpoints. Ein neu gestarteter Controller erkennt dann, welche
+Arbeit abgeschlossen wurde, ohne ein Update zu wiederholen.
 
-Die Wiederherstellungsreihenfolge und die Checkpoint-Arten finden Sie unter
+Für die Wiederherstellungssequenz und die Checkpoint-Arten folgen Sie
 [Checkpoints und Wiederherstellung](/de/training/checkpoints).
 
-Ein `TrainingClient` aktualisiert während seiner Lebensdauer einen Job. Das
-Erstellen eines Clients aus gespeichertem Status startet einen neuen
-Interactive-Job aus dem Quell-Checkpoint. Speichern Sie beide IDs als
-anwendungseigene Linie.
+Um einen gespeicherten Zustand in einem neuen Job fortzusetzen, übergeben Sie den
+`path` des Checkpoints als `from_checkpoint` an
+`POST /v1/training/jobs/create-model`. Der neue Job hat eine neue ID; persistieren
+Sie beide Job-IDs als anwendungseigene Herkunft.

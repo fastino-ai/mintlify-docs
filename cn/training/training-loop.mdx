@@ -1,87 +1,100 @@
 ---
 title: "构建自定义训练循环"
 sidebarTitle: "训练循环"
-description: "由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中了解 SDK 对象模型、构建对齐的 datum 并管理检查点。"
+description: "由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中构建对齐的 datum 并管理检查点。"
 ---
 
-你的应用决定采样内容、评分方式和更新时机。Fastino 执行交互式模型操作。
-一个 `TrainingClient` 在整个循环中代表一个 Fastino 交互式任务。
+由你的应用决定采样什么、如何评分以及何时更新。Fastino 在一个 交互式任务上运行每个模型操作。
+每一步都是发送到 `/v1/training/jobs/{job_id}` 下某个路由的 JSON 请求。
 
 ## 控制循环
 
 <Steps>
-  <Step title="创建交互式任务">
-    从 capabilities 中选择已启用的 `base_model`，并使用记录的设置调用
-    `create_lora_training_client(...)`。Capabilities 不报告秩、损失或操作限制。从
-    `training_client.get_info().model_id` 读取规范任务 ID。
+  <Step title="创建 交互式任务">
+    使用 `base_model` 和可选的 `lora_config` 调用 `POST /v1/training/jobs/create-model`。
+    保存返回的 `job_id`，并等待 `create` future 完成。
   </Step>
-  <Step title="为采样创建权重检查点">
-    调用 `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)`，然后使用返回的检查点路径创建采样客户端。
-    这会将 rollout 策略绑定到同一个任务的明确工件。
+  <Step title="保存用于采样的权重">
+    使用名称调用 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`。
+    从该检查点采样，使每个 rollout 都对应同一任务中的明确产物。
   </Step>
   <Step title="收集 rollout 组">
-    为每个提示词采样多个候选响应。你的应用负责提示词构建、响应渲染和分组。
+    使用 `POST /v1/training/jobs/{job_id}/sample` 并指定该检查点，
+    为每个提示采样多个候选响应。提示构建、分词和分组由你的应用负责。
   </Step>
-  <Step title="计算奖励和优势值">
-    为每个响应评分，然后将奖励转换为所选且已记录的训练操作所需的优势值。
+  <Step title="计算奖励和优势">
+    为每个响应评分，然后将奖励转换为损失函数所需的优势。
   </Step>
   <Step title="构建训练 datum">
-    按 SDK 预期的形式组合模型输入、采样响应 token、采样元数据和 token 级训练信号。
+    将提示和响应 token 与逐位置的目标、权重、对数概率或优势组合起来。
   </Step>
   <Step title="更新同一个任务">
-    通过现有 `TrainingClient` 提交受支持的前向/反向传播工作，然后执行优化器步骤。
+    发送 `POST /v1/training/jobs/{job_id}/forward-backward`，然后发送
+    `POST /v1/training/jobs/{job_id}/optim-step`。
   </Step>
   <Step title="保存恢复边界">
-    在开始下一次迭代前，保存状态检查点，并将其标识符与应用步骤及数据集游标一起持久化。
+    在开始下一次迭代之前，使用 `POST /v1/training/jobs/{job_id}/save-weights` 保存状态，并将其路径与应用步骤和数据集游标一起持久化。
   </Step>
 </Steps>
 
-## 对象模型
+## 路由
 
-| 对象 | 作用 |
+| 步骤 | 路由 |
 | --- | --- |
-| `ServiceClient` | 查询功能并创建 SDK 客户端 |
-| `TrainingClient` | 代表一个 Fastino 交互式任务并提交其模型操作 |
-| `SamplingClient` | 从已解析的检查点采样 |
-| `RestClient` | 列出或获取规范任务，并使用受支持的 SDK 方法管理检查点 |
-| Future | 跟踪提交给任务的一项操作 |
+| 创建任务 | [`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create) |
+| 计算损失和梯度 | [`POST /v1/training/jobs/{job_id}/forward-backward`](/cn/api-reference/interactive-jobs/forward-backward) |
+| 仅计算损失 | [`POST /v1/training/jobs/{job_id}/forward`](/cn/api-reference/interactive-jobs/forward) |
+| 应用梯度 | [`POST /v1/training/jobs/{job_id}/optim-step`](/cn/api-reference/interactive-jobs/optim-step) |
+| 读取结果 | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future) |
+| 保存训练状态 | [`POST /v1/training/jobs/{job_id}/save-weights`](/cn/api-reference/interactive-jobs/save-weights) |
+| 保存用于采样的权重 | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/cn/api-reference/interactive-jobs/save-weights-for-sampler) |
+| 采样 | [`POST /v1/training/jobs/{job_id}/sample`](/cn/api-reference/interactive-jobs/sample) |
+| 停止任务 | [`POST /v1/training/jobs/{job_id}/stop`](/cn/api-reference/training-jobs/stop) |
 
-SDK 模型 ID 就是规范的 Fastino 任务 ID。Future 和采样客户端不会创建独立运行。
-
-要将确定性评分转换为组相对优势值，请参阅
-[使用可验证奖励进行训练](/cn/training/verifiable-rewards)。
+要将确定性评分转换为组相对优势，请参阅[使用可验证奖励训练](/cn/training/verifiable-rewards)。
 
 ## 构建对齐的 datum
 
-对于重要性采样式循环，提示词是上下文，采样到的补全是动作。确保 token 数组与所选模型
-使用的 SDK 和渲染器对齐：
+datum 包含 N 个输入 token，以及 `loss_fn_inputs` 中各含 N 个值的张量。请使用基础模型的
+Hugging Face tokenizer（`transformers.AutoTokenizer.from_pretrained(base_model)`）分词，并用同一个
+tokenizer 解码采样结果。
 
-- 包含提示词和补全 token 的模型输入
-- 与模型输入对齐的目标 token
-- 与生成 token 对齐的采样对数概率
-- 应用于补全位置的优势值
+| 损失函数 | 必需输入 |
+| --- | --- |
+| `cross_entropy` | `target_tokens`；可选 `weights`（默认处处为 `1`） |
+| `importance_sampling`、`ppo`、`cispo`、`dro` | `target_tokens`、`logprobs` 和 `advantages` |
+
+对于“提示 + 补全”：
+
+- `model_input` 是除最后一个以外的所有 token。
+- `target_tokens` 是除第一个以外的所有 token。
+- `weights` 在提示位置为 `0`，在补全位置为 `1`。
+- `logprobs` 是 sampler 对补全 token 给出的对数概率，提示位置为 `0`。
+- `advantages` 在补全位置为该补全的优势，提示位置为 `0`。
 
 <Warning>
-  提示词渲染、token 化、datum 构建和奖励执行均由客户端负责。在运行更大的工作负载前，
-  请根据 `tinker==0.33.1` 和已记录的操作契约验证它们的形式。Capabilities
-  仅报告已启用的模型及其上下文长度。
+  提示渲染、分词、datum 构建和奖励计算都在你的代码中运行。发送批次前请检查张量长度。
+  在较大的工作负载之前先验证一个小批次。超过模型上下文长度的 datum 会导致 operation 失败。
 </Warning>
+
+仅支持上面的内置损失函数。在你自己的代码中编写的损失函数无法在任务上运行。
 
 ## 保持依赖工作有序
 
-将前向/反向传播阶段视为完成之前，请先解析其 future；在为更新后的状态创建检查点之前，
-请先解析优化器 future。没有应用级协调时，不要让独立控制器修改同一个任务。
+任务按接收顺序运行 operation，因此可以在 forward-backward 之后立即排队优化器步骤。
+在将该步骤视为完成之前，请先读取 forward-backward 的结果。保存更新后的状态之前，请等待优化器步骤完成。
 
-SDK 执行这些交互式操作。不要将它们复现为直接 HTTP 调用。
+不要让彼此独立的控制器在未协调的情况下向同一任务发送更新。要取消未完成的采样，请调用
+`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`。训练 operation 无法取消。
 
-跟踪受支持调用返回的每个 future。逐个解析或取消 future。不支持通过 `retrieve_futures` 批量检索。
+交互式任务 30 分钟内没有调用就会被释放，之后的训练调用会失败。其检查点会保留，
+因此你可以从最新的状态检查点启动新任务。
 
 ## 恢复循环
 
-持久化规范任务 ID、应用步骤、数据集游标以及相关的 future 或检查点标识符。
-这样，重启后的控制器无需重放更新即可确定哪些工作已完成。
+持久化任务 ID、应用步骤、数据集游标和最新检查点路径。这样重启后的控制器就能判断哪些工作已完成，而无需重放更新。
 
-有关恢复顺序和检查点类型，请参阅[检查点与恢复](/cn/training/checkpoints)。
+关于恢复顺序和检查点类型，请参阅[检查点与恢复](/cn/training/checkpoints)。
 
-一个 `TrainingClient` 在其生命周期内更新一个任务。从保存的状态创建客户端会从
-来源检查点启动新的交互式任务。请将两个任务 ID 记录为应用负责的沿袭关系。
+要在新任务中从已保存的状态继续，请将检查点的 `path` 作为 `from_checkpoint` 传给
+`POST /v1/training/jobs/create-model`。新任务会有新的 ID；请将两个任务 ID 作为应用自有的谱系一并持久化。

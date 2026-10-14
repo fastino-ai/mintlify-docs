@@ -3,7 +3,7 @@
 > 使用 GLiDE 构建结构化决策，使用 GLiNER 进行基于模式的抽取，并通过 Fastino 微调专用模型。
 
 > ## 代理说明
-> 使用 https://docs.fastino.ai/openapi.json 作为面向客户的 API 路由的事实来源。训练作业使用 `/v1/training/jobs`。对于自定义训练循环，请遵循训练 API 工作流页面并使用受支持的 SDK 客户端；其 HTTP 兼容适配器不会出现在 OpenAPI 中，也不应被直接调用。Auto Train 属于私有访问且没有公共路由；请引导用户联系 `sales@fastino.ai`。不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，切勿在代码、日志或报告中嵌入凭据。
+> 使用 https://docs.fastino.ai/openapi.json 作为面向客户的 API 路由的事实来源。训练作业使用 `/v1/training/jobs`。config 任务训练 GLiNER 编码器；对于解码器的自定义训练循环，请使用 `POST /v1/training/jobs/create-model` 创建交互式任务，并调用 `/v1/training/jobs/{job_id}` 下的原生路由。Auto Train 属于私有访问且没有公共路由；请引导用户联系 `sales@fastino.ai`。不要推断未记录的路由。请从 `FASTINO_API_KEY` 读取 API 密钥，切勿在代码、日志或报告中嵌入凭据。
 
 ## 代理资源
 
@@ -55,14 +55,14 @@
 
 ### 训练 API
 
-- [训练 API 概览：任务类型与生命周期](https://docs.fastino.ai/cn/training.md): 选择托管训练、自定义训练循环或 Auto Train，了解 config 与 interactive 任务类型及配置任务生命周期，并检查训练任务。
+- [训练 API 概览：任务类型与生命周期](https://docs.fastino.ai/cn/training.md): 选择托管训练、自定义训练循环或 Auto Train，了解 config 与 交互式任务类型及配置任务生命周期，并检查训练任务。
 - [训练 API 快速入门](https://docs.fastino.ai/cn/training/quickstart.md): 完成身份验证后选择托管训练或自定义训练循环：准备数据集并选择模型启动训练任务，或由你的应用控制采样、奖励和更新，然后验证规范任务 ID。
 - [从 Tinker 迁移](https://docs.fastino.ai/cn/training/migrate-from-tinker.md): 将兼容的 Tinker SDK 工作负载迁移到 Fastino 交互式训练任务。
-- [准备并上传训练数据集](https://docs.fastino.ai/cn/concepts/datasets.md): 在启动 Fastino 训练任务之前，格式化、上传、验证并检查 NER、分类或解码器数据集。
+- [准备并上传训练数据集](https://docs.fastino.ai/cn/concepts/datasets.md): 在启动 Fastino GLiNER 训练任务之前，格式化、上传、验证并检查 NER 或分类数据集。
 - [微调 GLiNER](https://docs.fastino.ai/cn/guides/fine-tune-gliner.md): 准备 GLiNER 数据集、创建托管式配置任务，并通过检查点直至任务完成进行监控。
-- [构建自定义训练循环](https://docs.fastino.ai/cn/training/training-loop.md): 由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中了解 SDK 对象模型、构建对齐的 datum 并管理检查点。
+- [构建自定义训练循环](https://docs.fastino.ai/cn/training/training-loop.md): 由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中构建对齐的 datum 并管理检查点。
 - [使用可验证奖励进行训练](https://docs.fastino.ai/cn/training/verifiable-rewards.md): 用确定性评分器检查数学答案、测试结果等响应，将奖励转换为优势值，并在同一个 Fastino 交互式任务中完成采样、更新和检查点。
-- [检查点与恢复](https://docs.fastino.ai/cn/training/checkpoints.md): 通过 SDK 保存交互式任务的状态检查点和循环记录，读取最新的完整记录，加载前验证任务 ID 和数据集游标，然后在不重放已完成工作的情况下恢复。
+- [检查点与恢复](https://docs.fastino.ai/cn/training/checkpoints.md): 保存交互式任务的状态检查点和循环记录，读取最新的完整记录，加载前验证任务 ID 和数据集游标，然后在不重放已完成工作的情况下恢复。
 - [Auto Train](https://docs.fastino.ai/cn/training/auto.md): 将数据准备、训练、评估和模型选择委托给 Fastino 的自治训练智能体。
 
 ### 推理 API
@@ -110,7 +110,7 @@
 
 ### 训练
 
-- [训练 API 参考](https://docs.fastino.ai/cn/api-reference/training/overview.md): 托管式训练的公共 REST 契约，以及 config 和 interactive 任务共享的规范生命周期。
+- [训练 API 参考](https://docs.fastino.ai/cn/api-reference/training/overview.md): 托管式训练的公共 REST 契约，以及 config 和 交互式任务共享的规范生命周期。
 - [列出可用和可训练的模型](https://docs.fastino.ai/cn/api-reference/training/base-models.md): 使用 GET /v1/base-models 端点查询实时的 Fastino 模型目录，并按推理、训练或架构能力进行筛选。
 - [列出数据集](https://docs.fastino.ai/cn/api-reference/datasets/list.md): 使用 GET /v1/datasets 列出当前认证的 Fastino 账户可用的数据集，并通过 limit 和 offset 查询参数分页。
 - [创建数据集上传 URL](https://docs.fastino.ai/cn/api-reference/datasets/upload-url.md): 调用 POST /v1/datasets/upload/url 为新的数据集文件创建预签名上传 URL，需提供数据集名称、类型、格式和文件名。
@@ -134,3 +134,19 @@
 - [停止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/stop.md): 停止运行中的 Fastino 训练任务并保留停止前创建的检查点。JSON 请求体为可选，可附带停止原因、数值指标和检查点路径。
 - [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 停止活动的 config 训练任务并请求提供方取消。默认保留现有检查点和工件，设置 delete_checkpoints 会在取消后永久删除它们。
 - [同步训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/sync.md): 调用 POST /v1/training/jobs/{job_id}/sync 并传入训练任务 ID，从训练提供方刷新该训练任务的状态。
+- [创建交互式训练任务](https://docs.fastino.ai/cn/api-reference/interactive-jobs/create.md): 调用 POST /v1/training/jobs/create-model，启动由你的应用逐步驱动的 LoRA 训练任务。
+- [排队 forward-backward 计算](https://docs.fastino.ai/cn/api-reference/interactive-jobs/forward-backward.md): 调用 POST /v1/training/jobs/{job_id}/forward-backward，计算一批数据的损失并为下一次优化器步骤累积梯度。
+- [排队 forward 计算](https://docs.fastino.ai/cn/api-reference/interactive-jobs/forward.md): 调用 POST /v1/training/jobs/{job_id}/forward，在不计算梯度的情况下计算一批数据的损失和对数概率。
+- [排队优化器步骤](https://docs.fastino.ai/cn/api-reference/interactive-jobs/optim-step.md): 调用 POST /v1/training/jobs/{job_id}/optim-step，使用 AdamW 应用自上一步以来累积的梯度。
+- [获取交互式任务的 future](https://docs.fastino.ai/cn/api-reference/interactive-jobs/get-future.md): 调用 GET /v1/training/jobs/{job_id}/futures/{future_id}，读取 future 的状态以及完成后的结果。
+- [取消采样 future](https://docs.fastino.ai/cn/api-reference/interactive-jobs/cancel-future.md): 调用 POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel，取消排队中或运行中的采样。
+- [保存交互式任务的训练状态](https://docs.fastino.ai/cn/api-reference/interactive-jobs/save-weights.md): 调用 POST /v1/training/jobs/{job_id}/save-weights，以指定名称保存交互式任务的 LoRA 权重和优化器状态。
+- [保存交互式任务的采样权重](https://docs.fastino.ai/cn/api-reference/interactive-jobs/save-weights-for-sampler.md): 调用 POST /v1/training/jobs/{job_id}/save-weights-for-sampler，保存可用于采样并可作为 PEFT 文件下载的 LoRA 权重。
+- [将训练状态加载到交互式任务](https://docs.fastino.ai/cn/api-reference/interactive-jobs/load-weights.md): 调用 POST /v1/training/jobs/{job_id}/load-weights，恢复该任务保存的某个训练状态。
+- [从交互式任务采样](https://docs.fastino.ai/cn/api-reference/interactive-jobs/sample.md): 调用 POST /v1/training/jobs/{job_id}/sample，为分词后的提示生成续写。
+- [获取 交互式任务检查点](https://docs.fastino.ai/cn/api-reference/interactive-jobs/get-checkpoint.md): 调用 GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}，读取 交互式任务的单个检查点。
+- [设置 交互式任务检查点的 TTL](https://docs.fastino.ai/cn/api-reference/interactive-jobs/set-checkpoint-ttl.md): 调用 PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl，修改检查点自动删除的时间。
+- [发布 交互式任务检查点](https://docs.fastino.ai/cn/api-reference/interactive-jobs/publish-checkpoint.md): 调用 POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish，将检查点标记为公开。
+- [取消发布 交互式任务检查点](https://docs.fastino.ai/cn/api-reference/interactive-jobs/unpublish-checkpoint.md): 调用 DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish，将检查点重新设为私有。
+- [删除 交互式任务检查点](https://docs.fastino.ai/cn/api-reference/interactive-jobs/delete-checkpoint.md): 调用 DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}，删除 交互式任务的单个检查点。
+- [获取 交互式任务检查点存储用量](https://docs.fastino.ai/cn/api-reference/interactive-jobs/usage.md): 调用 GET /v1/training/usage，读取团队 交互式任务检查点的当前存储量及其月度价格。

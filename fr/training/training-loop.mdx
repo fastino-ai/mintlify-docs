@@ -4,110 +4,124 @@ sidebarTitle: "Boucle d'entraînement"
 description: "Reliez l'échantillonnage, les récompenses, les mises à jour et les checkpoints au sein d'un même job interactif Fastino."
 ---
 
-Votre application décide quoi échantillonner, comment l'évaluer et quand
-effectuer une mise à jour. Fastino exécute les opérations interactives du
-modèle. Un `TrainingClient` représente un job interactif Fastino pendant toute
-la boucle.
+Votre application décide quoi échantillonner, comment le noter et quand mettre
+à jour. Fastino exécute chaque opération du modèle sur un job interactif. Chaque
+étape est une requête JSON vers une route sous `/v1/training/jobs/{job_id}`.
 
 ## La boucle de contrôle
 
 <Steps>
   <Step title="Créer le job interactif">
-    Choisissez un `base_model` activé dans capabilities, puis utilisez des
-    réglages documentés avec `create_lora_training_client(...)`. Capabilities
-    ne rapporte ni rangs, ni pertes, ni limites d'opération. Lisez l'ID
-    canonique dans `training_client.get_info().model_id`.
+    Appelez `POST /v1/training/jobs/create-model` avec un `base_model` et un
+    `lora_config` facultatif. Conservez le `job_id` renvoyé et attendez la fin du
+    future `create`.
   </Step>
-  <Step title="Créer un checkpoint des poids pour l'échantillonnage">
-    Appelez `save_weights_for_sampler(name, ttl_seconds=24 * 60 * 60)`, puis créez un client
-    d'échantillonnage à partir du chemin de checkpoint renvoyé. Cela associe la
-    politique de rollout à un artefact explicite du même job.
+  <Step title="Enregistrer des poids pour l'échantillonnage">
+    Appelez `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` avec un
+    nom. Échantillonnez depuis ce checkpoint pour que chaque rollout soit
+    lié à un artefact explicite du même job.
   </Step>
   <Step title="Collecter des groupes de rollouts">
-    Échantillonnez plusieurs réponses candidates pour chaque prompt. Votre
-    application contrôle la construction des prompts, le rendu des réponses et
-    le regroupement.
+    Échantillonnez plusieurs réponses candidates par prompt avec
+    `POST /v1/training/jobs/{job_id}/sample`, en indiquant ce checkpoint.
+    Votre application gère la construction des prompts, la tokenisation et le
+    regroupement.
   </Step>
   <Step title="Calculer les récompenses et les avantages">
-    Évaluez chaque réponse, puis transformez les récompenses en avantages requis
-    par l'opération d'entraînement documentée sélectionnée.
+    Notez chaque réponse, puis transformez les récompenses en avantages
+    attendus par votre fonction de perte.
   </Step>
   <Step title="Construire les datums d'entraînement">
-    Combinez les entrées du modèle, les tokens des réponses échantillonnées, les
-    métadonnées d'échantillonnage et les signaux d'entraînement au niveau des
-    tokens dans la forme attendue par le SDK.
+    Combinez les tokens du prompt et de la réponse avec des cibles, poids,
+    log-probabilités ou avantages par position.
   </Step>
   <Step title="Mettre à jour le même job">
-    Soumettez les opérations avant/arrière prises en charge, puis une étape
-    d'optimisation, via le `TrainingClient` existant.
+    Envoyez `POST /v1/training/jobs/{job_id}/forward-backward`, puis
+    `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
-  <Step title="Enregistrer une limite de récupération">
-    Enregistrez un checkpoint d'état et conservez son identifiant avec l'étape
-    de l'application et le curseur du dataset avant de commencer l'itération
-    suivante.
+  <Step title="Enregistrer un point de reprise">
+    Enregistrez l'état avec `POST /v1/training/jobs/{job_id}/save-weights` et conservez son chemin avec l'étape de
+    l'application et le curseur du dataset avant l'itération suivante.
   </Step>
 </Steps>
 
-## Modèle d'objets
+## Routes
 
-| Objet | Rôle |
+| Étape | Route |
 | --- | --- |
-| `ServiceClient` | Interroge les capacités et crée les clients SDK |
-| `TrainingClient` | Représente un job interactif Fastino et soumet ses opérations de modèle |
-| `SamplingClient` | Échantillonne depuis un checkpoint résolu |
-| `RestClient` | Liste ou obtient les jobs canoniques et administre les checkpoints avec des méthodes SDK prises en charge |
-| Future | Suit une opération soumise au job |
+| Créer un job | [`POST /v1/training/jobs/create-model`](/fr/api-reference/interactive-jobs/create) |
+| Calculer la perte et les gradients | [`POST /v1/training/jobs/{job_id}/forward-backward`](/fr/api-reference/interactive-jobs/forward-backward) |
+| Calculer la perte seule | [`POST /v1/training/jobs/{job_id}/forward`](/fr/api-reference/interactive-jobs/forward) |
+| Appliquer les gradients | [`POST /v1/training/jobs/{job_id}/optim-step`](/fr/api-reference/interactive-jobs/optim-step) |
+| Lire un résultat | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/fr/api-reference/interactive-jobs/get-future) |
+| Enregistrer l'état d'entraînement | [`POST /v1/training/jobs/{job_id}/save-weights`](/fr/api-reference/interactive-jobs/save-weights) |
+| Enregistrer des poids pour l'échantillonnage | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/fr/api-reference/interactive-jobs/save-weights-for-sampler) |
+| Échantillonner | [`POST /v1/training/jobs/{job_id}/sample`](/fr/api-reference/interactive-jobs/sample) |
+| Arrêter le job | [`POST /v1/training/jobs/{job_id}/stop`](/fr/api-reference/training-jobs/stop) |
 
-L'ID de modèle du SDK est l'ID de job Fastino canonique. Les futures et les
-clients d'échantillonnage ne créent pas d'exécutions indépendantes.
-
-Pour transformer une évaluation déterministe en avantages relatifs au groupe,
-suivez [S'entraîner avec des récompenses vérifiables](/fr/training/verifiable-rewards).
+Pour transformer une notation déterministe en avantages relatifs au groupe,
+suivez [Entraîner avec des récompenses vérifiables](/fr/training/verifiable-rewards).
 
 ## Construire des datums alignés
 
-Pour une boucle fondée sur l'échantillonnage d'importance, le prompt constitue
-le contexte et la complétion échantillonnée constitue l'action. Conservez les
-tableaux de tokens alignés avec le SDK et le renderer utilisés par le modèle
-sélectionné :
+Un datum contient N tokens d'entrée et des tenseurs de N valeurs dans
+`loss_fn_inputs`. Tokenisez avec le tokenizer Hugging Face du modèle de base
+(`transformers.AutoTokenizer.from_pretrained(base_model)`) et utilisez le même
+tokenizer pour décoder les échantillons.
 
-- Entrée du modèle contenant les tokens du prompt et de la complétion
-- Tokens cibles alignés avec l'entrée du modèle
-- Log-probabilités d'échantillonnage alignées avec les tokens générés
-- Avantages appliqués aux positions de la complétion
+| Fonction de perte | Entrées requises |
+| --- | --- |
+| `cross_entropy` | `target_tokens` ; `weights` facultatif (`1` partout par défaut) |
+| `importance_sampling`, `ppo`, `cispo`, `dro` | `target_tokens`, `logprobs` et `advantages` |
+
+Pour un prompt suivi d'une complétion :
+
+- `model_input` contient tous les tokens sauf le dernier.
+- `target_tokens` contient tous les tokens sauf le premier.
+- `weights` vaut `0` sur les positions du prompt et `1` sur celles de la complétion.
+- `logprobs` sont les log-probabilités du sampler pour les tokens de la
+  complétion, et `0` sur les positions du prompt.
+- `advantages` contient l'avantage de la complétion sur ses positions, et `0`
+  sur celles du prompt.
 
 <Warning>
-  Le rendu des prompts, la tokenisation, la construction des datums et
-  l'exécution des récompenses sont contrôlés par le client. Validez leurs formes
-  par rapport à `tinker==0.33.1` et au contrat d'opération documenté avant
-  d'exécuter un workload plus important. Capabilities ne rapporte que les
-  modèles activés et longueurs de contexte.
+  Le rendu du prompt, la tokenisation, la construction des datums et le calcul
+  des récompenses s'exécutent dans votre code. Vérifiez la longueur des tenseurs
+  avant d'envoyer un lot. Validez un petit lot avant une charge plus importante.
+  Un datum plus long que la longueur de contexte du modèle fait échouer
+  l'opération.
 </Warning>
+
+Seules les fonctions de perte intégrées ci-dessus sont prises en charge. Une
+perte écrite dans votre propre code ne peut pas s'exécuter sur le job.
 
 ## Maintenir l'ordre du travail dépendant
 
-Résolvez une future avant/arrière avant de considérer cette étape comme
-terminée, et résolvez la future de l'optimiseur avant de créer un checkpoint de
-l'état mis à jour. Ne laissez pas des contrôleurs indépendants modifier le même
-job sans coordination au niveau de l'application.
+Le job exécute les opérations dans l'ordre de réception : vous pouvez donc
+mettre en file une étape d'optimiseur juste après une passe forward-backward.
+Lisez le résultat de forward-backward avant de considérer l'étape comme
+terminée. Attendez la fin de l'étape d'optimiseur avant d'enregistrer l'état
+mis à jour.
 
-Le SDK exécute ces opérations interactives. Ne les reproduisez pas sous forme
-d'appels HTTP directs.
+Ne laissez pas des contrôleurs indépendants envoyer des mises à jour au même job
+sans coordination. Pour annuler un échantillonnage inachevé, appelez
+`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`. Les
+opérations d'entraînement ne peuvent pas être annulées.
 
-Suivez chaque future renvoyée par un appel pris en charge. Résolvez ou annulez
-les futures individuellement. La récupération par lots via `retrieve_futures`
-n'est pas prise en charge.
+Un job interactif sans appel pendant 30 minutes est libéré, et les appels
+d'entraînement suivants échouent. Ses checkpoints sont conservés : vous pouvez
+démarrer un nouveau job depuis le dernier checkpoint d'état.
 
 ## Récupérer la boucle
 
-Conservez l'ID de job canonique, l'étape de l'application, le curseur du
-dataset et les identifiants de futures ou de checkpoints pertinents. Un
-contrôleur redémarré peut alors déterminer quel travail est terminé sans
-rejouer une mise à jour.
+Conservez l'ID du job, l'étape de l'application, le curseur du dataset et le
+chemin du dernier checkpoint. Un contrôleur redémarré sait alors quel travail
+s'est terminé sans rejouer une mise à jour.
 
-Pour la séquence de récupération et les types de checkpoints, consultez
-[Checkpoints et récupération](/fr/training/checkpoints).
+Pour la séquence de reprise et les types de checkpoints, suivez
+[Checkpoints et reprise](/fr/training/checkpoints).
 
-Un `TrainingClient` met à jour un job pendant sa durée de vie. Créer un client
-depuis un état enregistré démarre un nouveau job interactive à partir du
-checkpoint source. Enregistrez les deux ID comme lignée gérée par l'application.
+Pour reprendre un état enregistré dans un nouveau job, passez le `path`
+du checkpoint comme `from_checkpoint` à `POST /v1/training/jobs/create-model`.
+Le nouveau job a un nouvel ID ; conservez les deux IDs comme lignée gérée par
+l'application.

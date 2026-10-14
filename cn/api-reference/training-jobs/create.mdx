@@ -8,11 +8,12 @@ api: "POST /v1/training/jobs"
 `POST /v1/training/jobs`
 
 创建一个异步 `config` 训练任务并返回其任务记录。在配置任务中，你提供数据集和配置，
-Fastino 负责运行训练循环。若要逐步控制该循环，请按照
-[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作。该路径会创建
-`interactive` 任务。自定义循环通过受支持的 SDK 客户端创建任务；此 REST 端点
-不会创建 `interactive` 任务。创建后，两种任务类型都使用其规范 ID 调用已记录的
-`/v1/training/jobs/{job_id}` 生命周期操作。
+Fastino 负责运行训练循环。config 任务训练 GLiNER 编码器：
+`fastino/gliner2-multi-v1` 和 `fastino/GLiNER-2.5-Decide`。
+
+要训练解码器模型，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create)
+创建 `interactive` 任务，并按照[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作。
+创建后，两种任务类型都使用其规范 ID 调用已记录的 `/v1/training/jobs/{job_id}` 生命周期操作。
 
 此端点限制为每个用户每分钟 20 次请求。
 
@@ -27,7 +28,7 @@ Fastino 负责运行训练循环。若要逐步控制该循环，请按照
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  来自 `GET /v1/base-models?supports_training=true` 的可训练模型 ID，或受支持的检查点 UUID。
+  来自 `GET /v1/base-models?supports_training=true` 的可训练 GLiNER 模型 ID，或受支持的检查点 UUID。
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -87,14 +88,6 @@ Fastino 负责运行训练循环。若要逐步控制该循环，请按照
     LoRA dropout。省略时使用模型配方。
   </ParamField>
 
-  <ParamField body="packing" type="boolean">
-    为兼容的 decoder LoRA 任务打包短样本。
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    Decoder 损失掩码选项。不受支持的组合将被拒绝。
-  </ParamField>
-
   <ParamField body="warmup_ratio" type="number">
     预热比例，取值从 `0` 到 `1`。`warmup_steps` 优先生效。
   </ParamField>
@@ -121,10 +114,6 @@ Fastino 负责运行训练循环。若要逐步控制该循环，请按照
 
   <ParamField body="provider_name" type="string">
     锁定兼容的训练提供方。省略时会自动选择。
-  </ParamField>
-
-  <ParamField body="system_prompt" type="string">
-    用于兼容 decoder 训练的规范化系统提示词。
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -159,13 +148,6 @@ Fastino 负责运行训练循环。若要逐步控制该循环，请按照
     GLiNER 最小优化器步数。
   </ParamField>
 
-  <ParamField body="training_algorithm" type="string" default="sft">
-    `sft`、`grpo` 或 `dpo`。GRPO 需要 `rl_config.reward_type`。DPO 数据集需要 `prompt`、`chosen` 和 `rejected` 列。
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    算法特定设置。共享的键包括 `max_steps` 和 `logging_steps`。GRPO 支持 `reward_type`、`kl_beta`、`group_size`、`sampling_temperature` 和 `max_completion_length`。DPO 支持 `dpo_beta` 和 `loss_type`。`llm_as_judge` 类型的 GRPO 奖励还支持 `llm_judge_model`、`llm_judge_rubric`、`llm_judge_score_scale`、`llm_judge_timeout_s`、`llm_judge_max_concurrent`、`llm_judge_max_retries` 和 `llm_judge_retry_backoff_s`。
-  </ParamField>
 </Expandable>
 
 <RequestExample>

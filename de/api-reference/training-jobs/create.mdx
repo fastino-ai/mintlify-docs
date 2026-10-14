@@ -9,13 +9,14 @@ api: "POST /v1/training/jobs"
 
 Erstellt einen asynchronen `config`-Trainingsjob und gibt dessen Job-Datensatz
 zurück. Bei einem Config-Job stellen Sie einen Datensatz und eine Konfiguration
-bereit, und Fastino führt den Trainingsloop aus. Um den Loop Schritt für Schritt
-zu steuern, folgen Sie dem
-[Pfad für einen eigenen Trainingsablauf](/de/training/quickstart#custom-training-loop).
-Dieser Pfad erstellt einen `interactive`-Job über den unterstützten SDK-Client.
-Dieser REST-Endpunkt erstellt keine Interactive-Jobs. Nach der Erstellung
-verwenden beide Jobtypen ihre kanonischen IDs mit den dokumentierten
-Lebenszyklusoperationen unter `/v1/training/jobs/{job_id}`.
+bereit, und Fastino führt den Trainingsloop aus. Config-Jobs trainieren
+GLiNER-Encoder: `fastino/gliner2-multi-v1` und `fastino/GLiNER-2.5-Decide`.
+
+Um ein Decoder-Modell zu trainieren, erstellen Sie einen `interactive`-Job mit
+[`POST /v1/training/jobs/create-model`](/de/api-reference/interactive-jobs/create)
+und folgen dem [Pfad für einen eigenen Trainingsablauf](/de/training/quickstart#custom-training-loop).
+Nach der Erstellung verwenden beide Jobtypen ihre kanonischen IDs mit den
+dokumentierten Lebenszyklusoperationen unter `/v1/training/jobs/{job_id}`.
 
 Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 
@@ -30,7 +31,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Eine trainierbare Modell-ID aus `GET /v1/base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID.
+  Eine trainierbare GLiNER-Modell-ID aus `GET /v1/base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -90,14 +91,6 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
     LoRA-Dropout. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
   </ParamField>
 
-  <ParamField body="packing" type="boolean">
-    Packt kurze Beispiele für kompatible Decoder-LoRA-Jobs.
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    Option zur Loss-Maskierung im Decoder. Nicht unterstützte Kombinationen werden abgelehnt.
-  </ParamField>
-
   <ParamField body="warmup_ratio" type="number">
     Warmup-Anteil von `0` bis `1`. `warmup_steps` hat Vorrang.
   </ParamField>
@@ -124,10 +117,6 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 
   <ParamField body="provider_name" type="string">
     Fixiert einen kompatiblen Trainingsanbieter. Weglassen für automatische Auswahl.
-  </ParamField>
-
-  <ParamField body="system_prompt" type="string">
-    Kanonischer System-Prompt für kompatibles Decoder-Training.
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -162,13 +151,6 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
     Minimale Anzahl an GLiNER-Optimizer-Schritten.
   </ParamField>
 
-  <ParamField body="training_algorithm" type="string" default="sft">
-    `sft`, `grpo` oder `dpo`. GRPO erfordert `rl_config.reward_type`. DPO-Datensätze benötigen die Spalten `prompt`, `chosen` und `rejected`.
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    Algorithmusspezifische Einstellungen. Gemeinsame Schlüssel sind `max_steps` und `logging_steps`. GRPO unterstützt `reward_type`, `kl_beta`, `group_size`, `sampling_temperature` und `max_completion_length`. DPO unterstützt `dpo_beta` und `loss_type`. Der GRPO-Reward `llm_as_judge` unterstützt außerdem `llm_judge_model`, `llm_judge_rubric`, `llm_judge_score_scale`, `llm_judge_timeout_s`, `llm_judge_max_concurrent`, `llm_judge_max_retries` und `llm_judge_retry_backoff_s`.
-  </ParamField>
 </Expandable>
 
 <RequestExample>

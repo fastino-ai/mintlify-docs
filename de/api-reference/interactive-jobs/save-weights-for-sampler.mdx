@@ -1,0 +1,54 @@
+---
+title: "Gewichte eines interaktiven Jobs zum Samplen speichern"
+sidebarTitle: "Gewichte für Sampler speichern"
+description: "Rufen Sie POST /v1/training/jobs/{job_id}/save-weights-for-sampler auf, um LoRA-Gewichte zu speichern, die Sie samplen und als PEFT-Dateien herunterladen können."
+api: "POST /v1/training/jobs/{job_id}/save-weights-for-sampler"
+---
+
+`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`
+
+Speichert die LoRA-Gewichte des Jobs als `sampler_weights/<name>`. Sie können daraus [samplen](/de/api-reference/interactive-jobs/sample), auch nach dem Stoppen des Jobs, oder sie als PEFT-LoRA-Dateien [herunterladen](/de/api-reference/training-jobs/download-checkpoint). Sie enthalten keinen Optimiererzustand, daher kann ein Job sie weder laden noch daraus starten; verwenden Sie dafür [`POST /v1/training/jobs/{job_id}/save-weights`](/de/api-reference/interactive-jobs/save-weights).
+
+<ParamField header="X-API-Key" type="string" required>
+  Ihr Fastino-API-Schlüssel.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID des interaktiven Jobs.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  1–128 Zeichen aus `A-Z`, `a-z`, `0-9`, `.`, `_` und `-`.
+</ParamField>
+
+<ParamField body="ttl_seconds" type="integer | null">
+  Löscht den Checkpoint nach so vielen Sekunden automatisch, von `3600` (1 Stunde) bis
+  `315360000` (10 Jahre). Weglassen, um ihn bis zum Löschen zu behalten.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weights-for-sampler" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "step-000100", "ttl_seconds": 86400}'
+```
+
+</RequestExample>
+
+Die Antwort enthält die `future_id` des `save`-Futures, `checkpoint_id` und `path`.
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "save",
+  "checkpoint_id": "sampler_weights/step-000100",
+  "path": "tinker://SESSION_ID:train:0/sampler_weights/step-000100"
+}
+```
+
+</ResponseExample>

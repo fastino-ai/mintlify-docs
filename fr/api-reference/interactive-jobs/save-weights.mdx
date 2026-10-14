@@ -1,0 +1,58 @@
+---
+title: "Enregistrer l’état d’entraînement d’une tâche interactive"
+sidebarTitle: "Enregistrer les poids"
+description: "Appelez POST /v1/training/jobs/{job_id}/save-weights pour enregistrer sous un nom les poids LoRA et l’état de l’optimiseur d’une tâche interactive."
+api: "POST /v1/training/jobs/{job_id}/save-weights"
+---
+
+`POST /v1/training/jobs/{job_id}/save-weights`
+
+Enregistre les poids LoRA et l’état de l’optimiseur de la tâche sous `weights/<name>`. Vous pouvez le [recharger](/fr/api-reference/interactive-jobs/load-weights) dans la même tâche ou [démarrer une nouvelle tâche](/fr/api-reference/interactive-jobs/create) depuis celui-ci. Pour échantillonner ou télécharger des poids, enregistrez-les avec [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/fr/api-reference/interactive-jobs/save-weights-for-sampler).
+
+<ParamField header="X-API-Key" type="string" required>
+  Votre clé API Fastino.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID de la tâche interactive.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  1 à 128 caractères parmi `A-Z`, `a-z`, `0-9`, `.`, `_` et `-`.
+</ParamField>
+
+<ParamField body="ttl_seconds" type="integer | null">
+  Supprime automatiquement le checkpoint après ce nombre de secondes, de `3600` (1 heure) à
+  `315360000` (10 ans). Omettez-le pour le conserver jusqu’à sa suppression.
+</ParamField>
+
+<ParamField body="overwrite" type="boolean" default="false">
+  Remplace un checkpoint d’état du même nom.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weights" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "step-000100"}'
+```
+
+</RequestExample>
+
+La réponse contient le `future_id` du future `save`, `checkpoint_id` et `path`. Passez `path` comme `from_checkpoint` lors de la création d’une tâche.
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "save",
+  "checkpoint_id": "weights/step-000100",
+  "path": "tinker://SESSION_ID:train:0/weights/step-000100"
+}
+```
+
+</ResponseExample>

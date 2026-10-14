@@ -1,37 +1,40 @@
 ---
 title: "检查点与恢复"
-description: "通过 SDK 保存交互式任务的状态检查点和循环记录，读取最新的完整记录，加载前验证任务 ID 和数据集游标，然后在不重放已完成工作的情况下恢复。"
+description: "保存交互式任务的状态检查点和循环记录，读取最新的完整记录，加载前验证任务 ID 和数据集游标，然后在不重放已完成工作的情况下恢复。"
 ---
 
-状态检查点保护服务端训练状态。完整的恢复记录还会保护由用户负责、用于告诉控制器下一步操作的状态。
+状态检查点保护服务器端的训练状态。完整的恢复记录还会保护由用户持有、告诉控制器下一步做什么的状态。
 
-## 要保存的内容
+示例使用[快速入门脚本](/cn/training/quickstart#custom-training-loop)中的 `call` 和 `wait` 辅助函数。
 
-| 记录 | 包含内容 | 存储方 |
+## 保存什么
+
+| 记录 | 内容 | 存储方 |
 | --- | --- | --- |
-| 状态检查点 | SDK 检查点所表示的训练权重和优化器状态 | Fastino |
-| 循环记录 | 来源任务 ID、检查点路径、步骤、数据集游标、配置和恢复沿袭 | 你的应用 |
-
-SDK 训练客户端代表一个 Fastino 交互式任务。从
-`training_client.get_info().model_id` 读取其规范 ID。
+| 状态检查点 | LoRA 权重和优化器状态 | Fastino |
+| 循环记录 | 源任务 ID、检查点路径、步骤、数据集游标、配置和恢复谱系 | 你的应用 |
 
 ## 1. 保存状态和循环进度
 
-通过 SDK 保存状态，然后持久化返回的检查点及继续运行所需的客户端字段：
+使用 `save-weights` 保存状态并等待其完成，然后将其路径与继续所需的客户端字段一起持久化：
 
 ```python
 import json
 from pathlib import Path
 
 
-source_job_id = training_client.get_info().model_id
-state = training_client.save_state(f"step-{step:06d}").result()
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": f"step-{step:06d}"},
+)
+wait(job_id, state["future_id"])
 record = {
-    "source_job_id": source_job_id,
-    "state_path": state.path,
+    "source_job_id": job_id,
+    "state_path": state["path"],
     "model": model_name,
     "dataset_revision": dataset_revision,
-    "optimizer": optimizer_config,
+    "optimizer": adam_params,
     "step": step,
     "dataset_cursor": dataset_cursor,
     "reward_version": reward_version,
@@ -41,11 +44,12 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
-使用唯一的检查点名称，使每条循环记录都能标识明确的恢复边界。不要假设未记录的检查点生命周期。
+请使用唯一的检查点名称，使每条循环记录都对应一个明确的恢复边界。名称由 1–128 个字符组成，取自
+`A-Z`、`a-z`、`0-9`、`.`、`_` 和 `-`。
 
 ## 2. 读取最新的完整记录
 
-进程可能在写入最后一行时停止。反向扫描并跳过格式错误的尾部：
+进程可能在写入最后一行时停止。请从后向前扫描并跳过格式错误的尾行：
 
 ```python
 def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
@@ -65,85 +69,110 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 ## 3. 加载前验证
 
-将记录与来源检查点以及请求的继续运行进行比较：
+将记录与源检查点和请求的继续方式进行比较：
 
-- 检查点路径中编码的来源任务 ID
-- 基础模型和可训练配置
-- 数据集修订版和游标
-- 奖励实现修订版
-- 优化器配置
-- 渲染器和 tokenizer 假设
+- 检查点路径中的源任务 ID
+- 基础模型和 LoRA 配置
+- 数据集修订版本和游标
+- 奖励实现的修订版本
+- 优化器设置
+- tokenizer 和聊天模板假设
 
-如果这些字段冲突，请停止并要求明确决策。不要悄然将检查点与其他实验组合。
+如果这些字段存在冲突，请停下来做出明确决定。不要在无提示的情况下将检查点与其他实验混用。
 
-然后使用 SDK 支持的状态加载流程：
+然后选择继续方式：
+
+| 情况 | 调用 |
+| --- | --- |
+| 源任务仍处于活动状态，且你想回滚 | 使用 `{"path": name, "optimizer": true}` 调用 `POST /v1/training/jobs/{job_id}/load-weights` |
+| 源任务已停止或已释放 | 使用 `from_checkpoint` 和 `load_optimizer` 调用 `POST /v1/training/jobs/create-model` |
+
+在新任务中继续：
 
 ```python
-training_client = (
-    service_client.create_training_client_from_state_with_optimizer(
-        str(resume["state_path"])
-    )
+resumed = call(
+    "POST",
+    "/v1/training/jobs/create-model",
+    {"from_checkpoint": resume["state_path"], "load_optimizer": True},
 )
-resumed_job_id = training_client.get_info().model_id
+wait(resumed["job_id"], resumed["future_id"])
+wait(resumed["job_id"], resumed["load_future_id"])
+resumed_job_id = resumed["job_id"]
 ```
 
-此工厂方法先创建新的交互式任务，再将来源检查点的权重和优化器状态加载到新任务中。
-恢复后的任务 ID 通常与来源任务 ID 不同。将 `source_job_id`、`state_path` 和
-`resumed_job_id` 记录为应用负责的沿袭关系。不要因为两个任务 ID 不同而拒绝恢复，
-也不要直接构造适配器请求。
+新任务沿用检查点的基础模型和 LoRA 设置，因此不要发送 `lora_config`。其 ID 与源任务 ID 不同。
+请将 `source_job_id`、`state_path` 和 `resumed_job_id` 记录为应用自有的谱系。
 
-## 4. 使边界可恢复
+## 4. 让边界可恢复
 
 按以下顺序操作：
 
-1. 解析前向/反向传播和优化器 future。
-2. 保存状态检查点。
-3. 持久化包含其标识符的循环记录。
+1. 等待 forward-backward 和优化器步骤 future 完成。
+2. 保存状态检查点并等待保存 future 完成。
+3. 持久化包含其路径的循环记录。
 4. 将应用步骤标记为完成。
 5. 开始下一步。
 
-如果进程在保存检查点后、持久化循环记录前退出，请继续将上一条完整记录作为可信恢复点。
-不要在记录持久保存前将步骤标记为完成。
+如果进程在保存检查点之后、持久化循环记录之前退出，请保留上一条完整记录作为可信的恢复点。
+在记录持久保存之前，不要将步骤标记为完成。
 
 ## 5. 区分检查点类型
 
 ```python
-state = training_client.save_state("step-000100").result()
-sampler = training_client.save_weights_for_sampler(
-    "step-000100",
-    ttl_seconds=24 * 60 * 60,
-).result()
+name = f"step-{step:06d}"
+state = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights",
+    {"name": name},
+)
+sampler = call(
+    "POST",
+    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+    {"name": name, "ttl_seconds": 24 * 60 * 60},
+)
 ```
 
-使用状态检查点恢复训练。使用采样器检查点进行 rollout 或评估。不要将采样器检查点用作优化器状态恢复点。
+| 保存方式 | 路径 | 用途 |
+| --- | --- | --- |
+| `state` | `weights/<name>` | 训练恢复：加载它或从它启动新任务 |
+| `sampler` | `sampler_weights/<name>` | rollout、评估，以及以 PEFT LoRA 文件下载 |
 
-`ttl_seconds` 默认为 `None`，因此省略 TTL 会创建不会自动过期的检查点。存活的
-检查点会计入检查点存储。若要自动清理，请传入 `3_600` 到 `315_360_000`
-秒（1 小时到 10 年）之间的值，包括端点值。
+不要将 sampler 检查点用作恢复点；它不含优化器状态，也无法用来启动新任务。
 
-公开的训练 API 可以列出检查点。团队拥有权重下载权限时，
-还可以下载交互式检查点。SDK 还支持检查点删除、发布、保留期和存储用量方法。
-这些是 SDK 操作，而不是公开的训练 API 路由。请勿构造适配器请求，也不要假设未记录的保留期限。
+`ttl_seconds` 默认为 `null`，因此省略 TTL 时检查点会一直保留到你删除为止。存活的检查点计入检查点存储。
+要启用自动清理，请传入 `3600` 到 `315360000` 秒（1 小时到 10 年）之间的值。
 
-## 6. 验证继续运行
+使用以下路由管理检查点：
 
-扩大恢复后的工作负载之前：
+| 任务 | 路由 |
+| --- | --- |
+| 列出任务的检查点 | [`GET /v1/training/jobs/{job_id}/checkpoints`](/cn/api-reference/training-jobs/checkpoints) |
+| 获取单个检查点 | [`GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/cn/api-reference/interactive-jobs/get-checkpoint) |
+| 下载为 `.tar` 归档 | [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/cn/api-reference/training-jobs/download-checkpoint) |
+| 修改 TTL | [`PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl`](/cn/api-reference/interactive-jobs/set-checkpoint-ttl) |
+| 发布或取消发布 | [`POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish`](/cn/api-reference/interactive-jobs/publish-checkpoint) |
+| 删除 | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/cn/api-reference/interactive-jobs/delete-checkpoint) |
+| 读取存储用量 | [`GET /v1/training/usage`](/cn/api-reference/interactive-jobs/usage) |
 
-1. 加载所选状态检查点。
-2. 从 `training_client.get_info().model_id` 读取新 ID，将其持久化为
-   `resumed_job_id`，并通过 `GET /v1/training/jobs/{resumed_job_id}` 确认。
-3. 运行小型留出评估。
-4. 提交一次受支持的训练更新。
-5. 使用新名称保存新的状态检查点。
+下载需要团队具备权重下载权限。
+
+## 6. 验证继续结果
+
+在扩大恢复后的工作负载之前：
+
+1. 从所选状态检查点启动新任务。
+2. 将其 ID 持久化为 `resumed_job_id`，并通过 `GET /v1/training/jobs/{resumed_job_id}` 确认。
+3. 运行一次小规模的留出集评估。
+4. 提交一次训练更新。
+5. 以新名称保存新的状态检查点。
 6. 持久化下一条循环记录。
-
-所有交互式模型操作均使用 SDK。
 
 ## 诊断恢复错误
 
-| 症状 | 检查项 |
+| 现象 | 检查 |
 | --- | --- |
-| Future 失败 | 记录任务 ID 和操作结果。不要推进依赖的应用状态 |
-| 无法加载检查点 | 验证其任务、检查点类型和客户端负责的恢复记录 |
-| 来源检查点被拒绝 | 确认其来源任务、检查点类型和持久化的 `state_path`；不要要求新任务 ID 等于来源 ID |
-| 恢复后的任务查找失败 | 确认 ID 来自恢复后客户端的 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |
+| future 失败 | 记录任务 ID 和 future 的 `error`。不要推进依赖它的应用状态 |
+| 暂停后训练调用返回 `400` | 任务已停止，或在空闲 30 分钟后被释放。请从最新的状态检查点启动新任务 |
+| 检查点无法加载 | 核实其任务、检查点类型以及客户端持有的恢复记录 |
+| `from_checkpoint` 被拒绝 | 确认它是你团队的 `weights/<name>` 路径；sampler 检查点无法用于启动任务 |
+| 查询恢复后的任务失败 | 确认 ID 来自新任务的创建响应，且已使用同一 Fastino 团队进行身份验证 |

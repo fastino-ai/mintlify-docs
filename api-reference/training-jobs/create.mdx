@@ -9,12 +9,14 @@ api: "POST /v1/training/jobs"
 
 Creates an asynchronous `config` training job and returns its job record. In a
 config job, you provide a dataset and configuration and Fastino runs the
-training loop. To control the loop step by step, follow the
-[custom training loop path](/training/quickstart#custom-training-loop), which
-creates an `interactive` job through the supported SDK client. This REST
-endpoint does not create interactive jobs. After creation, both job types use
-their canonical IDs with the documented `/v1/training/jobs/{job_id}` lifecycle
-operations.
+training loop. Config jobs train GLiNER encoders: `fastino/gliner2-multi-v1`
+and `fastino/GLiNER-2.5-Decide`.
+
+To train a decoder model, create an `interactive` job with
+[`POST /v1/training/jobs/create-model`](/api-reference/interactive-jobs/create)
+and follow the [custom training loop path](/training/quickstart#custom-training-loop).
+After creation, both job types use their canonical IDs with the documented
+`/v1/training/jobs/{job_id}` lifecycle operations.
 
 This endpoint is limited to 20 requests per minute per user.
 
@@ -29,7 +31,7 @@ This endpoint is limited to 20 requests per minute per user.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  A trainable model ID from `GET /v1/base-models?supports_training=true`, or a supported checkpoint UUID.
+  A trainable GLiNER model ID from `GET /v1/base-models?supports_training=true`, or a supported checkpoint UUID.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -89,14 +91,6 @@ This endpoint is limited to 20 requests per minute per user.
     LoRA dropout. Omit it to use the model recipe.
   </ParamField>
 
-  <ParamField body="packing" type="boolean">
-    Pack short examples for compatible decoder LoRA jobs.
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    Decoder loss-masking option. Unsupported combinations are rejected.
-  </ParamField>
-
   <ParamField body="warmup_ratio" type="number">
     Warmup fraction from `0` to `1`. `warmup_steps` takes precedence.
   </ParamField>
@@ -123,10 +117,6 @@ This endpoint is limited to 20 requests per minute per user.
 
   <ParamField body="provider_name" type="string">
     Pin a compatible training provider. Omit it for automatic selection.
-  </ParamField>
-
-  <ParamField body="system_prompt" type="string">
-    Canonical system prompt for compatible decoder training.
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -161,13 +151,6 @@ This endpoint is limited to 20 requests per minute per user.
     Minimum GLiNER optimizer steps.
   </ParamField>
 
-  <ParamField body="training_algorithm" type="string" default="sft">
-    `sft`, `grpo`, or `dpo`. GRPO requires `rl_config.reward_type`. DPO datasets require `prompt`, `chosen`, and `rejected` columns.
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    Algorithm-specific settings. Shared keys include `max_steps` and `logging_steps`. GRPO supports `reward_type`, `kl_beta`, `group_size`, `sampling_temperature`, and `max_completion_length`. DPO supports `dpo_beta` and `loss_type`. The `llm_as_judge` GRPO reward also supports `llm_judge_model`, `llm_judge_rubric`, `llm_judge_score_scale`, `llm_judge_timeout_s`, `llm_judge_max_concurrent`, `llm_judge_max_retries`, and `llm_judge_retry_backoff_s`.
-  </ParamField>
 </Expandable>
 
 <RequestExample>
