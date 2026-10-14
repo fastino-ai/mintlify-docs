@@ -2045,6 +2045,129 @@
         "title": "ContentBlock",
         "type": "object"
       },
+      "CreateModelAccepted": {
+        "description": "A new interactive job: it trains once its ``create`` future (and ``load``, from a checkpoint) completes.",
+        "properties": {
+          "base_model": {
+            "title": "Base Model",
+            "type": "string"
+          },
+          "future_id": {
+            "description": "The job's `create` future.",
+            "title": "Future Id",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "load_future_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `from_checkpoint`: the future that loads it.",
+            "title": "Load Future Id"
+          },
+          "type": {
+            "const": "interactive",
+            "default": "interactive",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "base_model",
+          "future_id"
+        ],
+        "title": "CreateModelAccepted",
+        "type": "object"
+      },
+      "CreateModelBody": {
+        "additionalProperties": false,
+        "description": "``POST /v1/training/jobs/create-model``: a LoRA job on a base model, or one restored from a saved state.",
+        "properties": {
+          "base_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A decoder served for training (`GET /v1/base-models?supports_training=true`).",
+            "title": "Base Model"
+          },
+          "from_checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A training-state checkpoint (`tinker://<job_id>/weights/<name>`) to start from; the job takes its base model and LoRA settings.",
+            "title": "From Checkpoint"
+          },
+          "load_optimizer": {
+            "default": false,
+            "description": "With `from_checkpoint`, also restore the optimizer state.",
+            "title": "Load Optimizer",
+            "type": "boolean"
+          },
+          "lora_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoraConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optimizer_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizerConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "user_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonObject-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CreateModelBody",
+        "type": "object"
+      },
       "DatasetListResponse": {
         "description": "Response model for listing datasets.",
         "properties": {
@@ -3147,7 +3270,7 @@
         "title": "FastinoExtension",
         "type": "object"
       },
-      "ForwardRequest": {
+      "ForwardBody": {
         "additionalProperties": false,
         "description": "``POST .../forward`` and ``.../forward-backward``: one batch of token-level datums, as in Tinker.",
         "properties": {
@@ -3190,7 +3313,51 @@
         "required": [
           "datums"
         ],
-        "title": "ForwardRequest",
+        "title": "ForwardBody",
+        "type": "object"
+      },
+      "FutureAccepted": {
+        "description": "A queued call: read its result at ``GET /v1/training/jobs/{job_id}/futures/{future_id}``.",
+        "properties": {
+          "future_id": {
+            "title": "Future Id",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "type": {
+            "description": "The call: create, load, forward, forward_backward, optim_step, save, sample.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "future_id",
+          "job_id",
+          "type"
+        ],
+        "title": "FutureAccepted",
+        "type": "object"
+      },
+      "FutureError": {
+        "description": "Why a call failed: ``user`` (the request) or ``server`` (ours).",
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "category"
+        ],
+        "title": "FutureError",
         "type": "object"
       },
       "GlinerJobStatus": {
@@ -4044,129 +4211,6 @@
         "title": "InferenceRecord",
         "type": "object"
       },
-      "InteractiveJobCreate": {
-        "additionalProperties": false,
-        "description": "``POST /v1/training/jobs/interactive``: a LoRA run on a base model, or one restored from a saved state.",
-        "properties": {
-          "base_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "A served base model (`GET /v1/base-models?supports_training=true`).",
-            "title": "Base Model"
-          },
-          "from_checkpoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "A training-state checkpoint (`tinker://<job_id>/weights/<name>`) to start from; the job takes its base model and LoRA settings.",
-            "title": "From Checkpoint"
-          },
-          "load_optimizer": {
-            "default": false,
-            "description": "With `from_checkpoint`, also restore the optimizer state.",
-            "title": "Load Optimizer",
-            "type": "boolean"
-          },
-          "lora_config": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LoraConfig"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "optimizer_config": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OptimizerConfig"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "project_id": {
-            "anyOf": [
-              {
-                "maxLength": 128,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Id"
-          },
-          "user_metadata": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/JsonObject-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "title": "InteractiveJobCreate",
-        "type": "object"
-      },
-      "InteractiveJobCreated": {
-        "description": "A new interactive job: it trains once its ``create`` operation (and ``load``, from a checkpoint) completes.",
-        "properties": {
-          "base_model": {
-            "title": "Base Model",
-            "type": "string"
-          },
-          "job_id": {
-            "title": "Job Id",
-            "type": "string"
-          },
-          "load_operation_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "With `from_checkpoint`: the operation that loads it.",
-            "title": "Load Operation Id"
-          },
-          "operation_id": {
-            "description": "The job's `create` operation.",
-            "title": "Operation Id",
-            "type": "string"
-          },
-          "type": {
-            "const": "interactive",
-            "default": "interactive",
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "job_id",
-          "base_model",
-          "operation_id"
-        ],
-        "title": "InteractiveJobCreated",
-        "type": "object"
-      },
       "InteractiveJobView": {
         "description": "An ``interactive`` training job: a Tinker training run, its run id being the job id.",
         "properties": {
@@ -4327,18 +4371,26 @@
           }
         ]
       },
-      "LoadCheckpointRequest": {
+      "LoadWeightsBody": {
         "additionalProperties": false,
-        "description": "``POST .../checkpoints/weights/{name}/load``.",
+        "description": "``POST .../load-weights``: restore one of the job's saved training states.",
         "properties": {
           "optimizer": {
             "default": false,
             "description": "Also restore the optimizer state.",
             "title": "Optimizer",
             "type": "boolean"
+          },
+          "path": {
+            "description": "The state's name, or its `tinker://<job_id>/weights/<name>` path (this job's own).",
+            "title": "Path",
+            "type": "string"
           }
         },
-        "title": "LoadCheckpointRequest",
+        "required": [
+          "path"
+        ],
+        "title": "LoadWeightsBody",
         "type": "object"
       },
       "LoraConfig": {
@@ -4510,123 +4562,6 @@
           "instructions"
         ],
         "title": "Noul",
-        "type": "object"
-      },
-      "Operation": {
-        "description": "An operation of an interactive job, with its result once ``completed``.",
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OperationError"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "job_id": {
-            "title": "Job Id",
-            "type": "string"
-          },
-          "operation_id": {
-            "title": "Operation Id",
-            "type": "string"
-          },
-          "queue_state": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "While unfinished: `active`, or `paused_capacity` while a GPU cell warms up.",
-            "title": "Queue State"
-          },
-          "queue_state_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Queue State Reason"
-          },
-          "result": {
-            "$ref": "#/components/schemas/JsonValue-Output",
-            "description": "forward / forward_backward: `{loss_fn_outputs, metrics}`; sample: `{sequences, prompt_logprobs, ...}`; save: the checkpoint path; others: the operation's acknowledgement."
-          },
-          "status": {
-            "enum": [
-              "pending",
-              "running",
-              "completed",
-              "failed",
-              "cancelled"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "operation_id",
-          "job_id",
-          "type",
-          "status"
-        ],
-        "title": "Operation",
-        "type": "object"
-      },
-      "OperationAccepted": {
-        "description": "A queued operation: read its result at ``GET /v1/training/jobs/{job_id}/operations/{operation_id}``.",
-        "properties": {
-          "job_id": {
-            "title": "Job Id",
-            "type": "string"
-          },
-          "operation_id": {
-            "title": "Operation Id",
-            "type": "string"
-          },
-          "type": {
-            "description": "The operation: create, load, forward, forward_backward, optim_step, save, sample.",
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "operation_id",
-          "job_id",
-          "type"
-        ],
-        "title": "OperationAccepted",
-        "type": "object"
-      },
-      "OperationError": {
-        "description": "Why an operation failed: ``user`` (the request) or ``server`` (ours).",
-        "properties": {
-          "category": {
-            "title": "Category",
-            "type": "string"
-          },
-          "message": {
-            "title": "Message",
-            "type": "string"
-          }
-        },
-        "required": [
-          "message",
-          "category"
-        ],
-        "title": "OperationError",
         "type": "object"
       },
       "OptimStepBody": {
@@ -5083,10 +5018,15 @@
         "title": "ResponsesTextRequest",
         "type": "object"
       },
-      "SampleRequest": {
+      "SampleBody": {
         "additionalProperties": false,
-        "description": "``POST .../checkpoints/sampler_weights/{name}/sample``: continuations of one tokenized prompt.",
+        "description": "``POST .../sample``: continuations of one tokenized prompt from one of the job's sampler checkpoints.",
         "properties": {
+          "checkpoint": {
+            "description": "The sampler checkpoint's name, or its `tinker://<job_id>/sampler_weights/<name>` path (this job's own).",
+            "title": "Checkpoint",
+            "type": "string"
+          },
           "num_samples": {
             "default": 1,
             "title": "Num Samples",
@@ -5121,12 +5061,13 @@
           }
         },
         "required": [
+          "checkpoint",
           "prompt_tokens"
         ],
-        "title": "SampleRequest",
+        "title": "SampleBody",
         "type": "object"
       },
-      "SaveCheckpointAccepted": {
+      "SaveWeightsAccepted": {
         "description": "A queued save, and the checkpoint it writes.",
         "properties": {
           "checkpoint_id": {
@@ -5134,46 +5075,39 @@
             "title": "Checkpoint Id",
             "type": "string"
           },
+          "future_id": {
+            "title": "Future Id",
+            "type": "string"
+          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
           },
-          "operation_id": {
-            "title": "Operation Id",
-            "type": "string"
-          },
-          "tinker_path": {
-            "title": "Tinker Path",
+          "path": {
+            "description": "The checkpoint's `tinker://` path.",
+            "title": "Path",
             "type": "string"
           },
           "type": {
-            "description": "The operation: create, load, forward, forward_backward, optim_step, save, sample.",
+            "description": "The call: create, load, forward, forward_backward, optim_step, save, sample.",
             "title": "Type",
             "type": "string"
           }
         },
         "required": [
-          "operation_id",
+          "future_id",
           "job_id",
           "type",
           "checkpoint_id",
-          "tinker_path"
+          "path"
         ],
-        "title": "SaveCheckpointAccepted",
+        "title": "SaveWeightsAccepted",
         "type": "object"
       },
-      "SaveCheckpointRequest": {
+      "SaveWeightsBody": {
         "additionalProperties": false,
-        "description": "``POST .../checkpoints``: save the training state (``state``) or sampler weights (``sampler``) under a name.",
+        "description": "``POST .../save-weights``: save the training state (which a job can load or start from) under a name.",
         "properties": {
-          "kind": {
-            "enum": [
-              "state",
-              "sampler"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
           "name": {
             "description": "1-128 characters from [A-Za-z0-9._-].",
             "title": "Name",
@@ -5181,7 +5115,7 @@
           },
           "overwrite": {
             "default": false,
-            "description": "`state` only: replace a checkpoint of the same name.",
+            "description": "Replace a state of the same name.",
             "title": "Overwrite",
             "type": "boolean"
           },
@@ -5213,10 +5147,51 @@
           }
         },
         "required": [
-          "kind",
           "name"
         ],
-        "title": "SaveCheckpointRequest",
+        "title": "SaveWeightsBody",
+        "type": "object"
+      },
+      "SaveWeightsForSamplerBody": {
+        "additionalProperties": false,
+        "description": "``POST .../save-weights-for-sampler``: save weights that can be sampled and downloaded, under a name.",
+        "properties": {
+          "name": {
+            "description": "1-128 characters from [A-Za-z0-9._-].",
+            "title": "Name",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 hour to 10 years; none keeps it until deleted.",
+            "title": "Ttl Seconds"
+          },
+          "user_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Metadata"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SaveWeightsForSamplerBody",
         "type": "object"
       },
       "ScoreAnswer": {
@@ -5935,6 +5910,79 @@
           "deleted_checkpoints"
         ],
         "title": "TerminateJobResponse",
+        "type": "object"
+      },
+      "TrainingFuture": {
+        "description": "A queued call of an interactive job, with its result once ``completed``.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FutureError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "future_id": {
+            "title": "Future Id",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "queue_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While unfinished: `active`, or `paused_capacity` while a GPU cell warms up.",
+            "title": "Queue State"
+          },
+          "queue_state_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue State Reason"
+          },
+          "result": {
+            "$ref": "#/components/schemas/JsonValue-Output",
+            "description": "forward / forward_backward: `{loss_fn_outputs, metrics}`; sample: `{sequences, prompt_logprobs, ...}`; save: the checkpoint path; others: the call's acknowledgement."
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "future_id",
+          "job_id",
+          "type",
+          "status"
+        ],
+        "title": "TrainingFuture",
         "type": "object"
       },
       "TrainingJobBillingResponse": {
@@ -9796,15 +9844,15 @@
         ]
       }
     },
-    "/v1/training/jobs/interactive": {
+    "/v1/training/jobs/create-model": {
       "post": {
-        "description": "Create an interactive (Tinker-style) LoRA training job on a base model, or restored from a training-state checkpoint. The job id is what the Tinker SDK calls the model id. Needs a Fastino API key. Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
-        "operationId": "create_interactive_job_v1_training_jobs_interactive_post",
+        "description": "Create a LoRA training job on a decoder base model that you train step by step (Tinker's `create_model`), or restore one from a training-state checkpoint. Encoder (GLiNER) models train from a dataset with `POST /v1/training/jobs`. Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
+        "operationId": "create_model_v1_training_jobs_create_model_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/InteractiveJobCreate"
+                "$ref": "#/components/schemas/CreateModelBody"
               }
             }
           },
@@ -9815,7 +9863,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InteractiveJobCreated"
+                  "$ref": "#/components/schemas/CreateModelAccepted"
                 }
               }
             },
@@ -10132,188 +10180,6 @@
         "tags": [
           "training"
         ]
-      },
-      "post": {
-        "description": "Save the training state (`kind=state`, which a job can load or start from) or sampler weights (`kind=sampler`, which can be sampled and downloaded) under a name. Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
-        "operationId": "save_checkpoint_v1_training_jobs__job_id__checkpoints_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SaveCheckpointRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SaveCheckpointAccepted"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Save a checkpoint of an interactive training job",
-        "tags": [
-          "training"
-        ]
-      }
-    },
-    "/v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/sample": {
-      "post": {
-        "description": "Generate continuations of a tokenized prompt with one of the job's sampler checkpoints, also after the job stopped. Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
-        "operationId": "sample_v1_training_jobs__job_id__checkpoints_sampler_weights__name__sample_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SampleRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAccepted"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Sample from an interactive training job checkpoint",
-        "tags": [
-          "training"
-        ]
-      }
-    },
-    "/v1/training/jobs/{job_id}/checkpoints/weights/{name}/load": {
-      "post": {
-        "description": "Restore one of the job's saved training states (and optionally its optimizer state). Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
-        "operationId": "load_checkpoint_v1_training_jobs__job_id__checkpoints_weights__name__load_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/LoadCheckpointRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAccepted"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Load a training state into an interactive training job",
-        "tags": [
-          "training"
-        ]
       }
     },
     "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/deploy": {
@@ -10425,7 +10291,7 @@
     },
     "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}": {
       "delete": {
-        "description": "Delete a checkpoint (its files are purged later).\n\nArgs:\n    job_id: The job.\n    kind: ``weights`` or ``sampler_weights``.\n    name: Its name.\n    caller: Authenticated caller.\n\nReturns:\n    No content.",
+        "description": "Delete the checkpoint; its files are purged later.",
         "operationId": "delete_checkpoint_v1_training_jobs__job_id__checkpoints__kind___name__delete",
         "parameters": [
           {
@@ -10481,7 +10347,7 @@
         ]
       },
       "get": {
-        "description": "One checkpoint.\n\nArgs:\n    job_id: The job.\n    kind: ``weights`` or ``sampler_weights``.\n    name: Its name.\n    caller: Authenticated caller.\n\nReturns:\n    The checkpoint.",
+        "description": "One of the job's checkpoints: its `tinker_path`, size, visibility, metadata and expiry.",
         "operationId": "get_checkpoint_v1_training_jobs__job_id__checkpoints__kind___name__get",
         "parameters": [
           {
@@ -10546,7 +10412,7 @@
     },
     "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish": {
       "delete": {
-        "description": "Mark a checkpoint private.\n\nArgs:\n    job_id: The job.\n    kind: ``weights`` or ``sampler_weights``.\n    name: Its name.\n    caller: Authenticated caller.\n\nReturns:\n    No content.",
+        "description": "Mark a published checkpoint private again.",
         "operationId": "unpublish_checkpoint_v1_training_jobs__job_id__checkpoints__kind___name__publish_delete",
         "parameters": [
           {
@@ -10602,7 +10468,7 @@
         ]
       },
       "post": {
-        "description": "Mark a checkpoint public.\n\nArgs:\n    job_id: The job.\n    kind: ``weights`` or ``sampler_weights``.\n    name: Its name.\n    caller: Authenticated caller.\n\nReturns:\n    No content.",
+        "description": "Mark the checkpoint public.",
         "operationId": "publish_checkpoint_v1_training_jobs__job_id__checkpoints__kind___name__publish_post",
         "parameters": [
           {
@@ -10818,7 +10684,7 @@
     },
     "/v1/training/jobs/{job_id}/forward": {
       "post": {
-        "description": "Compute the loss of a batch of token-level datums without gradients. Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
+        "description": "Compute the loss of a batch of token-level datums without gradients (Tinker's `forward`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
         "operationId": "forward_v1_training_jobs__job_id__forward_post",
         "parameters": [
           {
@@ -10835,7 +10701,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ForwardRequest"
+                "$ref": "#/components/schemas/ForwardBody"
               }
             }
           },
@@ -10846,7 +10712,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OperationAccepted"
+                  "$ref": "#/components/schemas/FutureAccepted"
                 }
               }
             },
@@ -10871,7 +10737,7 @@
     },
     "/v1/training/jobs/{job_id}/forward-backward": {
       "post": {
-        "description": "Compute the loss of a batch of token-level datums and accumulate its gradients for the next optim-step. Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
+        "description": "Compute the loss of a batch of token-level datums and accumulate its gradients for the next optim-step (Tinker's `forward_backward`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
         "operationId": "forward_backward_v1_training_jobs__job_id__forward_backward_post",
         "parameters": [
           {
@@ -10888,7 +10754,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ForwardRequest"
+                "$ref": "#/components/schemas/ForwardBody"
               }
             }
           },
@@ -10899,7 +10765,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OperationAccepted"
+                  "$ref": "#/components/schemas/FutureAccepted"
                 }
               }
             },
@@ -10917,6 +10783,166 @@
           }
         },
         "summary": "Queue a forward-backward pass",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/futures/{future_id}": {
+      "get": {
+        "description": "A queued call's status, and its result or error once finished (Tinker's `retrieve_future`). With `wait=true` it waits up to 25 seconds for an unfinished one. A result is kept for an hour.",
+        "operationId": "get_future_v1_training_jobs__job_id__futures__future_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "future_id",
+            "required": true,
+            "schema": {
+              "title": "Future Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "wait",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Wait",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingFuture"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get a future of an interactive training job",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/futures/{future_id}/cancel": {
+      "post": {
+        "description": "Cancel a queued or running sample (best effort). Training calls run in order and are not cancelled.",
+        "operationId": "cancel_future_v1_training_jobs__job_id__futures__future_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "future_id",
+            "required": true,
+            "schema": {
+              "title": "Future Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel a sample future",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/load-weights": {
+      "post": {
+        "description": "Restore one of the job's saved training states, and optionally its optimizer state (Tinker's `load_state`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
+        "operationId": "load_weights_v1_training_jobs__job_id__load_weights_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadWeightsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FutureAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Load a training state into an interactive training job",
         "tags": [
           "training"
         ]
@@ -11018,116 +11044,9 @@
         ]
       }
     },
-    "/v1/training/jobs/{job_id}/operations/{operation_id}": {
-      "get": {
-        "description": "An operation's status, and its result or error once finished. With `wait=true` it waits up to 25 seconds for an unfinished operation. A result is kept for an hour.",
-        "operationId": "get_operation_v1_training_jobs__job_id__operations__operation_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "operation_id",
-            "required": true,
-            "schema": {
-              "title": "Operation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "wait",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Wait",
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Operation"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get an operation of an interactive training job",
-        "tags": [
-          "training"
-        ]
-      }
-    },
-    "/v1/training/jobs/{job_id}/operations/{operation_id}/cancel": {
-      "post": {
-        "description": "Cancel a queued or running sample (best effort). Training operations run in order and are not cancelled.",
-        "operationId": "cancel_operation_v1_training_jobs__job_id__operations__operation_id__cancel_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "operation_id",
-            "required": true,
-            "schema": {
-              "title": "Operation Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Cancel a sample operation",
-        "tags": [
-          "training"
-        ]
-      }
-    },
     "/v1/training/jobs/{job_id}/optim-step": {
       "post": {
-        "description": "Apply the gradients accumulated since the last step (AdamW). Read the result at GET /v1/training/jobs/{job_id}/operations/{operation_id}.",
+        "description": "Apply the gradients accumulated since the last step with AdamW (Tinker's `optim_step`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
         "operationId": "optim_step_v1_training_jobs__job_id__optim_step_post",
         "parameters": [
           {
@@ -11162,7 +11081,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OperationAccepted"
+                  "$ref": "#/components/schemas/FutureAccepted"
                 }
               }
             },
@@ -11238,6 +11157,165 @@
         "summary": "Push Training Job To Huggingface",
         "tags": [
           "training-jobs"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/sample": {
+      "post": {
+        "description": "Generate continuations of a tokenized prompt with one of the job's sampler checkpoints, also after the job stopped (Tinker's `sample`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
+        "operationId": "sample_v1_training_jobs__job_id__sample_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SampleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FutureAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sample from an interactive training job",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/save-weights": {
+      "post": {
+        "description": "Save the LoRA weights and optimizer state under a name, to load later or start a new job from (Tinker's `save_state`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
+        "operationId": "save_weights_v1_training_jobs__job_id__save_weights_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveWeightsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveWeightsAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save an interactive training job's training state",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/save-weights-for-sampler": {
+      "post": {
+        "description": "Save the LoRA weights under a name, to sample from and download as PEFT files (Tinker's `save_weights_for_sampler`). Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
+        "operationId": "save_weights_for_sampler_v1_training_jobs__job_id__save_weights_for_sampler_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveWeightsForSamplerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveWeightsAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save an interactive training job's weights for sampling",
+        "tags": [
+          "training"
         ]
       }
     },
