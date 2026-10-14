@@ -64,6 +64,105 @@ EXPECTED_FENCE_COUNTS = {
     "training/auto.mdx": 0,
 }
 EXPECTED_LIVE_GETS_WITH_FIXTURES = 9
+PARITY_PAGES = (
+    "training/quickstart.mdx",
+    "training/migrate-from-tinker.mdx",
+    "training/training-loop.mdx",
+    "training/verifiable-rewards.mdx",
+    "training/checkpoints.mdx",
+    "api-reference/training-jobs/download-checkpoint.mdx",
+)
+ONE_FUTURE_CLAIMS = {
+    "": "Requests cancellation of one future",
+    "cn": "请求取消一个 future",
+    "de": "Fordert den Abbruch eines Future an",
+    "es": "Solicita la cancelación de un future",
+    "fr": "Demande l'annulation d'une future",
+}
+RUN_KEY_EXPORT_CLAIMS = (
+    "export external weights",
+    "导出外部权重",
+    "keine externen Gewichte exportieren",
+    "exportar pesos externos",
+    "exporter des poids externes",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class TinkerSdkSupport:
+    package: str
+    rest_client_methods: frozenset[str]
+    unsupported_calls: frozenset[str]
+    retired_text: frozenset[str]
+
+
+TINKER_SDK_SUPPORT = TinkerSdkSupport(
+    package="tinker==0.32.0",
+    rest_client_methods=frozenset({
+        "list_training_runs",
+        "get_training_run",
+        "list_checkpoints",
+        "list_user_checkpoints",
+        "publish_checkpoint_from_tinker_path",
+        "unpublish_checkpoint_from_tinker_path",
+        "set_checkpoint_ttl_from_tinker_path",
+        "get_weights_info_by_tinker_path",
+        "delete_checkpoint_from_tinker_path",
+        "get_checkpoint_archive_url",
+        "get_current_checkpoint_storage_usage",
+        "get_billing_usage",
+    }),
+    unsupported_calls=frozenset({
+        "retrieve_futures",
+        "save_weights_external",
+        "external_weights_urls",
+    }),
+    retired_text=frozenset({
+        "tinker==0.33.1",
+        "training_runs_api_enabled",
+        "/api/v1/{operation}",
+        "/v1/training/compat/tinker/api/",
+    }),
+)
+
+
+def retired_claim_hits(text: str) -> set[str]:
+    return {token for token in TINKER_SDK_SUPPORT.retired_text if token in text}
+
+
+def _between(text: str, start: str, end: str) -> str:
+    if start not in text or end not in text:
+        raise AssertionError(f"missing section markers {start!r} .. {end!r}")
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+def fence_bodies(mdx: str) -> list[str]:
+    return re.findall(r"```[^\n]*\n(.*?)```", mdx, flags=re.DOTALL)
+
+
+def code_spans(mdx: str) -> set[str]:
+    without_fences = re.sub(r"```.*?```", "", mdx, flags=re.DOTALL)
+    return set(re.findall(r"`([^`\n]+)`", without_fences))
+
+
+def _claim_texts() -> list[tuple[Path, str]]:
+    paths = list(ROOT.rglob("*.mdx"))
+    paths.append(ROOT / "AGENTS.md")
+    paths.extend((ROOT / ".mintlify" / "skills").rglob("SKILL.md"))
+    return [(path, path.read_text(encoding="utf-8")) for path in paths]
+
+
+def _future_cancel_row(text: str) -> str:
+    rows = [
+        line
+        for line in text.splitlines()
+        if line.startswith("|") and "`sample`" in line
+    ]
+    if len(rows) != 1:
+        raise AssertionError(
+            f"expected one Future cancel row containing `sample`, found {rows}"
+        )
+    return rows[0]
 
 
 def _snippet(page: str, ordinal: int) -> object:
@@ -163,9 +262,90 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         english_overview = (ROOT / "training.mdx").read_text(encoding="utf-8")
         self.assertIn("GB-month", english_overview)
         self.assertIn("Reads interactive runs only", english)
-        self.assertIn("weight-download entitlement", english)
+        self.assertIn("weight-download access", english)
         self.assertIn("does not make the path loadable by another team", english)
         self.assertNotIn("Reads canonical Fastino jobs", english)
+
+    def test_tinker_sdk_support_matches_pioneer_contract(self) -> None:
+        support = TINKER_SDK_SUPPORT
+        for path, text in _claim_texts():
+            self.assertEqual(retired_claim_hits(text), set(), path)
+
+        english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
+        install_fences = [body for body in fence_bodies(english) if "tinker==" in body]
+        self.assertEqual(len(install_fences), 2)
+        for body in install_fences:
+            self.assertIn(support.package, body)
+        self.assertIn(
+            support.package,
+            _between(english, "## Supported client behavior", "### Training and sampling"),
+        )
+        self.assertIn(support.package, english.split("## Migration checklist", 1)[1])
+
+        futures = _between(english, "### Futures and administration", "### Unsupported calls")
+        future_spans = code_spans(futures)
+        self.assertTrue(support.rest_client_methods <= future_spans, future_spans)
+        supported = _between(english, "## Supported client behavior", "### Unsupported calls")
+        unsupported = _between(english, "### Unsupported calls", "## Troubleshoot the connection")
+        for name in support.unsupported_calls:
+            self.assertIn(f"`{name}`", unsupported)
+            self.assertNotIn(name, supported)
+        self.assertIn("Session trace export", unsupported)
+        self.assertIn("Audit-log entries", unsupported)
+
+        cancel = _future_cancel_row(english)
+        self.assertIn("`sample`", cancel)
+        self.assertIn("unfinished sampling future", cancel)
+        self.assertIn("Training-operation futures are not cancelled", cancel)
+        self.assertNotIn("one future", cancel)
+        for locale, claim in ONE_FUTURE_CLAIMS.items():
+            prefix = f"{locale}/" if locale else ""
+            page = ROOT / f"{prefix}training/migrate-from-tinker.mdx"
+            text = page.read_text(encoding="utf-8")
+            row = _future_cancel_row(text)
+            self.assertIn("`sample`", row, page)
+            self.assertNotIn(claim, text, page)
+            for phrase in RUN_KEY_EXPORT_CLAIMS:
+                self.assertNotIn(phrase, text, page)
+
+        loop = (ROOT / "training/training-loop.mdx").read_text(encoding="utf-8")
+        self.assertIn("Only sampling futures can be cancelled", loop)
+        self.assertNotIn("Resolve or cancel futures individually", loop)
+
+    def test_localized_training_pages_keep_english_code_and_identifiers(self) -> None:
+        for page in PARITY_PAGES:
+            english = (ROOT / page).read_text(encoding="utf-8")
+            english_fences = fence_bodies(english)
+            english_spans = code_spans(english)
+            for locale in ("cn", "de", "es", "fr"):
+                path = ROOT / locale / page
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    fence_bodies(text),
+                    english_fences,
+                    f"{path} fence bodies differ",
+                )
+                local_spans = code_spans(text)
+                self.assertEqual(
+                    local_spans,
+                    english_spans,
+                    f"{path} code spans differ: {sorted(local_spans ^ english_spans)}",
+                )
+
+    def test_retired_claim_guard_rejects_banned_text(self) -> None:
+        cases = (
+            ('uv add "tinker==0.33.1"\n', {"tinker==0.33.1"}),
+            ("training_runs_api_enabled\n", {"training_runs_api_enabled"}),
+            ("/api/v1/{operation}", {"/api/v1/{operation}"}),
+            (
+                "/v1/training/compat/tinker/api/v1/cancel_future\n",
+                {"/v1/training/compat/tinker/api/"},
+            ),
+            ("https://api.fastino.ai/v1/training/compat/tinker\n", set()),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(retired_claim_hits(text), expected)
 
     def test_inventory_is_exactly_47_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()

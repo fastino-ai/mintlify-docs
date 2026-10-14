@@ -3,8 +3,9 @@ title: "Migrate from Tinker"
 description: "Move a compatible Tinker SDK workload onto Fastino interactive training jobs."
 ---
 
-Fastino supports a defined subset of the `tinker` SDK as a client interface for
-interactive training jobs. A migrated training client is a Fastino job in
+The Training API supports the unmodified `tinker==0.32.0` Python SDK for the
+operations listed below. Change only the base URL and credential. A migrated
+training client is a Fastino job in
 `/v1/training/jobs`; its SDK model ID and canonical Fastino job ID are identical.
 
 Treat your existing program as the acceptance test. Change the connection,
@@ -16,11 +17,11 @@ workload sizes.
 <CodeGroup>
 
 ```bash uv
-uv add "tinker==0.33.1"
+uv add "tinker==0.32.0"
 ```
 
 ```bash pip
-pip install "tinker==0.33.1"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -43,7 +44,6 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 </CodeGroup>
 
-The SDK appends `/api/v1/{operation}` to `TINKER_BASE_URL`.
 `TINKER_CREDENTIAL_CMD` runs on every token request and must print a nonempty
 credential. Use a normal `fast_sk_` Fastino key; `tml-` credentials are rejected.
 Do not set `TINKER_API_KEY`.
@@ -85,7 +85,7 @@ OpenAPI and API reference, so do not construct equivalent HTTP calls.
 
 ## Supported client behavior
 
-The Training API supports the following `tinker==0.33.1` calls on one
+The Training API supports the following `tinker==0.32.0` calls on one
 interactive Fastino job.
 
 ### Training and sampling
@@ -115,18 +115,22 @@ the active service.
 | SDK method or operation | Fastino behavior |
 | --- | --- |
 | Future result/get | Retrieves one asynchronous result |
-| Future cancel | Requests cancellation of one future |
-| `RestClient` list or get training runs | Reads interactive runs only; use `/v1/training/jobs` for config and interactive jobs |
-| List checkpoints | Reads checkpoints that belong to the job |
-| Download checkpoint archive | Downloads an interactive checkpoint; requires the team's weight-download entitlement |
-| Delete checkpoint | Deletes a checkpoint through the SDK |
-| Publish or unpublish checkpoint | Changes publication within the owning team; it does not make the path loadable by another team |
-| Set or clear checkpoint TTL | Changes checkpoint retention through the SDK |
-| Checkpoint storage usage | Reads current checkpoint storage through the SDK |
-| Billing usage | Reads hourly usage events through the SDK |
+| Future cancel | Cancels an unfinished sampling future from `sample`. Training-operation futures are not cancelled |
+| `list_training_runs` or `get_training_run` | Reads interactive runs only. Use `/v1/training/jobs` for config and interactive jobs |
+| `list_checkpoints` or `list_user_checkpoints` | Reads checkpoints that belong to the job or the team |
+| `get_weights_info_by_tinker_path` | Reads a checkpoint's weights metadata, including LoRA rank |
+| `get_checkpoint_archive_url` | Returns a signed archive link for an interactive checkpoint. It requires weight-download access |
+| `delete_checkpoint_from_tinker_path` | Deletes a checkpoint |
+| `publish_checkpoint_from_tinker_path` or `unpublish_checkpoint_from_tinker_path` | Changes publication within the owning team. It does not make the path loadable by another team |
+| `set_checkpoint_ttl_from_tinker_path` | Sets or clears checkpoint retention |
+| `get_current_checkpoint_storage_usage` | Reads current checkpoint storage, optionally for one project |
+| `get_billing_usage` | Reads hourly usage events for an hour-aligned window |
 
-These administration methods are supported SDK operations, not public Training
-API routes. The SDK handles token exchange automatically using the key printed
+Both checkpoint download paths require the team's weight-download access. One
+path is the SDK method `get_checkpoint_archive_url`. The other is the public
+[`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/api-reference/training-jobs/download-checkpoint)
+route. Without that access, both return `403` with `For downloading models, please contact sales@fastino.ai`.
+The SDK handles token exchange automatically using the key printed
 by `TINKER_CREDENTIAL_CMD`. Do not construct equivalent HTTP requests.
 
 ### Unsupported calls
@@ -146,7 +150,7 @@ Fastino does not support:
 
 These restrictions describe normal Fastino API-key behavior. A sandbox run key
 has a narrower write scope: it also cannot delete, publish, or change the TTL of
-a checkpoint, reassign a session's project, or export external weights. Those
+a checkpoint, or reassign a session's project. Those
 run-key restrictions do not make the corresponding API-key operations
 unsupported.
 
@@ -161,13 +165,14 @@ models and their context lengths.
 | Authentication fails | Confirm that `TINKER_CREDENTIAL_CMD` prints one current `fast_sk_` key and no extra output |
 | The client cannot connect | Confirm that `TINKER_BASE_URL` is exactly `https://api.fastino.ai/v1/training/compat/tinker` |
 | An SDK call or checkpoint download returns `403` with a team-data-erasure message | Team deletion is in progress. Do not retry the operation; contact your account administrator or Fastino support if the deletion is unexpected |
+| A checkpoint download returns `403` asking you to contact sales | The team lacks weight-download access. Contact sales@fastino.ai |
 | A model is rejected | Query capabilities again and choose an enabled model |
 | A rank, loss, or operation is rejected | Compare the call with the documented limits and support table; capabilities do not list these settings |
 | Canonical job lookup fails | Confirm that the ID came from `get_info().model_id` and that the same Fastino team is authenticated |
 
 ## Migration checklist
 
-- [ ] Pin `tinker==0.33.1`.
+- [ ] Pin `tinker==0.32.0`.
 - [ ] Set the Training API base URL for the Tinker SDK.
 - [ ] Deliver a `fast_sk_` key through `TINKER_CREDENTIAL_CMD`.
 - [ ] Check every SDK method against the supported client behavior.

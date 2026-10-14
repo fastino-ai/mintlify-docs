@@ -57,7 +57,7 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   with documented canonical job reads.
 - Do not invent routes, model IDs, request fields, or response fields.
 - Use [Migrate from Tinker](https://docs.fastino.ai/training/migrate-from-tinker#supported-client-behavior)
-  for client support boundaries. The pinned `tinker==0.33.1` package defines
+  for client support boundaries. The pinned `tinker==0.32.0` package defines
   method signatures, but Fastino's documented unsupported list takes
   precedence. Use [Training loop](https://docs.fastino.ai/training/training-loop)
   and [Checkpoints and recovery](https://docs.fastino.ai/training/checkpoints)
