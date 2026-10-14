@@ -10,6 +10,13 @@ LOCALES = ("cn", "de", "es", "fr")
 PRICING_PAGES = (ROOT / "pricing.mdx",) + tuple(
     ROOT / locale / "pricing.mdx" for locale in LOCALES
 )
+SECTION_HEADINGS = {
+    ROOT / "pricing.mdx": ("## Training", "## Inference"),
+    ROOT / "cn" / "pricing.mdx": ("## 训练", "## 推理"),
+    ROOT / "de" / "pricing.mdx": ("## Training", "## Inferenz"),
+    ROOT / "es" / "pricing.mdx": ("## Entrenamiento", "## Inferencia"),
+    ROOT / "fr" / "pricing.mdx": ("## Entraînement", "## Inférence"),
+}
 
 EXPECTED_RATES = {
     "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": (
@@ -57,6 +64,12 @@ class TrainingPricingTests(unittest.TestCase):
                 self.assertIn(r"\$0.07", text)
                 self.assertIn("GPU", text)
                 self.assertEqual(text.count("per 1M tokens"), 1 if page == ROOT / "pricing.mdx" else 0)
+
+    def test_training_precedes_inference(self) -> None:
+        for page, (training_heading, inference_heading) in SECTION_HEADINGS.items():
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(ROOT)):
+                self.assertLess(text.index(training_heading), text.index(inference_heading))
 
     def test_interactive_dollar_rows_live_only_on_pricing_pages(self) -> None:
         pricing_pages = {page.resolve() for page in PRICING_PAGES}
