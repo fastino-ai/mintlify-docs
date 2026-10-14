@@ -41,6 +41,15 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   Use `/v1/training/usage` only for team-scoped interactive checkpoint storage.
   Auto Train is private access and has no public route. Direct interested
   users to `sales@fastino.ai`.
+- Native JSON clients create an interactive job with
+  `POST /v1/training/jobs/create-model`. They poll
+  `GET /v1/training/jobs/{job_id}/futures/{future_id}`. `wait=true` waits for
+  at most 25 seconds and can return a nonterminal future. Only sample futures
+  can be cancelled.
+- Native JSON clients save, load, and sample through the direct
+  `save-weights`, `save-weights-for-sampler`, `load-weights`, and `sample`
+  job routes. Load and sample accept a checkpoint name or the same job's
+  `tinker://` path. Sampling remains available after stop.
 - For custom loops, start with the
   [Training quickstart](https://docs.fastino.ai/training/quickstart#custom-training-loop).
   Use the focused guides for migration, verifiable rewards, and recovery.
@@ -61,4 +70,4 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   method signatures, but Fastino's documented unsupported list takes
   precedence. Use [Training loop](https://docs.fastino.ai/training/training-loop)
   and [Checkpoints and recovery](https://docs.fastino.ai/training/checkpoints)
-  for operation and recovery behavior.
+  for future and recovery behavior.

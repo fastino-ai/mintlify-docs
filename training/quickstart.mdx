@@ -98,7 +98,7 @@ checkpoints, logs, and deployment eligibility.
 Choose one supported interface:
 
 - Native JSON clients call
-  [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create),
+  [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create-model),
   queue model operations under `/v1/training/jobs/{job_id}`, and poll each
   returned `future_id` until `completed`, `failed`, or `cancelled`.
 - Existing Tinker programs keep `tinker==0.32.0` and use the setup below.
@@ -106,30 +106,30 @@ Choose one supported interface:
 Native clients send no `seq_id` and no heartbeat. The server assigns operation
 ordering and keeps the internal session alive. A request with `wait=true` waits
 for at most 25 seconds, so a client must continue polling a nonterminal
-operation. Follow [Build a custom training loop](/training/training-loop) for
+future. Follow [Build a custom training loop](/training/training-loop) for
 the native route sequence.
 
 ### Native JSON path
 
 1. Call
-   [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create)
+   [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create-model)
    with `base_model`, or with `from_checkpoint` and `load_optimizer`.
 2. Poll the returned create `future_id` through
-   [Get an operation](/api-reference/training-jobs/interactive/get-operation)
+   [Get a future](/api-reference/training-jobs/interactive/get-future)
    until `completed`, `failed`, or `cancelled`.
 3. Queue
    [forward-backward](/api-reference/training-jobs/interactive/forward-backward)
    and [an optimizer step](/api-reference/training-jobs/interactive/optim-step).
    Poll each `future_id` to a terminal status before the next dependent step.
 4. [Save sampler weights](/api-reference/training-jobs/interactive/save-sampler-weights)
-   and poll the save operation to a terminal status.
+   and poll the save future to a terminal status.
 5. Stop the job through the shared
    [stop operation](/api-reference/training-jobs/stop).
 6. [Sample from the saved checkpoint](/api-reference/training-jobs/interactive/sample)
-   after stop, then poll the sample operation to a terminal status.
+   after stop, then poll the sample future to a terminal status.
 
-Only a queued or running sample operation can be cancelled. An HTTP rejection
-means that the server did not queue the operation. A queued operation can
+Only a queued or running sample future can be cancelled. An HTTP rejection
+means that the server did not queue the call. A queued future can
 instead finish with `status: "failed"`.
 
 ### Tinker SDK path

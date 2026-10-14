@@ -83,9 +83,10 @@ Compare the record with the source checkpoint and requested continuation:
 Stop for an explicit decision if these fields conflict. Do not silently combine
 a checkpoint with a different experiment.
 
-Native clients create a new job with `from_checkpoint`, or call
-[`load checkpoint`](/api-reference/training-jobs/interactive/load-checkpoint)
-on a compatible job. Tinker clients use the supported state-load flow:
+Native clients create a new job with `from_checkpoint`, or send a state name or
+the same job's `tinker://` path to
+[`load-weights`](/api-reference/training-jobs/interactive/load-weights).
+Tinker clients use the supported state-load flow:
 
 ```python
 training_client = (
@@ -135,10 +136,12 @@ automatic expiration. Live checkpoints count toward checkpoint storage. To
 enable automatic cleanup, pass an inclusive value from `3_600` to
 `315_360_000` seconds (1 hour to 10 years).
 
-The public Training API can save, load, sample, inspect, delete, publish,
-unpublish, and set retention for interactive checkpoints. `save-weights` saves training and optimizer state as `weights`;
-`save-weights-for-sampler` saves `sampler_weights`. Sampling from
-a saved sampler checkpoint remains available after the job is stopped. The
+The public Training API saves training state through
+[`save-weights`](/api-reference/training-jobs/interactive/save-weights) and
+sampling weights through
+[`save-weights-for-sampler`](/api-reference/training-jobs/interactive/save-sampler-weights).
+The direct load and sample routes accept a checkpoint name or the same job's
+`tinker://` path. Sampling remains available after the job is stopped. The
 shared list and download routes cover interactive checkpoints, and download
 still requires weight-download access. Tinker provides matching SDK methods.
 Do not construct private compatibility child routes or assume an undocumented
@@ -164,7 +167,7 @@ interactive model operations.
 
 | Symptom | Check |
 | --- | --- |
-| A future fails | Record the job ID and operation result. Do not advance dependent application state |
+| A future fails | Record the job ID and future result. Do not advance dependent application state |
 | A checkpoint cannot be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
 | Source checkpoint is rejected | Confirm its source job, checkpoint kind, and persisted `state_path`; do not require the new job ID to equal the source ID |
 | Resumed job lookup fails | Confirm that the ID came from the resumed client's `get_info().model_id` and that the same Fastino team is authenticated |

@@ -325,26 +325,45 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 self.assertNotIn(phrase, text, page)
 
         loop = (ROOT / "training/training-loop.mdx").read_text(encoding="utf-8")
-        self.assertIn("Only sample operations can be cancelled", loop)
+        self.assertIn("Only sample futures can be cancelled", loop)
         self.assertNotIn("Resolve or cancel futures individually", loop)
 
     def test_native_interactive_semantics_are_documented(self) -> None:
         interactive = ROOT / "api-reference/training-jobs/interactive"
-        create = (interactive / "create.mdx").read_text(encoding="utf-8")
-        operation = (interactive / "get-operation.mdx").read_text(encoding="utf-8")
-        cancel = (interactive / "cancel-operation.mdx").read_text(encoding="utf-8")
+        create = (interactive / "create-model.mdx").read_text(encoding="utf-8")
+        future = (interactive / "get-future.mdx").read_text(encoding="utf-8")
+        cancel = (interactive / "cancel-future.mdx").read_text(encoding="utf-8")
+        save = (interactive / "save-weights.mdx").read_text(encoding="utf-8")
+        save_sampler = (interactive / "save-sampler-weights.mdx").read_text(
+            encoding="utf-8"
+        )
+        load = (interactive / "load-weights.mdx").read_text(encoding="utf-8")
         sample = (interactive / "sample.mdx").read_text(encoding="utf-8")
         usage = (interactive / "storage-usage.mdx").read_text(encoding="utf-8")
 
+        self.assertIn("POST /v1/training/jobs/create-model", create)
         self.assertIn("`base_model`", create)
         self.assertIn("`from_checkpoint`", create)
         self.assertIn("`load_optimizer`", create)
         self.assertIn("do not send `seq_id` values or heartbeats", create)
-        self.assertIn("at most 25 seconds", operation)
+        self.assertIn("{future_id}", future)
+        self.assertIn("`wait=true`", future)
+        self.assertIn("at most 25 seconds", future)
+        self.assertIn("nonterminal", future)
         for status in ("`completed`", "`failed`", "`cancelled`"):
-            self.assertIn(status, operation)
-        self.assertIn("sample operation", cancel.lower())
-        self.assertIn("Training operations cannot be cancelled", cancel)
+            self.assertIn(status, future)
+        self.assertIn("Only sample futures can be cancelled", cancel)
+        self.assertIn("Training futures", cancel)
+        self.assertIn("POST /v1/training/jobs/{job_id}/save-weights", save)
+        self.assertIn(
+            "POST /v1/training/jobs/{job_id}/save-weights-for-sampler",
+            save_sampler,
+        )
+        self.assertIn("POST /v1/training/jobs/{job_id}/load-weights", load)
+        self.assertIn("state name", load)
+        self.assertIn("this job's own `tinker://", load)
+        self.assertIn("POST /v1/training/jobs/{job_id}/sample", sample)
+        self.assertIn("sampler checkpoint name", sample)
         self.assertIn("after the interactive job is stopped", sample)
         self.assertIn("checkpoint storage", usage.lower())
         self.assertIn("team-scoped", usage)
