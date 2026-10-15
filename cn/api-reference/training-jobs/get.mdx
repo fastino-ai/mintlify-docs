@@ -7,17 +7,18 @@ api: "GET /v1/training/jobs/{job_id}"
 
 `GET /v1/training/jobs/{job_id}`
 
-返回一个对调用者所在团队可见的配置训练任务或交互式训练任务。
-对于交互式任务，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create) 返回的 `job_id`。
+Returns one config or interactive training job visible to the caller's team.
+For an interactive job, use the `job_id` returned by
+[`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create).
 
-## 请求
+## Request
 
 <ParamField header="X-API-Key" type="string" required>
-  您的 Fastino API 密钥。
+  Your Fastino API key.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  规范的 Fastino 训练任务 ID。
+  Canonical Fastino training-job ID.
 </ParamField>
 
 <RequestExample>
@@ -29,58 +30,107 @@ curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
 
 </RequestExample>
 
-## 响应
+## Response
+
+### Config job
 
 <ResponseField name="id" type="string">
-  规范的 Fastino 训练任务 ID。
+  Canonical Fastino job ID for a config job.
 </ResponseField>
 
 <ResponseField name="type" type="string">
-  Fastino 运行训练循环时为 `config`；调用方通过交互式任务路由控制循环时为 `interactive`。
+  `config` when Fastino runs the training loop or `interactive` when the caller
+  controls the loop through the interactive-job routes.
 </ResponseField>
 
 <ResponseField name="status" type="string">
-  持久化的生命周期状态。
+  Persisted lifecycle status.
 </ResponseField>
 
 <ResponseField name="normalized_status" type="string | null">
-  用于客户端兼容性的稳定状态。
+  Stable status for client compatibility.
 </ResponseField>
 
 <ResponseField name="is_terminal_status" type="boolean | null">
-  轮询是否可以停止。
+  Whether polling can stop.
 </ResponseField>
 
 <ResponseField name="progress_percent" type="integer | null">
-  当前完成百分比,取值从 `0` 到 `100`。
+  Current completion percentage from `0` through `100`.
 </ResponseField>
 
 <ResponseField name="current_epoch" type="integer | null">
-  当前 epoch(从 1 开始计数)。
+  Current 1-indexed epoch.
 </ResponseField>
 
 <ResponseField name="error_message" type="string | null">
-  失败详情(如有)。
+  Failure details when available.
 </ResponseField>
 
 <ResponseField name="metrics" type="object | null">
-  可用的训练指标。常见键包括 `final_training_loss`、`final_validation_loss` 和 `best_validation_loss`。评估指标是独立的,不保证一定存在。
+  Available training metrics. Common keys are `final_training_loss`, `final_validation_loss`, and `best_validation_loss`. Evaluation metrics are separate and are not guaranteed.
 </ResponseField>
 
 <ResponseField name="artifact_ready" type="boolean | null">
-  是否有可用的工件位置。
+  Whether an artifact location is available.
 </ResponseField>
 
 <ResponseField name="is_deployable" type="boolean | null">
-  权威的部署就绪性判定。
+  Authoritative deployment-readiness decision.
 </ResponseField>
 
 <ResponseField name="deployability_reason" type="string | null">
-  任务不可部署的原因。
+  Why the job is not deployable.
 </ResponseField>
 
-配置任务记录还会返回已提交的配置、数据集引用、进度、指标和工件元数据。
-交互式任务记录会返回适用于调用方控制训练的字段。不要假设交互式任务中会填充仅配置任务使用的字段。
+Config-job records also return their submitted configuration, dataset
+references, progress, metrics, and artifact metadata.
+
+### Interactive job
+
+<ResponseField name="training_run_id" type="string">
+  Canonical Fastino job ID for an interactive job.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  Base model used by the interactive training job.
+</ResponseField>
+
+<ResponseField name="model_owner" type="string">
+  Team that owns the interactive job.
+</ResponseField>
+
+<ResponseField name="is_lora" type="boolean">
+  Whether the job trains a LoRA adapter.
+</ResponseField>
+
+<ResponseField name="corrupted" type="boolean">
+  Whether the training state is unusable for further steps.
+</ResponseField>
+
+<ResponseField name="lora_rank" type="integer | null">
+  LoRA rank, when applicable.
+</ResponseField>
+
+<ResponseField name="last_request_time" type="string">
+  ISO 8601 time of the most recent request to the job.
+</ResponseField>
+
+<ResponseField name="last_checkpoint" type="object | null">
+  Latest training-state checkpoint.
+</ResponseField>
+
+<ResponseField name="last_sampler_checkpoint" type="object | null">
+  Latest sampler-weights checkpoint. Checkpoint objects include
+  `checkpoint_id`, `checkpoint_type`, `time`, `tinker_path`, `size_bytes`,
+  `public`, `user_metadata`, and `expires_at`.
+</ResponseField>
+
+<ResponseField name="user_metadata" type="object | null">
+  String key-value metadata attached when the interactive job was created.
+</ResponseField>
+
+Do not assume config-only fields are populated on an interactive job.
 
 <ResponseExample>
 
@@ -106,5 +156,30 @@ curl https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
 
 </ResponseExample>
 
-未知或无法访问的任务返回 `404`。非 UUID 值会被视为交互式任务 ID，
-不可用时返回 `404`。
+```json Interactive job
+{
+  "type": "interactive",
+  "training_run_id": "YOUR_SESSION_ID:train:0",
+  "base_model": "Qwen/Qwen3.6-35B-A3B",
+  "model_owner": "YOUR_TEAM_ID",
+  "is_lora": true,
+  "corrupted": false,
+  "lora_rank": 32,
+  "last_request_time": "2026-10-09T18:42:10Z",
+  "last_checkpoint": null,
+  "last_sampler_checkpoint": {
+    "checkpoint_id": "sampler_weights/step-100",
+    "checkpoint_type": "sampler",
+    "time": "2026-10-09T18:40:02Z",
+    "tinker_path": "tinker://YOUR_SESSION_ID:train:0/sampler_weights/step-100",
+    "size_bytes": 167772160,
+    "public": false,
+    "user_metadata": null,
+    "expires_at": null
+  },
+  "user_metadata": {"experiment": "baseline"}
+}
+```
+
+An unknown or inaccessible job returns `404`. Non-UUID values are treated as
+interactive job IDs and return `404` when unavailable.

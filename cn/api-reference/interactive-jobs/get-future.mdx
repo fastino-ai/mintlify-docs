@@ -7,13 +7,28 @@ api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-读取 future，直到其 `status` 为 `completed`、`failed` 或 `cancelled`。结果保留一小时。
-使用 `wait=true` 时，请求最多等待 25 秒。
+Every interactive-job call that does work returns a `future_id`. Read the
+future until its `status` is `completed`, `failed`, or `cancelled`.
+Results are kept for one hour.
 
-- `type`：`create`、`load`、`forward`、`forward_backward`、`optim_step`、`save` 或 `sample`。
-- `result`（`completed` 时）：forward 类操作返回 `loss_fn_outputs` 和 `metrics`；`sample` 返回
-  `sequences`（每项含 `tokens`、`logprobs`、`stop_reason`）；`save` 返回检查点路径。
-- `error`（`failed` 或 `cancelled` 时）：`message` 和 `category`（`user` 或 `server`）。
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  Interactive job ID.
+</ParamField>
+
+<ParamField path="future_id" type="string" required>
+  Future ID returned when the work was queued.
+</ParamField>
+
+<ParamField query="wait" type="boolean" default="false">
+  Wait up to 25 seconds for an unfinished future before answering. Repeat
+  the request until it finishes.
+</ParamField>
 
 <RequestExample>
 
@@ -23,6 +38,44 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 ```
 
 </RequestExample>
+
+## Response
+
+<ResponseField name="future_id" type="string">
+  The future.
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  The job.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `create`, `load`, `forward`, `forward_backward`, `optim_step`, `save`, or `sample`.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  `pending`, `running`, `completed`, `failed`, or `cancelled`.
+</ResponseField>
+
+<ResponseField name="queue_state" type="string | null">
+  While unfinished: `active`, or `paused_capacity` while GPU capacity warms up.
+</ResponseField>
+
+<ResponseField name="result" type="any">
+  Once `completed`:
+
+  - `forward` and `forward_backward`: `loss_fn_outputs` (one entry of tensors per
+    datum, such as `logprobs`) and `metrics`.
+  - `sample`: `sequences`, each with `tokens`, `logprobs`, and `stop_reason`,
+    plus `prompt_logprobs` when requested.
+  - `save`: the checkpoint path.
+  - Other types: an acknowledgement.
+</ResponseField>
+
+<ResponseField name="error" type="object | null">
+  When `failed` or `cancelled`: `message`, and `category` (`user` for a problem
+  with the request, `server` for a Fastino problem).
+</ResponseField>
 
 <ResponseExample>
 
@@ -60,3 +113,7 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 ```
 
 </ResponseExample>
+
+| Status | Meaning |
+| --- | --- |
+| `404` | The job or future doesn't exist, or belongs to another team. |

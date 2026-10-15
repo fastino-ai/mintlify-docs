@@ -7,34 +7,56 @@ api: "POST /v1/training/jobs/{job_id}/forward-backward"
 
 `POST /v1/training/jobs/{job_id}/forward-backward`
 
-计算一批 token 级 datum 的损失并累积梯度，下一次[优化器步骤](/cn/api-reference/interactive-jobs/optim-step)
-会应用这些梯度。每个执行工作的调用都会返回一个 future。请使用 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future) 读取结果。
-[`POST /v1/training/jobs/{job_id}/forward`](/cn/api-reference/interactive-jobs/forward) 接受相同的请求体，但不计算梯度。
+Computes the loss of a batch of token-level datums and accumulates its
+gradients. The next [optimizer step](/cn/api-reference/interactive-jobs/optim-step)
+applies them. The response is a future; read the loss and per-token log
+probabilities from
+[`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future).
 
-## 请求
+[`POST /v1/training/jobs/{job_id}/forward`](/cn/api-reference/interactive-jobs/forward)
+takes the same body and computes the loss without gradients.
+
+## Request
 
 <ParamField header="X-API-Key" type="string" required>
-  您的 Fastino API 密钥。
+  Your Fastino API key.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  交互式任务 ID。
+  Interactive job ID.
 </ParamField>
 
 <ParamField body="datums" type="object[]" required>
-  一个或多个训练样本，请使用基础模型的 tokenizer 自行分词。每个 datum 包含
-  `model_input`（`{"chunks": [{"type": "encoded_text", "tokens": [...]}]}`，共 N 个 token）和
-  `loss_fn_inputs`（每个张量为 `{"data": [...], "dtype": "int64" | "float32"}`，各含 N 个值）：
-  必填的 `target_tokens`（`int64`）；可选的 `weights`（`float32`，提示位置为 `0`，补全位置为 `1`）；
-  除 `cross_entropy` 外的所有损失函数都需要 `logprobs` 和 `advantages`（`float32`）。
+  One or more training examples. Tokenize them yourself with the base model's
+  tokenizer.
+
+  <Expandable title="properties">
+    <ParamField body="model_input" type="object" required>
+      `{"chunks": [{"type": "encoded_text", "tokens": [...]}]}`. The input token
+      IDs, N tokens in total.
+    </ParamField>
+    <ParamField body="loss_fn_inputs" type="object" required>
+      Per-position tensors, each `{"data": [...], "dtype": "int64" | "float32"}`
+      with an optional `shape`. Every tensor has N values.
+
+      - `target_tokens` (`int64`, required): the token expected at each position,
+        usually the input shifted left by one.
+      - `weights` (`float32`): per-position loss weight. Use `0` for prompt
+        positions and `1` for completion positions.
+      - `logprobs` and `advantages` (`float32`): required by every loss except
+        `cross_entropy`. `logprobs` are the sampler's log probabilities of the
+        targets.
+    </ParamField>
+  </Expandable>
 </ParamField>
 
 <ParamField body="loss_fn" type="string" default="cross_entropy">
-  `cross_entropy`、`importance_sampling`、`ppo`、`cispo` 或 `dro`。
+  `cross_entropy`, `importance_sampling`, `ppo`, `cispo`, or `dro`.
 </ParamField>
 
 <ParamField body="loss_fn_config" type="object">
-  损失函数设置。`ppo` 和 `cispo` 接受 `clip_low_threshold` 与 `clip_high_threshold`；`dro` 接受 `beta`。
+  Loss settings. `ppo` and `cispo` take `clip_low_threshold` and
+  `clip_high_threshold`; `dro` takes `beta`. Unknown keys are rejected.
 </ParamField>
 
 <RequestExample>
@@ -59,7 +81,19 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 
 </RequestExample>
 
-## 响应
+## Response
+
+<ResponseField name="future_id" type="string">
+  The queued future.
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  The job.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `forward_backward`.
+</ResponseField>
 
 <ResponseExample>
 
@@ -89,3 +123,16 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 ```
 
 </ResponseExample>
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Unknown `loss_fn`, a non-integer `target_tokens` tensor, out-of-vocabulary token IDs, or the job was stopped. |
+| `402` | The team is out of credits or has no valid payment setup. |
+| `404` | The job doesn't exist or belongs to another team. |
+| `422` | `datums` is empty or the body has an unknown field. |
+
+Problems found while the batch runs, such as a missing loss input, mismatched
+tensor lengths, an unknown `loss_fn_config` key, or a datum longer than the
+model's limit, fail the future. Its `error.category` is `user`.

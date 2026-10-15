@@ -56,7 +56,7 @@ EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
     "training/quickstart.mdx": 16,
     "training/migrate-from-tinker.mdx": 5,
-    "concepts/datasets.mdx": 7,
+    "concepts/datasets.mdx": 9,
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
     "training/verifiable-rewards.mdx": 7,
@@ -122,14 +122,51 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             self.assertIn('"run_id":', text, path)
             self.assertIn('"checkpoint_id": "sampler_weights/', text, path)
 
-    def test_stop_and_terminate_distinguish_path_and_body_validation(self) -> None:
+    def test_stop_separates_interactive_and_config_behavior(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
-            for operation in ("stop", "terminate"):
-                path = ROOT / f"{prefix}api-reference/training-jobs/{operation}.mdx"
-                text = path.read_text(encoding="utf-8")
-                self.assertRegex(text, r"\| `400` \|[^\n]+UUID", path)
-                self.assertRegex(text, r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)", path)
+            stop_path = ROOT / f"{prefix}api-reference/training-jobs/stop.mdx"
+            stop = stop_path.read_text(encoding="utf-8")
+            curls = re.findall(r"```bash cURL\n(?P<body>.*?)```", stop, re.DOTALL)
+            self.assertEqual(len(curls), 2, stop_path)
+            self.assertEqual(sum("-d " in curl for curl in curls), 1, stop_path)
+            interactive_curl = next(curl for curl in curls if "-d " not in curl)
+            self.assertIn("SESSION_ID:train:0", interactive_curl, stop_path)
+
+            responses = [
+                json.loads(body)
+                for body in re.findall(
+                    r"```json[^\n]*\n(?P<body>\{.*?\})\n```",
+                    stop,
+                    re.DOTALL,
+                )
+            ]
+            interactive = next(
+                response
+                for response in responses
+                if response.get("job_id") == "SESSION_ID:train:0"
+            )
+            self.assertEqual(
+                set(interactive),
+                {"success", "job_id", "status"},
+                stop_path,
+            )
+            config = [
+                response
+                for response in responses
+                if response.get("job_id") == "YOUR_TRAINING_JOB_ID"
+            ]
+            self.assertEqual(len(config), 2, stop_path)
+            self.assertTrue(all("message" in response for response in config), stop_path)
+
+            terminate_path = ROOT / f"{prefix}api-reference/training-jobs/terminate.mdx"
+            terminate = terminate_path.read_text(encoding="utf-8")
+            self.assertRegex(terminate, r"\| `400` \|[^\n]+UUID", terminate_path)
+            self.assertRegex(
+                terminate,
+                r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)",
+                terminate_path,
+            )
 
     def test_sampler_checkpoint_examples_set_an_explicit_ttl(self) -> None:
         for path in ROOT.glob("**/training/*.mdx"):
@@ -138,7 +175,33 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 call = text[match.start():match.start() + 180]
                 self.assertIn("ttl_seconds=", call, f"{path}: {call}")
 
-    def test_inventory_is_exactly_47_fences_across_9_training_api_pages(self) -> None:
+    def test_tinker_migration_keeps_supported_and_unsupported_calls_separate(self) -> None:
+        text = (ROOT / "training/migrate-from-tinker.mdx").read_text(
+            encoding="utf-8"
+        )
+        supported, remainder = text.split("### Unsupported calls", maxsplit=1)
+        unsupported = remainder.split("## Troubleshoot the connection", maxsplit=1)[0]
+        for name in (
+            "retrieve_futures",
+            "save_weights_external",
+            "external_weights_urls",
+        ):
+            self.assertNotIn(name, supported)
+            self.assertIn(f"`{name}`", unsupported)
+        self.assertIn("Session-trace export", unsupported)
+        self.assertIn("Audit-log entries", unsupported)
+
+        cancel = next(
+            line for line in supported.splitlines() if line.startswith("| Future cancel")
+        )
+        self.assertIn("`sample`", cancel)
+        self.assertRegex(cancel, r"Training-operation futures.*not cancelled")
+        runs = next(
+            line for line in supported.splitlines() if "`list_training_runs`" in line
+        )
+        self.assertIn("interactive runs only", runs)
+
+    def test_inventory_is_exactly_49_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -146,7 +209,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 47)
+        self.assertEqual(len(snippets), 49)
         self.assertEqual(len(pages), 9)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(
@@ -289,13 +352,13 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(inference.coverage, "static")
         self.assertEqual(inference.mapped_command, "blocker")
 
-        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 2))
+        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 4))
         self.assertEqual(upload.coverage, "static")
         self.assertEqual(upload.mapped_command, "blocker")
 
     def test_missing_placeholders_print_skip_and_do_not_guess(self) -> None:
         job = _snippet("training/quickstart.mdx", 4)
-        dataset = _snippet("concepts/datasets.mdx", 5)
+        dataset = _snippet("concepts/datasets.mdx", 7)
         catalog = _snippet("training/quickstart.mdx", 2)
 
         skipped_job = SNIPPETS.plan_live(job, SNIPPETS.classify(job), {})
@@ -456,6 +519,10 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertRegex(
             static_job,
             r"python scripts/agent_harness\.py training-snippets\n",
+        )
+        self.assertIn(
+            'python -m unittest discover -s scripts/tests -p "test_*.py"',
+            static_job,
         )
         self.assertNotIn("training-snippets --live", static_job)
         self.assertNotIn("FASTINO_DOCS_CANARY_API_KEY", static_job)

@@ -9,11 +9,6 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 Stoppt einen laufenden Job und erhält die vor dem Stopp erstellten Checkpoints.
 
-Bei einem `interactive`-Job gibt der Stopp den Job frei, sobald seine
-eingereihten Operationen abgeschlossen sind. Danach nimmt er keine
-Trainingsoperationen mehr an, seine Sampler-Checkpoints lassen sich aber weiter
-samplen und herunterladen. Interaktive Jobs ignorieren den Request-Body.
-
 ## Request
 
 <ParamField header="X-API-Key" type="string" required>
@@ -24,7 +19,9 @@ samplen und herunterladen. Interaktive Jobs ignorieren den Request-Body.
   UUID eines Config-Jobs oder ID eines interaktiven Jobs.
 </ParamField>
 
-Der JSON-Body ist optional.
+### Config-Job
+
+Der JSON-Body ist für einen Config-Job optional.
 
 <ParamField body="reason" type="string">
   Grund für das Stoppen des Jobs.
@@ -38,7 +35,13 @@ Der JSON-Body ist optional.
   Checkpoint-Pfad oder -Schritt, der dem Stopp zugeordnet ist.
 </ParamField>
 
-<RequestExample>
+### Interaktiver Job
+
+Senden Sie keinen Request-Body. Die Operation gibt sofort `success`, `job_id`
+und `status` zurück. Der Job nimmt keine Trainingsaufrufe mehr an. Seine
+Sampler-Checkpoints bleiben für Sampling und Download verfügbar.
+
+### Request-Beispiel für einen Config-Job
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
@@ -47,9 +50,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
   -d '{"reason": "Validation loss stopped improving"}'
 ```
 
-</RequestExample>
+### Request-Beispiel für einen interaktiven Job
 
-## Response
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Response eines Config-Jobs
 
 <ResponseExample>
 
@@ -71,6 +79,17 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+</ResponseExample>
+
+Das Feld `message`, die `202`-Antwort, die Polling-Regel und die
+Config-spezifischen Fehler gelten nur für Config-Jobs. Fragen Sie nach einer
+Config-Job-Antwort `202` den Endpunkt `GET /v1/training/jobs/{job_id}` ab.
+Wiederholen Sie den Stopp-Request nicht, solange der Abbruch aussteht.
+
+## Response eines interaktiven Jobs
+
+Ein interaktiver Stopp gibt sofort `200` zurück. Polling ist nicht nötig.
+
 ```json Interactive job
 {
   "success": true,
@@ -79,16 +98,12 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
-</ResponseExample>
-
-Fragen Sie nach einer `202`-Antwort
-`GET /v1/training/jobs/{job_id}` ab. Wiederholen Sie den Stopp-Request nicht,
-solange der Abbruch aussteht.
+## Status eines Config-Jobs
 
 | Status | Bedeutung |
 | --- | --- |
 | `200` | Der Job ist gestoppt und vorhandene Checkpoints bleiben verfügbar. |
 | `202` | Die Bestätigung des Anbieterabbruchs steht noch aus. |
-| `400` | `job_id` ist weder eine Config-Job-UUID noch eine ID eines interaktiven Jobs. |
+| `400` | Die ID oder der Request des Config-Jobs ist ungültig. |
 | `409 training_job_already_finished` | Der Job hat vor dem Stopp einen Endzustand erreicht. |
-| `422` | Der JSON-Request-Body ist ungültig. |
+| `422` | Der JSON-Request-Body des Config-Jobs ist ungültig. |

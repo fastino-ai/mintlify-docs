@@ -88,6 +88,36 @@ class AgentHarnessTests(unittest.TestCase):
         self.assertNotIn("preview", create.get("description", "").lower())
         self.assertIn("type", response["properties"])
 
+    def test_config_create_documents_decoder_training_contract(self) -> None:
+        document = HARNESS._load_openapi()
+        properties = document["components"]["schemas"]["TrainingJobCreate"]["properties"]
+        decoder_fields = {
+            "packing",
+            "mask_history",
+            "system_prompt",
+            "training_algorithm",
+            "rl_config",
+        }
+
+        self.assertTrue(decoder_fields <= set(properties))
+        self.assertEqual(
+            set(properties["training_algorithm"]["enum"]),
+            {"sft", "dpo", "grpo"},
+        )
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            create = (
+                HARNESS.ROOT / f"{prefix}api-reference/training-jobs/create.mdx"
+            ).read_text(encoding="utf-8")
+            for field in decoder_fields:
+                self.assertIn(f'<ParamField body="{field}"', create)
+
+            datasets = (
+                HARNESS.ROOT / f"{prefix}concepts/datasets.mdx"
+            ).read_text(encoding="utf-8")
+            for field in ("messages", "prompt", "chosen", "rejected"):
+                self.assertIn(f'"{field}"', datasets)
+
     def test_english_config_create_requests_use_base_model_and_omit_type(self) -> None:
         found = 0
         for page in CONFIG_CREATE_PAGES:
@@ -115,6 +145,118 @@ class AgentHarnessTests(unittest.TestCase):
         self.assertEqual(
             CHECKS._api_reference_findings(HARNESS.ROOT, document),
             [],
+        )
+
+    def test_public_openapi_has_no_compatibility_paths(self) -> None:
+        operations = CHECKS._operations(HARNESS._load_openapi())
+
+        self.assertFalse(
+            any(path.startswith(f"{CHECKS.TINKER_SDK.base_path}/") for _, path in operations)
+        )
+
+    def test_sdk_claims_require_the_uniform_pin_and_hide_child_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            good = root / "training.mdx"
+            bad = root / "de" / "training.mdx"
+            bad.parent.mkdir()
+            good.write_text(
+                'uv add "tinker==0.32.0"\n'
+                "https://api.fastino.ai/v1/training/compat/tinker\n",
+                encoding="utf-8",
+            )
+            bad.write_text(
+                'uv add "tinker==0.33.1"\n'
+                "/v1/training/compat/tinker/api/v1/cancel_future\n",
+                encoding="utf-8",
+            )
+
+            findings = CHECKS._sdk_claim_findings(root, [good, bad])
+
+        self.assertEqual(
+            findings,
+            [
+                "de/training.mdx:1: SDK pin is tinker==0.33.1, expected tinker==0.32.0",
+                "de/training.mdx:2: compatibility child route is not public",
+            ],
+        )
+
+    def test_skill_routes_must_be_public_openapi_operations(self) -> None:
+        destination = {
+            "paths": {
+                "/v1/training/jobs/create-model": {"post": {}},
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            skill = root / ".mintlify" / "skills" / "training" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text(
+                "POST /v1/training/jobs/create-model\n"
+                "POST /v1/training/jobs/interactive\n",
+                encoding="utf-8",
+            )
+
+            findings = CHECKS._skill_route_findings(root, destination)
+
+        self.assertEqual(
+            findings,
+            [
+                ".mintlify/skills/training/SKILL.md:2: "
+                "POST /v1/training/jobs/interactive is not a public OpenAPI operation"
+            ],
+        )
+
+    def test_stale_api_binding_is_reported(self) -> None:
+        findings = CHECKS._stale_binding_findings(
+            {("POST", "/v1/removed"): ["api-reference/removed"]},
+            {("GET", "/v1/current")},
+        )
+
+        self.assertEqual(
+            findings,
+            [
+                "POST /v1/removed has API bindings but is absent from openapi.json: "
+                "['api-reference/removed']"
+            ],
+        )
+
+    def test_locale_skeleton_reports_dropped_fields_and_code(self) -> None:
+        english = """---
+api: "POST /v1/example"
+---
+`400`
+<ParamField body="name" type="string" />
+```json
+{"name": "value"}
+```
+"""
+        localized = """---
+api: "POST /v1/example"
+---
+```json
+{}
+```
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "training.mdx").write_text(english, encoding="utf-8")
+            for locale in CHECKS.LOCALES:
+                path = root / locale / "training.mdx"
+                path.parent.mkdir()
+                path.write_text(
+                    english if locale != "cn" else localized,
+                    encoding="utf-8",
+                )
+
+            findings = CHECKS._locale_skeleton_findings(root)
+
+        self.assertEqual(
+            findings,
+            [
+                "cn/training.mdx: locale skeleton differs from English in "
+                "code fences, code spans, ParamFields"
+            ],
         )
 
     def test_api_reference_has_only_inference_and_training_groups(self) -> None:

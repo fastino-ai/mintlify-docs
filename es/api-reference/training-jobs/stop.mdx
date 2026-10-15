@@ -9,11 +9,6 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 Detiene un trabajo en ejecución y preserva los checkpoints creados antes de la detención.
 
-Para un trabajo `interactive`, la detención libera el trabajo cuando terminan sus
-operaciones en cola. Después ya no acepta operaciones de entrenamiento, pero sus
-checkpoints sampler se pueden seguir muestreando y descargando. Los trabajos
-interactivos ignoran el cuerpo de la solicitud.
-
 ## Solicitud
 
 <ParamField header="X-API-Key" type="string" required>
@@ -24,7 +19,9 @@ interactivos ignoran el cuerpo de la solicitud.
   UUID de un trabajo config o ID de un trabajo interactivo.
 </ParamField>
 
-El cuerpo JSON es opcional.
+### Trabajo de configuración
+
+El cuerpo JSON es opcional para un trabajo de configuración.
 
 <ParamField body="reason" type="string">
   Por qué se detuvo el trabajo.
@@ -38,7 +35,13 @@ El cuerpo JSON es opcional.
   Ruta o paso del checkpoint asociado con la detención.
 </ParamField>
 
-<RequestExample>
+### Trabajo interactivo
+
+No envíes un cuerpo. La operación devuelve `success`, `job_id` y `status`
+inmediatamente. El trabajo ya no acepta llamadas de entrenamiento, pero sus
+checkpoints sampler siguen disponibles para muestreo y descarga.
+
+### Ejemplo de solicitud para un trabajo de configuración
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
@@ -47,9 +50,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
   -d '{"reason": "Validation loss stopped improving"}'
 ```
 
-</RequestExample>
+### Ejemplo de solicitud para un trabajo interactivo
 
-## Respuesta
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Respuesta de un trabajo de configuración
 
 <ResponseExample>
 
@@ -71,6 +79,17 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+</ResponseExample>
+
+El campo `message`, la respuesta `202`, la regla de consulta y los errores
+específicos de configuración solo se aplican a trabajos de configuración. Tras
+un `202` de configuración, consulta `GET /v1/training/jobs/{job_id}`. No repitas
+la solicitud de detención mientras la cancelación esté pendiente.
+
+## Respuesta de un trabajo interactivo
+
+Una detención interactiva devuelve `200` inmediatamente sin consultas posteriores.
+
 ```json Interactive job
 {
   "success": true,
@@ -79,15 +98,12 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
-</ResponseExample>
-
-Después de un `202`, consulta `GET /v1/training/jobs/{job_id}`; no repitas la
-solicitud de detención mientras la cancelación esté pendiente.
+## Estados de un trabajo de configuración
 
 | Estado | Significado |
 | --- | --- |
 | `200` | El trabajo está detenido y los checkpoints existentes siguen disponibles. |
 | `202` | La cancelación del proveedor todavía se está confirmando. |
-| `400` | `job_id` no es un UUID de trabajo config ni un ID de trabajo interactivo. |
+| `400` | El ID o la solicitud del trabajo de configuración no son válidos. |
 | `409 training_job_already_finished` | El trabajo alcanzó un estado terminal antes de la detención. |
-| `422` | El cuerpo JSON de la solicitud no es válido. |
+| `422` | El cuerpo JSON del trabajo de configuración no es válido. |

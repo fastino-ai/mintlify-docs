@@ -8,10 +8,10 @@ api: "POST /v1/training/jobs"
 `POST /v1/training/jobs`
 
 创建一个异步 `config` 训练任务并返回其任务记录。在配置任务中，你提供数据集和配置，
-Fastino 负责运行训练循环。config 任务训练 GLiNER 编码器：
-`fastino/gliner2-multi-v1` 和 `fastino/GLiNER-2.5-Decide`。
+Fastino 负责运行训练循环。配置任务支持 GLiNER 编码器和解码器 LoRA 训练。
+解码器任务支持使用上传的解码器数据集进行 SFT、DPO 和 GRPO。
 
-要训练解码器模型，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create)
+要逐步控制解码器训练，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create)
 创建 `interactive` 任务，并按照[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作。
 创建后，两种任务类型都使用其规范 ID 调用已记录的 `/v1/training/jobs/{job_id}` 生命周期操作。
 
@@ -28,7 +28,7 @@ Fastino 负责运行训练循环。config 任务训练 GLiNER 编码器：
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  来自 `GET /v1/base-models?supports_training=true` 的可训练 GLiNER 模型 ID，或受支持的检查点 UUID。
+  来自 `GET /v1/base-models?supports_training=true` 的可训练模型 ID，或受支持的检查点 UUID。
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -88,6 +88,14 @@ Fastino 负责运行训练循环。config 任务训练 GLiNER 编码器：
     LoRA dropout。省略时使用模型配方。
   </ParamField>
 
+  <ParamField body="packing" type="boolean">
+    为兼容的解码器 LoRA 任务打包短样本。省略时使用所选模型的目录默认值。
+  </ParamField>
+
+  <ParamField body="mask_history" type="boolean" default="false">
+    解码器 SFT 损失掩码选项。活动训练器会拒绝不受支持的组合。
+  </ParamField>
+
   <ParamField body="warmup_ratio" type="number">
     预热比例，取值从 `0` 到 `1`。`warmup_steps` 优先生效。
   </ParamField>
@@ -114,6 +122,10 @@ Fastino 负责运行训练循环。config 任务训练 GLiNER 编码器：
 
   <ParamField body="provider_name" type="string">
     锁定兼容的训练提供方。省略时会自动选择。
+  </ParamField>
+
+  <ParamField body="system_prompt" type="string">
+    解码器训练和推理的规范 system prompt。混合 prompt 数据集应留空。
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -146,6 +158,14 @@ Fastino 负责运行训练循环。config 任务训练 GLiNER 编码器：
 
   <ParamField body="min_training_steps" type="integer">
     GLiNER 最小优化器步数。
+  </ParamField>
+
+  <ParamField body="training_algorithm" type="string" default="sft">
+    `sft`、`grpo` 或 `dpo`。GRPO 需要 `rl_config.reward_type`。DPO 数据集需要 `prompt`、`chosen` 和 `rejected` 列。
+  </ParamField>
+
+  <ParamField body="rl_config" type="object">
+    算法设置。GRPO 支持 `reward_type`、`kl_beta`、`group_size`、`sampling_temperature` 和 `max_completion_length`。DPO 支持 `dpo_beta` 和 `loss_type`。两者都支持 `max_steps` 和 `logging_steps`。
   </ParamField>
 
 </Expandable>

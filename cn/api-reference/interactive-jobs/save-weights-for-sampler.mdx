@@ -7,22 +7,37 @@ api: "POST /v1/training/jobs/{job_id}/save-weights-for-sampler"
 
 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`
 
-以 `sampler_weights/<name>` 保存任务的 LoRA 权重。可以从中[采样](/cn/api-reference/interactive-jobs/sample)（任务停止后同样可以），或作为 PEFT LoRA 文件[下载](/cn/api-reference/training-jobs/download-checkpoint)。它不含优化器状态，因此任务无法加载它或从它启动；如需这样做，请使用 [`POST /v1/training/jobs/{job_id}/save-weights`](/cn/api-reference/interactive-jobs/save-weights)。
+Saves the job's LoRA weights as `sampler_weights/<name>`. You can
+[sample](/cn/api-reference/interactive-jobs/sample) from it, also after the job is
+stopped, or [download](/cn/api-reference/training-jobs/download-checkpoint) it as
+PEFT LoRA files. It has no optimizer state, so a job can't load it or start from
+it; use [`POST /v1/training/jobs/{job_id}/save-weights`](/cn/api-reference/interactive-jobs/save-weights)
+for that.
+
+The save runs in order with the job's other calls.
+
+## Request
 
 <ParamField header="X-API-Key" type="string" required>
-  您的 Fastino API 密钥。
+  Your Fastino API key.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  交互式任务 ID。
+  Interactive job ID.
 </ParamField>
 
 <ParamField body="name" type="string" required>
-  1–128 个字符，取自 `A-Z`、`a-z`、`0-9`、`.`、`_` 和 `-`。
+  1–128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, and `-`.
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  在指定秒数后自动删除检查点，范围为 `3600`（1 小时）到 `315360000`（10 年）。省略则保留到你删除为止。
+  Delete the checkpoint automatically after this many seconds, from `3600`
+  (1 hour) to `315360000` (10 years). Omit it to keep the checkpoint until you
+  delete it. Live checkpoints count toward [storage usage](/cn/api-reference/interactive-jobs/usage).
+</ParamField>
+
+<ParamField body="user_metadata" type="object">
+  String key-value metadata stored with the checkpoint.
 </ParamField>
 
 <RequestExample>
@@ -36,7 +51,19 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 </RequestExample>
 
-响应包含 `save` future 的 `future_id`、`checkpoint_id` 和 `path`。
+## Response
+
+<ResponseField name="future_id" type="string">
+  The `save` future.
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  `sampler_weights/<name>`.
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Full checkpoint path.
+</ResponseField>
 
 <ResponseExample>
 
@@ -51,3 +78,9 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 ```
 
 </ResponseExample>
+
+| Status | Meaning |
+| --- | --- |
+| `400` | The name has invalid characters or length, the TTL is out of range, or the job was stopped. |
+| `404` | The job doesn't exist or belongs to another team. |
+| `422` | The body is missing `name` or has an unknown field. |

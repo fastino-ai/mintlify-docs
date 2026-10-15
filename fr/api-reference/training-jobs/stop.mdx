@@ -9,11 +9,6 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 Arrête un job en cours et conserve les checkpoints créés avant l'arrêt.
 
-Pour un job `interactive`, l'arrêt libère le job une fois ses opérations en
-file terminées. Il n'accepte ensuite plus d'opérations d'entraînement, mais ses
-checkpoints sampler restent échantillonnables et téléchargeables. Les jobs
-interactifs ignorent le corps de la requête.
-
 ## Requête
 
 <ParamField header="X-API-Key" type="string" required>
@@ -24,7 +19,9 @@ interactifs ignorent le corps de la requête.
   UUID d'un job config ou ID d'un job interactif.
 </ParamField>
 
-Le corps JSON est optionnel.
+### Job de configuration
+
+Le corps JSON est facultatif pour un job de configuration.
 
 <ParamField body="reason" type="string">
   Raison pour laquelle le job a été arrêté.
@@ -38,7 +35,13 @@ Le corps JSON est optionnel.
   Chemin ou pas du checkpoint associé à l'arrêt.
 </ParamField>
 
-<RequestExample>
+### Job interactif
+
+N'envoyez aucun corps. L'opération renvoie immédiatement `success`, `job_id` et
+`status`. Le job n'accepte plus d'appels d'entraînement, mais ses checkpoints
+sampler restent disponibles pour l'échantillonnage et le téléchargement.
+
+### Exemple de requête pour un job de configuration
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
@@ -47,9 +50,14 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
   -d '{"reason": "Validation loss stopped improving"}'
 ```
 
-</RequestExample>
+### Exemple de requête pour un job interactif
 
-## Réponse
+```bash cURL
+curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## Réponse d'un job de configuration
 
 <ResponseExample>
 
@@ -71,6 +79,18 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
+</ResponseExample>
+
+Le champ `message`, la réponse `202`, la règle d'interrogation et les erreurs
+propres à la configuration s'appliquent uniquement aux jobs de configuration.
+Après une réponse de configuration `202`, interrogez
+`GET /v1/training/jobs/{job_id}`. Ne répétez pas la requête d'arrêt pendant que
+l'annulation est en attente.
+
+## Réponse d'un job interactif
+
+Un arrêt interactif renvoie immédiatement `200` sans interrogation ultérieure.
+
 ```json Interactive job
 {
   "success": true,
@@ -79,16 +99,12 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 }
 ```
 
-</ResponseExample>
-
-Après une réponse `202`, interrogez
-`GET /v1/training/jobs/{job_id}` ; ne répétez pas la requête d'arrêt pendant
-que l'annulation est en attente.
+## Statuts d'un job de configuration
 
 | Statut | Signification |
 | --- | --- |
 | `200` | Le job est arrêté et les checkpoints existants restent disponibles. |
 | `202` | La confirmation de l'annulation par le fournisseur est toujours en attente. |
-| `400` | `job_id` n'est ni un UUID de job config ni un ID de job interactif. |
+| `400` | L'ID ou la requête du job de configuration n'est pas valide. |
 | `409 training_job_already_finished` | Le job a atteint un état terminal avant l'arrêt. |
-| `422` | Le corps JSON de la requête n'est pas valide. |
+| `422` | Le corps JSON du job de configuration n'est pas valide. |

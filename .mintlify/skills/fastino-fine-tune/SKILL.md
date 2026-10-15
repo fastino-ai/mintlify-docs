@@ -5,13 +5,12 @@ description: Fine-tune a GLiNER model on Fastino from a labeled dataset, then mo
 
 # Fastino Fine-Tune
 
-Fine-tune a custom GLiNER model on Fastino's GPU infrastructure. Config jobs
-train `fastino/gliner2-multi-v1` and `fastino/GLiNER-2.5-Decide`.
+Run managed config training from an uploaded encoder or decoder dataset.
+Decoder config jobs support LoRA with SFT, DPO, or GRPO. Query
+`GET /v1/base-models?supports_training=true` before selecting a base model.
 
-To train a decoder model (`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
-`nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`, or `Qwen/Qwen3.6-35B-A3B`),
-don't use this flow. Create an interactive job with
-`POST /v1/training/jobs/interactive` and follow
+When the application must control decoder training step by step, create an
+interactive job with `POST /v1/training/jobs/create-model` and follow
 https://docs.fastino.ai/training/quickstart#custom-training-loop.
 
 ## Authentication

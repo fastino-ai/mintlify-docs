@@ -9,10 +9,10 @@ api: "POST /v1/training/jobs"
 
 Creates an asynchronous `config` training job and returns its job record. In a
 config job, you provide a dataset and configuration and Fastino runs the
-training loop. Config jobs train GLiNER encoders: `fastino/gliner2-multi-v1`
-and `fastino/GLiNER-2.5-Decide`.
+training loop. Config jobs support GLiNER encoders and decoder LoRA training.
+Decoder jobs support SFT, DPO, and GRPO with uploaded decoder datasets.
 
-To train a decoder model, create an `interactive` job with
+To control decoder training step by step, create an `interactive` job with
 [`POST /v1/training/jobs/create-model`](/api-reference/interactive-jobs/create)
 and follow the [custom training loop path](/training/quickstart#custom-training-loop).
 After creation, both job types use their canonical IDs with the documented
@@ -31,7 +31,7 @@ This endpoint is limited to 20 requests per minute per user.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  A trainable GLiNER model ID from `GET /v1/base-models?supports_training=true`, or a supported checkpoint UUID.
+  A trainable model ID from `GET /v1/base-models?supports_training=true`, or a supported checkpoint UUID.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -91,6 +91,14 @@ This endpoint is limited to 20 requests per minute per user.
     LoRA dropout. Omit it to use the model recipe.
   </ParamField>
 
+  <ParamField body="packing" type="boolean">
+    Pack short examples for compatible decoder LoRA jobs. Omit it to use the selected model's catalog default.
+  </ParamField>
+
+  <ParamField body="mask_history" type="boolean" default="false">
+    Decoder SFT loss-masking option. The active trainer rejects unsupported combinations.
+  </ParamField>
+
   <ParamField body="warmup_ratio" type="number">
     Warmup fraction from `0` to `1`. `warmup_steps` takes precedence.
   </ParamField>
@@ -117,6 +125,10 @@ This endpoint is limited to 20 requests per minute per user.
 
   <ParamField body="provider_name" type="string">
     Pin a compatible training provider. Omit it for automatic selection.
+  </ParamField>
+
+  <ParamField body="system_prompt" type="string">
+    Canonical system prompt for decoder training and inference. Leave it unset for mixed-prompt datasets.
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -149,6 +161,14 @@ This endpoint is limited to 20 requests per minute per user.
 
   <ParamField body="min_training_steps" type="integer">
     Minimum GLiNER optimizer steps.
+  </ParamField>
+
+  <ParamField body="training_algorithm" type="string" default="sft">
+    `sft`, `grpo`, or `dpo`. GRPO requires `rl_config.reward_type`. DPO datasets require `prompt`, `chosen`, and `rejected` columns.
+  </ParamField>
+
+  <ParamField body="rl_config" type="object">
+    Algorithm settings. GRPO supports `reward_type`, `kl_beta`, `group_size`, `sampling_temperature`, and `max_completion_length`. DPO supports `dpo_beta` and `loss_type`. Both support `max_steps` and `logging_steps`.
   </ParamField>
 
 </Expandable>

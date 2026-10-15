@@ -7,21 +7,45 @@ api: "POST /v1/training/jobs/{job_id}/optim-step"
 
 `POST /v1/training/jobs/{job_id}/optim-step`
 
-Aplica con AdamW los gradientes acumulados por las pasadas forward-backward desde el último
-paso. El trabajo ejecuta las operaciones en el orden en que las recibe, así que puedes encolarlo
-justo después de una pasada forward-backward sin esperar.
+Applies the gradients accumulated by forward-backward passes since the last
+step, using AdamW. Calls run in the order the job receives them, so you
+can queue this right after a forward-backward pass without waiting for it.
+
+## Request
 
 <ParamField header="X-API-Key" type="string" required>
-  Tu clave de API de Fastino.
+  Your Fastino API key.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID del trabajo interactivo.
+  Interactive job ID.
 </ParamField>
 
+The JSON body is optional.
+
 <ParamField body="adam_params" type="object">
-  Parámetros AdamW opcionales: `learning_rate` (por defecto `0.0001`), `beta1` (`0.9`), `beta2`
-  (`0.95`), `eps` (`1e-12`), `weight_decay` (`0`) y `grad_clip_norm` (`0` desactiva el recorte).
+  AdamW parameters. Omitted fields use their defaults.
+
+  <Expandable title="properties">
+    <ParamField body="learning_rate" type="number" default="0.0001">
+      Learning rate, `>= 0`.
+    </ParamField>
+    <ParamField body="beta1" type="number" default="0.9">
+      From `0` up to, but not including, `1`.
+    </ParamField>
+    <ParamField body="beta2" type="number" default="0.95">
+      From `0` up to, but not including, `1`.
+    </ParamField>
+    <ParamField body="eps" type="number" default="1e-12">
+      `> 0`.
+    </ParamField>
+    <ParamField body="weight_decay" type="number" default="0">
+      `>= 0`.
+    </ParamField>
+    <ParamField body="grad_clip_norm" type="number" default="0">
+      Gradient-norm clip, `>= 0`. `0` disables clipping.
+    </ParamField>
+  </Expandable>
 </ParamField>
 
 <RequestExample>
@@ -35,6 +59,8 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/optim-ste
 
 </RequestExample>
 
+## Response
+
 <ResponseExample>
 
 ```json Response
@@ -46,3 +72,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/optim-ste
 ```
 
 </ResponseExample>
+
+The completed future's `result` holds the step's metrics.
+
+| Status | Meaning |
+| --- | --- |
+| `400` | An Adam parameter is out of range, or the job was stopped. |
+| `404` | The job doesn't exist or belongs to another team. |
+| `422` | The body has an unknown field. |

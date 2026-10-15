@@ -7,48 +7,70 @@ api: "POST /v1/training/jobs/create-model"
 
 `POST /v1/training/jobs/create-model`
 
-在解码器基础模型上创建 `interactive` LoRA 训练任务，或从已保存的训练状态创建新任务。
-之后由你的应用发送每次 forward-backward、优化器步骤、检查点和采样。托管式 GLiNER 训练请使用
-[`POST /v1/training/jobs`](/cn/api-reference/training-jobs/create)。
+Creates an `interactive` LoRA training job on a decoder base model, or a new
+job seeded from a saved training state. Your application then sends each
+forward-backward pass, optimizer step, checkpoint, and sample. For managed
+training from an uploaded dataset, use [`POST /v1/training/jobs`](/cn/api-reference/training-jobs/create).
 
-`create` operation 完成后任务即可使用。每个执行工作的调用都会返回一个 future。请使用 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future) 读取结果。
+The job is ready once its `create` future completes. Read it with
+[`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future).
 
-## 请求
+## Request
 
 <ParamField header="X-API-Key" type="string" required>
-  您的 Fastino API 密钥。
+  Your Fastino API key.
 </ParamField>
 
-`base_model` 和 `from_checkpoint` 必须且只能发送一个。
+Send exactly one of `base_model` and `from_checkpoint`.
 
 <ParamField body="base_model" type="string">
-  `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`、
-  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` 或 `Qwen/Qwen3.6-35B-A3B`。
+  `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
+  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`, or `Qwen/Qwen3.6-35B-A3B`.
 </ParamField>
 
 <ParamField body="from_checkpoint" type="string">
-  你的某个任务的训练状态检查点（`weights/<name>`）的 `path`。新任务沿用该检查点的基础模型和
-  LoRA 设置，因此不要发送 `lora_config`。不接受 sampler 检查点。
+  The `path` that [`save-weights`](/cn/api-reference/interactive-jobs/save-weights)
+  returned for one of your jobs, such as `tinker://<job_id>/weights/<name>`. The
+  new job takes that checkpoint's base model and LoRA settings, so omit
+  `lora_config`. Sampler checkpoints are rejected.
 </ParamField>
 
 <ParamField body="load_optimizer" type="boolean" default="false">
-  与 `from_checkpoint` 一起使用时，同时恢复优化器状态。
+  With `from_checkpoint`, also restore the optimizer state.
 </ParamField>
 
 <ParamField body="lora_config" type="object">
-  新任务的 LoRA 设置：`rank`（1 到 32，默认 32）、`seed`、`train_attn`、`train_mlp`、`train_unembed`。
+  LoRA settings for a new job.
+
+  <Expandable title="properties">
+    <ParamField body="rank" type="integer" default="32">
+      LoRA rank, from 1 through 32.
+    </ParamField>
+    <ParamField body="seed" type="integer">
+      Adapter initialization seed.
+    </ParamField>
+    <ParamField body="train_attn" type="boolean" default="true">
+      Train attention layers.
+    </ParamField>
+    <ParamField body="train_mlp" type="boolean" default="true">
+      Train MLP layers.
+    </ParamField>
+    <ParamField body="train_unembed" type="boolean" default="true">
+      Train the unembedding layer.
+    </ParamField>
+  </Expandable>
 </ParamField>
 
 <ParamField body="optimizer_config" type="object">
-  优化器类型。仅支持 `{"type": "adamw"}`（默认值）。
+  Optimizer family. Only `{"type": "adamw"}` is served, which is the default.
 </ParamField>
 
 <ParamField body="project_id" type="string">
-  任务及其用量所属的项目。默认为你的默认项目。
+  Project the job and its usage belong to. Defaults to your default project.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  你自己的任务 JSON 元数据。
+  Your own JSON metadata for the job.
 </ParamField>
 
 <RequestExample>
@@ -65,10 +87,27 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 
 </RequestExample>
 
-## 响应
+## Response
 
-响应包含 `job_id`、`type`（始终为 `interactive`）、`base_model`、`create` operation 的
-`future_id`，以及使用 `from_checkpoint` 时加载检查点的 `load_future_id`。
+<ResponseField name="job_id" type="string">
+  Interactive job ID. Use it with every `/v1/training/jobs/{job_id}` route.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Always `interactive`.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  Base model of the job.
+</ResponseField>
+
+<ResponseField name="future_id" type="string">
+  The job's `create` future.
+</ResponseField>
+
+<ResponseField name="load_future_id" type="string | null">
+  With `from_checkpoint`, the future that loads the checkpoint.
+</ResponseField>
 
 <ResponseExample>
 
@@ -83,3 +122,12 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 ```
 
 </ResponseExample>
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400` | The model isn't served, the rank is out of range, `from_checkpoint` is a sampler checkpoint, or `lora_config` was sent with `from_checkpoint`. |
+| `402` | The team is out of credits or has no valid payment setup. |
+| `404` | Interactive training isn't available to the team, or the checkpoint doesn't exist. |
+| `422` | Both or neither of `base_model` and `from_checkpoint` were sent, or the body has an unknown field. |

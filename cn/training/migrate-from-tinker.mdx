@@ -19,11 +19,11 @@ Fastino 支持将 `tinker` SDK 的一个明确子集用作交互式训练任务�
 <CodeGroup>
 
 ```bash uv
-uv add "tinker==0.33.1"
+uv add "tinker==0.32.0"
 ```
 
 ```bash pip
-pip install "tinker==0.33.1"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -46,8 +46,7 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 </CodeGroup>
 
-SDK 会将 `/api/v1/{operation}` 追加到 `TINKER_BASE_URL`。每次请求令牌时都会运行
-`TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
+每次请求令牌时都会运行 `TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
 密钥；`tml-` 凭据会被拒绝。不要设置 `TINKER_API_KEY`。
 
 在更改其他任何内容之前，先确认连接：
@@ -83,14 +82,14 @@ Capabilities 仅列出已启用的模型及其上下文长度，不列出 LoRA �
 - 通过 `GET /v1/training/jobs/{job_id}` 获取每个客户端的 ID；工厂恢复会从来源
   检查点创建一个新的任务 ID
 
-使用 SDK 执行交互式操作。适配器有意不出现在 Fastino 的 OpenAPI 和 API 参考中，
-因此请勿构造适配器 HTTP 调用。
+使用 Tinker SDK 执行 SDK 工作负载。对于直接 HTTP 客户端，请使用
+[原生路由](#switch-to-the-native-routes)。
 
 <span id="supported-client-behavior" />
 
 ## 受支持的客户端行为
 
-Fastino 的 HTTP 适配器将 `tinker==0.33.1` 中受支持的调用转换为对一个 Fastino 交互式任务的操作。
+Fastino 在一个交互式任务上支持下列 `tinker==0.32.0` 调用。
 
 ### 训练和采样
 
@@ -117,8 +116,8 @@ Fastino 的 HTTP 适配器将 `tinker==0.33.1` 中受支持的调用转换为对
 | SDK 方法或操作 | Fastino 行为 |
 | --- | --- |
 | Future result/get | 获取一个异步结果 |
-| Future cancel | 请求取消一个 future |
-| `RestClient` 列出或获取训练运行 | 读取规范的 Fastino 任务 |
+| Future cancel | 取消一个尚未完成的 `sample` 采样 future。训练 operation 的 future 不会被取消 |
+| `list_training_runs` 或 `get_training_run` | 仅读取交互式运行 |
 | 列出检查点 | 读取属于该任务的检查点 |
 | 下载检查点归档 | 下载交互式检查点 |
 | 删除检查点 | 通过 SDK 删除检查点 |
@@ -127,8 +126,8 @@ Fastino 的 HTTP 适配器将 `tinker==0.33.1` 中受支持的调用转换为对
 | 检查点存储用量 | 通过 SDK 读取当前检查点存储用量 |
 | 计费用量 | 通过 SDK 读取按小时统计的用量事件 |
 
-这些管理方法是受支持的 SDK 操作，而不是公开的训练 API 路由。适配器还会使用
-`TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。不要自行构造适配器请求。
+SDK 会使用 `TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。这些方法也有
+[原生路由](#switch-to-the-native-routes)。
 
 ### 不受支持的调用
 
@@ -137,6 +136,8 @@ Fastino 不支持：
 - 通过 `retrieve_futures` 批量检索 future
 - `save_weights_external`
 - `external_weights_urls`
+- 导出 session trace
+- 审计日志条目
 
 不要仅因为已安装的软件包中存在某个方法就推断其受支持。支持表定义 Fastino
 支持的 SDK 子集；capabilities 仅报告已启用的模型及其上下文长度。
@@ -153,7 +154,7 @@ Fastino 不支持：
 
 ## 迁移检查清单
 
-- [ ] 锁定 `tinker==0.33.1`。
+- [ ] 锁定 `tinker==0.32.0`。
 - [ ] 设置 Fastino 适配器基础 URL。
 - [ ] 通过 `TINKER_CREDENTIAL_CMD` 提供 `fast_sk_` 密钥。
 - [ ] 对照受支持的客户端行为检查每个 SDK 方法。
@@ -177,7 +178,7 @@ operation，并在你持续调用时保持任务存活。交互式任务 30 分�
 | Tinker 调用 | 原生路由 |
 | --- | --- |
 | `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model`，传入 `base_model` 和 `lora_config` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint` 和 `"load_optimizer": true` |
+| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint` 和 `"load_optimizer": true` |
 | `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
 | `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
 | `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |

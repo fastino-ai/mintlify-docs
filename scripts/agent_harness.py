@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import NoReturn
 
 from check_api_docs import (
-    EXPECTED_OPERATIONS,
     SDK_BASE_PATHS,
+    _operations as _published_operations,
     _path_matches_route,
     local_docs_findings,
 )
@@ -78,7 +78,10 @@ REQUIRED_DISCOVERY_LINKS = {
     "retries": "/troubleshooting/retries.md",
 }
 REQUIRED_OPERATIONS = {
-    (method.lower(), path) for method, path in EXPECTED_OPERATIONS
+    (method.lower(), path)
+    for method, path in _published_operations(
+        json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+    )
 }
 JOURNEY_PAGES = (
     "authentication.mdx",

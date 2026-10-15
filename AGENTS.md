@@ -37,12 +37,11 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   [GLiNER Inference](https://docs.fastino.ai/inference/chat-completions). Use
   `POST /v1/chat/completions` with `model`, `messages`, and `schema`.
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
-- Use `POST /v1/training/jobs` (config jobs) to fine-tune GLiNER encoders:
-  `fastino/gliner2-multi-v1` or `fastino/GLiNER-2.5-Decide`.
-- Use `POST /v1/training/jobs/create-model` (interactive jobs) to train decoder
-  models: `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
-  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`, or `Qwen/Qwen3.6-35B-A3B`.
-  Don't send a decoder base model to `POST /v1/training/jobs`.
+- Use `POST /v1/training/jobs` for managed config training from uploaded
+  encoder or decoder datasets. Decoder config jobs support SFT, DPO, and GRPO.
+- Use `POST /v1/training/jobs/create-model` when the application must control
+  decoder training step by step. Call
+  `GET /v1/base-models?supports_training=true` for the current trainable models.
 - Drive an interactive job with `/v1/training/jobs/{job_id}/forward-backward`,
   `/optim-step`, `/save-weights`, `/save-weights-for-sampler`, `/load-weights`,
   and `/sample`. Each returns a `future_id`; read it with

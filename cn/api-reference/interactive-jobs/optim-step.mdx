@@ -7,20 +7,45 @@ api: "POST /v1/training/jobs/{job_id}/optim-step"
 
 `POST /v1/training/jobs/{job_id}/optim-step`
 
-使用 AdamW 应用自上一步以来 forward-backward 累积的梯度。任务按接收顺序运行 operation，
-因此可以在 forward-backward 之后立即排队，无需等待。
+Applies the gradients accumulated by forward-backward passes since the last
+step, using AdamW. Calls run in the order the job receives them, so you
+can queue this right after a forward-backward pass without waiting for it.
+
+## Request
 
 <ParamField header="X-API-Key" type="string" required>
-  您的 Fastino API 密钥。
+  Your Fastino API key.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  交互式任务 ID。
+  Interactive job ID.
 </ParamField>
 
+The JSON body is optional.
+
 <ParamField body="adam_params" type="object">
-  可选的 AdamW 参数：`learning_rate`（默认 `0.0001`）、`beta1`（`0.9`）、`beta2`（`0.95`）、
-  `eps`（`1e-12`）、`weight_decay`（`0`）、`grad_clip_norm`（`0`，即不裁剪）。
+  AdamW parameters. Omitted fields use their defaults.
+
+  <Expandable title="properties">
+    <ParamField body="learning_rate" type="number" default="0.0001">
+      Learning rate, `>= 0`.
+    </ParamField>
+    <ParamField body="beta1" type="number" default="0.9">
+      From `0` up to, but not including, `1`.
+    </ParamField>
+    <ParamField body="beta2" type="number" default="0.95">
+      From `0` up to, but not including, `1`.
+    </ParamField>
+    <ParamField body="eps" type="number" default="1e-12">
+      `> 0`.
+    </ParamField>
+    <ParamField body="weight_decay" type="number" default="0">
+      `>= 0`.
+    </ParamField>
+    <ParamField body="grad_clip_norm" type="number" default="0">
+      Gradient-norm clip, `>= 0`. `0` disables clipping.
+    </ParamField>
+  </Expandable>
 </ParamField>
 
 <RequestExample>
@@ -34,6 +59,8 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/optim-ste
 
 </RequestExample>
 
+## Response
+
 <ResponseExample>
 
 ```json Response
@@ -45,3 +72,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/optim-ste
 ```
 
 </ResponseExample>
+
+The completed future's `result` holds the step's metrics.
+
+| Status | Meaning |
+| --- | --- |
+| `400` | An Adam parameter is out of range, or the job was stopped. |
+| `404` | The job doesn't exist or belongs to another team. |
+| `422` | The body has an unknown field. |

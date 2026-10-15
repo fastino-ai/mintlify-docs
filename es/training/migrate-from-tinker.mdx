@@ -24,11 +24,11 @@ restablecer los tamaños de las cargas de producción.
 <CodeGroup>
 
 ```bash uv
-uv add "tinker==0.33.1"
+uv add "tinker==0.32.0"
 ```
 
 ```bash pip
-pip install "tinker==0.33.1"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -51,7 +51,6 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 </CodeGroup>
 
-El SDK añade `/api/v1/{operation}` a `TINKER_BASE_URL`.
 `TINKER_CREDENTIAL_CMD` se ejecuta con cada solicitud de token y debe imprimir
 una credencial no vacía. Usa una clave normal `fast_sk_` de Fastino; las
 credenciales `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
@@ -92,16 +91,15 @@ trabajo existente para realizar una prueba de bajo coste que:
 - Obtenga el ID de cada cliente de `GET /v1/training/jobs/{job_id}`; una
   reanudación mediante la fábrica crea un ID nuevo a partir del checkpoint de origen
 
-Usa el SDK para las operaciones interactivas. El adaptador se omite
-intencionadamente del OpenAPI y de la referencia de la API de Fastino, así que
-no construyas llamadas HTTP al adaptador.
+Usa el SDK de Tinker para las cargas del SDK. Para clientes HTTP directos, usa
+las [rutas nativas](#switch-to-the-native-routes).
 
 <span id="supported-client-behavior" />
 
 ## Comportamiento compatible del cliente
 
-El adaptador HTTP de Fastino traduce las llamadas compatibles de
-`tinker==0.33.1` en operaciones sobre un trabajo interactivo de Fastino.
+Fastino admite las siguientes llamadas de `tinker==0.32.0` sobre un trabajo
+interactivo.
 
 ### Entrenamiento y muestreo
 
@@ -129,8 +127,8 @@ errores de validación del servicio activo.
 | Método u operación del SDK | Comportamiento de Fastino |
 | --- | --- |
 | Resultado/obtención de future | Obtiene un resultado asíncrono |
-| Cancelación de future | Solicita la cancelación de un future |
-| Listar u obtener ejecuciones de entrenamiento con `RestClient` | Lee trabajos canónicos de Fastino |
+| Cancelación de future | Cancela un future de muestreo de `sample` que no haya terminado. Los futures de operaciones de entrenamiento no se cancelan |
+| `list_training_runs` o `get_training_run` | Lee solo ejecuciones interactivas |
 | Listar checkpoints | Lee los checkpoints que pertenecen al trabajo |
 | Descargar el archivo de un checkpoint | Descarga un checkpoint interactivo |
 | Eliminar un checkpoint | Elimina un checkpoint mediante el SDK |
@@ -139,10 +137,9 @@ errores de validación del servicio activo.
 | Uso de almacenamiento de checkpoints | Lee el almacenamiento actual de checkpoints mediante el SDK |
 | Uso de facturación | Lee eventos de uso por hora mediante el SDK |
 
-Estos métodos de administración son operaciones compatibles del SDK, no rutas
-públicas de la API de entrenamiento. El adaptador también gestiona el
-intercambio de tokens automáticamente con la clave que imprime
-`TINKER_CREDENTIAL_CMD`. No construyas solicitudes al adaptador.
+El SDK gestiona el intercambio de tokens automáticamente con la clave que
+imprime `TINKER_CREDENTIAL_CMD`. Estos métodos también tienen
+[rutas nativas](#switch-to-the-native-routes).
 
 ### Llamadas no compatibles
 
@@ -151,6 +148,8 @@ Fastino no admite:
 - Recuperación de futures por lotes mediante `retrieve_futures`
 - `save_weights_external`
 - `external_weights_urls`
+- Exportación de trazas de sesión
+- Entradas del registro de auditoría
 
 No deduzcas la compatibilidad porque un método exista en el paquete instalado.
 La tabla define el subconjunto compatible; capabilities solo informa modelos
@@ -168,7 +167,7 @@ habilitados y longitudes de contexto.
 
 ## Lista de comprobación de la migración
 
-- [ ] Fija `tinker==0.33.1`.
+- [ ] Fija `tinker==0.32.0`.
 - [ ] Establece la URL base del adaptador de Fastino.
 - [ ] Proporciona una clave `fast_sk_` mediante `TINKER_CREDENTIAL_CMD`.
 - [ ] Comprueba cada método del SDK con el comportamiento compatible del cliente.
@@ -197,7 +196,7 @@ sustituye a `future.result()`.
 | Llamada de Tinker | Ruta nativa |
 | --- | --- |
 | `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` con `base_model` y `lora_config` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` con `from_checkpoint` y `"load_optimizer": true` |
+| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` con `from_checkpoint` y `"load_optimizer": true` |
 | `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
 | `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
 | `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |

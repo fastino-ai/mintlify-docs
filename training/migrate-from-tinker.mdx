@@ -23,11 +23,11 @@ production workload sizes.
 <CodeGroup>
 
 ```bash uv
-uv add "tinker==0.33.1"
+uv add "tinker==0.32.0"
 ```
 
 ```bash pip
-pip install "tinker==0.33.1"
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -50,7 +50,6 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 </CodeGroup>
 
-The SDK appends `/api/v1/{operation}` to `TINKER_BASE_URL`.
 `TINKER_CREDENTIAL_CMD` runs on every token request and must print a nonempty
 credential. Use a normal `fast_sk_` Fastino key; `tml-` credentials are rejected.
 Do not set `TINKER_API_KEY`.
@@ -75,11 +74,9 @@ print(service_client.get_server_capabilities())
 4. Keep prompt rendering, reward logic, batching, evaluation, and stopping
    criteria in your application.
 
-Capabilities list enabled models and their advertised context lengths:
-`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
-`nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`, and `Qwen/Qwen3.6-35B-A3B`.
-They do not enumerate LoRA ranks, optimizers, losses, optional methods, or
-per-operation limits. Fastino currently accepts LoRA ranks from 1 through 32,
+Capabilities list enabled models and their advertised context lengths. They do
+not enumerate LoRA ranks, optimizers, losses, optional methods, or per-operation
+limits. Fastino currently accepts LoRA ranks from 1 through 32,
 uses `adamw` when creating the client, and supports `cross_entropy`,
 `importance_sampling`, `ppo`, `cispo`, and `dro` losses. The active service
 validates these settings when you submit the client or operation.
@@ -97,15 +94,13 @@ workload for a low-cost test that:
 - Fetches each client's ID from `GET /v1/training/jobs/{job_id}`; a factory
   resume creates a new job ID seeded from the source checkpoint
 
-Use the SDK for SDK workloads. The compatibility adapter is absent from
-Fastino's OpenAPI and API reference, so don't construct adapter HTTP calls. To
-call Fastino over HTTP directly, use the
-[native routes](#switch-to-the-native-routes) instead.
+Keep using the Tinker SDK for SDK workloads. For direct HTTP clients, use the
+[native routes](#switch-to-the-native-routes).
 
 ## Supported client behavior
 
-Fastino's HTTP adapter translates supported calls from `tinker==0.33.1` into
-operations on one interactive Fastino job.
+Fastino supports the following `tinker==0.32.0` calls on one interactive
+Fastino job.
 
 ### Training and sampling
 
@@ -134,8 +129,8 @@ the active service.
 | SDK method or operation | Fastino behavior |
 | --- | --- |
 | Future result/get | Retrieves one asynchronous result |
-| Future cancel | Requests cancellation of one future |
-| `RestClient` list or get training runs | Reads canonical Fastino jobs |
+| Future cancel | Cancels an unfinished sampling future from `sample`. Training-operation futures are not cancelled |
+| `list_training_runs` or `get_training_run` | Reads interactive runs only |
 | List checkpoints | Reads checkpoints that belong to the job |
 | Download checkpoint archive | Downloads an interactive checkpoint |
 | Delete checkpoint | Deletes a checkpoint through the SDK |
@@ -144,9 +139,9 @@ the active service.
 | Checkpoint storage usage | Reads current checkpoint storage through the SDK |
 | Billing usage | Reads hourly usage events through the SDK |
 
-The adapter handles token exchange automatically using the key printed by
-`TINKER_CREDENTIAL_CMD`. Do not construct adapter requests. Each of these
-methods also has a [native route](#switch-to-the-native-routes).
+The SDK handles token exchange automatically using the key printed by
+`TINKER_CREDENTIAL_CMD`. Each of these methods also has a
+[native route](#switch-to-the-native-routes).
 
 ### Unsupported calls
 
@@ -155,6 +150,8 @@ Fastino does not support:
 - Batch future retrieval through `retrieve_futures`
 - `save_weights_external`
 - `external_weights_urls`
+- Session-trace export
+- Audit-log entries
 
 Do not infer support because a method exists in the installed package. The
 support table documents Fastino's SDK subset; capabilities only report enabled
@@ -172,7 +169,7 @@ models and their context lengths.
 
 ## Migration checklist
 
-- [ ] Pin `tinker==0.33.1`.
+- [ ] Pin `tinker==0.32.0`.
 - [ ] Set the Fastino adapter base URL.
 - [ ] Deliver a `fast_sk_` key through `TINKER_CREDENTIAL_CMD`.
 - [ ] Check every SDK method against the supported client behavior.
@@ -199,7 +196,7 @@ replaces `future.result()`.
 | Tinker call | Native route |
 | --- | --- |
 | `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` with `base_model` and `lora_config` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `"load_optimizer": true` |
+| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `"load_optimizer": true` |
 | `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
 | `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
 | `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
