@@ -43,19 +43,19 @@ MODEL_SECTION_HEADINGS = {
 EXPECTED_RATES = {
     "Nemotron 3.5 Super VL": (
         r"\$0.16",
-        r"\$0.04",
+        r"\$0.032",
         r"\$0.65",
         r"\$0.65",
     ),
     "Nemotron 3.5 Lightning": (
-        r"\$0.35",
-        r"\$0.07",
+        r"\$0.05",
+        r"\$0.01",
         r"\$0.35",
         r"\$0.30",
     ),
     "Qwen3.6-35B-A3B": (
-        r"\$0.40",
         r"\$0.08",
+        r"\$0.016",
         r"\$0.44",
         r"\$0.44",
     ),
@@ -92,7 +92,7 @@ def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
                 match = re.search(r"\\\$\d+(?:\.\d+)?", without_previous_rate)
                 if match:
                     current_rates.append(match.group())
-            rows[display_name] = tuple(current_rates)
+            rows[display_name] = rows.get(display_name, ()) + tuple(current_rates)
     return rows
 
 
@@ -135,15 +135,15 @@ class TrainingPricingTests(unittest.TestCase):
             lines = page.read_text(encoding="utf-8").splitlines()
             with self.subTest(page=page.relative_to(ROOT)):
                 rows = [line for line in lines if "Nemotron 3.5 Super VL" in line]
-                self.assertEqual(len(rows), 2)
+                self.assertEqual(len(rows), 3)
                 self.assertTrue(
                     any(r"\$0.08" in row and r"\$0.45" in row for row in rows)
                 )
                 self.assertTrue(
-                    any(
-                        all(rate in row for rate in EXPECTED_RATES["Nemotron 3.5 Super VL"])
-                        for row in rows
-                    )
+                    any(r"\$0.16" in row and r"\$0.032" in row for row in rows)
+                )
+                self.assertTrue(
+                    any(r"\$0.65" in row and row.count(r"\$0.65") == 2 for row in rows)
                 )
 
     def test_model_catalogs_publish_encoder_training_rates(self) -> None:
