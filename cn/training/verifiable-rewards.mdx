@@ -12,28 +12,21 @@ prompt -> sample a group -> grade -> center rewards -> build datums -> update
 
 采样、forward-backward、优化器步骤和检查点都属于同一个 Fastino 交互式任务。奖励计算和应用状态保留在你的代码中。
 
-## 开始之前
+## 前提条件
 
-先完成[自定义循环快速入门](/cn/training/quickstart#custom-training-loop)。下面的代码片段复用其中的
-`call` 和 `wait` 辅助函数、`tokenizer` 以及一个 `job_id`。它们使用内置的 `importance_sampling`
-损失函数，重点介绍由用户负责的奖励流程。
+先从可运行的[自定义训练循环](/cn/training/quickstart#custom-training-loop)开始，并确认基准 datum
+能够成功训练。本指南复用其中的 `call` 和 `wait` 辅助函数、`tokenizer` 以及 `job_id`。
 
-<Note>
-  本指南不是可直接复制粘贴的独立训练器。请从快速入门脚本开始，确认其 datum 能够训练，再添加下面的奖励流程。
-</Note>
-
-<Note>
-  任务只运行内置损失函数：`cross_entropy`、`importance_sampling`、`ppo`、`cispo` 和 `dro`。
-  在你自己的代码中编写的损失函数无法在任务上运行。请将奖励表达为其中某个损失函数的优势。
-</Note>
-
-<Warning>
-  仅在隔离且资源受限的环境中运行生成的代码或工具。Fastino 不会执行你的奖励函数，也不会管理其副作用。
-</Warning>
+你的应用负责采样响应、评分，并将奖励转换为逐 token 优势。Fastino 使用受支持的损失函数应用这些优势：
+`importance_sampling`、`ppo`、`cispo` 或 `dro`。自定义损失函数无法在训练任务内部运行。
 
 ## 1. 定义范围明确的评分器
 
 将解析与评分分开，以便发现格式错误的输出：
+
+<Warning>
+  仅在隔离且资源受限的环境中运行生成的代码或工具。Fastino 不会执行你的奖励函数，也不会管理其副作用。
+</Warning>
 
 ```python
 def get_reward(response: str, expected: str) -> float:

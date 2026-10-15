@@ -16,35 +16,27 @@ Sampling, Forward-Backward-Durchläufe, Optimiererschritte und Checkpoints
 gehören alle zum selben interaktiven Fastino-Job. Reward-Berechnung und
 Anwendungszustand bleiben in Ihrem Code.
 
-## Bevor Sie beginnen
+## Voraussetzungen
 
-Schließen Sie den [Schnellstart für den benutzerdefinierten Loop](/de/training/quickstart#custom-training-loop)
-ab. Die folgenden Ausschnitte verwenden dessen Helfer `call` und `wait`, seinen
-`tokenizer` und eine `job_id`. Sie nutzen den eingebauten Loss
-`importance_sampling` und konzentrieren sich auf den nutzereigenen Reward-Ablauf.
+Beginnen Sie mit einem funktionierenden
+[benutzerdefinierten Trainingsloop](/de/training/quickstart#custom-training-loop)
+und prüfen Sie, dass ein Basis-Datum erfolgreich trainiert. Dieser Leitfaden
+verwendet dessen Helfer `call` und `wait`, `tokenizer` und `job_id`.
 
-<Note>
-  Dieser Leitfaden ist kein eigenständiger Trainer zum Kopieren und Einfügen.
-  Beginnen Sie mit dem Schnellstart-Skript, prüfen Sie, dass seine Datums
-  trainieren, und ergänzen Sie dann den folgenden Reward-Ablauf.
-</Note>
+Ihre Anwendung sampelt Antworten, bewertet sie und wandelt Rewards in
+tokenweise Advantages um. Fastino wendet diese Advantages mit einem
+unterstützten Loss an: `importance_sampling`, `ppo`, `cispo` oder `dro`.
+Benutzerdefinierte Loss-Funktionen laufen nicht innerhalb des Trainingsjobs.
 
-<Note>
-  Der Job führt nur die eingebauten Losses aus: `cross_entropy`,
-  `importance_sampling`, `ppo`, `cispo` und `dro`. Eine Loss-Funktion aus Ihrem
-  eigenen Code kann nicht auf dem Job laufen. Drücken Sie Ihren Reward als
-  Advantages für einen dieser Losses aus.
-</Note>
+## 1. Einen engen Grader definieren
+
+Trennen Sie Parsing und Bewertung, damit fehlerhafte Ausgaben sichtbar werden:
 
 <Warning>
   Führen Sie generierten Code oder Tools nur in einer isolierten Umgebung mit
   begrenzten Ressourcen aus. Fastino führt Ihre Reward-Funktion nicht aus und
   verwaltet ihre Seiteneffekte nicht.
 </Warning>
-
-## 1. Einen engen Grader definieren
-
-Trennen Sie Parsing und Bewertung, damit fehlerhafte Ausgaben sichtbar werden:
 
 ```python
 def get_reward(response: str, expected: str) -> float:
