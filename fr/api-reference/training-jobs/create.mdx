@@ -11,13 +11,14 @@ Les clients natifs créent une tâche `interactive` avec [`POST /v1/training/job
 
 Crée un job d'entraînement asynchrone `config` et renvoie son enregistrement.
 Dans un job de configuration, vous fournissez un dataset et une configuration,
-et Fastino exécute la boucle d'entraînement. Les jobs de configuration prennent
-en charge les encodeurs GLiNER et l'entraînement LoRA des décodeurs. Les datasets
-de chat de décodeur importés prennent en charge SFT et GRPO. Le schéma de requête
-accepte aussi les réglages DPO, mais les imports publics de décodeur exigent
-actuellement `messages`.
+et Fastino exécute la boucle d'entraînement.
 
-Pour contrôler l'entraînement d'un décodeur étape par étape, créez un job `interactive` avec
+Les jobs de configuration entraînent les encodeurs GLiNER :
+`fastino/gliner2-multi-v1` et `fastino/GLiNER-2.5-Decide`. Les modèles de base
+décodeurs renvoient `400` ; entraînez les décodeurs étape par étape avec un job
+interactif.
+
+Pour contrôler la boucle étape par étape, créez un job `interactive` avec
 [`POST /v1/training/jobs/create-model`](/fr/api-reference/training-jobs/interactive/create-model)
 et suivez le [parcours de la boucle personnalisée](/fr/training/quickstart#custom-training-loop).
 Après leur création, les deux types de jobs utilisent leurs ID canoniques avec
@@ -36,7 +37,7 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Un ID de modèle entraînable issu de `GET /v1/base-models?supports_training=true`, ou un UUID de checkpoint pris en charge.
+  Un ID d'encodeur GLiNER, `fastino/gliner2-multi-v1` ou `fastino/GLiNER-2.5-Decide`, ou un UUID de checkpoint pris en charge. Un modèle de base décodeur renvoie `400`.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -97,11 +98,11 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="packing" type="boolean">
-    Regroupe les exemples courts pour les jobs LoRA de décodeur compatibles. L'omission utilise la valeur du catalogue du modèle.
+    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
   </ParamField>
 
   <ParamField body="mask_history" type="boolean" default="false">
-    Option de masquage de la perte pour le SFT de décodeur. L'entraîneur actif rejette les combinaisons non prises en charge.
+    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -133,7 +134,7 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="system_prompt" type="string">
-    Prompt système canonique pour l'entraînement et l'inférence des décodeurs. Laissez-le vide pour les datasets aux prompts mixtes.
+    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -169,11 +170,11 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
-    `sft`, `grpo` ou `dpo`. GRPO exige `rl_config.reward_type`. DPO exige un dataset de préférences compatible. Les imports publics avec `dataset_type: decoder` exigent `messages` ; les lignes DPO contenant uniquement `prompt`, `chosen` et `rejected` échouent à la validation de l'import.
+    Seul `sft` est pris en charge pour les jobs de configuration. Omettez-le pour utiliser la valeur par défaut.
   </ParamField>
 
   <ParamField body="rl_config" type="object">
-    Paramètres de l'algorithme. GRPO prend en charge `reward_type`, `kl_beta`, `group_size`, `sampling_temperature` et `max_completion_length`. DPO prend en charge `dpo_beta` et `loss_type`. Les deux prennent en charge `max_steps` et `logging_steps`.
+    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
   </ParamField>
 
 </Expandable>
@@ -227,6 +228,18 @@ sur le modèle entraîné.
 Un corps mal formé renvoie `422`. Une combinaison valide mais indisponible de
 modèle, dataset, type d'entraînement ou fournisseur renvoie une erreur `4xx`
 propre à la requête.
+
+Un modèle de base décodeur renvoie `400` :
+
+```json
+{
+  "detail": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart)."
+}
+```
+
+Pour entraîner un décodeur, créez un job interactif avec
+[`POST /v1/training/jobs/create-model`](/fr/api-reference/training-jobs/interactive/create-model)
+et suivez la [boucle d'entraînement personnalisée](/fr/training/quickstart#custom-training-loop).
 
 ## Autorisation
 

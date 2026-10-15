@@ -64,15 +64,13 @@ Each line of your JSONL must be a single JSON object. The required columns depen
 
 **Decoder (`dataset_type: "decoder"`)**
 
-Managed config jobs train decoders from uploaded datasets with
-`POST /v1/training/jobs`. Use `training_algorithm` to select `sft`, `dpo`, or
-`grpo`. Interactive jobs are an additional option through
-`POST /v1/training/jobs/create-model` when the application must tokenize
-examples and control each training step.
+Config jobs don't accept decoder base models, so a decoder dataset can't start
+`POST /v1/training/jobs`. To train a decoder, tokenize the examples and run
+them through an interactive job created with
+`POST /v1/training/jobs/create-model`.
 
-- Public decoder uploads use `messages` with `{role, content}` objects.
-- Do not upload DPO-only rows containing `prompt`, `chosen`, and `rejected`;
-  `dataset_type: "decoder"` currently requires `messages` for every row.
+- Public decoder uploads use `messages` with `{role, content}` objects in every
+  row.
 
 ```jsonl
 {"messages": [{"role": "user", "content": "What is 2+2?"}, {"role": "assistant", "content": "4"}]}

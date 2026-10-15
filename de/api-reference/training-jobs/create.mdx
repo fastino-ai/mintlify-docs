@@ -11,12 +11,13 @@ Native Clients erstellen einen `interactive`-Job über [`POST /v1/training/jobs/
 
 Erstellt einen asynchronen `config`-Trainingsjob und gibt dessen Job-Datensatz
 zurück. Bei einem Config-Job stellen Sie einen Datensatz und eine Konfiguration
-bereit, und Fastino führt den Trainingsloop aus. Config-Jobs unterstützen
-GLiNER-Encoder und Decoder-LoRA-Training. Hochgeladene Decoder-Chat-Datensätze
-unterstützen SFT und GRPO. Das Request-Schema akzeptiert auch DPO-Einstellungen,
-öffentliche Decoder-Uploads erfordern derzeit jedoch `messages`.
+bereit, und Fastino führt den Trainingsloop aus.
 
-Um das Decoder-Training Schritt für Schritt zu steuern, erstellen Sie einen `interactive`-Job mit
+Config-Jobs trainieren GLiNER-Encoder: `fastino/gliner2-multi-v1` und
+`fastino/GLiNER-2.5-Decide`. Decoder-Basismodelle geben `400` zurück;
+trainieren Sie Decoder stattdessen Schritt für Schritt mit einem interaktiven Job.
+
+Um den Loop Schritt für Schritt zu steuern, erstellen Sie einen `interactive`-Job mit
 [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
 und folgen dem [Pfad für einen eigenen Trainingsablauf](/de/training/quickstart#custom-training-loop).
 Nach der Erstellung verwenden beide Jobtypen ihre kanonischen IDs mit den
@@ -35,7 +36,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Eine trainierbare Modell-ID aus `GET /v1/base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID.
+  Eine GLiNER-Encoder-ID, `fastino/gliner2-multi-v1` oder `fastino/GLiNER-2.5-Decide`, oder eine unterstützte Checkpoint-UUID. Ein Decoder-Basismodell gibt `400` zurück.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -96,11 +97,11 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="packing" type="boolean">
-    Packt kurze Beispiele für kompatible Decoder-LoRA-Jobs. Weglassen verwendet den Katalogstandard des ausgewählten Modells.
+    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
   </ParamField>
 
   <ParamField body="mask_history" type="boolean" default="false">
-    Option für die Loss-Maskierung bei Decoder-SFT. Der aktive Trainer lehnt nicht unterstützte Kombinationen ab.
+    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -132,7 +133,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="system_prompt" type="string">
-    Kanonischer System-Prompt für Decoder-Training und Inferenz. Für Datensätze mit gemischten Prompts nicht setzen.
+    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -168,11 +169,11 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
-    `sft`, `grpo` oder `dpo`. GRPO erfordert `rl_config.reward_type`. DPO erfordert einen kompatiblen Präferenzdatensatz. Öffentliche Uploads mit `dataset_type: decoder` erfordern `messages`; reine DPO-Zeilen mit `prompt`, `chosen` und `rejected` bestehen die Upload-Validierung nicht.
+    Config-Jobs unterstützen nur `sft`. Weglassen, um den Standard zu verwenden.
   </ParamField>
 
   <ParamField body="rl_config" type="object">
-    Algorithmuseinstellungen. GRPO unterstützt `reward_type`, `kl_beta`, `group_size`, `sampling_temperature` und `max_completion_length`. DPO unterstützt `dpo_beta` und `loss_type`. Beide unterstützen `max_steps` und `logging_steps`.
+    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
   </ParamField>
 
 </Expandable>
@@ -221,6 +222,18 @@ Gibt `200` mit dem vollständigen Trainings-Job-Datensatz zurück, einschließli
 Speichern Sie die `id` aus dieser Antwort. Sie verwenden sie, um den Status abzufragen, Metriken und Artefakte abzurufen und Inferenz gegen das trainierte Modell auszuführen.
 
 Ein fehlerhaft aufgebauter Body gibt `422` zurück. Eine gültige, aber nicht verfügbare Kombination aus Modell, Datensatz, Trainingstyp oder Anbieter gibt einen anfragespezifischen `4xx`-Fehler zurück.
+
+Ein Decoder-Basismodell gibt `400` zurück:
+
+```json
+{
+  "detail": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart)."
+}
+```
+
+Um einen Decoder zu trainieren, erstellen Sie einen interaktiven Job mit
+[`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
+und folgen dem [eigenen Trainingsablauf](/de/training/quickstart#custom-training-loop).
 
 ## Autorisierung
 

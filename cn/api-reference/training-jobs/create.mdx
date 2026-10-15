@@ -10,11 +10,12 @@ api: "POST /v1/training/jobs"
 `POST /v1/training/jobs`
 
 创建一个异步 `config` 训练任务并返回其任务记录。在配置任务中，你提供数据集和配置，
-Fastino 负责运行训练循环。配置任务支持 GLiNER 编码器和解码器 LoRA 训练。
-上传的解码器聊天数据集支持 SFT 和 GRPO。请求 schema 也接受 DPO 设置，
-但公开的解码器上传目前要求 `messages`。
+Fastino 负责运行训练循环。
 
-要逐步控制解码器训练，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)
+配置任务训练 GLiNER 编码器：`fastino/gliner2-multi-v1` 和
+`fastino/GLiNER-2.5-Decide`。解码器基础模型会返回 `400`；请改用交互式任务逐步训练解码器。
+
+要逐步控制训练循环，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)
 创建 `interactive` 任务，并按照[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作。
 创建后，两种任务类型都使用其规范 ID 调用已记录的 `/v1/training/jobs/{job_id}` 生命周期操作。
 
@@ -31,7 +32,7 @@ Fastino 负责运行训练循环。配置任务支持 GLiNER 编码器和解码�
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  来自 `GET /v1/base-models?supports_training=true` 的可训练模型 ID，或受支持的检查点 UUID。
+  GLiNER 编码器 ID（`fastino/gliner2-multi-v1` 或 `fastino/GLiNER-2.5-Decide`），或受支持的检查点 UUID。解码器基础模型会返回 `400`。
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -92,11 +93,11 @@ Fastino 负责运行训练循环。配置任务支持 GLiNER 编码器和解码�
   </ParamField>
 
   <ParamField body="packing" type="boolean">
-    为兼容的解码器 LoRA 任务打包短样本。省略时使用所选模型的目录默认值。
+    仅适用于解码器。不适用：配置任务不训练解码器。
   </ParamField>
 
   <ParamField body="mask_history" type="boolean" default="false">
-    解码器 SFT 损失掩码选项。活动训练器会拒绝不受支持的组合。
+    仅适用于解码器。不适用：配置任务不训练解码器。
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -128,7 +129,7 @@ Fastino 负责运行训练循环。配置任务支持 GLiNER 编码器和解码�
   </ParamField>
 
   <ParamField body="system_prompt" type="string">
-    解码器训练和推理的规范 system prompt。混合 prompt 数据集应留空。
+    仅适用于解码器。不适用：配置任务不训练解码器。
   </ParamField>
 
   <ParamField body="encoder_learning_rate" type="number">
@@ -164,11 +165,11 @@ Fastino 负责运行训练循环。配置任务支持 GLiNER 编码器和解码�
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
-    `sft`、`grpo` 或 `dpo`。GRPO 需要 `rl_config.reward_type`。DPO 需要兼容的偏好数据集。公开的 `dataset_type: decoder` 上传要求 `messages`；仅包含 `prompt`、`chosen` 和 `rejected` 的 DPO 行无法通过上传验证。
+    配置任务仅支持 `sft`。省略则使用默认值。
   </ParamField>
 
   <ParamField body="rl_config" type="object">
-    算法设置。GRPO 支持 `reward_type`、`kl_beta`、`group_size`、`sampling_temperature` 和 `max_completion_length`。DPO 支持 `dpo_beta` 和 `loss_type`。两者都支持 `max_steps` 和 `logging_steps`。
+    仅适用于解码器。不适用：配置任务不训练解码器。
   </ParamField>
 
 </Expandable>
@@ -217,6 +218,17 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 请保存此响应中的 `id`。您将用它来轮询状态、获取指标和工件，以及对训练后的模型运行推理。
 
 请求体格式错误会返回 `422`。有效但不可用的模型、数据集、训练类型或提供方组合会返回请求相关的 `4xx` 错误。
+
+解码器基础模型会返回 `400`：
+
+```json
+{
+  "detail": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart)."
+}
+```
+
+要训练解码器，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)
+创建交互式任务，并按照[自定义训练循环](/cn/training/quickstart#custom-training-loop)操作。
 
 ## 授权
 

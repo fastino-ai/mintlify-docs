@@ -5,12 +5,16 @@ description: Fine-tune a GLiNER model on Fastino from a labeled dataset, then mo
 
 # Fastino Fine-Tune
 
-Run managed config training from an uploaded encoder or decoder dataset.
-Decoder config jobs support LoRA with SFT, DPO, or GRPO. Query
-`GET /v1/base-models?supports_training=true` before selecting a base model.
+Run managed config training for the GLiNER encoders `fastino/gliner2-multi-v1`
+and `fastino/GLiNER-2.5-Decide` from an uploaded dataset. Config jobs use SFT
+only. Query `GET /v1/base-models?supports_training=true` before selecting a
+base model.
 
-When the application must control decoder training step by step, create an
-interactive job with `POST /v1/training/jobs/create-model` and follow
+Config jobs don't accept decoder base models; `POST /v1/training/jobs` returns
+`400` for them. Train decoders step by step: create an interactive job with
+`POST /v1/training/jobs/create-model`, then call `/forward-backward`,
+`/optim-step`, `/save-weights-for-sampler`, `/sample`, and deploy a sampler
+checkpoint. Follow
 https://docs.fastino.ai/training/quickstart#custom-training-loop.
 
 ## Authentication
