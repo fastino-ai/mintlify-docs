@@ -99,9 +99,7 @@ Ihrem bestehenden Workload für einen kostengünstigen Test, der:
   Factory-Wiederaufnahme erstellt eine neue Job-ID aus dem Quell-Checkpoint.
 
 Verwenden Sie für diese Migration weiterhin das unterstützte Tinker-SDK.
-Fastino veröffentlicht außerdem native JSON-Operationen für neue Clients. Die
-Kompatibilitäts-Unterpfade bleiben privat. Setzen Sie daher nur
-`TINKER_BASE_URL` und konstruieren Sie keine untergeordneten URLs.
+Fastino veröffentlicht außerdem native JSON-Operationen für neue Clients. Setzen Sie nur `TINKER_BASE_URL`.
 
 <span id="supported-client-behavior" />
 
@@ -154,8 +152,7 @@ Herunterladen von Gewichten. Ein Pfad ist die SDK-Methode
 Ohne diese Berechtigung geben beide `403` mit
 `For downloading models, please contact sales@fastino.ai` zurück. Das SDK
 übernimmt den Tokenaustausch automatisch mit dem Schlüssel, den
-`TINKER_CREDENTIAL_CMD` ausgibt. Konstruieren Sie keine
-Kompatibilitäts-Unterpfade.
+`TINKER_CREDENTIAL_CMD` ausgibt.
 
 ### Nicht unterstützte Aufrufe
 
@@ -211,8 +208,11 @@ Capabilities melden nur aktivierte Modelle und Kontextlängen.
 
 ## Zu den nativen Routen wechseln
 
-Jeder SDK-Aufruf oben hat eine native REST-Route unter `/v1/training/jobs`.
-Senden Sie JSON mit demselben `fast_sk_`-Schlüssel als `X-API-Key` oder
+Die zentralen Trainings- und Checkpoint-Aufrufe haben native REST-Entsprechungen
+unter `/v1/training/jobs`. Benutzerdefinierte Python-Loss-Callbacks und
+SDK-Abrechnungshilfen haben keine direkten JSON-Entsprechungen. Native
+Forward-Routen akzeptieren die dokumentierten `loss_fn`-Namen. Senden Sie JSON
+mit demselben `fast_sk_`-Schlüssel als `X-API-Key` oder
 `Authorization: Bearer`. Sie benötigen weder Sessions noch Sequenznummern oder
 Heartbeats: Fastino ordnet die Operationen jedes Jobs in der Reihenfolge des
 Eingangs und hält den Job aktiv, solange Sie ihn aufrufen. Ein interaktiver Job
@@ -225,7 +225,8 @@ das ersetzt `future.result()`.
 | Tinker-Aufruf | Native Route |
 | --- | --- |
 | `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` mit `base_model` und `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` mit `from_checkpoint` und `"load_optimizer": true` |
+| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` mit `from_checkpoint`; `load_optimizer` weglassen oder auf `false` setzen |
+| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` mit `from_checkpoint` und `"load_optimizer": true` |
 | `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
 | `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
 | `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |

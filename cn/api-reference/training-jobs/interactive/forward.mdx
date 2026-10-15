@@ -7,6 +7,38 @@ api: "POST /v1/training/jobs/{job_id}/forward"
 
 `POST /v1/training/jobs/{job_id}/forward`
 
-排队一次不计算梯度的前向传播，并返回 `future_id`。轮询[获取 future](/cn/api-reference/training-jobs/interactive/get-future)，直到状态为 `completed`、`failed` 或 `cancelled`。
+在不累积梯度的情况下计算一批数据的损失和逐 token 对数概率，可用于评估。请求体、响应和结果与
+[`POST /v1/training/jobs/{job_id}/forward-backward`](/cn/api-reference/training-jobs/interactive/forward-backward)
+相同，operation 的 `type` 为 `forward`。
 
-有关端到端生命周期，请参阅[自定义训练循环](/cn/training/training-loop)。
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "datums": [
+      {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": [151644, 872, 198, 3838]}]},
+        "loss_fn_inputs": {
+          "target_tokens": {"data": [872, 198, 3838, 30], "dtype": "int64"}
+        }
+      }
+    ]
+  }'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "forward"
+}
+```
+
+</ResponseExample>

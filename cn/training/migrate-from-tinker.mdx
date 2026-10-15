@@ -83,7 +83,7 @@ Capabilities 仅列出已启用的模型及其上下文长度，不列出 LoRA �
   检查点创建一个新的任务 ID
 
 此迁移请继续使用受支持的 Tinker SDK。Fastino 也为新客户端发布了原生 JSON 操作。
-兼容性子路由仍是私有路由，因此只设置 `TINKER_BASE_URL`，不要构造子 URL。
+只设置 `TINKER_BASE_URL`。
 
 <span id="supported-client-behavior" />
 
@@ -132,7 +132,7 @@ Capabilities 仅列出已启用的模型及其上下文长度，不列出 LoRA �
 [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/cn/api-reference/training-jobs/download-checkpoint)。
 没有该权限时，两者都返回 `403`，详情为
 `For downloading models, please contact sales@fastino.ai`。SDK 会使用
-`TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。不要构造兼容性子路由。
+`TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。
 
 ### 不受支持的调用
 
@@ -184,7 +184,8 @@ Fastino 不支持：
 
 ## 切换到原生路由
 
-上面的每个 SDK 调用在 `/v1/training/jobs` 下都有对应的原生 REST 路由。使用同一个 `fast_sk_` 密钥，
+核心训练和检查点调用在 `/v1/training/jobs` 下有对应的原生 REST 路由。Python 自定义损失回调和 SDK
+计费辅助方法没有一对一的 JSON 等价项。原生 forward 路由接受文档列出的 `loss_fn` 名称。使用同一个 `fast_sk_` 密钥，
 以 `X-API-Key` 或 `Authorization: Bearer` 发送 JSON。你不需要会话、请求序号或心跳：Fastino 按接收顺序排列每个任务的
 operation，并在你持续调用时保持任务存活。交互式任务 30 分钟内没有调用就会被释放，其检查点会保留。
 
@@ -194,7 +195,8 @@ operation，并在你持续调用时保持任务存活。交互式任务 30 分�
 | Tinker 调用 | 原生路由 |
 | --- | --- |
 | `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model`，传入 `base_model` 和 `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint` 和 `"load_optimizer": true` |
+| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint`，省略 `load_optimizer` 或设为 `false` |
+| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint` 和 `"load_optimizer": true` |
 | `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
 | `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
 | `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |

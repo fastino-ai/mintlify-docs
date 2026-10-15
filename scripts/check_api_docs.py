@@ -41,6 +41,7 @@ TRAINING_OPERATIONS = {
     ("GET", "/v1/training/jobs/{job_id}/billing"),
     ("GET", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
     ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"),
     ("POST", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
     ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
     ("PUT", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl"),
@@ -99,11 +100,11 @@ REQUIRED_AGENT_RESOURCES = {
 }
 RoutePatterns = dict[str, list[re.Pattern[str]]]
 LOCALE_PARITY_SCOPES = (
+    "concepts/datasets.mdx",
     "training.mdx",
     "training/",
     "api-reference/training/",
     "api-reference/training-jobs/",
-    "api-reference/interactive-jobs/",
 )
 
 
@@ -189,7 +190,6 @@ def _llms_findings(root: Path) -> list[str]:
 def _api_reference_findings(
     root: Path,
     destination: dict[str, object],
-    unreleased: frozenset[tuple[str, str]] = frozenset(),
 ) -> list[str]:
     """Return OpenAPI binding and API-reference navigation findings."""
     findings: list[str] = []
@@ -209,7 +209,7 @@ def _api_reference_findings(
                 f"{operation[0]} {operation[1]} must have exactly one API binding, "
                 f"found {pages}"
             )
-    findings.extend(_stale_binding_findings(bindings, actual_operations | unreleased))
+    findings.extend(_stale_binding_findings(bindings, actual_operations))
 
     config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
     languages = config.get("navigation", {}).get("languages", [])
@@ -391,7 +391,13 @@ def _sdk_claim_findings(root: Path, files: list[Path]) -> list[str]:
                         f"{relative}:{number}: SDK pin is {match.group(0)}, "
                         f"expected {TINKER_SDK.pin}"
                     )
-            if TINKER_SDK.private_child_marker in line:
+            if (
+                TINKER_SDK.private_child_marker in line
+                and (
+                    "tinker" in relative.as_posix().lower()
+                    or "tinker" in line.lower()
+                )
+            ):
                 findings.append(
                     f"{relative}:{number}: compatibility child route is not public"
                 )
@@ -417,9 +423,13 @@ def _skill_route_findings(
             path.read_text(encoding="utf-8").splitlines(), start=1
         ):
             for method, documented_path in METHOD_PATH.findall(line):
-                if not _path_matches_route(documented_path, patterns, method):
+                normalized_path = documented_path.split("?", maxsplit=1)[0].rstrip(".,)")
+                if (
+                    normalized_path in SDK_BASE_PATHS
+                    or not _path_matches_route(documented_path, patterns, method)
+                ):
                     findings.append(
-                        f"{relative}:{number}: {method} {documented_path} "
+                        f"{relative}:{number}: {method} {normalized_path} "
                         "is not a public OpenAPI operation"
                     )
     return findings
@@ -622,13 +632,11 @@ def _line_findings(
 def local_docs_findings(
     root: Path,
     destination: dict[str, object],
-    *,
-    unreleased: frozenset[tuple[str, str]] = frozenset(),
 ) -> list[str]:
     """Return checks that need only this documentation repository."""
     findings = _llms_findings(root)
     findings.extend(_skill_findings(root))
-    findings.extend(_api_reference_findings(root, destination, unreleased))
+    findings.extend(_api_reference_findings(root, destination))
     findings.extend(_journey_order_findings(root))
     claim_files = _claim_files(root)
     findings.extend(_sdk_claim_findings(root, claim_files))
@@ -665,18 +673,8 @@ def main() -> int:
         )
     )
     route_patterns = _route_patterns(manifest)
-    unreleased = _route_patterns(
-        {
-            "routes": [
-                {"target_path": path, "methods": [method], "environments": ["prod"]}
-                for method, path in UNRELEASED_OPERATIONS
-            ]
-        }
-    )
-    for method, patterns in unreleased.items():
-        route_patterns.setdefault(method, []).extend(patterns)
     actual_operations = _operations(destination)
-    findings = local_docs_findings(root, destination, unreleased=UNRELEASED_OPERATIONS)
+    findings = local_docs_findings(root, destination)
     docs = _documentation_files(root, include_locales=args.include_locales)
     for path in docs:
         findings.extend(

@@ -7,6 +7,84 @@ api: "POST /v1/training/jobs/{job_id}/save-weights"
 
 `POST /v1/training/jobs/{job_id}/save-weights`
 
-Guarda los pesos LoRA y el estado del optimizador con `name`. La respuesta aceptada contiene un `future_id`, un ID de punto de control `weights/<name>` y su ruta `tinker://`. Consulta [Obtener un future](/es/api-reference/training-jobs/interactive/get-future) antes de cargar el estado o iniciar otro trabajo a partir de él.
+Saves the job's LoRA weights and optimizer state as `weights/<name>`. You can
+[load](/es/api-reference/training-jobs/interactive/load-weights) it back into the same job,
+or [start a new job](/es/api-reference/training-jobs/interactive/create-model) from it. To sample
+or download weights, save them with
+[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/es/api-reference/training-jobs/interactive/save-weights-for-sampler)
+instead.
 
-Consulta [el bucle de entrenamiento personalizado](/es/training/training-loop) para ver el ciclo de vida completo.
+The save runs in order with the job's other calls.
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  Interactive job ID.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  1–128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, and `-`.
+</ParamField>
+
+<ParamField body="ttl_seconds" type="integer | null">
+  Delete the checkpoint automatically after this many seconds, from `3600`
+  (1 hour) to `315360000` (10 years). Omit it to keep the checkpoint until you
+  delete it. Live checkpoints count toward [storage usage](/es/api-reference/training-jobs/interactive/storage-usage).
+</ParamField>
+
+<ParamField body="overwrite" type="boolean" default="false">
+  Replace a state checkpoint with the same name.
+</ParamField>
+
+<ParamField body="user_metadata" type="object">
+  String key-value metadata stored with the checkpoint.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weights" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "step-000100"}'
+```
+
+</RequestExample>
+
+## Response
+
+<ResponseField name="future_id" type="string">
+  The `save` future.
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  `weights/<name>`.
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Full checkpoint path. Pass it as `from_checkpoint` when you create a job.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "save",
+  "checkpoint_id": "weights/step-000100",
+  "path": "tinker://SESSION_ID:train:0/weights/step-000100"
+}
+```
+
+</ResponseExample>
+
+| Status | Meaning |
+| --- | --- |
+| `400` | The name has invalid characters or length, the TTL is out of range, or the job was stopped. |
+| `404` | The job doesn't exist or belongs to another team. |
+| `422` | The body is missing `name` or has an unknown field. |

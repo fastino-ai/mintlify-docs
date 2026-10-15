@@ -1,18 +1,18 @@
 ---
-title: "Guardar el estado de entrenamiento de un trabajo interactivo"
-sidebarTitle: "Guardar pesos"
-description: "Llama a POST /v1/training/jobs/{job_id}/save-weights para guardar con un nombre los pesos LoRA y el estado del optimizador de un trabajo interactivo."
-api: "POST /v1/training/jobs/{job_id}/save-weights"
+title: "Guardar pesos de muestreo"
+sidebarTitle: "Guardar pesos de muestreo"
+description: "Guarda los pesos LoRA de un trabajo interactivo con un nombre para muestreo y descarga PEFT. La respuesta incluye un future_id, el ID del punto de control y la ruta tinker://."
+api: "POST /v1/training/jobs/{job_id}/save-weights-for-sampler"
 ---
 
-`POST /v1/training/jobs/{job_id}/save-weights`
+`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`
 
-Saves the job's LoRA weights and optimizer state as `weights/<name>`. You can
-[load](/es/api-reference/interactive-jobs/load-weights) it back into the same job,
-or [start a new job](/es/api-reference/interactive-jobs/create) from it. To sample
-or download weights, save them with
-[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/es/api-reference/interactive-jobs/save-weights-for-sampler)
-instead.
+Saves the job's LoRA weights as `sampler_weights/<name>`. You can
+[sample](/es/api-reference/training-jobs/interactive/sample) from it, also after the job is
+stopped, or [download](/es/api-reference/training-jobs/download-checkpoint) it as
+PEFT LoRA files. It has no optimizer state, so a job can't load it or start from
+it; use [`POST /v1/training/jobs/{job_id}/save-weights`](/es/api-reference/training-jobs/interactive/save-weights)
+for that.
 
 The save runs in order with the job's other calls.
 
@@ -33,11 +33,7 @@ The save runs in order with the job's other calls.
 <ParamField body="ttl_seconds" type="integer | null">
   Delete the checkpoint automatically after this many seconds, from `3600`
   (1 hour) to `315360000` (10 years). Omit it to keep the checkpoint until you
-  delete it. Live checkpoints count toward [storage usage](/es/api-reference/interactive-jobs/usage).
-</ParamField>
-
-<ParamField body="overwrite" type="boolean" default="false">
-  Replace a state checkpoint with the same name.
+  delete it. Live checkpoints count toward [storage usage](/es/api-reference/training-jobs/interactive/storage-usage).
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
@@ -47,10 +43,10 @@ The save runs in order with the job's other calls.
 <RequestExample>
 
 ```bash cURL
-curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weights" \
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weights-for-sampler" \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name": "step-000100"}'
+  -d '{"name": "step-000100", "ttl_seconds": 86400}'
 ```
 
 </RequestExample>
@@ -62,11 +58,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
-  `weights/<name>`.
+  `sampler_weights/<name>`.
 </ResponseField>
 
 <ResponseField name="path" type="string">
-  Full checkpoint path. Pass it as `from_checkpoint` when you create a job.
+  Full checkpoint path.
 </ResponseField>
 
 <ResponseExample>
@@ -76,8 +72,8 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
   "future_id": "FUTURE_ID",
   "job_id": "SESSION_ID:train:0",
   "type": "save",
-  "checkpoint_id": "weights/step-000100",
-  "path": "tinker://SESSION_ID:train:0/weights/step-000100"
+  "checkpoint_id": "sampler_weights/step-000100",
+  "path": "tinker://SESSION_ID:train:0/sampler_weights/step-000100"
 }
 ```
 

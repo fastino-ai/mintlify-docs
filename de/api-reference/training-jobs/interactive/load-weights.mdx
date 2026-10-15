@@ -7,6 +7,48 @@ api: "POST /v1/training/jobs/{job_id}/load-weights"
 
 `POST /v1/training/jobs/{job_id}/load-weights`
 
-Reiht einen Ladevorgang aus `path` ein und gibt eine `future_id` zurück. Verwenden Sie einen Zustandsnamen oder den eigenen Pfad `tinker://<job_id>/weights/<name>` dieses Jobs. Setzen Sie `optimizer`, um den Optimizer-Zustand wiederherzustellen. Fragen Sie [Interaktives Future abrufen](/de/api-reference/training-jobs/interactive/get-future) ab, bis ein terminaler Status erreicht ist.
+Stellt einen `weights/<name>`-Checkpoint dieses Jobs im selben Job wieder her, etwa um ein schlechtes Update zurückzunehmen. Um in einem neuen Job fortzufahren, übergeben Sie dessen Pfad als `from_checkpoint` an [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model).
 
-Den gesamten Lebenszyklus beschreibt [die benutzerdefinierte Trainingsschleife](/de/training/training-loop).
+<ParamField header="X-API-Key" type="string" required>
+  Ihr Fastino-API-Schlüssel.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID des interaktiven Jobs.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  Name eines von diesem Job gespeicherten Zustands-Checkpoints oder dessen Pfad `tinker://<job_id>/weights/<name>`.
+</ParamField>
+
+<ParamField body="optimizer" type="boolean" default="false">
+  Auch den Optimiererzustand wiederherstellen.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/load-weights" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "step-000100", "optimizer": true}'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "load"
+}
+```
+
+</ResponseExample>
+
+| Status | Bedeutung |
+| --- | --- |
+| `400` | `path` verweist auf den Checkpoint eines anderen Jobs oder einen Sampler-Checkpoint, oder der Job wurde gestoppt. |
+| `404` | Der Job existiert nicht oder gehört einem anderen Team. |

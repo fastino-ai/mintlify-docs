@@ -96,8 +96,7 @@ workload for a low-cost test that:
   resume creates a new job ID seeded from the source checkpoint
 
 Keep using the supported Tinker SDK for this migration. Fastino also publishes
-native JSON operations for new clients. The compatibility child routes remain
-private, so set only `TINKER_BASE_URL` and do not construct child URLs.
+native JSON operations for new clients. Set only `TINKER_BASE_URL`.
 
 ## Supported client behavior
 
@@ -147,7 +146,7 @@ path is the SDK method `get_checkpoint_archive_url`. The other is the public
 [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/api-reference/training-jobs/download-checkpoint)
 route. Without that access, both return `403` with `For downloading models, please contact sales@fastino.ai`.
 The SDK handles token exchange automatically using the key printed
-by `TINKER_CREDENTIAL_CMD`. Do not construct compatibility child routes.
+by `TINKER_CREDENTIAL_CMD`.
 
 ### Unsupported calls
 
@@ -201,8 +200,10 @@ models and their context lengths.
 
 ## Switch to the native routes
 
-Every SDK call above has a native REST route under `/v1/training/jobs`. Send
-JSON with the same `fast_sk_` key as `X-API-Key` or
+Core mapped training and checkpoint calls have native REST equivalents under
+`/v1/training/jobs`. Python custom-loss callbacks and SDK billing helpers do
+not have one-for-one JSON equivalents. Native forward routes accept the
+documented `loss_fn` names. Send JSON with the same `fast_sk_` key as `X-API-Key` or
 `Authorization: Bearer`. You don't need sessions, request sequence numbers, or
 heartbeats: Fastino orders each job's calls as it receives them and keeps
 the job alive while you call it. An interactive job with no calls for 30
@@ -215,7 +216,8 @@ replaces `future.result()`.
 | Tinker call | Native route |
 | --- | --- |
 | `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` with `base_model` and `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `"load_optimizer": true` |
+| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint`; omit `load_optimizer` or set it to `false` |
+| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `"load_optimizer": true` |
 | `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
 | `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
 | `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |

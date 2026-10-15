@@ -7,6 +7,113 @@ api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-Returns the future status and result. With `wait=true`, the request waits for at most 25 seconds and can still return a nonterminal status. Poll until `completed`, `failed`, or `cancelled`. The service retains a result for one hour. An HTTP error means that the server rejected the request. A queued future can instead finish with `status: "failed"` and an `error.message`; treat `error.category` as an opaque string.
+Every interactive-job call that does work returns a `future_id`. Read the
+future until its `status` is `completed`, `failed`, or `cancelled`.
+Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Results are kept for one hour.
 
-See [the custom training loop](/training/training-loop) for the end-to-end lifecycle.
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  Interactive job ID.
+</ParamField>
+
+<ParamField path="future_id" type="string" required>
+  Future ID returned when the work was queued.
+</ParamField>
+
+<ParamField query="wait" type="boolean" default="false">
+  Wait up to 25 seconds for an unfinished future before answering. Repeat
+  the request until it finishes.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_ID?wait=true" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+</RequestExample>
+
+## Response
+
+<ResponseField name="future_id" type="string">
+  The future.
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  The job.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  `create`, `load`, `forward`, `forward_backward`, `optim_step`, `save`, or `sample`.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  `pending`, `running`, `completed`, `failed`, or `cancelled`.
+</ResponseField>
+
+<ResponseField name="queue_state" type="string | null">
+  While unfinished: `active`, or `paused_capacity` while GPU capacity warms up.
+</ResponseField>
+
+<ResponseField name="result" type="any">
+  Once `completed`:
+
+  - `forward` and `forward_backward`: `loss_fn_outputs` (one entry of tensors per
+    datum, such as `logprobs`) and `metrics`.
+  - `sample`: `sequences`, each with `tokens`, `logprobs`, and `stop_reason`,
+    plus `prompt_logprobs` when requested.
+  - `save`: the checkpoint path.
+  - Other types: an acknowledgement.
+</ResponseField>
+
+<ResponseField name="error" type="object | null">
+  When `failed` or `cancelled`: `message`, and `category` (`user` for a problem
+  with the request, `server` for a Fastino problem).
+</ResponseField>
+
+<ResponseExample>
+
+```json Pending
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "forward_backward",
+  "status": "pending",
+  "queue_state": "paused_capacity",
+  "queue_state_reason": null,
+  "result": null,
+  "error": null
+}
+```
+
+```json Completed sample
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "sample",
+  "status": "completed",
+  "queue_state": null,
+  "queue_state_reason": null,
+  "result": {
+    "sequences": [
+      {"tokens": [59604, 13, 151645], "logprobs": [-0.21, -0.05, -0.01], "stop_reason": "stop", "topk_logprobs": null}
+    ],
+    "prompt_logprobs": null,
+    "topk_prompt_logprobs": null,
+    "prompt_cache_hit_tokens": 0
+  },
+  "error": null
+}
+```
+
+</ResponseExample>
+
+| Status | Meaning |
+| --- | --- |
+| `404` | The job or future doesn't exist, or belongs to another team. |

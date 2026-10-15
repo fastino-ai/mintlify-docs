@@ -87,10 +87,14 @@ Compara el registro con el checkpoint de origen y la continuación solicitada:
 Detente para tomar una decisión explícita si estos campos entran en conflicto.
 No combines en silencio un checkpoint con otro experimento.
 
-Los clientes nativos crean un trabajo nuevo con `from_checkpoint` o envían un
-nombre de estado o la ruta `tinker://` del mismo trabajo a
-[`load-weights`](/es/api-reference/training-jobs/interactive/load-weights).
-Los clientes Tinker usan el flujo compatible para cargar el estado:
+Después, elige cómo continuar:
+
+| Situación | Llamada |
+| --- | --- |
+| El trabajo de origen sigue activo y quieres revertir | `POST /v1/training/jobs/{job_id}/load-weights` con `{"path": name, "optimizer": true}` |
+| El trabajo de origen se detuvo o se liberó | `POST /v1/training/jobs/create-model` con `from_checkpoint` y `load_optimizer` |
+
+Para continuar en un trabajo nuevo:
 
 ```python
 resumed = call(
@@ -103,11 +107,10 @@ wait(resumed["job_id"], resumed["load_future_id"])
 resumed_job_id = resumed["job_id"]
 ```
 
-Esta fábrica crea un nuevo trabajo interactive y después carga los pesos y el
-estado del optimizador del checkpoint de origen. El ID reanudado normalmente
-difiere del ID de origen. Guarda `source_job_id`, `state_path` y
-`resumed_job_id` como linaje de la aplicación. No rechaces la continuación
-porque los IDs difieran. No construyas rutas hijas privadas de compatibilidad.
+El trabajo nuevo toma el modelo base y la configuración LoRA del checkpoint, así
+que no envíes `lora_config`. Su ID es distinto del ID de origen. Registra
+`source_job_id`, `state_path` y `resumed_job_id` como linaje propio de la
+aplicación.
 
 ## 4. Haz recuperable el límite
 
@@ -147,16 +150,24 @@ sampler = call(
 No uses un checkpoint sampler como punto de recuperación: no tiene estado del
 optimizador y no se puede iniciar un trabajo nuevo desde él.
 
-La API pública de entrenamiento guarda el estado de entrenamiento mediante
-[`save-weights`](/es/api-reference/training-jobs/interactive/save-weights) y los
-pesos de muestreo mediante
-[`save-weights-for-sampler`](/es/api-reference/training-jobs/interactive/save-sampler-weights).
-Las rutas directas de carga y muestreo aceptan un nombre de checkpoint o la ruta
-`tinker://` del mismo trabajo. El muestreo sigue disponible después de detener
-el trabajo. Las rutas compartidas de lista y descarga cubren los checkpoints
-interactivos. La descarga sigue requiriendo el permiso para descargar pesos.
-Tinker ofrece métodos equivalentes del SDK. No construyas rutas hijas privadas
-de compatibilidad ni supongas un periodo de retención no documentado.
+`ttl_seconds` vale `null` por defecto, así que si lo omites el checkpoint se
+conserva hasta que lo elimines. Los checkpoints vivos cuentan para el
+almacenamiento de checkpoints. Para activar la limpieza automática, pasa un
+valor de `3600` a `315360000` segundos (de 1 hora a 10 años).
+
+Gestiona los checkpoints con estas rutas:
+
+| Tarea | Ruta |
+| --- | --- |
+| Listar los checkpoints de un trabajo | [`GET /v1/training/jobs/{job_id}/checkpoints`](/es/api-reference/training-jobs/checkpoints) |
+| Obtener un checkpoint | [`GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/es/api-reference/training-jobs/interactive/get-checkpoint) |
+| Descargar como archivo `.tar` | [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/es/api-reference/training-jobs/download-checkpoint) |
+| Cambiar su TTL | [`PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl`](/es/api-reference/training-jobs/interactive/set-checkpoint-ttl) |
+| Publicar o despublicar | [`POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish`](/es/api-reference/training-jobs/interactive/publish-checkpoint) |
+| Eliminar | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/es/api-reference/training-jobs/interactive/delete-checkpoint) |
+| Leer el uso de almacenamiento | [`GET /v1/training/usage`](/es/api-reference/training-jobs/interactive/storage-usage) |
+
+Descargar requiere el acceso de descarga de pesos del equipo.
 
 ## 6. Verifica la continuación
 
@@ -170,13 +181,42 @@ Antes de escalar la carga reanudada:
 5. Guarda un checkpoint de estado nuevo con otro nombre.
 6. Persiste el siguiente registro del bucle.
 
-Usa las rutas JSON nativas o el SDK de Tinker compatible para las operaciones interactivas del modelo.
+## Despliega tu modelo entrenado
+
+Despliega un checkpoint sampler para servirlo como modelo. El despliegue está
+disponible para los modelos base compatibles; las demás bases devuelven `400`.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+La respuesta contiene el `model_id` del modelo y un `status` `deploying`. Repite
+la misma llamada para ver el progreso: devuelve el mismo modelo, y `status` pasa
+a `deployed` cuando el modelo está listo. Después llámalo por su ID:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+Sustituye `MODEL_ID` por el `model_id` devuelto. Consulta
+[Desplegar checkpoint](/es/api-reference/training-jobs/interactive/deploy-checkpoint)
+para ver los campos y errores.
 
 ## Diagnostica errores de recuperación
 
 | Síntoma | Comprobación |
 | --- | --- |
-| Falla un future | Registra el ID del trabajo y el resultado de la operación. No avances el estado dependiente de la aplicación |
-| No se puede cargar un checkpoint | Verifica su trabajo, su tipo de checkpoint y el registro de recuperación controlado por el cliente |
-| Se rechaza el checkpoint de origen | Comprueba el trabajo de origen, el tipo de checkpoint y `state_path`; no exijas que el ID nuevo coincida con el de origen |
-| Falla la consulta del trabajo reanudado | Confirma que el ID proceda de `get_info().model_id` del cliente reanudado y que esté autenticado el mismo equipo de Fastino |
+| Un future falla | Registra el ID del trabajo y el `error` del future. No avances el estado dependiente de la aplicación |
+| Una llamada de entrenamiento devuelve `400` tras una pausa | El trabajo se detuvo o se liberó tras 30 minutos inactivo. Inicia un trabajo nuevo desde el último checkpoint de estado |
+| Un checkpoint no se puede cargar | Verifica su trabajo, su tipo y el registro de recuperación del cliente |
+| Se rechaza `from_checkpoint` | Confirma que es una ruta `weights/<name>` de tu equipo; los checkpoints sampler no pueden iniciar un trabajo |
+| Falla la consulta del trabajo reanudado | Confirma que el ID vino de la respuesta de creación del trabajo nuevo y que estás autenticado en el mismo equipo de Fastino |

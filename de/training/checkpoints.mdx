@@ -89,10 +89,14 @@ Halten Sie für eine explizite Entscheidung an, wenn diese Felder kollidieren.
 Kombinieren Sie einen Checkpoint nicht stillschweigend mit einem anderen
 Experiment.
 
-Native Clients erstellen einen neuen Job mit `from_checkpoint` oder senden
-einen Zustandsnamen oder den `tinker://`-Pfad desselben Jobs an
-[`load-weights`](/de/api-reference/training-jobs/interactive/load-weights).
-Tinker-Clients verwenden den unterstützten Ablauf zum Laden des Status:
+Wählen Sie dann, wie es weitergeht:
+
+| Situation | Aufruf |
+| --- | --- |
+| Der Quell-Job ist noch aktiv und Sie möchten zurückrollen | `POST /v1/training/jobs/{job_id}/load-weights` mit `{"path": name, "optimizer": true}` |
+| Der Quell-Job wurde gestoppt oder freigegeben | `POST /v1/training/jobs/create-model` mit `from_checkpoint` und `load_optimizer` |
+
+So setzen Sie in einem neuen Job fort:
 
 ```python
 resumed = call(
@@ -105,12 +109,10 @@ wait(resumed["job_id"], resumed["load_future_id"])
 resumed_job_id = resumed["job_id"]
 ```
 
-Diese Factory erstellt zuerst einen neuen Interactive-Job und lädt dann Gewichte
-und Optimizer-Status des Quell-Checkpoints. Die neue Job-ID unterscheidet sich
-normalerweise von der Quell-ID. Speichern Sie `source_job_id`, `state_path` und
-`resumed_job_id` als anwendungseigene Linie. Lehnen Sie die Fortsetzung nicht
-wegen unterschiedlicher IDs ab. Konstruieren Sie keine privaten
-Kompatibilitäts-Unterpfade.
+Der neue Job übernimmt Basismodell und LoRA-Einstellungen des Checkpoints; senden
+Sie daher kein `lora_config`. Seine ID unterscheidet sich von der Quell-Job-ID.
+Speichern Sie `source_job_id`, `state_path` und `resumed_job_id` als
+anwendungseigene Herkunft.
 
 ## 4. Grenze wiederherstellbar machen
 
@@ -151,17 +153,24 @@ sampler = call(
 Verwenden Sie keinen Sampler-Checkpoint als Wiederherstellungspunkt: Er enthält
 keinen Optimiererzustand, und ein neuer Job kann nicht daraus starten.
 
-Die öffentliche Training API speichert den Trainingszustand über
-[`save-weights`](/de/api-reference/training-jobs/interactive/save-weights) und
-Sampling-Gewichte über
-[`save-weights-for-sampler`](/de/api-reference/training-jobs/interactive/save-sampler-weights).
-Die direkten Lade- und Sampling-Routen akzeptieren einen Checkpoint-Namen oder
-den `tinker://`-Pfad desselben Jobs. Sampling bleibt nach dem Stoppen des Jobs
-möglich. Die gemeinsamen Listen- und Downloadrouten gelten für interaktive
-Checkpoints. Der Download erfordert weiterhin die Berechtigung zum
-Herunterladen von Gewichten. Tinker bietet entsprechende SDK-Methoden.
-Konstruieren Sie keine privaten Kompatibilitäts-Unterpfade und nehmen Sie keine
-undokumentierte Aufbewahrungsdauer an.
+`ttl_seconds` ist standardmäßig `null`; ohne TTL bleibt der Checkpoint erhalten,
+bis Sie ihn löschen. Aktive Checkpoints zählen zum Checkpoint-Speicher. Für eine
+automatische Bereinigung übergeben Sie einen Wert von `3600` bis `315360000`
+Sekunden (1 Stunde bis 10 Jahre).
+
+Verwalten Sie Checkpoints mit diesen Routen:
+
+| Aufgabe | Route |
+| --- | --- |
+| Checkpoints eines Jobs auflisten | [`GET /v1/training/jobs/{job_id}/checkpoints`](/de/api-reference/training-jobs/checkpoints) |
+| Einen Checkpoint abrufen | [`GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/de/api-reference/training-jobs/interactive/get-checkpoint) |
+| Als `.tar`-Archiv herunterladen | [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/de/api-reference/training-jobs/download-checkpoint) |
+| TTL ändern | [`PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl`](/de/api-reference/training-jobs/interactive/set-checkpoint-ttl) |
+| Veröffentlichen oder Veröffentlichung aufheben | [`POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish`](/de/api-reference/training-jobs/interactive/publish-checkpoint) |
+| Löschen | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/de/api-reference/training-jobs/interactive/delete-checkpoint) |
+| Speichernutzung lesen | [`GET /v1/training/usage`](/de/api-reference/training-jobs/interactive/storage-usage) |
+
+Für Downloads benötigt das Team Zugriff auf den Gewichte-Download.
 
 ## 6. Fortsetzung prüfen
 
@@ -175,13 +184,44 @@ Bevor Sie den fortgesetzten Workload skalieren:
 5. Speichern Sie einen neuen Zustands-Checkpoint unter neuem Namen.
 6. Persistieren Sie den nächsten Loop-Datensatz.
 
-Verwenden Sie für interaktive Modelloperationen entweder native JSON-Routen oder das unterstützte Tinker-SDK.
+## Trainiertes Modell bereitstellen
+
+Stellen Sie einen Sampler-Checkpoint bereit, um ihn als Modell auszuliefern. Das
+Deployment ist für unterstützte Basismodelle verfügbar; andere Basismodelle
+geben `400` zurück.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+Die Antwort enthält die `model_id` des Modells und den `status` `deploying`.
+Wiederholen Sie denselben Aufruf, um den Fortschritt zu prüfen: Er gibt dasselbe
+Modell zurück, und `status` wird `deployed`, sobald das Modell bereit ist. Rufen
+Sie es dann über seine ID auf:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+Ersetzen Sie `MODEL_ID` durch die zurückgegebene `model_id`. Felder und Fehler
+finden Sie unter
+[Checkpoint bereitstellen](/de/api-reference/training-jobs/interactive/deploy-checkpoint).
 
 ## Wiederherstellungsfehler diagnostizieren
 
 | Symptom | Prüfung |
 | --- | --- |
-| Ein Future schlägt fehl | Zeichnen Sie Job-ID und Operationsergebnis auf. Setzen Sie abhängigen Anwendungsstatus nicht fort |
-| Ein Checkpoint kann nicht geladen werden | Prüfen Sie Job, Checkpoint-Art und den clientseitigen Wiederherstellungsdatensatz |
-| Quell-Checkpoint wird abgelehnt | Prüfen Sie Quell-Job, Checkpoint-Art und `state_path`; verlangen Sie nicht, dass neue und alte Job-ID gleich sind |
-| Fortgesetzter Job kann nicht abgerufen werden | Prüfen Sie, ob die ID vom fortgesetzten Client aus `get_info().model_id` stammt und dasselbe Fastino-Team authentifiziert ist |
+| Ein Future schlägt fehl | Notieren Sie die Job-ID und den `error` des Futures. Schreiben Sie abhängigen Anwendungszustand nicht fort |
+| Ein Trainingsaufruf gibt nach einer Pause `400` zurück | Der Job wurde gestoppt oder nach 30 inaktiven Minuten freigegeben. Starten Sie einen neuen Job aus dem letzten Zustands-Checkpoint |
+| Ein Checkpoint lässt sich nicht laden | Prüfen Sie Job, Checkpoint-Art und den clienteigenen Wiederherstellungsdatensatz |
+| `from_checkpoint` wird abgelehnt | Bestätigen Sie, dass es ein `weights/<name>`-Pfad Ihres Teams ist; Sampler-Checkpoints können keinen Job starten |
+| Abruf des fortgesetzten Jobs schlägt fehl | Bestätigen Sie, dass die ID aus der Erstellungsantwort des neuen Jobs stammt und dasselbe Fastino-Team authentifiziert ist |

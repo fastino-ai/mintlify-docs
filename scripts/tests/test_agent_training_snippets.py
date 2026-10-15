@@ -54,7 +54,7 @@ EXPECTED_EMPTY_PAGES = (
 )
 EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
-    "training/quickstart.mdx": 16,
+    "training/quickstart.mdx": 17,
     "training/migrate-from-tinker.mdx": 5,
     "concepts/datasets.mdx": 8,
     "guides/fine-tune-gliner.mdx": 8,
@@ -126,8 +126,12 @@ TINKER_SDK_SUPPORT = TinkerSdkSupport(
 )
 
 
-def retired_claim_hits(text: str) -> set[str]:
-    return {token for token in TINKER_SDK_SUPPORT.retired_text if token in text}
+def retired_claim_hits(text: str, *, tinker_context: bool = True) -> set[str]:
+    return {
+        token
+        for token in TINKER_SDK_SUPPORT.retired_text
+        if token in text and (token != "/api/v1/{operation}" or tinker_context)
+    }
 
 
 def _between(text: str, start: str, end: str) -> str:
@@ -285,7 +289,17 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
     def test_tinker_sdk_support_matches_pioneer_contract(self) -> None:
         support = TINKER_SDK_SUPPORT
         for path, text in _claim_texts():
-            self.assertEqual(retired_claim_hits(text), set(), path)
+            self.assertEqual(
+                retired_claim_hits(
+                    text,
+                    tinker_context=(
+                        "tinker" in path.as_posix().lower()
+                        or "tinker" in text.lower()
+                    ),
+                ),
+                set(),
+                path,
+            )
 
         english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
         install_fences = [body for body in fence_bodies(english) if "tinker==" in body]
@@ -334,7 +348,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         future = (interactive / "get-future.mdx").read_text(encoding="utf-8")
         cancel = (interactive / "cancel-future.mdx").read_text(encoding="utf-8")
         save = (interactive / "save-weights.mdx").read_text(encoding="utf-8")
-        save_sampler = (interactive / "save-sampler-weights.mdx").read_text(
+        save_sampler = (interactive / "save-weights-for-sampler.mdx").read_text(
             encoding="utf-8"
         )
         load = (interactive / "load-weights.mdx").read_text(encoding="utf-8")
@@ -404,7 +418,15 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(retired_claim_hits(text), expected)
 
-    def test_inventory_is_exactly_47_fences_across_9_training_api_pages(self) -> None:
+        self.assertEqual(
+            retired_claim_hits(
+                "/api/v1/{operation}\n",
+                tinker_context=False,
+            ),
+            set(),
+        )
+
+    def test_inventory_is_exactly_51_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -412,7 +434,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 50)
+        self.assertEqual(len(snippets), 51)
         self.assertEqual(len(pages), 9)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(

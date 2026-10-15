@@ -57,8 +57,7 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   Fastino run the loop; interactive jobs let the application direct each step.
 - Tinker clients query `ServiceClient.get_server_capabilities()` before
   selecting a model for a custom loop.
-- Do not construct private compatibility child routes. Configure the supported
-  Tinker SDK with
+- Configure the supported Tinker SDK with
   `TINKER_BASE_URL=https://api.fastino.ai/v1/training/compat/tinker` and
   `TINKER_CREDENTIAL_CMD` that prints the normal `fast_sk_...` credential.
 - Never wrap a Fastino key with `tml-`; `tml-` credentials are rejected.

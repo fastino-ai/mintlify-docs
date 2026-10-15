@@ -140,6 +140,7 @@ class AgentHarnessTests(unittest.TestCase):
         document = HARNESS._load_openapi()
         operations = HARNESS._validate_openapi(document)
 
+        self.assertEqual(len(HARNESS.REQUIRED_OPERATIONS), 52)
         self.assertEqual(HARNESS.REQUIRED_OPERATIONS, set(operations))
 
     def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:
@@ -304,6 +305,21 @@ class AgentHarnessTests(unittest.TestCase):
         )
         self.assertFalse(CHECKS._path_matches_route("/tinker", {}))
         self.assertFalse(CHECKS._path_matches_route("/not-a-public-route", {}))
+
+    def test_skill_routes_do_not_accept_the_sdk_compatibility_base(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            skill = root / ".mintlify/skills/example/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("Call GET /v1/training/compat/tinker.\n")
+
+            self.assertEqual(
+                CHECKS._skill_route_findings(root, {"paths": {}}),
+                [
+                    ".mintlify/skills/example/SKILL.md:1: "
+                    "GET /v1/training/compat/tinker is not a public OpenAPI operation"
+                ],
+            )
 
     def test_training_routes_require_the_canonical_deployed_route(self) -> None:
         deployed = {"GET": [CHECKS.re.compile(r"^/v1/training/jobs/?$")]}

@@ -7,6 +7,48 @@ api: "POST /v1/training/jobs/{job_id}/load-weights"
 
 `POST /v1/training/jobs/{job_id}/load-weights`
 
-Encola una carga desde `path` y devuelve un `future_id`. Usa un nombre de estado o la ruta `tinker://<job_id>/weights/<name>` propia de este trabajo. Configura `optimizer` para restaurar el estado del optimizador. Consulta [Obtener un future](/es/api-reference/training-jobs/interactive/get-future) hasta que alcance un estado terminal.
+Restaura uno de los checkpoints `weights/<name>` de este trabajo en el mismo trabajo, por ejemplo para revertir una mala actualización. Para continuar en un trabajo nuevo, pasa su ruta como `from_checkpoint` a [`POST /v1/training/jobs/create-model`](/es/api-reference/training-jobs/interactive/create-model).
 
-Consulta [el bucle de entrenamiento personalizado](/es/training/training-loop) para ver el ciclo de vida completo.
+<ParamField header="X-API-Key" type="string" required>
+  Tu clave de API de Fastino.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID del trabajo interactivo.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  El nombre de un checkpoint de estado guardado por este trabajo, o su ruta `tinker://<job_id>/weights/<name>`.
+</ParamField>
+
+<ParamField body="optimizer" type="boolean" default="false">
+  Restaura también el estado del optimizador.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/load-weights" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "step-000100", "optimizer": true}'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "future_id": "FUTURE_ID",
+  "job_id": "SESSION_ID:train:0",
+  "type": "load"
+}
+```
+
+</ResponseExample>
+
+| Estado | Significado |
+| --- | --- |
+| `400` | `path` es un checkpoint de otro trabajo o un checkpoint sampler, o el trabajo se detuvo. |
+| `404` | El trabajo no existe o pertenece a otro equipo. |
