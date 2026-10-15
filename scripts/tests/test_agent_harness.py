@@ -115,8 +115,11 @@ class AgentHarnessTests(unittest.TestCase):
             datasets = (
                 HARNESS.ROOT / f"{prefix}concepts/datasets.mdx"
             ).read_text(encoding="utf-8")
-            for field in ("messages", "prompt", "chosen", "rejected"):
-                self.assertIn(f'"{field}"', datasets)
+            self.assertIn('"messages"', datasets)
+            self.assertNotIn(
+                '{"prompt":"Write a concise greeting.","chosen":"Hello!"',
+                datasets,
+            )
 
     def test_english_config_create_requests_use_base_model_and_omit_type(self) -> None:
         found = 0

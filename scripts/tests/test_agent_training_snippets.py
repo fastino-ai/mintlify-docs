@@ -56,7 +56,7 @@ EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
     "training/quickstart.mdx": 16,
     "training/migrate-from-tinker.mdx": 5,
-    "concepts/datasets.mdx": 9,
+    "concepts/datasets.mdx": 8,
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
     "training/verifiable-rewards.mdx": 7,
@@ -201,7 +201,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         )
         self.assertIn("interactive runs only", runs)
 
-    def test_inventory_is_exactly_51_fences_across_9_training_api_pages(self) -> None:
+    def test_inventory_is_exactly_50_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -209,7 +209,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 51)
+        self.assertEqual(len(snippets), 50)
         self.assertEqual(len(pages), 9)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(
@@ -352,13 +352,13 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(inference.coverage, "static")
         self.assertEqual(inference.mapped_command, "blocker")
 
-        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 4))
+        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 3))
         self.assertEqual(upload.coverage, "static")
         self.assertEqual(upload.mapped_command, "blocker")
 
     def test_missing_placeholders_print_skip_and_do_not_guess(self) -> None:
         job = _snippet("training/quickstart.mdx", 4)
-        dataset = _snippet("concepts/datasets.mdx", 7)
+        dataset = _snippet("concepts/datasets.mdx", 6)
         catalog = _snippet("training/quickstart.mdx", 2)
 
         skipped_job = SNIPPETS.plan_live(job, SNIPPETS.classify(job), {})
