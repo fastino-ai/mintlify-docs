@@ -147,18 +147,30 @@ backward = call(
     f"/v1/training/jobs/{job_id}/forward-backward",
     {"datums": datums, "loss_fn": "importance_sampling"},
 )
+train_result = wait(job_id, backward["future_id"])
 update = call(
     "POST",
     f"/v1/training/jobs/{job_id}/optim-step",
     {"adam_params": {"learning_rate": 1e-5}},
 )
-train_result = wait(job_id, backward["future_id"])
 optim_result = wait(job_id, update["future_id"])
 ```
 
-Ambas operaciones actualizan el mismo trabajo, en el orden en que se enviaron.
-Espera y registra cada resultado antes de avanzar el paso de la aplicación. Para
-objetivos con recorte, usa `ppo` o `cispo` con umbrales en `loss_fn_config`.
+Espera a que forward-backward termine correctamente antes de enviar el paso del
+optimizador. Espera y registra el resultado del optimizador antes de avanzar el
+paso de la aplicación.
+
+Campos y valores predeterminados compatibles de `loss_fn_config`:
+
+| Se aplica a | Campos y valores predeterminados |
+| --- | --- |
+| `ppo` | `clip_low_threshold: 0.8`, `clip_high_threshold: 1.2` |
+| `cispo` | `clip_low_threshold: 0.0`, `clip_high_threshold: 4.0` |
+| `dro` | `beta: 0.05` |
+| Pérdidas de recompensa | `tis_cap: 2`, `icepop_low: 0.5`, `icepop_high: 5` |
+
+Las protecciones de la última fila están activadas por defecto. Los campos de
+configuración desconocidos se rechazan.
 
 ## 6. Guarda un punto de recuperación
 

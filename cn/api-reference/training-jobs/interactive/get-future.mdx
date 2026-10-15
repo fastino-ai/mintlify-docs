@@ -4,30 +4,30 @@ sidebarTitle: "获取 future"
 description: "轮询交互式 future 以获取其状态和结果。设置 wait=true 时，请求最多等待 25 秒，服务会将结果保留一小时。"
 api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 ---
-
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-Every interactive-job call that does work returns a `future_id`. Read the
-future until its `status` is `completed`, `failed`, or `cancelled`.
-Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Results are kept for one hour.
+每个有效的交互式作业调用都会返回 `future_id`。投票未来
+直到其 `status` 为 `completed`、`failed` 或 `cancelled`。使用 `wait=true` 来
+每个请求最多等待 25 秒；超时仍然可以返回非终结符
+未来。结果保留一小时。
 
-## Request
+## 请求
 
 <ParamField header="X-API-Key" type="string" required>
-  Your Fastino API key.
+  您的 Fastino API 密钥。
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Interactive job ID.
+  交互式作业 ID。
 </ParamField>
 
 <ParamField path="future_id" type="string" required>
-  Future ID returned when the work was queued.
+  当工作排队时返回未来 ID。
 </ParamField>
 
 <ParamField query="wait" type="boolean" default="false">
-  Wait up to 25 seconds for an unfinished future before answering. Repeat
-  the request until it finishes.
+  在回答之前，请等待最多 25 秒，等待未完成的未来。重复
+  请求直到完成。
 </ParamField>
 
 <RequestExample>
@@ -39,42 +39,47 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 </RequestExample>
 
-## Response
+## 回应
 
 <ResponseField name="future_id" type="string">
-  The future.
+  未来。
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  The job.
+  工作。
 </ResponseField>
 
 <ResponseField name="type" type="string">
-  `create`, `load`, `forward`, `forward_backward`, `optim_step`, `save`, or `sample`.
+  `create`、`load`、`forward`、`forward_backward`、`optim_step`、`save` 或 `sample`。
 </ResponseField>
 
 <ResponseField name="status" type="string">
-  `pending`, `running`, `completed`, `failed`, or `cancelled`.
+  `pending`、`running`、`completed`、`failed` 或 `cancelled`。
 </ResponseField>
 
 <ResponseField name="queue_state" type="string | null">
-  While unfinished: `active`, or `paused_capacity` while GPU capacity warms up.
+  未完成时：`active`，或 GPU 容量预热时的 `paused_capacity`。
+</ResponseField>
+
+<ResponseField name="queue_state_reason" type="string | null">
+  人类可读的容量解释，而 `queue_state` 是
+  `paused_capacity`；否则为 `null`。
 </ResponseField>
 
 <ResponseField name="result" type="any">
-  Once `completed`:
+  一旦`completed`：
 
-  - `forward` and `forward_backward`: `loss_fn_outputs` (one entry of tensors per
-    datum, such as `logprobs`) and `metrics`.
-  - `sample`: `sequences`, each with `tokens`, `logprobs`, and `stop_reason`,
-    plus `prompt_logprobs` when requested.
-  - `save`: the checkpoint path.
-  - Other types: an acknowledgement.
+  - `forward` 和 `forward_backward`：`loss_fn_outputs`（每个张量一个条目）
+    数据，例如 `logprobs`) 和 `metrics`。
+  - `sample`：`sequences`，每个都有 `tokens`、`logprobs` 和 `stop_reason`，
+    根据要求加上 `prompt_logprobs`。
+  - `save`：检查点路径。
+  - 其他类型：确认。
 </ResponseField>
 
 <ResponseField name="error" type="object | null">
-  When `failed` or `cancelled`: `message`, and `category` (`user` for a problem
-  with the request, `server` for a Fastino problem).
+  当`failed`或`cancelled`：`message`和`category`（`user`为问题
+  根据请求，`server` 用于 Fastino 问题）。
 </ResponseField>
 
 <ResponseExample>
@@ -114,6 +119,7 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 </ResponseExample>
 
-| Status | Meaning |
-| --- | --- |
-| `404` | The job or future doesn't exist, or belongs to another team. |
+|状态 |意义|
+| ---| ---|
+| `404` |该工作或未来不存在，或者属于另一个团队。 |
+| `410` |操作丢失，或其保留结果已过期。重新提交操作；过期结果无法恢复。 |

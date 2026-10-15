@@ -101,7 +101,8 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
   [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)，
   在 `/v1/training/jobs/{job_id}` 下排队模型操作，并轮询返回的每个
   `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
-- 现有 Tinker 程序保留 `tinker==0.32.0`，并使用下面的设置。
+- 现有 Tinker 程序保留 `tinker==0.32.0`；SDK 设置请参阅
+  [从 Tinker 迁移](/cn/training/migrate-from-tinker)。
 
 原生客户端不发送 `seq_id` 或心跳。服务器分配操作顺序并保持内部会话处于活动状态。
 带有 `wait=true` 的请求最多等待 25 秒，因此客户端必须继续轮询未终止的操作。原生路由
@@ -113,9 +114,9 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
    [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)。
 2. 通过[获取 future](/cn/api-reference/training-jobs/interactive/get-future)轮询返回的创建
    `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
-3. 排队 [forward-backward](/cn/api-reference/training-jobs/interactive/forward-backward)
-   和[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)。在执行下一个依赖步骤
-   之前，将每个 `future_id` 轮询到终止状态。
+3. 排队 [forward-backward](/cn/api-reference/training-jobs/interactive/forward-backward)，
+   并轮询其 `future_id`，直到成功完成。然后才排队[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)，
+   并将该 future 轮询到终止状态。
 4. [保存采样器权重](/cn/api-reference/training-jobs/interactive/save-weights-for-sampler)，并将保存 future
    轮询到终止状态。
 5. 通过共享的[停止操作](/cn/api-reference/training-jobs/stop)停止任务。
@@ -125,9 +126,10 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
 只有已排队或正在运行的 sample future 可以取消。HTTP 拒绝表示服务器没有将调用排队。
 已排队的 future 可能改为以 `status: "failed"` 结束。
 
-### Tinker SDK 路径
+### 原生 REST 路径
 
-Tinker 路径需要 Python 3.11 或更高版本。
+原生 REST 示例需要 Python 3.11 或更高版本。Tinker SDK 设置请参阅
+[从 Tinker 迁移](/cn/training/migrate-from-tinker)。
 
 ### 3. 安装客户端库
 
@@ -138,14 +140,14 @@ Tinker 路径需要 Python 3.11 或更高版本。
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add "tinker==0.32.0"
+uv add requests transformers
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 ```powershell pip · Windows
@@ -153,7 +155,7 @@ mkdir fastino-training
 cd fastino-training
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 </CodeGroup>
@@ -279,12 +281,12 @@ try:
 
     for step in range(3):
         backward = call("POST", f"{jobs}/forward-backward", batch)
+        result = wait(job_id, backward["future_id"])
         update = call(
             "POST",
             f"{jobs}/optim-step",
             {"adam_params": {"learning_rate": 1e-4}},
         )
-        result = wait(job_id, backward["future_id"])
         wait(job_id, update["future_id"])
         print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
 
@@ -310,7 +312,8 @@ finally:
     call("POST", f"{jobs}/stop")
 ```
 
-优化器步骤在 forward-backward 之后立即排队，无需等待。任务按接收顺序运行 operation。
+脚本会等待 forward-backward 成功完成，然后再提交优化器步骤。如果任一 future 失败或被取消，
+`wait` 会引发异常，不会提交依赖 operation。
 
 运行脚本：
 
@@ -345,9 +348,8 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-响应描述的任务与 `create_lora_training_client(...)` 创建的任务相同。继续使用 SDK
-客户端执行模型操作，并使用规范任务 API 执行有文档说明的任务读取。原生 JSON 客户端
-使用公开的交互式操作页面。
+响应描述的是通过原生 REST 端点创建的同一任务。继续使用公开的交互式 operation 页面执行
+模型操作，并使用规范任务 API 执行有文档说明的任务读取。
 
 ## 继续
 

@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/terminate"
 
 `POST /v1/training/jobs/{job_id}/terminate`
 
+<Warning>
+  重命名后的 `/v1/training/jobs` 接口已在开发环境验证，但尚未在生产环境验证。生产环境可能返回 `404`。
+</Warning>
+
 停止活动的 `config` 任务，并请求提供方取消。默认保留现有检查点和工件。
 
 <Warning>
@@ -47,7 +51,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 ```json 200 — 已终止
 {
   "success": true,
-  "message": "Training job terminated. Checkpoints preserved.",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "deleted_checkpoints": 0,
   "status": "terminated"
@@ -57,7 +61,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 ```json 202 — 正在等待取消
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Termination in progress. The job moves to 'terminated' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "deleted_checkpoints": 0,
   "status": "stopping"
@@ -71,7 +75,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 | 状态 | 含义 |
 | --- | --- |
 | `200` | 任务已终止。 |
-| `202` | 仍在确认提供方取消操作。 |
+| `202` | 提供方确认取消期间，终止操作正在进行。 |
 | `400` | `job_id` 不是有效的配置任务 UUID。 |
 | `409 training_job_already_finished` | 任务在终止前已进入最终状态。 |
 | `409 cancellation_unconfirmed` | 未确认取消，可以重试。 |

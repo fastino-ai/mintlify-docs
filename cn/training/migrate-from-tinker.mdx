@@ -26,12 +26,14 @@ pip install "tinker==0.32.0"
 
 ```bash macOS/Linux
 export FASTINO_API_KEY="fast_sk_..."
+unset TINKER_API_KEY
 export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
 export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
 ```powershell Windows
 $env:FASTINO_API_KEY = "fast_sk_..."
+Remove-Item Env:TINKER_API_KEY -ErrorAction SilentlyContinue
 $env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
 $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
@@ -39,7 +41,8 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 </CodeGroup>
 
 每次请求令牌时都会运行 `TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
-密钥；`tml-` 凭据会被拒绝。不要设置 `TINKER_API_KEY`。
+密钥；`tml-` 凭据会被拒绝。请取消设置 `TINKER_API_KEY`：环境中的该值优先于
+`TINKER_CREDENTIAL_CMD`。
 
 ## 3. 验证连接
 
@@ -56,7 +59,7 @@ print(service_client.get_server_capabilities())
 
 ## Tinker SDK 兼容性
 
-每个 Tinker 训练客户端都是一个 Fastino 交互式任务。SDK 模型 ID
+使用 `tinker==0.32.0` 时，每个 Tinker 训练客户端都是一个 Fastino 交互式任务。SDK 模型 ID
 也是其在 `/v1/training/jobs` 下的任务 ID。
 
 | 范围 | 支持的行为 |
@@ -77,6 +80,9 @@ print(service_client.get_server_capabilities())
     `unpublish_checkpoint_from_tinker_path`、
     `set_checkpoint_ttl_from_tinker_path`、
     `get_current_checkpoint_storage_usage` 和 `get_billing_usage`。
+
+    运行列表仅返回交互式运行。要列出配置任务和交互式任务，请使用
+    `/v1/training/jobs`。
   </Accordion>
   <Accordion title="限制">
     - LoRA 秩必须在 1 到 32 之间。
@@ -85,7 +91,7 @@ print(service_client.get_server_capabilities())
     - 提示词块必须使用 `encoded_text`。
     - 训练操作按顺序执行，训练操作的 future 无法取消。
     - 检查点下载需要权重下载权限；否则返回 `403`。请联系 sales@fastino.ai。
-    - 发布仅更改所属团队内的可见性。
+    - 发布仅更改所属团队内的可见性，不会让其他团队加载该路径。
   </Accordion>
   <Accordion title="不受支持的调用">
     - 使用 `retrieve_futures` 批量检索 future

@@ -27,12 +27,14 @@ pip install "tinker==0.32.0"
 
 ```bash macOS/Linux
 export FASTINO_API_KEY="fast_sk_..."
+unset TINKER_API_KEY
 export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
 export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
 ```powershell Windows
 $env:FASTINO_API_KEY = "fast_sk_..."
+Remove-Item Env:TINKER_API_KEY -ErrorAction SilentlyContinue
 $env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
 $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
@@ -41,7 +43,8 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 `TINKER_CREDENTIAL_CMD` est exécuté à chaque demande de token et doit afficher
 un identifiant non vide. Utilisez une clé Fastino `fast_sk_` normale ; les
-identifiants `tml-` sont rejetés. Ne définissez pas `TINKER_API_KEY`.
+identifiants `tml-` sont rejetés. Supprimez `TINKER_API_KEY` de l'environnement :
+sa valeur est prioritaire sur `TINKER_CREDENTIAL_CMD`.
 
 ## 3. Vérifier la connexion
 
@@ -59,7 +62,8 @@ avec un TTL explicite avant l'échantillonnage. Augmentez ensuite la charge.
 
 ## Compatibilité avec le SDK Tinker
 
-Chaque client d'entraînement Tinker est un job Fastino interactif. L'ID de
+Avec `tinker==0.32.0`, chaque client d'entraînement Tinker est un job Fastino
+interactif. L'ID de
 modèle SDK est aussi son ID sous `/v1/training/jobs`.
 
 | Domaine | Comportement pris en charge |
@@ -80,6 +84,9 @@ modèle SDK est aussi son ID sous `/v1/training/jobs`.
     `unpublish_checkpoint_from_tinker_path`,
     `set_checkpoint_ttl_from_tinker_path`,
     `get_current_checkpoint_storage_usage` et `get_billing_usage`.
+
+    La liste des exécutions ne renvoie que les exécutions interactives. Utilisez
+    `/v1/training/jobs` pour lister les jobs de configuration et interactifs.
   </Accordion>
   <Accordion title="Limites">
     - Le rang LoRA doit être compris entre 1 et 32.
@@ -88,7 +95,7 @@ modèle SDK est aussi son ID sous `/v1/training/jobs`.
     - Les fragments de prompt doivent utiliser `encoded_text`.
     - Les opérations d'entraînement s'exécutent dans l'ordre et leurs futures ne peuvent pas être annulées.
     - Le téléchargement requiert l'autorisation correspondante. Sans elle, il renvoie `403` ; contactez sales@fastino.ai.
-    - La publication ne modifie la visibilité qu'au sein de l'équipe propriétaire.
+    - La publication ne modifie la visibilité qu'au sein de l'équipe propriétaire. Elle ne permet pas à une autre équipe de charger le chemin.
   </Accordion>
   <Accordion title="Appels non pris en charge">
     - Récupération par lots avec `retrieve_futures`

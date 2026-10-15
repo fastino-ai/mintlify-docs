@@ -18,7 +18,7 @@ description: "由你的应用控制采样、评分和更新时机，在一个 Fa
   </Step>
   <Step title="保存用于采样的权重">
     使用名称调用 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`。
-    从该检查点采样，使每个 rollout 都对应同一任务中的明确产物。
+    等待保存 future 成功完成后再从该检查点采样，使每个 rollout 都对应同一任务中的持久产物。
   </Step>
   <Step title="收集 rollout 组">
     使用 `POST /v1/training/jobs/{job_id}/sample` 并指定该检查点，
@@ -31,11 +31,12 @@ description: "由你的应用控制采样、评分和更新时机，在一个 Fa
     将提示和响应 token 与逐位置的目标、权重、对数概率或优势组合起来。
   </Step>
   <Step title="更新同一个任务">
-    发送 `POST /v1/training/jobs/{job_id}/forward-backward`，然后发送
-    `POST /v1/training/jobs/{job_id}/optim-step`。
+    发送 `POST /v1/training/jobs/{job_id}/forward-backward` 并等待其成功完成，
+    然后再发送 `POST /v1/training/jobs/{job_id}/optim-step`。
   </Step>
   <Step title="保存恢复边界">
-    在开始下一次迭代之前，使用 `POST /v1/training/jobs/{job_id}/save-weights` 保存状态，并将其路径与应用步骤和数据集游标一起持久化。
+    使用 `POST /v1/training/jobs/{job_id}/save-weights` 保存状态，等待保存 future
+    完成，然后在开始下一次迭代之前将其路径与应用步骤和数据集游标一起持久化。
   </Step>
 </Steps>
 
@@ -82,8 +83,8 @@ tokenizer 解码采样结果。
 
 ## 保持依赖工作有序
 
-任务按接收顺序运行 operation，因此可以在 forward-backward 之后立即排队优化器步骤。
-在将该步骤视为完成之前，请先读取 forward-backward 的结果。保存更新后的状态之前，请等待优化器步骤完成。
+请等待 forward-backward future 成功完成后再提交其优化器步骤。这样可避免 forward-backward
+失败或被取消后，预先排队的优化器步骤仍然运行。保存更新后的状态之前，请等待优化器步骤完成。
 
 原生 JSON 客户端调用
 [`forward-backward`](/cn/api-reference/training-jobs/interactive/forward-backward)
@@ -98,6 +99,10 @@ future 可以取消。不支持通过 `retrieve_futures` 批量检索。
 ## 恢复循环
 
 持久化任务 ID、应用步骤、数据集游标和最新检查点路径。这样重启后的控制器就能判断哪些工作已完成，而无需重放更新。
+
+Future 结果保留一小时。在此窗口内，请轮询已知的 `future_id` 以解决不确定的 operation。
+`410` 表示结果已无法恢复；不要盲目重放 operation。长期恢复只能使用保存 future 完成后，
+已将路径写入应用持久记录的完整检查点。
 
 关于恢复顺序和检查点类型，请参阅[检查点与恢复](/cn/training/checkpoints)。
 

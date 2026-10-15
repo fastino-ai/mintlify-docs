@@ -4,27 +4,38 @@ sidebarTitle: "Checkpoint bereitstellen"
 description: "Rufen Sie POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy auf, um einen Sampler-Checkpoint als trainiertes Modell auszuliefern."
 api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
 ---
-
 `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
 
-Liefert einen Sampler-Checkpoint des Jobs als trainiertes Modell aus. Rufen Sie es mit [`POST /v1/chat/completions`](/de/api-reference/inference/chat-completions) und `"model": "<model_id>"` auf. Das Deployment ist für unterstützte Basismodelle verfügbar; andere Basismodelle geben `400` zurück.
+Dient als trainiertes Modell einem der Sampler-Kontrollpunkte des Jobs. Nennen Sie es mit
+[`POST /v1/chat/completions`](/de/api-reference/inference/chat-completions) und
+`"model": "<model_id>"`. Die aktuelle Bereitstellungszulassungsliste enthält nur Nemotron 3.5 Lightning
+(`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`). Andere Stützpunkte kehren zurück
+`400`.
 
-Der `status` des Modells ist `deploying`, bis die Serving-Engine es geladen hat, danach `deployed`. Ein erneutes Deployment desselben Checkpoints gibt dasselbe Modell mit seinem aktuellen Status zurück; Sie können den Aufruf also wiederholen, um den Fortschritt zu prüfen. Ist ein früherer Versuch fehlgeschlagen, wiederholt der Aufruf ihn.
+Der `status` des Modells ist dann `deploying`, bis die bedienende Engine ihn dann geladen hat
+`deployed`. Die erneute Bereitstellung desselben Prüfpunkts gibt dasselbe Modell und seine zurück
+Aktueller Status, so dass Sie den Anruf wiederholen können, um den Fortschritt zu überprüfen. Wenn ein früher
+Der Versuch ist fehlgeschlagen. Der Wiederholungsaufruf versucht es erneut.
+
+## Anfrage
 
 <ParamField header="X-API-Key" type="string" required>
   Ihr Fastino-API-Schlüssel.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID des interaktiven Jobs.
+  Interaktive Job-ID.
 </ParamField>
 
 <ParamField path="name" type="string" required>
-  Name eines mit [`save-weights-for-sampler`](/de/api-reference/training-jobs/interactive/save-weights-for-sampler) gespeicherten Sampler-Checkpoints.
+  Name eines Sampler-Checkpoints, der mit gespeichert wurde
+  [`save-weights-for-sampler`](/de/api-reference/training-jobs/interactive/save-weights-for-sampler).
 </ParamField>
 
 <ParamField body="model_name" type="string">
-  Bis zu 64 Buchstaben, Ziffern, Bindestriche und Unterstriche, beginnend und endend mit einem Buchstaben oder einer Ziffer. Wird ohne Angabe aus dem Checkpoint-Namen abgeleitet. Der Body ist optional.
+  Bis zu 64 Buchstaben, Ziffern, Bindestriche und Unterstriche, beginnend und endend mit a
+  Buchstabe oder Ziffer. Wird vom Prüfpunktnamen abgeleitet, wenn dieser weggelassen wird. Der Körper ist
+  optional.
 </ParamField>
 
 <RequestExample>
@@ -38,12 +49,14 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 </RequestExample>
 
+## Antwort
+
 <ResponseField name="model_id" type="string">
-  ID des trainierten Modells. Übergeben Sie sie für die Inferenz als `model`.
+  Die ID des trainierten Modells. Übergeben Sie es zur Schlussfolgerung als `model`.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  Der interaktive Job, der den Checkpoint gespeichert hat.
+  Der interaktive Job, der den Prüfpunkt gespeichert hat.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -79,7 +92,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 | Status | Bedeutung |
 | --- | --- |
-| `400` | Serving ist für das Basismodell des Jobs noch nicht verfügbar, oder der Checkpoint ist kein PEFT-Adapter, den die Serving-Engine akzeptiert. |
-| `404` | Der Job oder Sampler-Checkpoint existiert nicht, gehört zu einem anderen Team oder hat keine Dateien. |
-| `409` | Ein anderes Modell verwendet `model_name` bereits, oder das aus diesem Checkpoint ausgelieferte Modell wurde gelöscht. Speichern Sie die Gewichte unter einem neuen Namen, um sie erneut bereitzustellen. |
-| `422` | `model_name` ist ungültig oder der Body enthält ein unbekanntes Feld. |
+| `400` | Das Basismodell ist nicht Nemotron 3.5 Lightning, oder der Prüfpunkt ist kein PEFT-Adapter, den die Serving Engine akzeptiert. |
+| `404` | Der Job- oder Sampler-Prüfpunkt existiert nicht, gehört zu einem anderen Team oder hat keine Dateien. |
+| `409` | Ein anderes Modell verwendet bereits `model_name` oder das von diesem Prüfpunkt bereitgestellte Modell wurde gelöscht. Speichern Sie die Gewichte unter einem neuen Namen, um sie erneut bereitzustellen. |
+| `422` | `model_name` ist ungültig oder der Text enthält ein unbekanntes Feld. |

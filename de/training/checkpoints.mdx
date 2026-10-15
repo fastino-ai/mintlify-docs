@@ -32,10 +32,10 @@ state = call(
     f"/v1/training/jobs/{job_id}/save-weights",
     {"name": f"step-{step:06d}"},
 )
-wait(job_id, state["future_id"])
+state_path = wait(job_id, state["future_id"])
 record = {
     "source_job_id": job_id,
-    "state_path": state["path"],
+    "state_path": state_path,
     "model": model_name,
     "dataset_revision": dataset_revision,
     "optimizer": adam_params,
@@ -48,9 +48,14 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
+Der Pfad in der ersten Speicherantwort ist vorläufig. Der Checkpoint wird erst
+nach Abschluss des Speicher-Futures dauerhaft. Bei Fehler oder Abbruch dürfen
+Sie diesen Pfad nicht persistieren oder verwenden.
+
 Verwenden Sie eindeutige Checkpoint-Namen, damit jeder Loop-Datensatz einen
 eindeutigen Wiederherstellungspunkt bezeichnet. Namen bestehen aus 1–128 Zeichen
-aus `A-Z`, `a-z`, `0-9`, `.`, `_` und `-`.
+aus `A-Z`, `a-z`, `0-9`, `.`, `_` und `-`. Präfixe `__park-` und `__snap-`
+sind reserviert.
 
 ## 2. Neuesten vollständigen Datensatz lesen
 
@@ -93,7 +98,7 @@ Wählen Sie dann, wie es weitergeht:
 
 | Situation | Aufruf |
 | --- | --- |
-| Der Quell-Job ist noch aktiv und Sie möchten zurückrollen | `POST /v1/training/jobs/{job_id}/load-weights` mit `{"path": name, "optimizer": true}` |
+| Der Quell-Job ist noch aktiv und Sie möchten zurückrollen | `POST /v1/training/jobs/{job_id}/load-weights` mit `{"path": "<name>", "optimizer": true}` |
 | Der Quell-Job wurde gestoppt oder freigegeben | `POST /v1/training/jobs/create-model` mit `from_checkpoint` und `load_optimizer` |
 
 So setzen Sie in einem neuen Job fort:
@@ -129,6 +134,12 @@ des Loop-Datensatzes, behalten Sie den vorherigen vollständigen Datensatz als
 vertrauenswürdigen Wiederherstellungspunkt. Markieren Sie einen Schritt erst als
 abgeschlossen, wenn sein Datensatz dauerhaft gespeichert ist.
 
+Future-Ergebnisse bleiben eine Stunde abrufbar. Fragen Sie in diesem Fenster
+eine bekannte Speicher-`future_id` ab. Bei `410` dürfen Sie nicht blind erneut
+speichern; gleichen Sie die Checkpoints des Jobs mit dem dauerhaften
+Loop-Datensatz ab. Die langfristige Commit-Grenze ist ein abgeschlossener
+Checkpoint mit seinem dauerhaften Anwendungsdatensatz.
+
 ## 5. Checkpoint-Arten getrennt halten
 
 ```python
@@ -145,13 +156,15 @@ sampler = call(
 )
 ```
 
-| Gespeichert mit | Pfad | Verwendung |
-| --- | --- | --- |
-| `save-weights` | `weights/<name>` | Trainingswiederherstellung: laden oder einen neuen Job daraus starten |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | Rollouts, Evaluierung und Download als PEFT-LoRA-Dateien |
+| Gespeichert mit | Checkpoint-ID-Suffix | Vollständiger Pfad | Verwendung |
+| --- | --- | --- | --- |
+| `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Trainingswiederherstellung: laden oder einen neuen Job daraus starten |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, Evaluierung und Download als PEFT-LoRA-Dateien |
 
 Verwenden Sie keinen Sampler-Checkpoint als Wiederherstellungspunkt: Er enthält
-keinen Optimiererzustand, und ein neuer Job kann nicht daraus starten.
+keinen Optimiererzustand, und ein neuer Job kann nicht daraus starten. Übergeben
+Sie den vollständigen `tinker://.../weights/<name>`-Pfad, nicht das ID-Suffix,
+als `from_checkpoint`.
 
 `ttl_seconds` ist standardmäßig `null`; ohne TTL bleibt der Checkpoint erhalten,
 bis Sie ihn löschen. Aktive Checkpoints zählen zum Checkpoint-Speicher. Für eine
@@ -171,6 +184,11 @@ Verwalten Sie Checkpoints mit diesen Routen:
 | Speichernutzung lesen | [`GET /v1/training/usage`](/de/api-reference/training-jobs/interactive/storage-usage) |
 
 Für Downloads benötigt das Team Zugriff auf den Gewichte-Download.
+
+Nach dem Stoppen eines Jobs werden verändernde Trainingsoperationen abgelehnt.
+Seine Checkpoints können weiterhin aufgelistet, geprüft, heruntergeladen,
+veröffentlicht, mit einer TTL versehen und gelöscht werden. Sampling aus
+Sampler-Checkpoints bleibt ebenfalls möglich.
 
 ## 6. Fortsetzung prüfen
 
@@ -221,7 +239,7 @@ finden Sie unter
 | Symptom | Prüfung |
 | --- | --- |
 | Ein Future schlägt fehl | Notieren Sie die Job-ID und den `error` des Futures. Schreiben Sie abhängigen Anwendungszustand nicht fort |
-| Ein Trainingsaufruf gibt nach einer Pause `400` zurück | Der Job wurde gestoppt oder nach 30 inaktiven Minuten freigegeben. Starten Sie einen neuen Job aus dem letzten Zustands-Checkpoint |
+| Ein Trainingsaufruf gibt nach einer Pause `400` zurück | Der Job wurde gestoppt oder nach 30 inaktiven Minuten freigegeben. Veränderndes Training ist nicht verfügbar; Checkpoint-Verwaltung und Sampling bleiben verfügbar. Starten Sie zum Fortsetzen einen neuen Job aus dem letzten Zustands-Checkpoint |
 | Ein Checkpoint lässt sich nicht laden | Prüfen Sie Job, Checkpoint-Art und den clienteigenen Wiederherstellungsdatensatz |
-| `from_checkpoint` wird abgelehnt | Bestätigen Sie, dass es ein `weights/<name>`-Pfad Ihres Teams ist; Sampler-Checkpoints können keinen Job starten |
+| `from_checkpoint` wird abgelehnt | Bestätigen Sie, dass es ein vollständiger `tinker://<job_id>/weights/<name>`-Pfad Ihres Teams ist; Sampler-Checkpoints können keinen Job starten |
 | Abruf des fortgesetzten Jobs schlägt fehl | Bestätigen Sie, dass die ID aus der Erstellungsantwort des neuen Jobs stammt und dasselbe Fastino-Team authentifiziert ist |

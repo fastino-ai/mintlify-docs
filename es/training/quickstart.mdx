@@ -111,8 +111,8 @@ Elige una interfaz compatible:
   encolan operaciones del modelo bajo `/v1/training/jobs/{job_id}` y consultan
   cada `future_id` devuelto hasta que esté `completed`, `failed` o
   `cancelled`.
-- Los programas Tinker existentes mantienen `tinker==0.32.0` y usan la
-  configuración siguiente.
+- Los programas Tinker existentes mantienen `tinker==0.32.0`; consulta
+  [Migrar desde Tinker](/es/training/migrate-from-tinker) para configurar el SDK.
 
 Los clientes nativos no envían `seq_id` ni latidos. El servidor asigna el orden
 de las operaciones y mantiene activa la sesión interna. Una solicitud con
@@ -131,9 +131,9 @@ para ver la secuencia de rutas nativas.
    hasta que esté `completed`, `failed` o `cancelled`.
 3. Encola
    [forward-backward](/es/api-reference/training-jobs/interactive/forward-backward)
-   y [un paso del optimizador](/es/api-reference/training-jobs/interactive/optim-step).
-   Consulta cada `future_id` hasta un estado terminal antes del siguiente
-   paso dependiente.
+   y consulta su `future_id` hasta que termine correctamente. Solo entonces
+   encola [un paso del optimizador](/es/api-reference/training-jobs/interactive/optim-step)
+   y consulta ese future hasta un estado terminal.
 4. [Guarda pesos del sampler](/es/api-reference/training-jobs/interactive/save-weights-for-sampler)
    y consulta la future de guardado hasta un estado terminal.
 5. Detén el trabajo mediante la
@@ -146,9 +146,10 @@ Solo se puede cancelar una future de muestreo encolada o en ejecución. Un recha
 HTTP significa que el servidor no encoló la operación. Una operación encolada
 puede terminar con `status: "failed"`.
 
-### Vía del SDK de Tinker
+### Vía REST nativa
 
-La vía de Tinker requiere Python 3.11 o posterior.
+El ejemplo REST nativo requiere Python 3.11 o posterior. Para configurar el SDK
+de Tinker, consulta [Migrar desde Tinker](/es/training/migrate-from-tinker).
 
 ### 3. Instala las bibliotecas cliente
 
@@ -160,14 +161,14 @@ modelo; el entrenamiento se ejecuta en Fastino.
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add "tinker==0.32.0"
+uv add requests transformers
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 ```powershell pip · Windows
@@ -175,7 +176,7 @@ mkdir fastino-training
 cd fastino-training
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 </CodeGroup>
@@ -305,12 +306,12 @@ try:
 
     for step in range(3):
         backward = call("POST", f"{jobs}/forward-backward", batch)
+        result = wait(job_id, backward["future_id"])
         update = call(
             "POST",
             f"{jobs}/optim-step",
             {"adam_params": {"learning_rate": 1e-4}},
         )
-        result = wait(job_id, backward["future_id"])
         wait(job_id, update["future_id"])
         print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
 
@@ -336,8 +337,9 @@ finally:
     call("POST", f"{jobs}/stop")
 ```
 
-El paso del optimizador se encola justo después de la pasada forward-backward,
-sin esperar. El trabajo ejecuta las operaciones en el orden en que las recibe.
+El script espera a que forward-backward termine correctamente antes de enviar
+el paso del optimizador. Si un future falla o se cancela, `wait` genera un error
+y no se envía la operación dependiente.
 
 Ejecuta el script:
 
@@ -374,11 +376,9 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-La respuesta describe el mismo trabajo creado por
-`create_lora_training_client(...)`. Sigue usando el cliente del SDK para las
-operaciones del modelo y la API canónica de trabajos para las lecturas de
-trabajos documentadas. Los clientes JSON nativos usan las páginas públicas de
-operaciones interactivas.
+La respuesta describe el mismo trabajo creado mediante el endpoint REST nativo.
+Usa las páginas públicas de operaciones interactivas para las operaciones del
+modelo y la API canónica de trabajos para las lecturas documentadas.
 
 ## Continúa
 

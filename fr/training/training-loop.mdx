@@ -21,8 +21,8 @@ Tinker représente le même job.
   </Step>
   <Step title="Enregistrer des poids pour l'échantillonnage">
     Appelez `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` avec un
-    nom. Échantillonnez depuis ce checkpoint pour que chaque rollout soit
-    lié à un artefact explicite du même job.
+    nom et attendez la fin de sa future. Échantillonnez seulement ensuite depuis
+    ce checkpoint durable.
   </Step>
   <Step title="Collecter des groupes de rollouts">
     Échantillonnez plusieurs réponses candidates par prompt avec
@@ -39,11 +39,13 @@ Tinker représente le même job.
     log-probabilités ou avantages par position.
   </Step>
   <Step title="Mettre à jour le même job">
-    Envoyez `POST /v1/training/jobs/{job_id}/forward-backward`, puis
+    Envoyez `POST /v1/training/jobs/{job_id}/forward-backward` et attendez sa
+    réussite. Envoyez seulement ensuite
     `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
   <Step title="Enregistrer un point de reprise">
-    Enregistrez l'état avec `POST /v1/training/jobs/{job_id}/save-weights` et conservez son chemin avec l'étape de
+    Enregistrez l'état avec `POST /v1/training/jobs/{job_id}/save-weights`,
+    attendez la fin de la future, puis conservez son chemin avec l'étape de
     l'application et le curseur du dataset avant l'itération suivante.
   </Step>
 </Steps>
@@ -99,11 +101,10 @@ perte écrite dans votre propre code ne peut pas s'exécuter sur le job.
 
 ## Maintenir l'ordre du travail dépendant
 
-Le job exécute les opérations dans l'ordre de réception : vous pouvez donc
-mettre en file une étape d'optimiseur juste après une passe forward-backward.
-Lisez le résultat de forward-backward avant de considérer l'étape comme
-terminée. Attendez la fin de l'étape d'optimiseur avant d'enregistrer l'état
-mis à jour.
+Attendez la réussite d'une future forward-backward avant d'envoyer son étape
+d'optimiseur. Cela empêche une étape préalablement mise en file de s'exécuter
+après un échec ou une annulation. Attendez l'optimiseur avant d'enregistrer
+l'état mis à jour.
 
 Les clients JSON natifs appellent
 [`forward-backward`](/fr/api-reference/training-jobs/interactive/forward-backward)
@@ -123,6 +124,13 @@ futures d'échantillonnage peuvent être annulées. La récupération par lots v
 Conservez l'ID du job, l'étape de l'application, le curseur du dataset et le
 chemin du dernier checkpoint. Un contrôleur redémarré sait alors quel travail
 s'est terminé sans rejouer une mise à jour.
+
+Les résultats des futures restent disponibles pendant une heure. Dans cette
+fenêtre, interrogez le `future_id` connu pour résoudre un travail incertain.
+Un `410` signifie que le résultat n'est plus récupérable ; ne rejouez pas
+l'opération à l'aveugle. Pour la reprise à long terme, utilisez uniquement un
+checkpoint terminé dont le chemin figure dans l'enregistrement durable de
+l'application.
 
 Pour la séquence de reprise et les types de checkpoints, suivez
 [Checkpoints et reprise](/fr/training/checkpoints).

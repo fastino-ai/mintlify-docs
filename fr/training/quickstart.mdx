@@ -111,8 +111,8 @@ Choisissez une interface prise en charge :
   mettent en file les opérations de modèle sous `/v1/training/jobs/{job_id}` et
   interrogent chaque `future_id` renvoyé jusqu'à l'état `completed`, `failed`
   ou `cancelled`.
-- Les programmes Tinker existants conservent `tinker==0.32.0` et utilisent la
-  configuration ci-dessous.
+- Les programmes Tinker existants conservent `tinker==0.32.0` ; consultez
+  [Migrer depuis Tinker](/fr/training/migrate-from-tinker) pour configurer le SDK.
 
 Les clients natifs n'envoient ni `seq_id` ni signal de présence. Le serveur
 attribue l'ordre des opérations et maintient la session interne active. Une
@@ -131,9 +131,9 @@ pour la séquence des routes natives.
    jusqu'à l'état `completed`, `failed` ou `cancelled`.
 3. Mettez en file
    [forward-backward](/fr/api-reference/training-jobs/interactive/forward-backward)
-   et [une étape d'optimiseur](/fr/api-reference/training-jobs/interactive/optim-step).
-   Interrogez chaque `future_id` jusqu'à un état final avant l'étape
-   dépendante suivante.
+   et interrogez son `future_id` jusqu'à sa réussite. Mettez seulement ensuite
+   [une étape d'optimiseur](/fr/api-reference/training-jobs/interactive/optim-step)
+   en file et interrogez cette future jusqu'à un état final.
 4. [Enregistrez les poids du sampler](/fr/api-reference/training-jobs/interactive/save-weights-for-sampler)
    et interrogez l'future d'enregistrement jusqu'à un état final.
 5. Arrêtez le job via
@@ -146,9 +146,10 @@ Seule une future d'échantillonnage en file ou en cours peut être annulée. Un 
 signifie que le serveur n'a pas mis l'opération en file. Une opération en file
 peut se terminer avec `status: "failed"`.
 
-### Voie du SDK Tinker
+### Voie REST native
 
-La voie Tinker nécessite Python 3.11 ou une version ultérieure.
+L'exemple REST natif nécessite Python 3.11 ou une version ultérieure. Pour
+configurer le SDK Tinker, consultez [Migrer depuis Tinker](/fr/training/migrate-from-tinker).
 
 ### 3. Installer les bibliothèques clientes
 
@@ -160,14 +161,14 @@ tokenizer du modèle ; l'entraînement lui-même s'exécute sur Fastino.
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add "tinker==0.32.0"
+uv add requests transformers
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 ```powershell pip · Windows
@@ -175,7 +176,7 @@ mkdir fastino-training
 cd fastino-training
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 </CodeGroup>
@@ -306,12 +307,12 @@ try:
 
     for step in range(3):
         backward = call("POST", f"{jobs}/forward-backward", batch)
+        result = wait(job_id, backward["future_id"])
         update = call(
             "POST",
             f"{jobs}/optim-step",
             {"adam_params": {"learning_rate": 1e-4}},
         )
-        result = wait(job_id, backward["future_id"])
         wait(job_id, update["future_id"])
         print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
 
@@ -337,8 +338,9 @@ finally:
     call("POST", f"{jobs}/stop")
 ```
 
-L'étape d'optimiseur est mise en file juste après la passe forward-backward,
-sans attendre. Le job exécute les opérations dans l'ordre de réception.
+Le script attend la réussite de la passe forward-backward avant d'envoyer
+l'étape d'optimiseur. Si une future échoue ou est annulée, `wait` lève une
+erreur et l'opération dépendante n'est pas envoyée.
 
 Exécutez le script :
 
@@ -376,11 +378,9 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-La réponse décrit le même job que celui créé par
-`create_lora_training_client(...)`. Continuez à utiliser le client SDK pour les
-opérations sur le modèle et l'API canonique des jobs pour les lectures de jobs
-documentées. Les clients JSON natifs utilisent les pages publiques des
-opérations interactives.
+La réponse décrit le même job créé par l'endpoint REST natif. Utilisez les pages
+publiques des opérations interactives pour les opérations sur le modèle et
+l'API canonique des jobs pour les lectures documentées.
 
 ## Continuer
 

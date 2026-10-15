@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
+<Warning>
+  重命名后的 `/v1/training/jobs` 接口已在开发环境验证，但尚未在生产环境验证。生产环境可能返回 `404`。
+</Warning>
+
 停止一个运行中的任务，并保留在停止之前创建的检查点。对于交互式任务，请求会立即返回并拒绝新调用。已排队的操作可能会在资源释放前完成，用量也可能持续到资源释放。
 
 ## 请求
@@ -71,7 +75,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json Response
 {
   "success": true,
-  "message": "Training job stopped",
+  "message": "Training job stopped successfully. Checkpoints preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopped"
 }
@@ -80,7 +84,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json 202 — 正在等待取消
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Cancellation in progress. The job moves to 'stopped' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopping"
 }
@@ -111,11 +115,12 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 | 状态 | 含义 |
 | --- | --- |
 | `200` | 任务已停止，现有检查点仍然可用。 |
-| `202` | 仍在确认提供方取消操作。 |
+| `202` | 正在等待提供方确认取消操作。 |
 | `400` | 配置任务 ID 或请求无效。 |
 | `409 training_job_already_finished` | 任务在停止前已进入最终状态。 |
+| `409 cancellation_unconfirmed` | 提供方未确认取消。请读取任务状态，然后在适当时重试。 |
 | `422` | 配置任务的 JSON 请求体无效。 |
 
-## 授权
+## 配置任务授权
 
-需要团队的 Owner、Admin 或 Editor 角色。其他角色会收到 `403 Forbidden`。
+对于配置任务，此操作需要团队的 Owner、Admin 或 Editor 角色。其他角色会收到 `403 Forbidden`。原生交互式处理器使用交互式运行时的调用者授权；不要从此共享路径推断配置任务 RBAC。

@@ -20,8 +20,8 @@ the job by `job_id`. A Tinker `TrainingClient` represents the same job.
   </Step>
   <Step title="Checkpoint weights for sampling">
     Call `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` with a
-    name. Sample from that checkpoint so each rollout is tied to an
-    explicit artifact of the same job.
+    name, then wait for its save future to complete. Only then sample from that
+    checkpoint so each rollout is tied to a durable artifact of the same job.
   </Step>
   <Step title="Collect rollout groups">
     Sample several candidate responses for each prompt with
@@ -37,13 +37,14 @@ the job by `job_id`. A Tinker `TrainingClient` represents the same job.
     probabilities, or advantages.
   </Step>
   <Step title="Update the same job">
-    Send `POST /v1/training/jobs/{job_id}/forward-backward`, then
+    Send `POST /v1/training/jobs/{job_id}/forward-backward` and wait for it to
+    complete successfully. Only then send
     `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
   <Step title="Save a recovery boundary">
-    Save the state with `POST /v1/training/jobs/{job_id}/save-weights`, and
-    persist its path with the application step and dataset cursor before you
-    begin the next iteration.
+    Save the state with `POST /v1/training/jobs/{job_id}/save-weights`, wait for
+    the save future to complete, and then persist its path with the application
+    step and dataset cursor before you begin the next iteration.
   </Step>
 </Steps>
 
@@ -97,10 +98,10 @@ own code can't run on the job.
 
 ## Keep dependent work ordered
 
-The job runs calls in the order it receives them, so you can queue an
-optimizer step right after a forward-backward pass. Read the forward-backward
-result before you treat that step as complete. Wait for the optimizer step to
-complete before you save the updated state.
+Wait for a forward-backward future to complete successfully before submitting
+its optimizer step. This prevents a prequeued optimizer step from running after
+forward-backward fails or is cancelled. Wait for the optimizer step to complete
+before saving the updated state.
 
 Native JSON clients call
 [`forward-backward`](/api-reference/training-jobs/interactive/forward-backward)
@@ -119,6 +120,12 @@ interface. Batch retrieval through `retrieve_futures` is not supported.
 Persist the job ID, the application step, the dataset cursor, and the latest
 checkpoint path. A restarted controller can then tell which work completed
 without replaying an update.
+
+Future results remain available for one hour. Within that window, poll the
+known `future_id` to resolve uncertain work. A `410` means the result is no
+longer recoverable; do not blindly replay the operation. For long-term
+recovery, use only a completed checkpoint whose path was written to your
+durable application record after its save future completed.
 
 For the recovery sequence and checkpoint kinds, follow
 [Checkpoints and recovery](/training/checkpoints).

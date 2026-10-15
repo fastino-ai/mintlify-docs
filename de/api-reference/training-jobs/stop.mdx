@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
+<Warning>
+  Die umbenannte `/v1/training/jobs`-Oberfläche ist in der Entwicklung verifiziert, nicht in Produktion. Produktion kann `404` zurückgeben.
+</Warning>
+
 Stoppt einen laufenden Job und erhält Checkpoints, die vor dem Stoppen erstellt wurden. Bei einem interaktiven Job antwortet die Anfrage sofort und lehnt neue Aufrufe ab. Bereits eingereihte Operationen können vor der Ressourcenfreigabe abgeschlossen werden. Die Nutzung kann bis zu dieser Freigabe weiterlaufen.
 
 ## Request
@@ -72,7 +76,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json Response
 {
   "success": true,
-  "message": "Training job stopped",
+  "message": "Training job stopped successfully. Checkpoints preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopped"
 }
@@ -81,7 +85,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json 202 — Abbruch ausstehend
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Cancellation in progress. The job moves to 'stopped' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopping"
 }
@@ -115,11 +119,12 @@ Die folgenden Status- und Fehlerangaben gelten nur für Config-Jobs.
 | Status | Bedeutung |
 | --- | --- |
 | `200` | Der Job ist gestoppt und vorhandene Checkpoints bleiben verfügbar. |
-| `202` | Die Bestätigung des Anbieterabbruchs steht noch aus. |
+| `202` | Der Abbruch läuft, während der Anbieter ihn bestätigt. |
 | `400` | Die Config-Job-ID oder der Request ist ungültig. |
 | `409 training_job_already_finished` | Der Job hat vor dem Stopp einen Endzustand erreicht. |
+| `409 cancellation_unconfirmed` | Der Anbieter hat den Abbruch nicht bestätigt. Lesen Sie den Jobstatus und versuchen Sie es gegebenenfalls erneut. |
 | `422` | Der JSON-Request-Body des Config-Jobs ist ungültig. |
 
-## Autorisierung
+## Autorisierung für Config-Jobs
 
-Erfordert die Teamrolle Owner, Admin oder Editor. Andere Rollen erhalten `403 Forbidden`.
+Für Config-Jobs erfordert dieser Vorgang die Teamrolle Owner, Admin oder Editor. Andere Rollen erhalten `403 Forbidden`. Der native interaktive Handler verwendet die Aufruferautorisierung der interaktiven Runtime; leiten Sie die Config-Job-RBAC nicht aus diesem gemeinsamen Pfad ab.

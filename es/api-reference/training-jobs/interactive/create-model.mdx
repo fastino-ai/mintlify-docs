@@ -4,74 +4,73 @@ sidebarTitle: "Crear modelo"
 description: "Crea un trabajo LoRA interactivo desde un base_model o desde from_checkpoint, con load_optimizer opcional. La respuesta devuelve job_id y future_id."
 api: "POST /v1/training/jobs/create-model"
 ---
-
 `POST /v1/training/jobs/create-model`
 
-Creates an `interactive` LoRA training job on a decoder base model, or a new
-job seeded from a saved training state. Your application then sends each
-forward-backward pass, optimizer step, checkpoint, and sample. Native JSON
-clients do not send `seq_id` values or heartbeats. For managed training from
-an uploaded dataset, use [`POST /v1/training/jobs`](/es/api-reference/training-jobs/create).
+Crea un trabajo de entrenamiento `interactive` LoRA en un modelo base de decodificador o un nuevo
+Trabajo iniciado desde un estado de entrenamiento guardado. Luego, su aplicación envía cada
+pase hacia adelante y hacia atrás, paso del optimizador, punto de control y muestra. JSON nativo
+Los clientes no envían valores `seq_id` ni latidos. Para la formación gestionada desde
+un conjunto de datos cargado, utilice [`POST /v1/training/jobs`](/es/api-reference/training-jobs/create).
 
-The job is ready once its `create` future completes. Read it with
+El trabajo estará listo una vez que se complete su futuro `create`. Léelo con
 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/es/api-reference/training-jobs/interactive/get-future).
 
-## Request
+## Solicitud
 
 <ParamField header="X-API-Key" type="string" required>
-  Your Fastino API key.
+  Su clave API de Fastino.
 </ParamField>
 
-Send exactly one of `base_model` and `from_checkpoint`.
+Envíe exactamente uno de `base_model` y `from_checkpoint`.
 
 <ParamField body="base_model" type="string">
   `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`,
-  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`, or `Qwen/Qwen3.6-35B-A3B`.
+  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` o `Qwen/Qwen3.6-35B-A3B`.
 </ParamField>
 
 <ParamField body="from_checkpoint" type="string">
-  The `path` that [`save-weights`](/es/api-reference/training-jobs/interactive/save-weights)
-  returned for one of your jobs, such as `tinker://<job_id>/weights/<name>`. The
-  new job takes that checkpoint's base model and LoRA settings, so omit
-  `lora_config`. Sampler checkpoints are rejected.
+  El `path` que [`save-weights`](/es/api-reference/training-jobs/interactive/save-weights)
+  devuelto para uno de sus trabajos, como `tinker://<job_id>/weights/<name>`. el
+  El nuevo trabajo toma el modelo base de ese punto de control y la configuración LoRA, así que omita
+  `lora_config`. Se rechazan los puntos de control del muestreador.
 </ParamField>
 
 <ParamField body="load_optimizer" type="boolean" default="false">
-  Set `load_optimizer` with `from_checkpoint` to restore the optimizer state.
+  Configure `load_optimizer` con `from_checkpoint` para restaurar el estado del optimizador.
 </ParamField>
 
 <ParamField body="lora_config" type="object">
-  LoRA settings for a new job.
+  Configuración de LoRA para un nuevo trabajo.
 
   <Expandable title="properties">
     <ParamField body="rank" type="integer" default="32">
-      LoRA rank, from 1 through 32.
+      Rango LoRA, del 1 al 32.
     </ParamField>
     <ParamField body="seed" type="integer">
-      Adapter initialization seed.
+      Semilla de inicialización del adaptador.
     </ParamField>
     <ParamField body="train_attn" type="boolean" default="true">
-      Train attention layers.
+      Entrenar capas de atención.
     </ParamField>
     <ParamField body="train_mlp" type="boolean" default="true">
-      Train MLP layers.
+      Entrene capas MLP.
     </ParamField>
     <ParamField body="train_unembed" type="boolean" default="true">
-      Train the unembedding layer.
+      Entrene la capa de desincrustación.
     </ParamField>
   </Expandable>
 </ParamField>
 
 <ParamField body="optimizer_config" type="object">
-  Optimizer family. Only `{"type": "adamw"}` is served, which is the default.
+  Familia de optimizadores. Solo se sirve `{"type": "adamw"}`, que es el valor predeterminado.
 </ParamField>
 
 <ParamField body="project_id" type="string">
-  Project the job and its usage belong to. Defaults to your default project.
+  Proyecto al que pertenece el trabajo y su uso. El valor predeterminado es su proyecto predeterminado.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  Your own JSON metadata for the job.
+  Tus propios metadatos JSON para el trabajo.
 </ParamField>
 
 <RequestExample>
@@ -88,26 +87,26 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 
 </RequestExample>
 
-## Response
+## Respuesta
 
 <ResponseField name="job_id" type="string">
-  Interactive job ID. Use it with every `/v1/training/jobs/{job_id}` route.
+  Identificación de trabajo interactiva. Úselo con todas las rutas `/v1/training/jobs/{job_id}`.
 </ResponseField>
 
 <ResponseField name="type" type="string">
-  Always `interactive`.
+  Siempre `interactive`.
 </ResponseField>
 
 <ResponseField name="base_model" type="string">
-  Base model of the job.
+  Modelo base del trabajo.
 </ResponseField>
 
 <ResponseField name="future_id" type="string">
-  The job's `create` future.
+  El futuro del trabajo `create`.
 </ResponseField>
 
 <ResponseField name="load_future_id" type="string | null">
-  With `from_checkpoint`, the future that loads the checkpoint.
+  Con `from_checkpoint`, el futuro que carga el puesto de control.
 </ResponseField>
 
 <ResponseExample>
@@ -124,11 +123,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 
 </ResponseExample>
 
-## Errors
+## Errores
 
-| Status | Meaning |
+| Estado | Significado |
 | --- | --- |
-| `400` | The model isn't served, the rank is out of range, `from_checkpoint` is a sampler checkpoint, or `lora_config` was sent with `from_checkpoint`. |
-| `402` | The team is out of credits or has no valid payment setup. |
-| `404` | Interactive training isn't available to the team, or the checkpoint doesn't exist. |
-| `422` | Both or neither of `base_model` and `from_checkpoint` were sent, or the body has an unknown field. |
+| `400` | El modelo no se entrega, el rango está fuera de rango, `from_checkpoint` es un punto de control de muestra o `lora_config` se envió con `from_checkpoint`. |
+| `402` | El equipo no tiene créditos o no tiene una configuración de pago válida. |
+| `404` | La capacitación interactiva no está disponible para el equipo o el punto de control no existe. |
+| `422` | Se enviaron ambos o ninguno de `base_model` y `from_checkpoint`, o el cuerpo tiene un campo desconocido. |

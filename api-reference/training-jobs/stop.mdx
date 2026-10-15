@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
+<Warning>
+  The renamed `/v1/training/jobs` surface is verified in development, not production. Production may return `404`.
+</Warning>
+
 Stops a running job and preserves checkpoints created before the stop. For an
 interactive job, the request returns immediately and rejects new calls. Already
 queued operations may finish before resources are released, and usage may
@@ -75,7 +79,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json Response
 {
   "success": true,
-  "message": "Training job stopped",
+  "message": "Training job stopped successfully. Checkpoints preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopped"
 }
@@ -84,7 +88,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json 202 — cancellation pending
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Cancellation in progress. The job moves to 'stopped' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopping"
 }
@@ -117,11 +121,12 @@ The following statuses and error details apply only to config jobs.
 | Status | Meaning |
 | --- | --- |
 | `200` | The job is stopped and existing checkpoints remain available. |
-| `202` | Provider cancellation is still being confirmed. |
+| `202` | Cancellation is in progress while the provider confirms it. |
 | `400` | The config-job ID or request is invalid. |
 | `409 training_job_already_finished` | The job reached a terminal state before the stop. |
+| `409 cancellation_unconfirmed` | Provider cancellation was not confirmed. Read the job state, then retry when appropriate. |
 | `422` | The config-job JSON request body is invalid. |
 
-## Authorization
+## Config-job authorization
 
-Requires the Owner, Admin, or Editor team role. Other roles receive `403 Forbidden`.
+For config jobs, this operation requires the Owner, Admin, or Editor team role. Other roles receive `403 Forbidden`. The native interactive handler uses the interactive runtime's caller authorization; do not infer config-job RBAC from this shared path.

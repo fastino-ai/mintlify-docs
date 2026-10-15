@@ -144,18 +144,30 @@ backward = call(
     f"/v1/training/jobs/{job_id}/forward-backward",
     {"datums": datums, "loss_fn": "importance_sampling"},
 )
+train_result = wait(job_id, backward["future_id"])
 update = call(
     "POST",
     f"/v1/training/jobs/{job_id}/optim-step",
     {"adam_params": {"learning_rate": 1e-5}},
 )
-train_result = wait(job_id, backward["future_id"])
 optim_result = wait(job_id, update["future_id"])
 ```
 
-Both calls update the same job, in the order they were sent. Wait for and
-record each result before advancing the application step. For clipped
-objectives, use `ppo` or `cispo` with `loss_fn_config` thresholds.
+Wait for forward-backward to succeed before submitting the optimizer step.
+Wait for and record the optimizer result before advancing the application
+step.
+
+Supported `loss_fn_config` fields and defaults:
+
+| Applies to | Fields and defaults |
+| --- | --- |
+| `ppo` | `clip_low_threshold: 0.8`, `clip_high_threshold: 1.2` |
+| `cispo` | `clip_low_threshold: 0.0`, `clip_high_threshold: 4.0` |
+| `dro` | `beta: 0.05` |
+| Reward losses | `tis_cap: 2`, `icepop_low: 0.5`, `icepop_high: 5` |
+
+The reward-loss safeguards in the last row are enabled by default. Unknown
+configuration fields are rejected.
 
 ## 6. Save a recovery boundary
 

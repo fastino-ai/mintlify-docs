@@ -27,12 +27,14 @@ pip install "tinker==0.32.0"
 
 ```bash macOS/Linux
 export FASTINO_API_KEY="fast_sk_..."
+unset TINKER_API_KEY
 export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
 export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
 ```powershell Windows
 $env:FASTINO_API_KEY = "fast_sk_..."
+Remove-Item Env:TINKER_API_KEY -ErrorAction SilentlyContinue
 $env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
 $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
@@ -41,7 +43,8 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 `TINKER_CREDENTIAL_CMD` se ejecuta con cada solicitud de token y debe imprimir
 una credencial no vacía. Usa una clave normal `fast_sk_` de Fastino; las
-credenciales `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
+credenciales `tml-` se rechazan. Elimina `TINKER_API_KEY` del entorno: su valor
+tiene prioridad sobre `TINKER_CREDENTIAL_CMD`.
 
 ## 3. Verifica la conexión
 
@@ -59,7 +62,8 @@ de muestrear. Aumenta la carga cuando termine.
 
 ## Compatibilidad con el SDK de Tinker
 
-Cada cliente de entrenamiento de Tinker es un trabajo interactivo de Fastino.
+Con `tinker==0.32.0`, cada cliente de entrenamiento de Tinker es un trabajo
+interactivo de Fastino.
 El ID de modelo del SDK también es su ID en `/v1/training/jobs`.
 
 | Área | Comportamiento compatible |
@@ -80,6 +84,9 @@ El ID de modelo del SDK también es su ID en `/v1/training/jobs`.
     `unpublish_checkpoint_from_tinker_path`,
     `set_checkpoint_ttl_from_tinker_path`,
     `get_current_checkpoint_storage_usage` y `get_billing_usage`.
+
+    El listado de ejecuciones solo devuelve ejecuciones interactivas. Usa
+    `/v1/training/jobs` para listar trabajos de configuración e interactivos.
   </Accordion>
   <Accordion title="Límites">
     - El rango LoRA debe estar entre 1 y 32.
@@ -88,7 +95,7 @@ El ID de modelo del SDK también es su ID en `/v1/training/jobs`.
     - Los fragmentos de prompt deben usar `encoded_text`.
     - Las operaciones de entrenamiento se ejecutan en orden y sus futures no se pueden cancelar.
     - Las descargas requieren acceso de descarga de pesos. Sin él devuelven `403`; contacta con sales@fastino.ai.
-    - La publicación solo cambia la visibilidad dentro del equipo propietario.
+    - La publicación solo cambia la visibilidad dentro del equipo propietario. No permite que otro equipo cargue la ruta.
   </Accordion>
   <Accordion title="Llamadas no compatibles">
     - Recuperación por lotes con `retrieve_futures`

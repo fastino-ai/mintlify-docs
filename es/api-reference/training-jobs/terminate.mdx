@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/terminate"
 
 `POST /v1/training/jobs/{job_id}/terminate`
 
+<Warning>
+  La superficie renombrada `/v1/training/jobs` está verificada en desarrollo, no en producción. Producción puede devolver `404`.
+</Warning>
+
 Detiene un trabajo `config` activo y solicita la cancelación al proveedor. Los
 checkpoints y artefactos existentes se conservan de forma predeterminada.
 
@@ -51,7 +55,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 ```json 200 — terminado
 {
   "success": true,
-  "message": "Training job terminated. Checkpoints preserved.",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "deleted_checkpoints": 0,
   "status": "terminated"
@@ -61,7 +65,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 ```json 202 — cancelación pendiente
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Termination in progress. The job moves to 'terminated' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "deleted_checkpoints": 0,
   "status": "stopping"
@@ -76,7 +80,7 @@ solicitud de terminación mientras la cancelación esté pendiente.
 | Estado | Significado |
 | --- | --- |
 | `200` | El trabajo está terminado. |
-| `202` | La cancelación del proveedor todavía se está confirmando. |
+| `202` | La terminación está en curso mientras el proveedor confirma la cancelación. |
 | `400` | `job_id` no es un UUID válido de un trabajo config. |
 | `409 training_job_already_finished` | El trabajo alcanzó un estado terminal antes de la terminación. |
 | `409 cancellation_unconfirmed` | La cancelación no se confirmó y se puede volver a intentar. |

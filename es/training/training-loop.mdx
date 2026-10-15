@@ -21,8 +21,8 @@ trabajo.
   </Step>
   <Step title="Guarda pesos para muestrear">
     Llama a `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` con un
-    nombre. Muestrea desde ese checkpoint para que cada rollout quede ligado a
-    un artefacto explícito del mismo trabajo.
+    nombre y espera a que termine su future de guardado. Solo entonces muestrea
+    desde ese checkpoint duradero.
   </Step>
   <Step title="Recoge grupos de rollouts">
     Muestrea varias respuestas candidatas por prompt con
@@ -38,12 +38,14 @@ trabajo.
     log-probabilidades o ventajas por posición.
   </Step>
   <Step title="Actualiza el mismo trabajo">
-    Envía `POST /v1/training/jobs/{job_id}/forward-backward` y después
+    Envía `POST /v1/training/jobs/{job_id}/forward-backward` y espera a que
+    termine correctamente. Solo entonces envía
     `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
   <Step title="Guarda un punto de recuperación">
-    Guarda el estado con `POST /v1/training/jobs/{job_id}/save-weights` y persiste su ruta junto con el paso de la
-    aplicación y el cursor del dataset antes de empezar la siguiente iteración.
+    Guarda el estado con `POST /v1/training/jobs/{job_id}/save-weights`, espera
+    a que termine el future y persiste después su ruta con el paso de la
+    aplicación y el cursor del dataset antes de la siguiente iteración.
   </Step>
 </Steps>
 
@@ -97,10 +99,10 @@ escrita en tu propio código no puede ejecutarse en el trabajo.
 
 ## Mantén ordenado el trabajo dependiente
 
-El trabajo ejecuta las operaciones en el orden en que las recibe, así que puedes
-encolar un paso del optimizador justo después de una pasada forward-backward.
-Lee el resultado de forward-backward antes de dar el paso por completado. Espera
-a que termine el paso del optimizador antes de guardar el estado actualizado.
+Espera a que el future de forward-backward termine correctamente antes de
+enviar su paso del optimizador. Así se evita que un paso preencolado se ejecute
+después de un fallo o una cancelación. Espera al optimizador antes de guardar el
+estado actualizado.
 
 Los clientes JSON nativos llaman a
 [`forward-backward`](/es/api-reference/training-jobs/interactive/forward-backward)
@@ -120,6 +122,12 @@ cancelar las futures de muestreo. No se admite la recuperación por lotes median
 Persiste el ID del trabajo, el paso de la aplicación, el cursor del dataset y la
 ruta del último checkpoint. Así, un controlador reiniciado sabe qué trabajo se
 completó sin repetir una actualización.
+
+Los resultados de los futures permanecen disponibles durante una hora. Dentro
+de ese plazo, consulta el `future_id` conocido para resolver trabajo incierto.
+Un `410` indica que el resultado ya no puede recuperarse; no repitas la
+operación a ciegas. Para la recuperación a largo plazo, usa solo un checkpoint
+completado cuya ruta se haya escrito en el registro duradero de la aplicación.
 
 Para la secuencia de recuperación y los tipos de checkpoint, sigue
 [Checkpoints y recuperación](/es/training/checkpoints).

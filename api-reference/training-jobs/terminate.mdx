@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/terminate"
 
 `POST /v1/training/jobs/{job_id}/terminate`
 
+<Warning>
+  The renamed `/v1/training/jobs` surface is verified in development, not production. Production may return `404`.
+</Warning>
+
 Stops an active `config` job and requests provider cancellation. Existing
 checkpoints and artifacts are preserved by default.
 
@@ -51,7 +55,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 ```json 200 — terminated
 {
   "success": true,
-  "message": "Training job terminated. Checkpoints preserved.",
+  "message": "Training job terminated. Checkpoints preserved (pass delete_checkpoints=true to remove them).",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "deleted_checkpoints": 0,
   "status": "terminated"
@@ -61,7 +65,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/termin
 ```json 202 — cancellation pending
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Termination in progress. The job moves to 'terminated' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "deleted_checkpoints": 0,
   "status": "stopping"
@@ -76,7 +80,7 @@ termination request while cancellation is pending.
 | Status | Meaning |
 | --- | --- |
 | `200` | The job is terminated. |
-| `202` | Provider cancellation is still being confirmed. |
+| `202` | Termination is in progress while the provider confirms cancellation. |
 | `400` | `job_id` is not a valid config-job UUID. |
 | `409 training_job_already_finished` | The job reached a terminal state before termination. |
 | `409 cancellation_unconfirmed` | Cancellation was not confirmed and may be retried. |

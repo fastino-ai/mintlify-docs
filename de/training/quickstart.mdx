@@ -113,8 +113,8 @@ Wählen Sie eine unterstützte Schnittstelle:
   auf, reihen Modelloperationen unter `/v1/training/jobs/{job_id}` ein und fragen
   jede zurückgegebene `future_id` ab, bis sie `completed`, `failed` oder
   `cancelled` ist.
-- Bestehende Tinker-Programme behalten `tinker==0.32.0` und verwenden die
-  folgende Einrichtung.
+- Bestehende Tinker-Programme behalten `tinker==0.32.0`; die SDK-Einrichtung
+  finden Sie unter [Von Tinker migrieren](/de/training/migrate-from-tinker).
 
 Native Clients senden weder `seq_id` noch Heartbeats. Der Server weist die
 Operationsreihenfolge zu und hält die interne Sitzung aktiv. Ein Request mit
@@ -132,9 +132,9 @@ Sie unter [Benutzerdefinierten Trainingsloop erstellen](/de/training/training-lo
    ab, bis sie `completed`, `failed` oder `cancelled` ist.
 3. Reihen Sie
    [forward-backward](/de/api-reference/training-jobs/interactive/forward-backward)
-   und [einen Optimizer-Schritt](/de/api-reference/training-jobs/interactive/optim-step)
-   ein. Fragen Sie jede `future_id` bis zu einem Endstatus ab, bevor Sie den
-   nächsten abhängigen Schritt starten.
+   ein und fragen Sie die `future_id` bis zum erfolgreichen Abschluss ab.
+   Reihen Sie erst dann [einen Optimizer-Schritt](/de/api-reference/training-jobs/interactive/optim-step)
+   ein und fragen Sie dessen Future bis zu einem Endstatus ab.
 4. [Speichern Sie Sampler-Gewichte](/de/api-reference/training-jobs/interactive/save-weights-for-sampler)
    und fragen Sie die Speicher-Future bis zu einem Endstatus ab.
 5. Stoppen Sie den Job über den gemeinsamen
@@ -146,9 +146,10 @@ Nur eine eingereihte oder laufende Sample-Future kann abgebrochen werden.
 Eine HTTP-Ablehnung bedeutet, dass der Server die Operation nicht eingereiht
 hat. Eine eingereihte Operation kann stattdessen mit `status: "failed"` enden.
 
-### Tinker-SDK-Weg
+### Nativer REST-Weg
 
-Der Tinker-Weg erfordert Python 3.11 oder neuer.
+Das native REST-Beispiel erfordert Python 3.11 oder neuer. Die Einrichtung des
+Tinker SDK finden Sie unter [Von Tinker migrieren](/de/training/migrate-from-tinker).
 
 ### 3. Client-Bibliotheken installieren
 
@@ -160,14 +161,14 @@ Modells; das Training selbst läuft auf Fastino.
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add "tinker==0.32.0"
+uv add requests transformers
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 ```powershell pip · Windows
@@ -175,7 +176,7 @@ mkdir fastino-training
 cd fastino-training
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 </CodeGroup>
@@ -306,12 +307,12 @@ try:
 
     for step in range(3):
         backward = call("POST", f"{jobs}/forward-backward", batch)
+        result = wait(job_id, backward["future_id"])
         update = call(
             "POST",
             f"{jobs}/optim-step",
             {"adam_params": {"learning_rate": 1e-4}},
         )
-        result = wait(job_id, backward["future_id"])
         wait(job_id, update["future_id"])
         print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
 
@@ -337,9 +338,10 @@ finally:
     call("POST", f"{jobs}/stop")
 ```
 
-Der Optimiererschritt wird direkt nach dem Forward-Backward-Durchlauf
-eingereiht, ohne zu warten. Der Job führt Operationen in der Reihenfolge des
-Eingangs aus.
+Das Skript wartet auf den erfolgreichen Abschluss des Forward-Backward-
+Durchlaufs, bevor es den Optimiererschritt sendet. Wenn ein Future fehlschlägt
+oder abgebrochen wird, löst `wait` einen Fehler aus und die abhängige Operation
+wird nicht gesendet.
 
 Führen Sie das Skript aus:
 
@@ -377,11 +379,9 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-Die Antwort beschreibt denselben Job, der von
-`create_lora_training_client(...)` erstellt wurde. Verwenden Sie weiterhin den
-SDK-Client für Modelloperationen und die kanonische Jobs-API für dokumentierte
-Job-Lesezugriffe. Native JSON-Clients verwenden die öffentlichen Seiten für
-interaktive Operationen.
+Die Antwort beschreibt denselben Job, der über den nativen REST-Endpunkt
+erstellt wurde. Verwenden Sie die öffentlichen Seiten für interaktive
+Operationen und die kanonische Jobs-API für dokumentierte Job-Lesezugriffe.
 
 ## Weiter
 

@@ -9,11 +9,14 @@ api: "POST /v1/training/jobs"
 
 `POST /v1/training/jobs`
 
+<Warning>
+  此重命名后的训练 API 已出现在开发环境契约中，但生产环境的发布尚未得到验证：生产环境可能对 `/v1/training/jobs` 返回 `404`。启动付费训练前，请先确认团队可用性。
+</Warning>
+
 创建一个异步 `config` 训练任务并返回其任务记录。在配置任务中，你提供数据集和配置，
 Fastino 负责运行训练循环。
 
-配置任务训练 GLiNER 编码器：`fastino/gliner2-multi-v1` 和
-`fastino/GLiNER-2.5-Decide`。解码器基础模型会返回 `400`；请改用交互式任务逐步训练解码器。
+配置任务训练由 `GET /v1/base-models?supports_training=true` 返回且具有兼容配置任务调度路由的编码器模型。解码器基础模型会返回 `400`；请改用交互式任务逐步训练解码器。
 
 要逐步控制训练循环，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)
 创建 `interactive` 任务，并按照[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作。
@@ -27,12 +30,16 @@ Fastino 负责运行训练循环。
   您的 Fastino API 密钥。
 </ParamField>
 
+<ParamField header="Idempotency-Key" type="string">
+  客户端生成的重试键，长度为 1–255 个字符，建议使用 UUID。使用相同键和请求体重试会返回原任务；同一键配合不同请求体会返回 `422`。
+</ParamField>
+
 <ParamField body="model_name" type="string" required>
   训练模型的显示名称。长度：1–100 个字符。
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  GLiNER 编码器 ID（`fastino/gliner2-multi-v1` 或 `fastino/GLiNER-2.5-Decide`），或受支持的检查点 UUID。解码器基础模型会返回 `400`。
+  `GET /v1/base-models?supports_training=true` 返回的可训练编码器 ID，或受支持的检查点 UUID。所选 `training_type` 必须具有兼容的调度路由。解码器基础模型会返回 `400`。
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -44,19 +51,19 @@ Fastino 负责运行训练循环。
 </ParamField>
 
 <ParamField body="validation_data_percentage" type="number" default="0.2">
-  用于验证的留出比例，取值范围从 `0` 到 `0.9`。
+  用于验证的留出比例，取值范围从 `0` 到 `0.9`，步长为 `0.01`。
 </ParamField>
 
 <ParamField body="nr_epochs" type="integer" default="100">
-  最大 epoch 数。必须至少为 `1`；早停可能会更早结束。
+  最大 epoch 数，范围为 `1` 到 `10000`；早停可能会更早结束。
 </ParamField>
 
 <ParamField body="learning_rate" type="number">
-  正的峰值学习率。省略时使用所选模型的训练配方。
+  峰值学习率，范围为 `1e-8` 到 `1`。省略时使用所选模型的训练配方。
 </ParamField>
 
 <ParamField body="batch_size" type="integer" default="4">
-  单设备批大小。建议省略此项，让训练服务应用或安全地限制到模型特定的默认值。
+  单设备批大小，范围为 `1` 到 `256`。建议省略此项，让训练服务应用或安全地限制到模型特定的默认值。
 </ParamField>
 
 <ParamField body="seed" type="integer">
@@ -69,7 +76,7 @@ Fastino 负责运行训练循环。
 
 <Expandable title="其他训练参数">
   <ParamField body="save_steps" type="integer" default="100">
-    每 N 步保存一次检查点。
+    每 N 步保存一次检查点，N 的范围为 `1` 到 `2147483647`。
   </ParamField>
 
   <ParamField body="profile_training" type="boolean" default="false">
@@ -81,23 +88,15 @@ Fastino 负责运行训练循环。
   </ParamField>
 
   <ParamField body="lora_r" type="integer">
-    LoRA 秩。省略时使用模型配方。
+    LoRA 秩，范围为 `1` 到 `256`。省略时使用模型配方。
   </ParamField>
 
   <ParamField body="lora_alpha" type="integer">
-    LoRA alpha。省略时使用模型配方。
+    正整数 LoRA alpha，最大为 `2147483647`。省略时使用模型配方。
   </ParamField>
 
   <ParamField body="lora_dropout" type="number">
-    LoRA dropout。省略时使用模型配方。
-  </ParamField>
-
-  <ParamField body="packing" type="boolean">
-    仅适用于解码器。不适用：配置任务不训练解码器。
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    仅适用于解码器。不适用：配置任务不训练解码器。
+    LoRA dropout，范围从 `0`（含）到 `1`（不含）。省略时使用模型配方。
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -105,7 +104,7 @@ Fastino 负责运行训练循环。
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    正整数的绝对预热步数。
+    绝对预热步数，范围为 `1` 到 `2147483647`。
   </ParamField>
 
   <ParamField body="lr_scheduler_type" type="string" default="cosine">
@@ -117,27 +116,23 @@ Fastino 负责运行训练循环。
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
-    停止前允许验证 epoch 未改进的次数。设为 `0` 可禁用。
+    停止前允许验证 epoch 未改进的次数，范围为 `0` 到 `10000`。设为 `0` 可禁用。
   </ParamField>
 
   <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
-    视为有进展的最小验证损失改进量。
+    视为有进展的非负最小验证损失改进量。
   </ParamField>
 
   <ParamField body="provider_name" type="string">
     锁定兼容的训练提供方。省略时会自动选择。
   </ParamField>
 
-  <ParamField body="system_prompt" type="string">
-    仅适用于解码器。不适用：配置任务不训练解码器。
-  </ParamField>
-
   <ParamField body="encoder_learning_rate" type="number">
-    GLiNER 编码器学习率。缺省时回退到 `learning_rate`。
+    GLiNER 编码器学习率，范围为 `1e-8` 到 `1`。缺省时回退到 `learning_rate`。
   </ParamField>
 
   <ParamField body="task_learning_rate" type="number">
-    GLiNER 任务头学习率。缺省时回退到 `learning_rate`。
+    GLiNER 任务头学习率，范围为 `1e-8` 到 `1`。缺省时回退到 `learning_rate`。
   </ParamField>
 
   <ParamField body="gradient_accumulation_steps" type="integer">
@@ -149,27 +144,43 @@ Fastino 负责运行训练循环。
   </ParamField>
 
   <ParamField body="min_samples_per_dataset" type="integer">
-    GLiNER 自动调整规模下限。
+    GLiNER 自动调整规模下限，范围为 `1` 到 `2147483647`。
   </ParamField>
 
   <ParamField body="max_samples_per_dataset" type="integer">
-    GLiNER 自动调整规模上限。
+    GLiNER 自动调整规模上限，范围为 `1` 到 `2147483647`。
   </ParamField>
 
   <ParamField body="samples_per_label" type="integer">
-    GLiNER 每个标签的自动调整规模系数。
+    GLiNER 每个标签的自动调整规模系数，范围为 `1` 到 `2147483647`。
   </ParamField>
 
   <ParamField body="min_training_steps" type="integer">
-    GLiNER 最小优化器步数。
+    GLiNER 最小优化器步数，范围为 `0` 到 `2147483647`。
+  </ParamField>
+
+  <ParamField body="eval_steps" type="integer">
+    GLiNER2 周期验证间隔，范围为 `1` 到 `2147483647` 个优化器步。省略时仅在 epoch 结束时验证。
+  </ParamField>
+
+  <ParamField body="max_eval_samples" type="integer">
+    GLiNER2 周期验证中每个数据集的样本上限，范围为 `1` 到 `2147483647`。省略时不设上限。
+  </ParamField>
+
+  <ParamField body="max_length" type="integer">
+    GLiNER 最大输入长度，范围为 `1` 到 `2147483647` 个 token。省略时使用模型上下文限制。
+  </ParamField>
+
+  <ParamField body="max_gold_per_query" type="integer">
+    GLiNER2 每个查询保留的 gold span 上限，范围为 `1` 到 `1024`。省略时使用 `32`。
+  </ParamField>
+
+  <ParamField body="on_capacity_exceeded" type="string">
+    gold span 超过 `max_gold_per_query` 时的行为：`raise`、`truncate_with_warning` 或 `skip_sample`。省略时使用 `raise`。
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
     配置任务仅支持 `sft`。省略则使用默认值。
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    仅适用于解码器。不适用：配置任务不训练解码器。
   </ParamField>
 
 </Expandable>
@@ -179,6 +190,7 @@ Fastino 负责运行训练循环。
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs \
   -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Idempotency-Key: YOUR_UNIQUE_RETRY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model_name": "my-model-name",
@@ -195,7 +207,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 
 ## 响应
 
-返回 `200` 及完整的训练任务记录，其中包含 UUID `id` 和初始状态。
+返回 `200` 及完整的训练任务记录，其中包含 UUID `id` 和初始状态。以下示例经过缩略；实际响应包含 `TrainingJobResponse` 定义的所有字段。
 
 <ResponseExample>
 
@@ -218,6 +230,16 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 请保存此响应中的 `id`。您将用它来轮询状态、获取指标和工件，以及对训练后的模型运行推理。
 
 请求体格式错误会返回 `422`。有效但不可用的模型、数据集、训练类型或提供方组合会返回请求相关的 `4xx` 错误。
+
+创建操作可能返回以下带错误码的冲突：
+
+| 状态 | 含义 |
+| --- | --- |
+| `409 duplicate_training_submission` | 已有相同任务处于活动状态。 |
+| `409 idempotency_key_job_deleted` | 此幂等键最初创建的任务已删除。新任务请使用新键。 |
+| `409` | 引用的数据集在验证与插入任务之间被停用。解决数据集问题后使用新键重试。 |
+
+相同 `Idempotency-Key` 和完全相同的请求体会重放原任务，而不是创建新任务。同一键配合不同请求体会返回 `422`。
 
 解码器基础模型会返回 `400`：
 

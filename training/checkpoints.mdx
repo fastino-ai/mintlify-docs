@@ -32,10 +32,10 @@ state = call(
     f"/v1/training/jobs/{job_id}/save-weights",
     {"name": f"step-{step:06d}"},
 )
-wait(job_id, state["future_id"])
+state_path = wait(job_id, state["future_id"])
 record = {
     "source_job_id": job_id,
-    "state_path": state["path"],
+    "state_path": state_path,
     "model": model_name,
     "dataset_revision": dataset_revision,
     "optimizer": adam_params,
@@ -48,9 +48,13 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
+The path in the initial save response is provisional. The checkpoint becomes
+durable only when the save future completes; if the future fails or is
+cancelled, do not persist or use that path.
+
 Use unique checkpoint names so each loop record identifies an unambiguous
 recovery boundary. Names use 1–128 characters from `A-Z`, `a-z`, `0-9`, `.`,
-`_`, and `-`.
+`_`, and `-`. Names beginning with `__park-` or `__snap-` are reserved.
 
 ## 2. Read the newest complete record
 
@@ -91,7 +95,7 @@ Then choose how to continue:
 
 | Situation | Call |
 | --- | --- |
-| The source job is still active and you want to roll back | `POST /v1/training/jobs/{job_id}/load-weights` with `{"path": name, "optimizer": true}` |
+| The source job is still active and you want to roll back | `POST /v1/training/jobs/{job_id}/load-weights` with `{"path": "<name>", "optimizer": true}` |
 | The source job was stopped or released | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `load_optimizer` |
 
 To continue in a new job:
@@ -125,6 +129,12 @@ If the process exits after saving the checkpoint but before persisting the loop
 record, keep the previous complete record as the trusted recovery point. Don't
 mark a step complete before its record is durable.
 
+Future results remain recoverable for one hour. During that window, poll a
+known save `future_id` before deciding what happened. If it returns `410`, do
+not blindly repeat the save: reconcile the job's checkpoints and your durable
+loop record. The long-term commit boundary is a completed checkpoint plus its
+durable application record, not the future itself.
+
 ## 5. Keep checkpoint kinds separate
 
 ```python
@@ -141,13 +151,14 @@ sampler = call(
 )
 ```
 
-| Saved with | Path | Use it for |
-| --- | --- | --- |
-| `save-weights` | `weights/<name>` | Training recovery: load it or start a new job from it |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | Rollouts, evaluation, and download as PEFT LoRA files |
+| Saved with | Checkpoint ID suffix | Full path | Use it for |
+| --- | --- | --- | --- |
+| `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Training recovery: load it or start a new job from it |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluation, and download as PEFT LoRA files |
 
 Don't use a sampler checkpoint as a recovery point; it has no optimizer state
-and a new job can't start from it.
+and a new job can't start from it. Pass the full `tinker://.../weights/<name>`
+path, not the checkpoint ID suffix, as `from_checkpoint`.
 
 `ttl_seconds` defaults to `null`, so an omitted TTL keeps the checkpoint until
 you delete it. Live checkpoints count toward checkpoint storage. To enable
@@ -167,6 +178,10 @@ Manage checkpoints with these routes:
 | Read storage usage | [`GET /v1/training/usage`](/api-reference/training-jobs/interactive/storage-usage) |
 
 Downloading needs the team's weight-download access.
+
+After a job is stopped, mutating training operations are rejected, but you can
+still list, inspect, download, publish, change the TTL of, and delete its
+checkpoints. You can also sample from its sampler checkpoints.
 
 ## 6. Verify the continuation
 
@@ -215,7 +230,7 @@ request fields and errors.
 | Symptom | Check |
 | --- | --- |
 | A future fails | Record the job ID and the future's `error`. Don't advance dependent application state |
-| A training call returns `400` after a pause | The job was stopped or released after 30 idle minutes. Start a new job from the latest state checkpoint |
+| A training call returns `400` after a pause | The job was stopped or released after 30 idle minutes. Mutating training is unavailable; checkpoint management and sampler-checkpoint sampling remain available. Start a new job from the latest state checkpoint to continue training |
 | A checkpoint can't be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
-| `from_checkpoint` is rejected | Confirm it is a `weights/<name>` path from your team; sampler checkpoints can't seed a job |
+| `from_checkpoint` is rejected | Confirm it is a full `tinker://<job_id>/weights/<name>` path from your team; sampler checkpoints can't seed a job |
 | Resumed job lookup fails | Confirm that the ID came from the new job's create response and that the same Fastino team is authenticated |

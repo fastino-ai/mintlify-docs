@@ -32,10 +32,10 @@ state = call(
     f"/v1/training/jobs/{job_id}/save-weights",
     {"name": f"step-{step:06d}"},
 )
-wait(job_id, state["future_id"])
+state_path = wait(job_id, state["future_id"])
 record = {
     "source_job_id": job_id,
-    "state_path": state["path"],
+    "state_path": state_path,
     "model": model_name,
     "dataset_revision": dataset_revision,
     "optimizer": adam_params,
@@ -48,9 +48,14 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
+Le chemin de la réponse initiale est provisoire. Le checkpoint ne devient
+durable qu'à la fin de la future ; si elle échoue ou est annulée, ne conservez
+pas et n'utilisez pas ce chemin.
+
 Utilisez des noms de checkpoint uniques afin que chaque enregistrement
 identifie un point de reprise sans ambiguïté. Les noms comptent 1 à
-128 caractères parmi `A-Z`, `a-z`, `0-9`, `.`, `_` et `-`.
+128 caractères parmi `A-Z`, `a-z`, `0-9`, `.`, `_` et `-`. Les préfixes
+`__park-` et `__snap-` sont réservés.
 
 ## 2. Lire l'enregistrement complet le plus récent
 
@@ -91,7 +96,7 @@ Choisissez ensuite comment continuer :
 
 | Situation | Appel |
 | --- | --- |
-| Le job source est encore actif et vous voulez revenir en arrière | `POST /v1/training/jobs/{job_id}/load-weights` avec `{"path": name, "optimizer": true}` |
+| Le job source est encore actif et vous voulez revenir en arrière | `POST /v1/training/jobs/{job_id}/load-weights` avec `{"path": "<name>", "optimizer": true}` |
 | Le job source a été arrêté ou libéré | `POST /v1/training/jobs/create-model` avec `from_checkpoint` et `load_optimizer` |
 
 Pour continuer dans un nouveau job :
@@ -127,6 +132,12 @@ sauvegarde de l'enregistrement de boucle, gardez l'enregistrement complet
 précédent comme point de reprise fiable. Ne marquez pas une étape comme terminée
 avant que son enregistrement soit durable.
 
+Les résultats des futures restent récupérables pendant une heure. Dans cette
+fenêtre, interrogez le `future_id` d'enregistrement connu. En cas de `410`, ne
+répétez pas l'enregistrement à l'aveugle : rapprochez les checkpoints du job de
+l'enregistrement durable. La frontière de validation à long terme est un
+checkpoint terminé avec son enregistrement d'application durable.
+
 ## 5. Séparer les types de checkpoints
 
 ```python
@@ -143,13 +154,15 @@ sampler = call(
 )
 ```
 
-| Enregistré avec | Chemin | Usage |
-| --- | --- | --- |
-| `save-weights` | `weights/<name>` | Reprise de l'entraînement : le charger ou démarrer un nouveau job depuis celui-ci |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | Rollouts, évaluation et téléchargement en fichiers PEFT LoRA |
+| Enregistré avec | Suffixe de l'ID | Chemin complet | Usage |
+| --- | --- | --- | --- |
+| `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Reprise de l'entraînement : le charger ou démarrer un nouveau job depuis celui-ci |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, évaluation et téléchargement en fichiers PEFT LoRA |
 
 N'utilisez pas un checkpoint sampler comme point de reprise : il ne contient pas
 l'état de l'optimiseur et aucun nouveau job ne peut démarrer depuis celui-ci.
+Passez le chemin complet `tinker://.../weights/<name>`, et non le suffixe de
+l'ID, comme `from_checkpoint`.
 
 `ttl_seconds` vaut `null` par défaut : sans TTL, le checkpoint est conservé
 jusqu'à sa suppression. Les checkpoints actifs comptent dans le stockage des
@@ -169,6 +182,11 @@ Gérez les checkpoints avec ces routes :
 | Lire l'usage du stockage | [`GET /v1/training/usage`](/fr/api-reference/training-jobs/interactive/storage-usage) |
 
 Le téléchargement nécessite l'accès de l'équipe au téléchargement des poids.
+
+Après l'arrêt d'un job, les opérations d'entraînement qui le modifient sont
+refusées, mais ses checkpoints restent accessibles pour la liste, l'inspection,
+le téléchargement, la publication, le changement de TTL et la suppression.
+L'échantillonnage depuis ses checkpoints sampler reste également disponible.
 
 ## 6. Vérifier la reprise
 
@@ -218,7 +236,7 @@ pour les champs et les erreurs.
 | Symptôme | Vérification |
 | --- | --- |
 | Un future échoue | Notez l'ID du job et l'`error` du future. Ne faites pas avancer l'état dépendant de l'application |
-| Un appel d'entraînement renvoie `400` après une pause | Le job a été arrêté ou libéré après 30 minutes d'inactivité. Démarrez un nouveau job depuis le dernier checkpoint d'état |
+| Un appel d'entraînement renvoie `400` après une pause | Le job a été arrêté ou libéré après 30 minutes d'inactivité. L'entraînement modificateur est indisponible ; la gestion des checkpoints et l'échantillonnage restent disponibles. Démarrez un nouveau job depuis le dernier checkpoint d'état pour continuer |
 | Un checkpoint ne peut pas être chargé | Vérifiez son job, son type et l'enregistrement de reprise côté client |
-| `from_checkpoint` est refusé | Confirmez qu'il s'agit d'un chemin `weights/<name>` de votre équipe ; les checkpoints sampler ne peuvent pas démarrer un job |
+| `from_checkpoint` est refusé | Confirmez qu'il s'agit d'un chemin complet `tinker://<job_id>/weights/<name>` de votre équipe ; les checkpoints sampler ne peuvent pas démarrer un job |
 | La recherche du job repris échoue | Confirmez que l'ID provient de la réponse de création du nouveau job et que vous êtes authentifié dans la même équipe Fastino |

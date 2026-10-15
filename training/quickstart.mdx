@@ -103,7 +103,8 @@ Choose one supported interface:
   [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create-model),
   queue model operations under `/v1/training/jobs/{job_id}`, and poll each
   returned `future_id` until `completed`, `failed`, or `cancelled`.
-- Existing Tinker programs keep `tinker==0.32.0` and use the setup below.
+- Existing Tinker programs keep `tinker==0.32.0`; follow
+  [Migrate from Tinker](/training/migrate-from-tinker) for SDK setup.
 
 Native clients send no `seq_id` and no heartbeat. The server assigns operation
 ordering and keeps the internal session alive. A request with `wait=true` waits
@@ -121,8 +122,9 @@ the native route sequence.
    until `completed`, `failed`, or `cancelled`.
 3. Queue
    [forward-backward](/api-reference/training-jobs/interactive/forward-backward)
-   and [an optimizer step](/api-reference/training-jobs/interactive/optim-step).
-   Poll each `future_id` to a terminal status before the next dependent step.
+   and poll its `future_id` until it completes successfully. Only then queue
+   [an optimizer step](/api-reference/training-jobs/interactive/optim-step)
+   and poll that future to a terminal status.
 4. [Save sampler weights](/api-reference/training-jobs/interactive/save-weights-for-sampler)
    and poll the save future to a terminal status.
 5. Stop the job through the shared
@@ -134,9 +136,10 @@ Only a queued or running sample future can be cancelled. An HTTP rejection
 means that the server did not queue the call. A queued future can
 instead finish with `status: "failed"`.
 
-### Tinker SDK path
+### Native REST path
 
-The Tinker path requires Python 3.11 or later.
+The native REST example requires Python 3.11 or later. For Tinker SDK setup,
+see [Migrate from Tinker](/training/migrate-from-tinker).
 
 ### 3. Install the client libraries
 
@@ -148,14 +151,14 @@ the training itself runs on Fastino.
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add "tinker==0.32.0"
+uv add requests transformers
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 ```powershell pip · Windows
@@ -163,7 +166,7 @@ mkdir fastino-training
 cd fastino-training
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install "tinker==0.32.0"
+pip install requests transformers
 ```
 
 </CodeGroup>
@@ -293,12 +296,12 @@ try:
 
     for step in range(3):
         backward = call("POST", f"{jobs}/forward-backward", batch)
+        result = wait(job_id, backward["future_id"])
         update = call(
             "POST",
             f"{jobs}/optim-step",
             {"adam_params": {"learning_rate": 1e-4}},
         )
-        result = wait(job_id, backward["future_id"])
         wait(job_id, update["future_id"])
         print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
 
@@ -324,8 +327,9 @@ finally:
     call("POST", f"{jobs}/stop")
 ```
 
-The optimizer step is queued right after the forward-backward pass, without
-waiting. The job runs calls in the order it receives them.
+The script waits for forward-backward to complete successfully before it
+submits the optimizer step. If either future fails or is cancelled, `wait`
+raises and the dependent operation is not submitted.
 
 Run the script:
 
@@ -363,10 +367,9 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-The response describes the same job created by
-`create_lora_training_client(...)`. Continue with the SDK client for model
-operations and use the canonical jobs API for documented job reads. Native
-JSON clients use the public interactive operation pages instead.
+The response describes the same job created through the native REST endpoint.
+Continue with the public interactive operation pages for model operations and
+use the canonical jobs API for documented job reads.
 
 ## Continue
 

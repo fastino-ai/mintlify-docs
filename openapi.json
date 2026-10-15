@@ -3467,6 +3467,18 @@
             "title": "Job Id",
             "type": "string"
           },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set with Zero Data Retention: the result is returned once and then deleted, and an unread result is deleted 24 hours after the job finishes.",
+            "title": "Notice"
+          },
           "result": {
             "anyOf": [
               {
@@ -6327,12 +6339,6 @@
             "title": "Lr Scheduler Type",
             "type": "string"
           },
-          "mask_history": {
-            "default": false,
-            "description": "Decoder SFT loss masking knob. Dense decoder LoRA currently rejects true until assistant-only loss masking is supported by the active trainer, and encoder jobs reject true. Defaults false to preserve the stock recipe.",
-            "title": "Mask History",
-            "type": "boolean"
-          },
           "max_eval_samples": {
             "anyOf": [
               {
@@ -6449,18 +6455,6 @@
             "description": "GLiNER2 only: behavior when a query has more gold spans than max_gold_per_query. 'raise' fails the job without dropping gold; 'truncate_with_warning' keeps the first spans and drops the rest; 'skip_sample' keeps the row in the batch but removes all of its extraction supervision. Omit to use 'raise'.",
             "title": "On Capacity Exceeded"
           },
-          "packing": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pack multiple short examples into one training sequence. Applies to decoder dense-LoRA training only, which is the one backend that receives it; encoder jobs that set it true are rejected. None uses the base model's catalog default, so omitting it leaves existing behaviour unchanged.",
-            "title": "Packing"
-          },
           "profile_training": {
             "default": false,
             "description": "Enable structured training profiling for this run and persist a training_profile.json artifact.",
@@ -6490,19 +6484,6 @@
             ],
             "description": "Pin training to a specific provider (e.g. 'modal'). Bypasses automatic provider selection.",
             "title": "Provider Name"
-          },
-          "rl_config": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Algorithm-specific hyperparameters for RL training. Supported keys (all optional unless noted, TRL-aligned defaults applied container-side): max_steps, kl_beta, group_size, sampling_temperature, max_completion_length, reward_type (GRPO; required and must name a supported built-in reward); dpo_beta, loss_type (DPO); logging_steps (both; defaults to 25, lower for short smoke runs). Additional knobs for the 'llm_as_judge' reward: llm_judge_model (available model ID, default 'claude-haiku-4-5'), llm_judge_rubric (template string with {prompt}/{completion}/{answer} placeholders; falls back to a generic faithfulness/quality rubric scored 1-10 when absent), llm_judge_score_scale (raw max score for normalisation to [0,1], default 10), llm_judge_timeout_s (HTTP timeout per judge call, default 30), llm_judge_max_concurrent (parallelism cap on judge HTTP calls, default 8), llm_judge_max_retries (per-row retry budget on transient HTTP errors, default 1), llm_judge_retry_backoff_s (sleep between retries, default 2.0).",
-            "title": "Rl Config"
           },
           "samples_per_label": {
             "anyOf": [
@@ -6540,18 +6521,6 @@
             "description": "Optional reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Requests must pin provider_name to 'modal'; Fireworks and other unsupported architectures reject this field. When omitted, encoder and decoder jobs share the same trainer default (3407). Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 — treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
           },
-          "system_prompt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Canonical system prompt for decoder training and inference. When populated, it is re-injected by inference providers for API-direct callers that omit the ``system`` message (train/serve alignment), and prefills the inference-page system-prompt editor. Leave null for PAFT datasets, mixed-prompt uploads, or any case where no single prompt should be pinned at serve time. A non-blank prompt is rejected for encoder jobs.",
-            "title": "System Prompt"
-          },
           "task_learning_rate": {
             "anyOf": [
               {
@@ -6567,13 +6536,9 @@
             "title": "Task Learning Rate"
           },
           "training_algorithm": {
+            "const": "sft",
             "default": "sft",
-            "description": "Training algorithm: 'sft' (default), 'grpo', or 'dpo'. GRPO requires rl_config.reward_type from the built-in menu; DPO requires {prompt, chosen, rejected} columns and optional rl_config.dpo_beta / loss_type.",
-            "enum": [
-              "sft",
-              "grpo",
-              "dpo"
-            ],
+            "description": "Training algorithm. Only 'sft' is accepted: decoder SFT, DPO and GRPO train step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart).",
             "title": "Training Algorithm",
             "type": "string"
           },
@@ -8206,7 +8171,7 @@
     },
     "/v1/gliner-2/async": {
       "post": {
-        "description": "Submit large GLiNER-2 request for async processing.\n\nUse this endpoint when processing >1M tokens that would exceed the 30-second\ntimeout. Returns immediately with a job_id; poll GET /gliner-2/jobs/{job_id}.\nNot available with Zero Data Retention: the result is stored until polled.\nUse POST /gliner-2 instead.",
+        "description": "Submit large GLiNER-2 request for async processing.\n\nUse this endpoint when processing >1M tokens that would exceed the 30-second\ntimeout. Returns immediately with a job_id; poll GET /gliner-2/jobs/{job_id}.\nWith Zero Data Retention, the text is never stored and the result is deleted on\nits first read, or 24 hours after the job finishes if it is never read.",
         "operationId": "gliner2_async_v1_gliner_2_async_post",
         "requestBody": {
           "content": {
@@ -8248,7 +8213,7 @@
     },
     "/v1/gliner-2/jobs/{job_id}": {
       "get": {
-        "description": "Get status and result of an async GLiNER-2 job.\n\nPossible outcomes:\n- 200 with status=\"complete\" and result when done\n- 200 with status=\"processing\" while in progress\n- 200 with status=\"error\" and error message if failed\n- 404 if job not found or belongs to different user",
+        "description": "Get status and result of an async GLiNER-2 job.\n\nPossible outcomes:\n- 200 with status=\"complete\" and result when done\n- 200 with status=\"processing\" while in progress\n- 200 with status=\"error\" and error message if failed\n- 404 if job not found or belongs to different user\n- With Zero Data Retention, the result is returned once, then deleted (see notice)",
         "operationId": "gliner2_job_status_v1_gliner_2_jobs__job_id__get",
         "parameters": [
           {
@@ -9899,7 +9864,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "``duplicate_training_submission``: an identical job is live. ``idempotency_key_job_deleted``: the job this key created was deleted."
+            "description": "``duplicate_training_submission``: an identical job is live. ``idempotency_key_job_deleted``: the job this key created was deleted. A referenced dataset may also retire before insertion."
           },
           "422": {
             "content": {

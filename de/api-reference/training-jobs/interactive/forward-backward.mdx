@@ -4,59 +4,58 @@ sidebarTitle: "Forward-Backward"
 description: "Reiht einen Forward-Backward-Durchlauf ein, der Gradienten im interaktiven Job akkumuliert. Fragen Sie die future_id bis zum terminalen Status ab."
 api: "POST /v1/training/jobs/{job_id}/forward-backward"
 ---
-
 `POST /v1/training/jobs/{job_id}/forward-backward`
 
-Computes the loss of a batch of token-level datums and accumulates its
-gradients. The next [optimizer step](/de/api-reference/training-jobs/interactive/optim-step)
-applies them. The response is a future; read the loss and per-token log
-probabilities from
+Berechnet den Verlust eines Stapels von Daten auf Token-Ebene und akkumuliert ihn
+Farbverläufe. Der nächste [Optimierungsschritt](/de/api-reference/training-jobs/interactive/optim-step)
+wendet sie an. Die Antwort ist eine Zukunft; Lesen Sie das Verlust- und Pro-Token-Protokoll
+Wahrscheinlichkeiten aus
 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/training-jobs/interactive/get-future).
 
 [`POST /v1/training/jobs/{job_id}/forward`](/de/api-reference/training-jobs/interactive/forward)
-takes the same body and computes the loss without gradients.
+nimmt denselben Körper und berechnet den Verlust ohne Gradienten.
 
-## Request
+## Anfrage
 
 <ParamField header="X-API-Key" type="string" required>
-  Your Fastino API key.
+  Ihr Fastino-API-Schlüssel.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Interactive job ID.
+  Interaktive Job-ID.
 </ParamField>
 
 <ParamField body="datums" type="object[]" required>
-  One or more training examples. Tokenize them yourself with the base model's
-  tokenizer.
+  Ein oder mehrere Trainingsbeispiele. Tokenisieren Sie sie selbst mit den Basismodellen
+  Tokenizer.
 
   <Expandable title="properties">
     <ParamField body="model_input" type="object" required>
-      `{"chunks": [{"type": "encoded_text", "tokens": [...]}]}`. The input token
-      IDs, N tokens in total.
+      `{"chunks": [{"type": "encoded_text", "tokens": [...]}]}`. Das Eingabetoken
+      IDs, insgesamt N Token.
     </ParamField>
     <ParamField body="loss_fn_inputs" type="object" required>
-      Per-position tensors, each `{"data": [...], "dtype": "int64" | "float32"}`
-      with an optional `shape`. Every tensor has N values.
+      Tensoren pro Position, jeweils `{"data": [...], "dtype": "int64" | "float32"}`
+      mit einem optionalen `shape`. Jeder Tensor hat N Werte.
 
-      - `target_tokens` (`int64`, required): the token expected at each position,
-        usually the input shifted left by one.
-      - `weights` (`float32`): per-position loss weight. Use `0` for prompt
-        positions and `1` for completion positions.
-      - `logprobs` and `advantages` (`float32`): required by every loss except
-        `cross_entropy`. `logprobs` are the sampler's log probabilities of the
-        targets.
+      - `target_tokens` (`int64`, erforderlich): der an jeder Position erwartete Token,
+        Normalerweise wird die Eingabe um eins nach links verschoben.
+      - `weights` (`float32`): Verlustgewicht pro Position. Verwenden Sie `0` als Eingabeaufforderung
+        Positionen und `1` für Abschlusspositionen.
+      - `logprobs` und `advantages` (`float32`): erforderlich für alle Verluste außer
+        `cross_entropy`. `logprobs` sind die Log-Wahrscheinlichkeiten des Probenehmers
+        Ziele.
     </ParamField>
   </Expandable>
 </ParamField>
 
 <ParamField body="loss_fn" type="string" default="cross_entropy">
-  `cross_entropy`, `importance_sampling`, `ppo`, `cispo`, or `dro`.
+  `cross_entropy`, `importance_sampling`, `ppo`, `cispo` oder `dro`.
 </ParamField>
 
 <ParamField body="loss_fn_config" type="object">
-  Loss settings. `ppo` and `cispo` take `clip_low_threshold` and
-  `clip_high_threshold`; `dro` takes `beta`. Unknown keys are rejected.
+  Verlusteinstellungen. `ppo` und `cispo` nehmen `clip_low_threshold` und
+  `clip_high_threshold`; `dro` nimmt `beta`. Unbekannte Schlüssel werden abgelehnt.
 </ParamField>
 
 <RequestExample>
@@ -81,14 +80,14 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 
 </RequestExample>
 
-## Response
+## Antwort
 
 <ResponseField name="future_id" type="string">
-  The queued future.
+  Die in der Warteschlange stehende Zukunft.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  The job.
+  Der Job.
 </ResponseField>
 
 <ResponseField name="type" type="string">
@@ -124,15 +123,15 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 
 </ResponseExample>
 
-## Errors
+## Fehler
 
-| Status | Meaning |
+| Status | Bedeutung |
 | --- | --- |
-| `400` | Unknown `loss_fn`, a non-integer `target_tokens` tensor, out-of-vocabulary token IDs, or the job was stopped. |
-| `402` | The team is out of credits or has no valid payment setup. |
-| `404` | The job doesn't exist or belongs to another team. |
-| `422` | `datums` is empty or the body has an unknown field. |
+| `400` | Unbekannter `loss_fn`, ein nicht ganzzahliger `target_tokens`-Tensor, Token-IDs außerhalb des Wortschatzes oder der Job wurde gestoppt. |
+| `402` | Das Team hat kein Guthaben oder keine gültige Zahlungseinrichtung. |
+| `404` | Der Job existiert nicht oder gehört zu einem anderen Team. |
+| `422` | `datums` ist leer oder der Text enthält ein unbekanntes Feld. |
 
-Problems found while the batch runs, such as a missing loss input, mismatched
-tensor lengths, an unknown `loss_fn_config` key, or a datum longer than the
-model's limit, fail the future. Its `error.category` is `user`.
+Während der Batch-Ausführung festgestellte Probleme, z. B. eine fehlende Verlusteingabe, stimmen nicht überein
+Tensorlängen, ein unbekannter `loss_fn_config`-Schlüssel oder ein Datum, das länger als der ist
+Die Grenze des Modells, die Zukunft scheitern. Sein `error.category` ist `user`.

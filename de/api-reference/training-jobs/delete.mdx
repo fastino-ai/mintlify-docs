@@ -7,7 +7,11 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-Löscht den Job und seine gespeicherten Artefakte. Wenn der Job aktiv ist, stoppt der Dienst ihn ebenfalls.
+<Warning>
+  Die umbenannte `/v1/training/jobs`-Oberfläche ist in der Entwicklung verifiziert, nicht in Produktion. Produktion kann `404` zurückgeben.
+</Warning>
+
+Löscht den Job und seine gespeicherten Artefakte. Wenn der Job aktiv ist, fordert der Dienst zuerst einen Stopp an. Das Löschen wird im selben Aufruf nur abgeschlossen, wenn der Abbruch bestätigt ist.
 
 <Warning>
   Das Löschen ist unumkehrbar. Laden Sie zuerst alles, was Sie benötigen, in einen von Ihnen kontrollierten Speicher herunter. Beim Löschen werden Checkpoints und gespeicherte Artefakte entfernt und aktive gehostete Deployments freigegeben.
@@ -39,13 +43,18 @@ curl -X DELETE https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
 ```json Response
 {
   "success": true,
-  "message": "Training job deleted"
+  "message": "Training job deleted successfully"
 }
 ```
 
 </ResponseExample>
 
 Ein unbekannter oder nicht zugänglicher Job gibt `404` zurück.
+
+| Status | Bedeutung |
+| --- | --- |
+| `409 training_job_already_finished` | Der Job wurde abgeschlossen oder ist fehlgeschlagen, bevor der Abbruch wirksam wurde. Lesen Sie den Jobstatus, bevor Sie über einen erneuten Versuch entscheiden. |
+| `409 cancellation_unconfirmed` | Der Job wird noch gestoppt. Fragen Sie `GET /v1/training/jobs/{job_id}` ab und wiederholen Sie dieses `DELETE`, nachdem der Job gestoppt ist. Das Löschen wird nicht im Hintergrund abgeschlossen. |
 
 ## Autorisierung
 

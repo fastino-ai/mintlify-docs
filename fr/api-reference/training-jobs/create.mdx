@@ -9,14 +9,18 @@ Les clients natifs créent une tâche `interactive` avec [`POST /v1/training/job
 
 `POST /v1/training/jobs`
 
+<Warning>
+  Cette API d'entraînement renommée est disponible dans le contrat de développement. Son déploiement en production n'est pas encore vérifié : la production peut renvoyer `404` pour `/v1/training/jobs`. Confirmez sa disponibilité pour votre équipe avant de lancer un entraînement payant.
+</Warning>
+
 Crée un job d'entraînement asynchrone `config` et renvoie son enregistrement.
 Dans un job de configuration, vous fournissez un dataset et une configuration,
 et Fastino exécute la boucle d'entraînement.
 
-Les jobs de configuration entraînent les encodeurs GLiNER :
-`fastino/gliner2-multi-v1` et `fastino/GLiNER-2.5-Decide`. Les modèles de base
-décodeurs renvoient `400` ; entraînez les décodeurs étape par étape avec un job
-interactif.
+Les jobs de configuration entraînent les modèles encodeurs renvoyés par
+`GET /v1/base-models?supports_training=true` qui disposent d'une route de
+dispatch compatible pour les jobs de configuration. Les modèles de base
+décodeurs renvoient `400` ; entraînez les décodeurs étape par étape avec un job interactif.
 
 Pour contrôler la boucle étape par étape, créez un job `interactive` avec
 [`POST /v1/training/jobs/create-model`](/fr/api-reference/training-jobs/interactive/create-model)
@@ -32,12 +36,16 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   Votre clé API Fastino.
 </ParamField>
 
+<ParamField header="Idempotency-Key" type="string">
+  Clé de nouvelle tentative générée par le client, de 1 à 255 caractères ; un UUID est recommandé. Répéter la même clé et le même corps renvoie le job d'origine. Réutiliser la clé avec un autre corps renvoie `422`.
+</ParamField>
+
 <ParamField body="model_name" type="string" required>
   Nom d'affichage du modèle entraîné. Longueur : 1 à 100 caractères.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Un ID d'encodeur GLiNER, `fastino/gliner2-multi-v1` ou `fastino/GLiNER-2.5-Decide`, ou un UUID de checkpoint pris en charge. Un modèle de base décodeur renvoie `400`.
+  Un ID d'encodeur entraînable renvoyé par `GET /v1/base-models?supports_training=true`, ou un UUID de checkpoint pris en charge. Le `training_type` sélectionné doit disposer d'une route de dispatch compatible. Un modèle de base décodeur renvoie `400`.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -49,19 +57,19 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
 </ParamField>
 
 <ParamField body="validation_data_percentage" type="number" default="0.2">
-  Fraction réservée à la validation, de `0` à `0.9`.
+  Fraction réservée à la validation, de `0` à `0.9` par incréments de `0.01`.
 </ParamField>
 
 <ParamField body="nr_epochs" type="integer" default="100">
-  Nombre maximal d'époques. Doit être au moins `1` ; l'arrêt anticipé peut terminer plus tôt.
+  Nombre maximal d'époques, de `1` à `10000` ; l'arrêt anticipé peut terminer plus tôt.
 </ParamField>
 
 <ParamField body="learning_rate" type="number">
-  Taux d'apprentissage maximal positif. Omettez-le pour utiliser la recette d'entraînement du modèle sélectionné.
+  Taux d'apprentissage maximal de `1e-8` à `1`. Omettez-le pour utiliser la recette d'entraînement du modèle sélectionné.
 </ParamField>
 
 <ParamField body="batch_size" type="integer" default="4">
-  Taille du batch par appareil. Il est préférable de l'omettre afin que le service d'entraînement puisse appliquer ou ramener en toute sécurité la valeur par défaut propre au modèle.
+  Taille du batch par appareil de `1` à `256`. Il est préférable de l'omettre afin que le service d'entraînement puisse appliquer ou ramener en toute sécurité la valeur par défaut propre au modèle.
 </ParamField>
 
 <ParamField body="seed" type="integer">
@@ -74,7 +82,7 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
 
 <Expandable title="Paramètres d'entraînement supplémentaires">
   <ParamField body="save_steps" type="integer" default="100">
-    Enregistrer un checkpoint tous les N pas.
+    Enregistrer un checkpoint tous les N pas, avec N de `1` à `2147483647`.
   </ParamField>
 
   <ParamField body="profile_training" type="boolean" default="false">
@@ -86,23 +94,15 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="lora_r" type="integer">
-    Rang LoRA. Omettez-le pour utiliser la recette du modèle.
+    Rang LoRA de `1` à `256`. Omettez-le pour utiliser la recette du modèle.
   </ParamField>
 
   <ParamField body="lora_alpha" type="integer">
-    Alpha LoRA. Omettez-le pour utiliser la recette du modèle.
+    Alpha LoRA positif, jusqu'à `2147483647`. Omettez-le pour utiliser la recette du modèle.
   </ParamField>
 
   <ParamField body="lora_dropout" type="number">
-    Dropout LoRA. Omettez-le pour utiliser la recette du modèle.
-  </ParamField>
-
-  <ParamField body="packing" type="boolean">
-    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
+    Dropout LoRA de `0` (inclus) à `1` (exclu). Omettez-le pour utiliser la recette du modèle.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -110,7 +110,7 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    Nombre absolu positif de pas de warmup.
+    Nombre absolu de pas de warmup, de `1` à `2147483647`.
   </ParamField>
 
   <ParamField body="lr_scheduler_type" type="string" default="cosine">
@@ -122,27 +122,23 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
-    Époques de validation sans amélioration avant l'arrêt. Définissez `0` pour désactiver.
+    Époques de validation sans amélioration avant l'arrêt, de `0` à `10000`. Définissez `0` pour désactiver.
   </ParamField>
 
   <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
-    Amélioration minimale de la loss de validation considérée comme une progression.
+    Amélioration minimale non négative de la loss de validation considérée comme une progression.
   </ParamField>
 
   <ParamField body="provider_name" type="string">
     Fixer un fournisseur d'entraînement compatible. Omettez-le pour une sélection automatique.
   </ParamField>
 
-  <ParamField body="system_prompt" type="string">
-    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
-  </ParamField>
-
   <ParamField body="encoder_learning_rate" type="number">
-    Taux d'apprentissage de l'encodeur GLiNER. Utilise `learning_rate` par défaut.
+    Taux d'apprentissage de l'encodeur GLiNER de `1e-8` à `1`. Utilise `learning_rate` par défaut.
   </ParamField>
 
   <ParamField body="task_learning_rate" type="number">
-    Taux d'apprentissage de la tête de tâche GLiNER. Utilise `learning_rate` par défaut.
+    Taux d'apprentissage de la tête de tâche GLiNER de `1e-8` à `1`. Utilise `learning_rate` par défaut.
   </ParamField>
 
   <ParamField body="gradient_accumulation_steps" type="integer">
@@ -154,27 +150,43 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
   </ParamField>
 
   <ParamField body="min_samples_per_dataset" type="integer">
-    Borne inférieure du dimensionnement automatique GLiNER.
+    Borne inférieure du dimensionnement automatique GLiNER, de `1` à `2147483647`.
   </ParamField>
 
   <ParamField body="max_samples_per_dataset" type="integer">
-    Borne supérieure du dimensionnement automatique GLiNER.
+    Borne supérieure du dimensionnement automatique GLiNER, de `1` à `2147483647`.
   </ParamField>
 
   <ParamField body="samples_per_label" type="integer">
-    Échelle par étiquette pour le dimensionnement automatique GLiNER.
+    Échelle par étiquette pour le dimensionnement automatique GLiNER, de `1` à `2147483647`.
   </ParamField>
 
   <ParamField body="min_training_steps" type="integer">
-    Nombre minimal de pas d'optimiseur GLiNER.
+    Nombre minimal de pas d'optimiseur GLiNER, de `0` à `2147483647`.
+  </ParamField>
+
+  <ParamField body="eval_steps" type="integer">
+    Intervalle de validation périodique GLiNER2, de `1` à `2147483647` pas d'optimiseur. Omettez-le pour valider uniquement en fin d'époque.
+  </ParamField>
+
+  <ParamField body="max_eval_samples" type="integer">
+    Plafond par dataset pour la validation périodique GLiNER2, de `1` à `2147483647`. Omettez-le pour ne pas appliquer de plafond.
+  </ParamField>
+
+  <ParamField body="max_length" type="integer">
+    Longueur d'entrée GLiNER maximale, de `1` à `2147483647` tokens. Omettez-la pour utiliser la limite de contexte du modèle.
+  </ParamField>
+
+  <ParamField body="max_gold_per_query" type="integer">
+    Nombre maximal de spans gold conservés par requête GLiNER2, de `1` à `1024`. Omettez-le pour utiliser `32`.
+  </ParamField>
+
+  <ParamField body="on_capacity_exceeded" type="string">
+    Comportement lorsque les spans gold dépassent `max_gold_per_query` : `raise`, `truncate_with_warning` ou `skip_sample`. Omettez-le pour utiliser `raise`.
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
     Seul `sft` est pris en charge pour les jobs de configuration. Omettez-le pour utiliser la valeur par défaut.
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    Option réservée aux décodeurs. Non applicable : les jobs de configuration n'entraînent pas de décodeurs.
   </ParamField>
 
 </Expandable>
@@ -184,6 +196,7 @@ Cet endpoint est limité à 20 requêtes par minute et par utilisateur.
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs \
   -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Idempotency-Key: YOUR_UNIQUE_RETRY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model_name": "my-model-name",
@@ -201,7 +214,8 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 ## Réponse
 
 Renvoie `200` avec l'enregistrement complet du job d'entraînement, y compris un
-`id` UUID et le statut initial.
+`id` UUID et le statut initial. L'exemple ci-dessous est abrégé ; la réponse réelle
+contient tous les champs définis par `TrainingJobResponse`.
 
 <ResponseExample>
 
@@ -228,6 +242,16 @@ sur le modèle entraîné.
 Un corps mal formé renvoie `422`. Une combinaison valide mais indisponible de
 modèle, dataset, type d'entraînement ou fournisseur renvoie une erreur `4xx`
 propre à la requête.
+
+La création peut renvoyer les conflits codés suivants :
+
+| Statut | Signification |
+| --- | --- |
+| `409 duplicate_training_submission` | Un job identique est déjà actif. |
+| `409 idempotency_key_job_deleted` | Le job créé à l'origine avec cette clé d'idempotence a été supprimé. Utilisez une nouvelle clé pour un nouveau job. |
+| `409` | Un dataset référencé a été retiré entre la validation et l'insertion du job. Corrigez le dataset et réessayez avec une nouvelle clé. |
+
+La même `Idempotency-Key` et un corps identique rejouent le job d'origine au lieu d'en créer un autre. Un corps différent avec la même clé renvoie `422`.
 
 Un modèle de base décodeur renvoie `400` :
 

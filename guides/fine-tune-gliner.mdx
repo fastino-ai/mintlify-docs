@@ -12,6 +12,9 @@ training settings; Fastino runs the training loop.
 Set `FASTINO_API_KEY` as shown in the [Training API overview](/training). The
 examples send it in the `X-API-Key` header and use `jq` to read JSON responses.
 
+An Owner or Admin can complete the entire guide. An Editor can upload a dataset
+and create a training job, but cannot perform the live-deployment step.
+
 ## 1. Choose the task
 
 <CardGroup cols={2}>
@@ -152,7 +155,10 @@ curl --fail-with-body -sS -X POST \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-Poll the job again until its deployment state is ready. The training job ID is
+A successful response means deployment and artifact publication completed
+synchronously. It includes `success: true`, the job and checkpoint IDs, and the
+canonical `deployment_path`; `mme_path` is a deprecated compatibility alias.
+There is no additional deployment-ready state to poll. The training job ID is
 the model identifier used for hosted inference.
 
 ## 7. Run GLiNER inference
@@ -178,6 +184,13 @@ curl --fail-with-body -sS \
     }
   }" | jq -r '.choices[0].message.content | fromjson'
 ```
+
+Immediately after deployment, inference can return `425`, `429`, or `503` while
+serving capacity becomes available or is rate limited. Retry only those
+statuses, use a non-negative integer `Retry-After` value when present, cap each
+wait (for example, at 30 seconds), and stop after a bounded number of attempts
+(for example, five). Fail immediately for other statuses and surface the final
+response if the retry limit is reached.
 
 <CardGroup cols={2}>
   <Card title="Call GLiNER" icon="braces" href="/inference/chat-completions">

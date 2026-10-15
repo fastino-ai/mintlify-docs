@@ -8,21 +8,28 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 ## 错误响应格式
 
-大多数错误响应会返回包含 `detail` 字段的 JSON 主体：
+大多数同步 API 错误使用共享的嵌套 `error` 封装：
 
 ```json
 {
-  "detail": "..."
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "..."
+  }
 }
 ```
 
-少数几类响应使用不同的结构：
+校验失败使用相同的封装，并在 `error` 内增加 `errors` 数组。每一项通过 `location` 和 `raw_location` 标识无效字段，并在 `message` 中说明失败原因。
 
-- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非 `detail`--参见下方的 [402](#402-需要付款-payment-required) 和 [403](#403-禁止访问-forbidden)。
+部分端点族有意使用不同的结构：
+
+- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非嵌套封装--参见下方的 [402](#402-需要付款-payment-required) 和 [403](#403-禁止访问-forbidden)。
 - **预热响应**（`425`）包含 `Retry-After` 响应头。OpenAI 格式的响应体还带有 `code: "model_warming"`--参见下方的 [425](#425-过早-too-early)。
-- **速率限制响应**（`429`）在 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头--参见下方的 [429](#429-请求过多-too-many-requests)。
-- **未处理的服务器错误**（`500`）返回 `{"error", "message"}` 而不是 `detail`。
-- 针对 OpenAI 兼容端点（`/v1/chat/completions`、`/v1/responses`）的请求会收到 OpenAI 格式的 `{"error": {"code", "type", "param", "message"}}` 封装，而携带 `anthropic-version` 请求头的请求则会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装，而非上述通用格式。
+- **速率限制响应**（`429`）在顶层 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头--参见下方的 [429](#429-请求过多-too-many-requests)。
+- **未处理的服务器错误**（`500`）返回 `{"error", "message"}`，而不是嵌套封装。
+- 携带 `anthropic-version` 请求头的 `/v1/messages` 请求会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装。
 
 ### 交互式 future 失败
 
@@ -94,15 +101,27 @@ HTTP `4xx` 表示服务器在排队前拒绝了交互式调用。成功排队会
 
 请求主体未通过验证。必填字段缺失、字段类型错误，或值超出可接受范围。
 
-**如何修复：** 查看错误 `message` 中失败的具体字段。常见原因包括：
+**如何修复：** 查看 `error.message` 以及 `error.errors` 中的条目，确定校验失败的字段。常见原因包括：
 
 - 在 `POST /v1/training/jobs` 中省略了 `model` 或 `type`
 - 在 label-existing 端点的 `inputs` 数组中发送的字符串少于 1 个或多于 1,000 个
 
 ```json
 {
-    "detail": "For 'POST /v1/training/jobs', ...",
-    "errors": [...]
+  "error": {
+    "message": "For 'models', 'query.limit' is invalid: Input should be greater than or equal to 1.",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null,
+    "errors": [
+      {
+        "type": "greater_than_equal",
+        "location": "query.limit",
+        "raw_location": ["query", "limit"],
+        "message": "'query.limit' is invalid: Input should be greater than or equal to 1"
+      }
+    ]
+  }
 }
 ```
 

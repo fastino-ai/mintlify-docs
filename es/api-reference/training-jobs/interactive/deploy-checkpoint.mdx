@@ -4,27 +4,38 @@ sidebarTitle: "Desplegar checkpoint"
 description: "Llama a POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy para servir un checkpoint sampler como modelo entrenado."
 api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
 ---
-
 `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
 
-Sirve uno de los checkpoints sampler del trabajo como modelo entrenado. Llámalo con [`POST /v1/chat/completions`](/es/api-reference/inference/chat-completions) y `"model": "<model_id>"`. El despliegue está disponible para los modelos base compatibles; las demás bases devuelven `400`.
+Sirve uno de los puntos de control de muestreo del trabajo como modelo entrenado. Llámalo con
+[`POST /v1/chat/completions`](/es/api-reference/inference/chat-completions) y
+`"model": "<model_id>"`. La lista de permitidos de implementación actual contiene solo Nemotron 3.5 Lightning
+(`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`). Otras bases regresan
+`400`.
 
-El `status` del modelo es `deploying` hasta que el motor de serving lo carga, y luego `deployed`. Desplegar de nuevo el mismo checkpoint devuelve el mismo modelo y su estado actual, así que puedes repetir la llamada para ver el progreso. Si un intento anterior falló, la llamada repetida lo reintenta.
+El `status` del modelo es `deploying` hasta que el motor de servicio lo haya cargado, luego
+`deployed`. Al desplegar el mismo punto de control nuevamente se devuelve el mismo modelo y su
+estado actual, para que pueda repetir la llamada para verificar el progreso. si un anterior
+El intento falló, la llamada repetida lo vuelve a intentar.
+
+## Solicitud
 
 <ParamField header="X-API-Key" type="string" required>
-  Tu clave de API de Fastino.
+  Su clave API de Fastino.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID del trabajo interactivo.
+  Identificación de trabajo interactiva.
 </ParamField>
 
 <ParamField path="name" type="string" required>
-  Nombre de un checkpoint sampler guardado con [`save-weights-for-sampler`](/es/api-reference/training-jobs/interactive/save-weights-for-sampler).
+  Nombre de un punto de control de muestreo guardado con
+  [`save-weights-for-sampler`](/es/api-reference/training-jobs/interactive/save-weights-for-sampler).
 </ParamField>
 
 <ParamField body="model_name" type="string">
-  Hasta 64 letras, dígitos, guiones y guiones bajos, que empiecen y terminen con una letra o un dígito. Si se omite, se deriva del nombre del checkpoint. El cuerpo es opcional.
+  Hasta 64 letras, dígitos, guiones y guiones bajos, comenzando y terminando con un
+  letra o dígito. Derivado del nombre del punto de control cuando se omite. el cuerpo es
+  opcional.
 </ParamField>
 
 <RequestExample>
@@ -38,12 +49,14 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 </RequestExample>
 
+## Respuesta
+
 <ResponseField name="model_id" type="string">
-  ID del modelo entrenado. Pásalo como `model` para la inferencia.
+  El ID del modelo entrenado. Páselo como `model` para realizar inferencias.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  El trabajo interactivo que guardó el checkpoint.
+  El trabajo interactivo que salvó el punto de control.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -55,7 +68,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 </ResponseField>
 
 <ResponseField name="project_id" type="string | null">
-  El proyecto del trabajo, si tiene uno.
+  El proyecto de trabajo, si lo tiene.
 </ResponseField>
 
 <ResponseField name="status" type="string">
@@ -79,7 +92,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 | Estado | Significado |
 | --- | --- |
-| `400` | El serving aún no está disponible para el modelo base del trabajo, o el checkpoint no es un adaptador PEFT que acepte el motor de serving. |
-| `404` | El trabajo o el checkpoint sampler no existe, pertenece a otro equipo o no tiene archivos. |
-| `409` | Otro modelo ya usa `model_name`, o se eliminó el modelo servido desde este checkpoint. Guarda los pesos con un nombre nuevo para desplegarlos otra vez. |
+| `400` | El modelo base no es Nemotron 3.5 Lightning o el punto de control no es un adaptador PEFT que acepta el motor de servicio. |
+| `404` | El trabajo o punto de control de muestra no existe, pertenece a otro equipo o no tiene archivos. |
+| `409` | Otro modelo ya usa `model_name` o se eliminó el modelo servido desde este punto de control. Guarde los pesos con un nuevo nombre para implementarlos nuevamente. |
 | `422` | `model_name` no es válido o el cuerpo tiene un campo desconocido. |

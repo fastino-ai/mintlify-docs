@@ -4,27 +4,38 @@ sidebarTitle: "部署检查点"
 description: "将交互式任务的 sampler 检查点部署为训练好的模型，再通过 POST /v1/chat/completions 调用。"
 api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
 ---
-
 `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
 
-将任务的某个 sampler 检查点作为训练好的模型提供服务。使用 [`POST /v1/chat/completions`](/cn/api-reference/inference/chat-completions) 并传入 `"model": "<model_id>"` 调用它。部署适用于受支持的基础模型；其他基础模型返回 `400`。
+将作业的采样器检查点之一作为经过训练的模型提供服务。调用它
+[`POST /v1/chat/completions`](/cn/api-reference/inference/chat-completions) 和
+`"model": "<model_id>"`。当前部署允许列表仅包含 Nemotron 3.5 Lightning
+（`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`）。其他基地返回
+`400`。
 
-在服务引擎加载模型之前，其 `status` 为 `deploying`，之后为 `deployed`。再次部署同一检查点会返回同一个模型及其当前状态，因此可以重复调用来查看进度。如果之前的尝试失败，重复调用会重试。
+该模型的 `status` 是 `deploying`，直到服务引擎加载它，然后
+`deployed`。再次部署相同的检查点将返回相同的模型及其
+当前状态，以便您可以重复调用以检查进度。如果较早的
+尝试失败，重复调用会重试。
+
+## 请求
 
 <ParamField header="X-API-Key" type="string" required>
   您的 Fastino API 密钥。
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  交互式任务 ID。
+  交互式作业 ID。
 </ParamField>
 
 <ParamField path="name" type="string" required>
-  使用 [`save-weights-for-sampler`](/cn/api-reference/training-jobs/interactive/save-weights-for-sampler) 保存的 sampler 检查点名称。
+  保存的采样器检查点的名称
+  [`save-weights-for-sampler`](/cn/api-reference/training-jobs/interactive/save-weights-for-sampler)。
 </ParamField>
 
 <ParamField body="model_name" type="string">
-  最多 64 个字母、数字、连字符和下划线，须以字母或数字开头和结尾。省略时根据检查点名称生成。请求体可省略。
+  最多 64 个字母、数字、连字符和下划线，以 a 开头和结尾
+  字母或数字。省略时从检查点名称派生。身体是
+  可选的。
 </ParamField>
 
 <RequestExample>
@@ -38,12 +49,14 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 </RequestExample>
 
+## 回应
+
 <ResponseField name="model_id" type="string">
-  训练好的模型 ID。推理时将其作为 `model` 传入。
+  训练后模型的 ID。将其传递为 `model` 进行推理。
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  保存该检查点的交互式任务。
+  保存检查点的交互式作业。
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -55,7 +68,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 </ResponseField>
 
 <ResponseField name="project_id" type="string | null">
-  任务所属的项目（如有）。
+  工作的项目（如果有）。
 </ResponseField>
 
 <ResponseField name="status" type="string">
@@ -77,9 +90,9 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 </ResponseExample>
 
-| 状态 | 含义 |
-| --- | --- |
-| `400` | 任务的基础模型暂不支持服务，或该检查点不是服务引擎接受的 PEFT 适配器。 |
-| `404` | 任务或 sampler 检查点不存在、属于其他团队，或没有文件。 |
-| `409` | `model_name` 已被其他模型使用，或由该检查点提供服务的模型已被删除。请以新名称保存权重后再部署。 |
-| `422` | `model_name` 无效，或请求体包含未知字段。 |
+|状态 |意义|
+| ---| ---|
+| `400` |基本模型不是 Nemotron 3.5 Lightning，或者检查点不是服务引擎接受的 PEFT 适配器。 |
+| `404` |作业或采样器检查点不存在、属于另一个团队或没有文件。 |
+| `409` |另一个模型已使用 `model_name`，或者从此检查点提供服务的模型已被删除。以新名称保存权重以再次部署它们。 |
+| `422` | `model_name` 无效或正文有未知字段。 |

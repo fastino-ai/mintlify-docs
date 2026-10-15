@@ -16,6 +16,7 @@ from unittest import mock
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "agent_harness.py"
 sys.path.insert(0, str(MODULE_PATH.parent))
+import agent_diagnostics as DIAGNOSTICS
 import check_api_docs as CHECKS
 import generate_localized_llms as LOCALIZED
 
@@ -85,6 +86,30 @@ class AgentHarnessTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", lifecycle)
         self.assertIn("ref: main", lifecycle)
 
+    def test_diagnostics_command_runs_diagnostics_module_and_reports_targets(self) -> None:
+        with (
+            mock.patch.object(
+                DIAGNOSTICS,
+                "run_diagnostics",
+                return_value=12,
+            ) as diagnostics,
+            mock.patch.object(HARNESS, "_request") as request,
+            mock.patch.object(HARNESS, "_validate_openapi") as validate_openapi,
+            mock.patch.object(HARNESS.sys, "argv", ["agent_harness.py", "diagnostics"]),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            exit_code = HARNESS.main()
+
+        self.assertEqual(exit_code, 0)
+        diagnostics.assert_called_once_with(
+            request=request,
+            validate_openapi=validate_openapi,
+        )
+        self.assertEqual(
+            stdout.getvalue(),
+            "Agent diagnostics passed: 12 discovery targets\n",
+        )
+
     def test_training_job_create_matches_deployed_request_contract(self) -> None:
         document = HARNESS._load_openapi()
         create = document["components"]["schemas"]["TrainingJobCreate"]
@@ -99,38 +124,19 @@ class AgentHarnessTests(unittest.TestCase):
         self.assertNotIn("preview", create.get("description", "").lower())
         self.assertIn("type", response["properties"])
 
-    def test_config_create_documents_decoder_training_contract(self) -> None:
+    def test_config_create_excludes_interactive_decoder_contract(self) -> None:
         document = HARNESS._load_openapi()
         properties = document["components"]["schemas"]["TrainingJobCreate"]["properties"]
-        decoder_fields = {
+        retired_decoder_fields = {
             "packing",
             "mask_history",
             "system_prompt",
-            "training_algorithm",
             "rl_config",
         }
 
-        self.assertTrue(decoder_fields <= set(properties))
-        self.assertEqual(
-            set(properties["training_algorithm"]["enum"]),
-            {"sft", "dpo", "grpo"},
-        )
-        for locale in ("", "cn", "de", "es", "fr"):
-            prefix = f"{locale}/" if locale else ""
-            create = (
-                HARNESS.ROOT / f"{prefix}api-reference/training-jobs/create.mdx"
-            ).read_text(encoding="utf-8")
-            for field in decoder_fields:
-                self.assertIn(f'<ParamField body="{field}"', create)
-
-            datasets = (
-                HARNESS.ROOT / f"{prefix}concepts/datasets.mdx"
-            ).read_text(encoding="utf-8")
-            self.assertIn('"messages"', datasets)
-            self.assertNotIn(
-                '{"prompt":"Write a concise greeting.","chosen":"Hello!"',
-                datasets,
-            )
+        self.assertTrue(retired_decoder_fields.isdisjoint(properties))
+        self.assertEqual(properties["training_algorithm"]["const"], "sft")
+        self.assertNotIn("enum", properties["training_algorithm"])
 
     def test_english_config_create_requests_use_base_model_and_omit_type(self) -> None:
         found = 0

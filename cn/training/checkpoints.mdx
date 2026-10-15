@@ -28,10 +28,10 @@ state = call(
     f"/v1/training/jobs/{job_id}/save-weights",
     {"name": f"step-{step:06d}"},
 )
-wait(job_id, state["future_id"])
+state_path = wait(job_id, state["future_id"])
 record = {
     "source_job_id": job_id,
-    "state_path": state["path"],
+    "state_path": state_path,
     "model": model_name,
     "dataset_revision": dataset_revision,
     "optimizer": adam_params,
@@ -44,8 +44,11 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
+初始保存响应中的路径是临时路径。只有保存 future 完成后，检查点才会持久化；如果 future
+失败或被取消，请勿持久化或使用该路径。
+
 请使用唯一的检查点名称，使每条循环记录都对应一个明确的恢复边界。名称由 1–128 个字符组成，取自
-`A-Z`、`a-z`、`0-9`、`.`、`_` 和 `-`。
+`A-Z`、`a-z`、`0-9`、`.`、`_` 和 `-`。以 `__park-` 或 `__snap-` 开头的名称为保留名称。
 
 ## 2. 读取最新的完整记录
 
@@ -84,7 +87,7 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 | 情况 | 调用 |
 | --- | --- |
-| 源任务仍处于活动状态，且你想回滚 | 使用 `{"path": name, "optimizer": true}` 调用 `POST /v1/training/jobs/{job_id}/load-weights` |
+| 源任务仍处于活动状态，且你想回滚 | 使用 `{"path": "<name>", "optimizer": true}` 调用 `POST /v1/training/jobs/{job_id}/load-weights` |
 | 源任务已停止或已释放 | 使用 `from_checkpoint` 和 `load_optimizer` 调用 `POST /v1/training/jobs/create-model` |
 
 在新任务中继续：
@@ -116,6 +119,10 @@ resumed_job_id = resumed["job_id"]
 如果进程在保存检查点之后、持久化循环记录之前退出，请保留上一条完整记录作为可信的恢复点。
 在记录持久保存之前，不要将步骤标记为完成。
 
+Future 结果可恢复一小时。在此窗口内，请轮询已知的保存 `future_id` 后再判断发生了什么。
+如果返回 `410`，请勿盲目重复保存；应核对任务的检查点和持久循环记录。长期提交边界是完整
+检查点及其持久应用记录，而不是 future 本身。
+
 ## 5. 区分检查点类型
 
 ```python
@@ -132,12 +139,13 @@ sampler = call(
 )
 ```
 
-| 保存方式 | 路径 | 用途 |
-| --- | --- | --- |
-| `save-weights` | `weights/<name>` | 训练恢复：加载它或从它启动新任务 |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | rollout、评估，以及以 PEFT LoRA 文件下载 |
+| 保存方式 | 检查点 ID 后缀 | 完整路径 | 用途 |
+| --- | --- | --- | --- |
+| `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | 训练恢复：加载它或从它启动新任务 |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | rollout、评估，以及以 PEFT LoRA 文件下载 |
 
-不要将 sampler 检查点用作恢复点；它不含优化器状态，也无法用来启动新任务。
+不要将 sampler 检查点用作恢复点；它不含优化器状态，也无法用来启动新任务。向
+`from_checkpoint` 传递完整的 `tinker://.../weights/<name>` 路径，而不是检查点 ID 后缀。
 
 `ttl_seconds` 默认为 `null`，因此省略 TTL 时检查点会一直保留到你删除为止。存活的检查点计入检查点存储。
 要启用自动清理，请传入 `3600` 到 `315360000` 秒（1 小时到 10 年）之间的值。
@@ -155,6 +163,9 @@ sampler = call(
 | 读取存储用量 | [`GET /v1/training/usage`](/cn/api-reference/training-jobs/interactive/storage-usage) |
 
 下载需要团队具备权重下载权限。
+
+任务停止后，可变训练 operation 会被拒绝，但仍可列出、检查、下载、发布、修改 TTL 和删除其
+检查点，也仍可从 sampler 检查点采样。
 
 ## 6. 验证继续结果
 
@@ -197,7 +208,7 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
 | 现象 | 检查 |
 | --- | --- |
 | future 失败 | 记录任务 ID 和 future 的 `error`。不要推进依赖它的应用状态 |
-| 暂停后训练调用返回 `400` | 任务已停止，或在空闲 30 分钟后被释放。请从最新的状态检查点启动新任务 |
+| 暂停后训练调用返回 `400` | 任务已停止，或在空闲 30 分钟后被释放。可变训练不可用，但检查点管理和 sampler 检查点采样仍可用。要继续训练，请从最新状态检查点启动新任务 |
 | 检查点无法加载 | 核实其任务、检查点类型以及客户端持有的恢复记录 |
-| `from_checkpoint` 被拒绝 | 确认它是你团队的 `weights/<name>` 路径；sampler 检查点无法用于启动任务 |
+| `from_checkpoint` 被拒绝 | 确认它是你团队的完整 `tinker://<job_id>/weights/<name>` 路径；sampler 检查点无法用于启动任务 |
 | 查询恢复后的任务失败 | 确认 ID 来自新任务的创建响应，且已使用同一 Fastino 团队进行身份验证 |

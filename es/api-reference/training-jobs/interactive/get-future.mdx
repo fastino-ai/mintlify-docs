@@ -4,30 +4,30 @@ sidebarTitle: "Obtener future"
 description: "Consulta el estado y el resultado de un future interactivo. Con wait=true, cada solicitud espera hasta 25 segundos; los resultados se guardan una hora."
 api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 ---
-
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-Every interactive-job call that does work returns a `future_id`. Read the
-future until its `status` is `completed`, `failed`, or `cancelled`.
-Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Use `wait=true` to wait at most 25 seconds per request. Continue polling a nonterminal future. Results are kept for one hour.
+Cada llamada de trabajo interactivo que funciona devuelve un `future_id`. sondear el futuro
+hasta que su `status` sea `completed`, `failed` o `cancelled`. Utilice `wait=true` para
+espere hasta 25 segundos por solicitud; un tiempo de espera aún puede devolver un no terminal
+futuro. Los resultados se conservan durante una hora.
 
-## Request
+## Solicitud
 
 <ParamField header="X-API-Key" type="string" required>
-  Your Fastino API key.
+  Su clave API de Fastino.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Interactive job ID.
+  Identificación de trabajo interactiva.
 </ParamField>
 
 <ParamField path="future_id" type="string" required>
-  Future ID returned when the work was queued.
+  ID futuro devuelto cuando el trabajo estaba en cola.
 </ParamField>
 
 <ParamField query="wait" type="boolean" default="false">
-  Wait up to 25 seconds for an unfinished future before answering. Repeat
-  the request until it finishes.
+  Espere hasta 25 segundos para ver un futuro inacabado antes de responder. repetir
+  la solicitud hasta que finalice.
 </ParamField>
 
 <RequestExample>
@@ -39,42 +39,47 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 </RequestExample>
 
-## Response
+## Respuesta
 
 <ResponseField name="future_id" type="string">
-  The future.
+  El futuro.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  The job.
+  El trabajo.
 </ResponseField>
 
 <ResponseField name="type" type="string">
-  `create`, `load`, `forward`, `forward_backward`, `optim_step`, `save`, or `sample`.
+  `create`, `load`, `forward`, `forward_backward`, `optim_step`, `save` o `sample`.
 </ResponseField>
 
 <ResponseField name="status" type="string">
-  `pending`, `running`, `completed`, `failed`, or `cancelled`.
+  `pending`, `running`, `completed`, `failed` o `cancelled`.
 </ResponseField>
 
 <ResponseField name="queue_state" type="string | null">
-  While unfinished: `active`, or `paused_capacity` while GPU capacity warms up.
+  Mientras no está terminado: `active` o `paused_capacity` mientras se calienta la capacidad de la GPU.
+</ResponseField>
+
+<ResponseField name="queue_state_reason" type="string | null">
+  Una explicación de capacidad legible por humanos mientras `queue_state` es
+  `paused_capacity`; de lo contrario `null`.
 </ResponseField>
 
 <ResponseField name="result" type="any">
-  Once `completed`:
+  Una vez `completed`:
 
-  - `forward` and `forward_backward`: `loss_fn_outputs` (one entry of tensors per
-    datum, such as `logprobs`) and `metrics`.
-  - `sample`: `sequences`, each with `tokens`, `logprobs`, and `stop_reason`,
-    plus `prompt_logprobs` when requested.
-  - `save`: the checkpoint path.
-  - Other types: an acknowledgement.
+  - `forward` y `forward_backward`: `loss_fn_outputs` (una entrada de tensores por
+    referencia, como `logprobs`) y `metrics`.
+  - `sample`: `sequences`, cada uno con `tokens`, `logprobs` y `stop_reason`,
+    más `prompt_logprobs` cuando se solicite.
+  - `save`: la ruta del punto de control.
+  - Otros tipos: un acuse de recibo.
 </ResponseField>
 
 <ResponseField name="error" type="object | null">
-  When `failed` or `cancelled`: `message`, and `category` (`user` for a problem
-  with the request, `server` for a Fastino problem).
+  Cuando `failed` o `cancelled`: `message` y `category` (`user` por un problema
+  con la solicitud, `server` por un problema de Fastino).
 </ResponseField>
 
 <ResponseExample>
@@ -114,6 +119,7 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 </ResponseExample>
 
-| Status | Meaning |
+| Estado | Significado |
 | --- | --- |
-| `404` | The job or future doesn't exist, or belongs to another team. |
+| `404` | El trabajo o el futuro no existe, o pertenece a otro equipo. |
+| `410` | La operación se perdió o su resultado retenido expiró. Vuelva a enviar la operación; un resultado caducado no se puede recuperar. |

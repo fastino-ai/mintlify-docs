@@ -8,21 +8,28 @@ La API de Fastino utiliza códigos de estado HTTP estándar para comunicar el re
 
 ## Formato de la respuesta de error
 
-La mayoría de las respuestas de error devuelven un cuerpo JSON con un campo `detail`:
+La mayoría de los errores síncronos de la API usan una envoltura `error` anidada compartida:
 
 ```json
 {
-  "detail": "..."
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "..."
+  }
 }
 ```
 
-Algunas familias de respuestas usan una forma diferente:
+Los errores de validación usan la misma envoltura y añaden un arreglo `errors` dentro de `error`. Cada elemento identifica el campo no válido mediante `location` y `raw_location`, y explica el fallo en `message`.
 
-- **Denegaciones de facturación** (`402`, algunos `403`) devuelven `{"code", "message", "resolution_url"}` en lugar de `detail` - consulta [402](#402-pago-requerido) y [403](#403-prohibido) más abajo.
+Algunas familias de endpoints usan intencionadamente formas diferentes:
+
+- **Denegaciones de facturación** (`402`, algunos `403`) devuelven `{"code", "message", "resolution_url"}` en lugar de la envoltura anidada - consulta [402](#402-pago-requerido) y [403](#403-prohibido) más abajo.
 - **Respuestas de calentamiento** (`425`) incluyen un encabezado `Retry-After`. Los cuerpos con forma de OpenAI también llevan `code: "model_warming"` - consulta [425](#425-demasiado-pronto) más abajo.
-- **Respuestas de límite de velocidad** (`429`) añaden los campos `code` y `scope` junto a `detail`, además de los encabezados `X-RateLimit-Scope` y `X-RateLimit-Code` - consulta [429](#429-demasiadas-solicitudes) más abajo.
-- **Errores del servidor no controlados** (`500`) devuelven `{"error", "message"}` en lugar de `detail`.
-- Las solicitudes a los endpoints compatibles con OpenAI (`/v1/chat/completions`, `/v1/responses`) reciben una envoltura con forma de OpenAI `{"error": {"code", "type", "param", "message"}}`, y las solicitudes que llevan un encabezado `anthropic-version` reciben una envoltura con forma de Anthropic `{"type": "error", "error": {"type", "message"}}` en lugar de las formas genéricas anteriores.
+- **Respuestas de límite de velocidad** (`429`) añaden los campos `code` y `scope` en el nivel superior junto a `detail`, además de los encabezados `X-RateLimit-Scope` y `X-RateLimit-Code` - consulta [429](#429-demasiadas-solicitudes) más abajo.
+- **Errores del servidor no controlados** (`500`) devuelven `{"error", "message"}` en lugar de la envoltura anidada.
+- Las solicitudes a `/v1/messages` con un encabezado `anthropic-version` reciben una envoltura con forma de Anthropic `{"type": "error", "error": {"type", "message"}}`.
 
 ### Errores de futures interactivos
 
@@ -94,15 +101,27 @@ El cuerpo de la solicitud - normalmente una carga de archivo para una evaluació
 
 El cuerpo de la solicitud no superó la validación. Falta un campo obligatorio, un campo tiene el tipo incorrecto, o un valor está fuera del rango aceptado.
 
-**Cómo solucionarlo:** Revisa el `message` del error para identificar el campo específico que falló. Las causas comunes incluyen:
+**Cómo solucionarlo:** Revisa `error.message` y los elementos de `error.errors` para identificar el campo específico que falló. Las causas comunes incluyen:
 
 - Omitir `model` o `type` en `POST /v1/training/jobs`
 - Enviar menos de 1 o más de 1.000 cadenas en el arreglo `inputs` para endpoints de etiquetas existentes
 
 ```json
 {
-    "detail": "For 'POST /v1/training/jobs', ...",
-    "errors": [...]
+  "error": {
+    "message": "For 'models', 'query.limit' is invalid: Input should be greater than or equal to 1.",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null,
+    "errors": [
+      {
+        "type": "greater_than_equal",
+        "location": "query.limit",
+        "raw_location": ["query", "limit"],
+        "message": "'query.limit' is invalid: Input should be greater than or equal to 1"
+      }
+    ]
+  }
 }
 ```
 

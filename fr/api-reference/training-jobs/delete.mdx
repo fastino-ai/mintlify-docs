@@ -7,7 +7,11 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-Supprime le job et ses artefacts stockés. Si le job est actif, le service l'arrête également.
+<Warning>
+  La surface renommée `/v1/training/jobs` est vérifiée en développement, pas en production. La production peut renvoyer `404`.
+</Warning>
+
+Supprime le job et ses artefacts stockés. Si le job est actif, le service demande d'abord son arrêt. La suppression se termine dans le même appel uniquement lorsque l'annulation est confirmée.
 
 <Warning>
   La suppression est irréversible. Téléchargez d'abord tout ce dont vous avez besoin vers un stockage que vous contrôlez. La suppression retire les checkpoints et les artefacts stockés et libère les déploiements hébergés actifs.
@@ -39,13 +43,18 @@ curl -X DELETE https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
 ```json Response
 {
   "success": true,
-  "message": "Training job deleted"
+  "message": "Training job deleted successfully"
 }
 ```
 
 </ResponseExample>
 
 Un job inconnu ou inaccessible renvoie `404`.
+
+| Statut | Signification |
+| --- | --- |
+| `409 training_job_already_finished` | Le job s'est terminé ou a échoué avant la prise en compte de l'annulation. Consultez son état avant de décider de réessayer. |
+| `409 cancellation_unconfirmed` | Le job est encore en cours d'arrêt. Interrogez `GET /v1/training/jobs/{job_id}`, puis réessayez ce `DELETE` une fois le job arrêté. La suppression ne se termine pas en arrière-plan. |
 
 ## Autorisation
 

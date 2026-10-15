@@ -7,7 +7,11 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-删除任务及其存储的工件。如果任务处于活动状态，服务还会将其停止。
+<Warning>
+  重命名后的 `/v1/training/jobs` 接口已在开发环境验证，但尚未在生产环境验证。生产环境可能返回 `404`。
+</Warning>
+
+删除任务及其存储的工件。如果任务处于活动状态，服务会先请求停止。只有在取消得到确认时，删除才会在同一次调用中完成。
 
 <Warning>
   删除操作不可撤销。请先将您需要保留的内容下载到您控制的存储中。删除会移除检查点和已存储的工件，并释放正在运行的托管部署。
@@ -39,13 +43,18 @@ curl -X DELETE https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
 ```json Response
 {
   "success": true,
-  "message": "Training job deleted"
+  "message": "Training job deleted successfully"
 }
 ```
 
 </ResponseExample>
 
 未知或无法访问的任务返回 `404`。
+
+| 状态 | 含义 |
+| --- | --- |
+| `409 training_job_already_finished` | 取消生效前任务已完成或失败。决定是否重试前，请先读取任务状态。 |
+| `409 cancellation_unconfirmed` | 任务仍在停止。轮询 `GET /v1/training/jobs/{job_id}`，待任务停止后重试此 `DELETE`。删除不会在后台自动完成。 |
 
 ## 授权
 

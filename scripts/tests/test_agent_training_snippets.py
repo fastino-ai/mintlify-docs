@@ -511,8 +511,9 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertIn("nonterminal", future)
         for status in ("`completed`", "`failed`", "`cancelled`"):
             self.assertIn(status, future)
-        self.assertIn("Only sample futures can be cancelled", cancel)
-        self.assertIn("Training futures", cancel)
+        self.assertIn("Cancellation is best effort", cancel)
+        self.assertIn("training future", cancel)
+        self.assertIn("successful no-op", cancel)
         self.assertIn("POST /v1/training/jobs/{job_id}/save-weights", save)
         self.assertIn(
             "POST /v1/training/jobs/{job_id}/save-weights-for-sampler",

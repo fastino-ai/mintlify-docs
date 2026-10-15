@@ -146,19 +146,30 @@ backward = call(
     f"/v1/training/jobs/{job_id}/forward-backward",
     {"datums": datums, "loss_fn": "importance_sampling"},
 )
+train_result = wait(job_id, backward["future_id"])
 update = call(
     "POST",
     f"/v1/training/jobs/{job_id}/optim-step",
     {"adam_params": {"learning_rate": 1e-5}},
 )
-train_result = wait(job_id, backward["future_id"])
 optim_result = wait(job_id, update["future_id"])
 ```
 
-Beide Operationen aktualisieren denselben Job in der Reihenfolge, in der sie
-gesendet wurden. Warten Sie auf jedes Ergebnis und protokollieren Sie es, bevor
-Sie den Anwendungsschritt fortschreiben. Für geclippte Ziele verwenden Sie `ppo`
-oder `cispo` mit Schwellenwerten in `loss_fn_config`.
+Warten Sie auf den erfolgreichen Abschluss von Forward-Backward, bevor Sie den
+Optimiererschritt senden. Warten Sie auf das Optimierergebnis und protokollieren
+Sie es, bevor Sie den Anwendungsschritt fortschreiben.
+
+Unterstützte `loss_fn_config`-Felder und Standardwerte:
+
+| Gilt für | Felder und Standardwerte |
+| --- | --- |
+| `ppo` | `clip_low_threshold: 0.8`, `clip_high_threshold: 1.2` |
+| `cispo` | `clip_low_threshold: 0.0`, `clip_high_threshold: 4.0` |
+| `dro` | `beta: 0.05` |
+| Reward-Losses | `tis_cap: 2`, `icepop_low: 0.5`, `icepop_high: 5` |
+
+Die Schutzmechanismen der letzten Zeile sind standardmäßig aktiviert.
+Unbekannte Konfigurationsfelder werden abgelehnt.
 
 ## 6. Wiederherstellungspunkt speichern
 

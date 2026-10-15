@@ -9,13 +9,18 @@ Native Clients erstellen einen `interactive`-Job über [`POST /v1/training/jobs/
 
 `POST /v1/training/jobs`
 
+<Warning>
+  Diese umbenannte Training API ist im Entwicklungsvertrag verfügbar. Der Produktions-Rollout ist noch nicht bestätigt: Produktion kann für `/v1/training/jobs` `404` zurückgeben. Prüfen Sie die Verfügbarkeit für Ihr Team, bevor Sie kostenpflichtiges Training starten.
+</Warning>
+
 Erstellt einen asynchronen `config`-Trainingsjob und gibt dessen Job-Datensatz
 zurück. Bei einem Config-Job stellen Sie einen Datensatz und eine Konfiguration
 bereit, und Fastino führt den Trainingsloop aus.
 
-Config-Jobs trainieren GLiNER-Encoder: `fastino/gliner2-multi-v1` und
-`fastino/GLiNER-2.5-Decide`. Decoder-Basismodelle geben `400` zurück;
-trainieren Sie Decoder stattdessen Schritt für Schritt mit einem interaktiven Job.
+Config-Jobs trainieren Encoder-Modelle, die von
+`GET /v1/base-models?supports_training=true` zurückgegeben werden und eine
+kompatible Config-Job-Dispatchroute haben. Decoder-Basismodelle geben `400`
+zurück; trainieren Sie Decoder stattdessen Schritt für Schritt mit einem interaktiven Job.
 
 Um den Loop Schritt für Schritt zu steuern, erstellen Sie einen `interactive`-Job mit
 [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
@@ -31,12 +36,16 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   Ihr Fastino-API-Schlüssel.
 </ParamField>
 
+<ParamField header="Idempotency-Key" type="string">
+  Vom Client erzeugter Retry-Schlüssel mit 1–255 Zeichen; eine UUID wird empfohlen. Derselbe Schlüssel mit demselben Body gibt den ursprünglichen Job zurück. Derselbe Schlüssel mit einem anderen Body gibt `422` zurück.
+</ParamField>
+
 <ParamField body="model_name" type="string" required>
   Anzeigename für das trainierte Modell. Länge: 1–100 Zeichen.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Eine GLiNER-Encoder-ID, `fastino/gliner2-multi-v1` oder `fastino/GLiNER-2.5-Decide`, oder eine unterstützte Checkpoint-UUID. Ein Decoder-Basismodell gibt `400` zurück.
+  Eine trainierbare Encoder-ID aus `GET /v1/base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID. Der ausgewählte `training_type` muss eine kompatible Dispatchroute haben. Ein Decoder-Basismodell gibt `400` zurück.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -48,19 +57,19 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 </ParamField>
 
 <ParamField body="validation_data_percentage" type="number" default="0.2">
-  Für die Validierung zurückgehaltener Anteil, von `0` bis `0.9`.
+  Für die Validierung zurückgehaltener Anteil, von `0` bis `0.9` in Schritten von `0.01`.
 </ParamField>
 
 <ParamField body="nr_epochs" type="integer" default="100">
-  Maximale Anzahl an Epochen. Muss mindestens `1` sein; Early Stopping kann früher beenden.
+  Maximale Anzahl an Epochen, von `1` bis `10000`; Early Stopping kann früher beenden.
 </ParamField>
 
 <ParamField body="learning_rate" type="number">
-  Positive maximale Lernrate. Lassen Sie das Feld weg, um das Trainingsrezept des ausgewählten Modells zu verwenden.
+  Maximale Lernrate von `1e-8` bis `1`. Lassen Sie das Feld weg, um das Trainingsrezept des ausgewählten Modells zu verwenden.
 </ParamField>
 
 <ParamField body="batch_size" type="integer" default="4">
-  Batch-Größe pro Gerät. Am besten weglassen, damit der Trainingsdienst den modellspezifischen Standardwert anwenden oder sicher begrenzen kann.
+  Batch-Größe pro Gerät von `1` bis `256`. Am besten weglassen, damit der Trainingsdienst den modellspezifischen Standardwert anwenden oder sicher begrenzen kann.
 </ParamField>
 
 <ParamField body="seed" type="integer">
@@ -73,7 +82,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 
 <Expandable title="Zusätzliche Trainingsparameter">
   <ParamField body="save_steps" type="integer" default="100">
-    Speichert alle N Schritte einen Checkpoint.
+    Speichert alle N Schritte einen Checkpoint, mit N von `1` bis `2147483647`.
   </ParamField>
 
   <ParamField body="profile_training" type="boolean" default="false">
@@ -85,23 +94,15 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="lora_r" type="integer">
-    LoRA-Rang. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
+    LoRA-Rang von `1` bis `256`. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
   </ParamField>
 
   <ParamField body="lora_alpha" type="integer">
-    LoRA-Alpha. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
+    Positives LoRA-Alpha bis `2147483647`. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
   </ParamField>
 
   <ParamField body="lora_dropout" type="number">
-    LoRA-Dropout. Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
-  </ParamField>
-
-  <ParamField body="packing" type="boolean">
-    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
+    LoRA-Dropout von `0` (inklusive) bis `1` (exklusive). Lassen Sie das Feld weg, um das Modellrezept zu verwenden.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -109,7 +110,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    Positive absolute Anzahl an Warmup-Schritten.
+    Absolute Anzahl an Warmup-Schritten von `1` bis `2147483647`.
   </ParamField>
 
   <ParamField body="lr_scheduler_type" type="string" default="cosine">
@@ -121,27 +122,23 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
-    Validierungs-Epochen ohne Verbesserung, bevor gestoppt wird. Auf `0` setzen, um es zu deaktivieren.
+    Validierungs-Epochen ohne Verbesserung, bevor gestoppt wird, von `0` bis `10000`. Auf `0` setzen, um es zu deaktivieren.
   </ParamField>
 
   <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
-    Minimale Verbesserung des Validierungs-Loss, die als Fortschritt zählt.
+    Nicht-negative minimale Verbesserung des Validierungs-Loss, die als Fortschritt zählt.
   </ParamField>
 
   <ParamField body="provider_name" type="string">
     Fixiert einen kompatiblen Trainingsanbieter. Weglassen für automatische Auswahl.
   </ParamField>
 
-  <ParamField body="system_prompt" type="string">
-    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
-  </ParamField>
-
   <ParamField body="encoder_learning_rate" type="number">
-    Lernrate des GLiNER-Encoders. Fällt auf `learning_rate` zurück.
+    Lernrate des GLiNER-Encoders von `1e-8` bis `1`. Fällt auf `learning_rate` zurück.
   </ParamField>
 
   <ParamField body="task_learning_rate" type="number">
-    Lernrate des GLiNER-Task-Head. Fällt auf `learning_rate` zurück.
+    Lernrate des GLiNER-Task-Head von `1e-8` bis `1`. Fällt auf `learning_rate` zurück.
   </ParamField>
 
   <ParamField body="gradient_accumulation_steps" type="integer">
@@ -153,27 +150,43 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="min_samples_per_dataset" type="integer">
-    Untere Schranke der GLiNER-Auto-Größenanpassung.
+    Untere Schranke der GLiNER-Auto-Größenanpassung von `1` bis `2147483647`.
   </ParamField>
 
   <ParamField body="max_samples_per_dataset" type="integer">
-    Obere Schranke der GLiNER-Auto-Größenanpassung.
+    Obere Schranke der GLiNER-Auto-Größenanpassung von `1` bis `2147483647`.
   </ParamField>
 
   <ParamField body="samples_per_label" type="integer">
-    Skalierungsfaktor pro Label bei der GLiNER-Auto-Größenanpassung.
+    Skalierungsfaktor pro Label bei der GLiNER-Auto-Größenanpassung von `1` bis `2147483647`.
   </ParamField>
 
   <ParamField body="min_training_steps" type="integer">
-    Minimale Anzahl an GLiNER-Optimizer-Schritten.
+    Minimale Anzahl an GLiNER-Optimizer-Schritten von `0` bis `2147483647`.
+  </ParamField>
+
+  <ParamField body="eval_steps" type="integer">
+    Intervall für periodische GLiNER2-Validierung, von `1` bis `2147483647` Optimizer-Schritten. Weglassen für Validierung nur am Epochenende.
+  </ParamField>
+
+  <ParamField body="max_eval_samples" type="integer">
+    Obergrenze pro Datensatz für periodische GLiNER2-Validierung, von `1` bis `2147483647`. Weglassen für keine Obergrenze.
+  </ParamField>
+
+  <ParamField body="max_length" type="integer">
+    Maximale GLiNER-Eingabelänge, von `1` bis `2147483647` Tokens. Weglassen, um das Kontextlimit des Modells zu verwenden.
+  </ParamField>
+
+  <ParamField body="max_gold_per_query" type="integer">
+    Maximale Anzahl beibehaltener Gold-Spans pro GLiNER2-Abfrage, von `1` bis `1024`. Weglassen für `32`.
+  </ParamField>
+
+  <ParamField body="on_capacity_exceeded" type="string">
+    Verhalten bei mehr Gold-Spans als `max_gold_per_query`: `raise`, `truncate_with_warning` oder `skip_sample`. Weglassen für `raise`.
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
     Config-Jobs unterstützen nur `sft`. Weglassen, um den Standard zu verwenden.
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    Nur für Decoder. Nicht anwendbar: Config-Jobs trainieren keine Decoder.
   </ParamField>
 
 </Expandable>
@@ -183,6 +196,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs \
   -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Idempotency-Key: YOUR_UNIQUE_RETRY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model_name": "my-model-name",
@@ -199,7 +213,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 
 ## Response
 
-Gibt `200` mit dem vollständigen Trainings-Job-Datensatz zurück, einschließlich einer UUID `id` und dem Anfangsstatus.
+Gibt `200` mit dem vollständigen Trainings-Job-Datensatz zurück, einschließlich einer UUID `id` und dem Anfangsstatus. Das folgende Beispiel ist gekürzt; die tatsächliche Antwort enthält alle durch `TrainingJobResponse` definierten Felder.
 
 <ResponseExample>
 
@@ -222,6 +236,16 @@ Gibt `200` mit dem vollständigen Trainings-Job-Datensatz zurück, einschließli
 Speichern Sie die `id` aus dieser Antwort. Sie verwenden sie, um den Status abzufragen, Metriken und Artefakte abzurufen und Inferenz gegen das trainierte Modell auszuführen.
 
 Ein fehlerhaft aufgebauter Body gibt `422` zurück. Eine gültige, aber nicht verfügbare Kombination aus Modell, Datensatz, Trainingstyp oder Anbieter gibt einen anfragespezifischen `4xx`-Fehler zurück.
+
+Die Erstellung kann folgende codierte Konflikte zurückgeben:
+
+| Status | Bedeutung |
+| --- | --- |
+| `409 duplicate_training_submission` | Ein identischer Job ist bereits aktiv. |
+| `409 idempotency_key_job_deleted` | Der ursprünglich mit diesem Idempotenzschlüssel erstellte Job wurde gelöscht. Verwenden Sie für einen neuen Job einen neuen Schlüssel. |
+| `409` | Ein referenzierter Datensatz wurde zwischen Validierung und Job-Insertion außer Betrieb genommen. Beheben Sie den Datensatz und versuchen Sie es mit einem neuen Schlüssel erneut. |
+
+Derselbe `Idempotency-Key` mit identischem Body spielt den ursprünglichen Job erneut ab, statt einen neuen zu erstellen. Ein geänderter Body mit demselben Schlüssel gibt `422` zurück.
 
 Ein Decoder-Basismodell gibt `400` zurück:
 

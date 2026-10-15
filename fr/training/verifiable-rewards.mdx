@@ -147,19 +147,30 @@ backward = call(
     f"/v1/training/jobs/{job_id}/forward-backward",
     {"datums": datums, "loss_fn": "importance_sampling"},
 )
+train_result = wait(job_id, backward["future_id"])
 update = call(
     "POST",
     f"/v1/training/jobs/{job_id}/optim-step",
     {"adam_params": {"learning_rate": 1e-5}},
 )
-train_result = wait(job_id, backward["future_id"])
 optim_result = wait(job_id, update["future_id"])
 ```
 
-Les deux opérations mettent à jour le même job, dans l'ordre d'envoi. Attendez
-et enregistrez chaque résultat avant de faire avancer l'étape de l'application.
-Pour des objectifs écrêtés, utilisez `ppo` ou `cispo` avec des seuils dans
-`loss_fn_config`.
+Attendez la réussite de forward-backward avant d'envoyer l'étape d'optimiseur.
+Attendez et enregistrez le résultat de l'optimiseur avant de faire avancer
+l'étape de l'application.
+
+Champs et valeurs par défaut pris en charge dans `loss_fn_config` :
+
+| S'applique à | Champs et valeurs par défaut |
+| --- | --- |
+| `ppo` | `clip_low_threshold: 0.8`, `clip_high_threshold: 1.2` |
+| `cispo` | `clip_low_threshold: 0.0`, `clip_high_threshold: 4.0` |
+| `dro` | `beta: 0.05` |
+| Pertes de récompense | `tis_cap: 2`, `icepop_low: 0.5`, `icepop_high: 5` |
+
+Les protections de la dernière ligne sont activées par défaut. Les champs de
+configuration inconnus sont rejetés.
 
 ## 6. Enregistrer un point de reprise
 

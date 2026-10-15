@@ -128,16 +128,27 @@ backward = call(
     f"/v1/training/jobs/{job_id}/forward-backward",
     {"datums": datums, "loss_fn": "importance_sampling"},
 )
+train_result = wait(job_id, backward["future_id"])
 update = call(
     "POST",
     f"/v1/training/jobs/{job_id}/optim-step",
     {"adam_params": {"learning_rate": 1e-5}},
 )
-train_result = wait(job_id, backward["future_id"])
 optim_result = wait(job_id, update["future_id"])
 ```
 
-两个 operation 按发送顺序更新同一个任务。在推进应用步骤之前，请等待并记录每个结果。对于带裁剪的目标，请使用 `ppo` 或 `cispo`，并在 `loss_fn_config` 中设置阈值。
+请等待 forward-backward 成功完成后再提交优化器步骤。在推进应用步骤之前，请等待并记录优化器结果。
+
+支持的 `loss_fn_config` 字段和默认值：
+
+| 适用范围 | 字段和默认值 |
+| --- | --- |
+| `ppo` | `clip_low_threshold: 0.8`、`clip_high_threshold: 1.2` |
+| `cispo` | `clip_low_threshold: 0.0`、`clip_high_threshold: 4.0` |
+| `dro` | `beta: 0.05` |
+| 奖励损失 | `tis_cap: 2`、`icepop_low: 0.5`、`icepop_high: 5` |
+
+最后一行中的奖励损失保护机制默认启用。未知配置字段会被拒绝。
 
 ## 6. 保存恢复边界
 

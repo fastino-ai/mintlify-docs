@@ -8,21 +8,28 @@ Die Fastino API verwendet standardmäßige HTTP-Statuscodes, um das Ergebnis jed
 
 ## Format der Fehlerantwort
 
-Die meisten Fehlerantworten geben einen JSON-Body mit einem `detail`-Feld zurück:
+Die meisten synchronen API-Fehler verwenden einen gemeinsamen verschachtelten `error`-Umschlag:
 
 ```json
 {
-  "detail": "..."
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "..."
+  }
 }
 ```
 
-Einige Antwortfamilien verwenden eine andere Struktur:
+Validierungsfehler verwenden denselben Umschlag und ergänzen ein `errors`-Array innerhalb von `error`. Jeder Eintrag identifiziert das ungültige Feld mit `location` und `raw_location` und erläutert den Fehler in `message`.
 
-- **Abrechnungsablehnungen** (`402`, einige `403`) geben `{"code", "message", "resolution_url"}` anstelle von `detail` zurück – siehe [402](#402-zahlung-erforderlich) und [403](#403-verboten) unten.
+Einige Endpunktfamilien verwenden bewusst andere Strukturen:
+
+- **Abrechnungsablehnungen** (`402`, einige `403`) geben `{"code", "message", "resolution_url"}` anstelle des verschachtelten Umschlags zurück – siehe [402](#402-zahlung-erforderlich) und [403](#403-verboten) unten.
 - **Aufwärm-Antworten** (`425`) enthalten einen `Retry-After`-Header. OpenAI-förmige Bodies enthalten zusätzlich `code: "model_warming"` – siehe [425](#425-zu-früh) unten.
-- **Rate-Limit-Antworten** (`429`) fügen neben `detail` die Felder `code` und `scope` sowie die Header `X-RateLimit-Scope` und `X-RateLimit-Code` hinzu – siehe [429](#429-zu-viele-anfragen) unten.
-- **Unbehandelte Serverfehler** (`500`) geben `{"error", "message"}` anstelle von `detail` zurück.
-- Anfragen an die OpenAI-kompatiblen Endpunkte (`/v1/chat/completions`, `/v1/responses`) erhalten einen OpenAI-förmigen `{"error": {"code", "type", "param", "message"}}`-Umschlag, und Anfragen mit einem `anthropic-version`-Header erhalten stattdessen einen Anthropic-förmigen `{"type": "error", "error": {"type", "message"}}`-Umschlag anstelle der oben genannten generischen Strukturen.
+- **Rate-Limit-Antworten** (`429`) fügen auf oberster Ebene neben `detail` die Felder `code` und `scope` sowie die Header `X-RateLimit-Scope` und `X-RateLimit-Code` hinzu – siehe [429](#429-zu-viele-anfragen) unten.
+- **Unbehandelte Serverfehler** (`500`) geben `{"error", "message"}` anstelle des verschachtelten Umschlags zurück.
+- Anfragen an `/v1/messages` mit einem `anthropic-version`-Header erhalten einen Anthropic-förmigen `{"type": "error", "error": {"type", "message"}}`-Umschlag.
 
 ### Fehler interaktiver Futures
 
@@ -94,15 +101,27 @@ Der Anfrage-Body – typischerweise ein Datei-Upload für eine Evaluation oder e
 
 Die Validierung des Anfrage-Bodys ist fehlgeschlagen. Ein erforderliches Feld fehlt, ein Feld hat den falschen Typ oder ein Wert liegt außerhalb des zulässigen Bereichs.
 
-**Behebung:** Prüfen Sie die `message` des Fehlers auf das jeweils fehlgeschlagene Feld. Häufige Ursachen sind:
+**Behebung:** Prüfen Sie `error.message` und die Einträge in `error.errors` auf das jeweils fehlgeschlagene Feld. Häufige Ursachen sind:
 
 - Weglassen von `model` oder `type` bei `POST /v1/training/jobs`
 - Senden von weniger als 1 oder mehr als 1.000 Strings im `inputs`-Array bei Endpunkten zum Labeln vorhandener Daten
 
 ```json
 {
-    "detail": "For 'POST /v1/training/jobs', ...",
-    "errors": [...]
+  "error": {
+    "message": "For 'models', 'query.limit' is invalid: Input should be greater than or equal to 1.",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null,
+    "errors": [
+      {
+        "type": "greater_than_equal",
+        "location": "query.limit",
+        "raw_location": ["query", "limit"],
+        "message": "'query.limit' is invalid: Input should be greater than or equal to 1"
+      }
+    ]
+  }
 }
 ```
 

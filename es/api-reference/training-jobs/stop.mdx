@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
+<Warning>
+  La superficie renombrada `/v1/training/jobs` está verificada en desarrollo, no en producción. Producción puede devolver `404`.
+</Warning>
+
 Detiene un trabajo en ejecución y conserva los checkpoints creados antes de detenerlo. En un trabajo interactivo, la solicitud responde de inmediato y rechaza llamadas nuevas. Las operaciones ya encoladas pueden terminar antes de liberar los recursos. El uso puede continuar hasta esa liberación.
 
 ## Solicitud
@@ -72,7 +76,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json Response
 {
   "success": true,
-  "message": "Training job stopped",
+  "message": "Training job stopped successfully. Checkpoints preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopped"
 }
@@ -81,7 +85,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json 202 — cancelación pendiente
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Cancellation in progress. The job moves to 'stopped' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopping"
 }
@@ -115,11 +119,12 @@ Los siguientes estados y detalles de error solo se aplican a trabajos config.
 | Estado | Significado |
 | --- | --- |
 | `200` | El trabajo está detenido y los checkpoints existentes siguen disponibles. |
-| `202` | La cancelación del proveedor todavía se está confirmando. |
+| `202` | La cancelación está en curso mientras el proveedor la confirma. |
 | `400` | El ID del trabajo config o la solicitud no son válidos. |
 | `409 training_job_already_finished` | El trabajo alcanzó un estado terminal antes de la detención. |
+| `409 cancellation_unconfirmed` | El proveedor no confirmó la cancelación. Consulta el estado y reintenta cuando corresponda. |
 | `422` | El cuerpo JSON de la solicitud del trabajo config no es válido. |
 
-## Autorización
+## Autorización de trabajos config
 
-Requiere el rol Owner, Admin o Editor del equipo. Los demás roles reciben `403 Forbidden`.
+Para trabajos config, esta operación requiere el rol Owner, Admin o Editor del equipo. Los demás roles reciben `403 Forbidden`. El controlador interactivo nativo usa la autorización del llamante del runtime interactivo; no infieras la RBAC de trabajos config a partir de esta ruta compartida.

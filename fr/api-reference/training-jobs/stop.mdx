@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
+<Warning>
+  La surface renommée `/v1/training/jobs` est vérifiée en développement, pas en production. La production peut renvoyer `404`.
+</Warning>
+
 Arrête un job en cours et conserve les checkpoints créés avant l'arrêt. Pour un job interactif, la requête répond immédiatement et rejette les nouveaux appels. Les opérations déjà en file peuvent se terminer avant la libération des ressources. L'utilisation peut continuer jusqu'à cette libération.
 
 ## Requête
@@ -72,7 +76,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json Response
 {
   "success": true,
-  "message": "Training job stopped",
+  "message": "Training job stopped successfully. Checkpoints preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopped"
 }
@@ -81,7 +85,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 ```json 202 — annulation en attente
 {
   "success": true,
-  "message": "Training job cancellation is still being confirmed.",
+  "message": "Cancellation in progress. The job moves to 'stopped' once the provider confirms; checkpoints are preserved.",
   "job_id": "YOUR_TRAINING_JOB_ID",
   "status": "stopping"
 }
@@ -116,11 +120,12 @@ configuration.
 | Statut | Signification |
 | --- | --- |
 | `200` | Le job est arrêté et les checkpoints existants restent disponibles. |
-| `202` | La confirmation de l'annulation par le fournisseur est toujours en attente. |
+| `202` | L'annulation est en cours pendant que le fournisseur la confirme. |
 | `400` | L'ID du job de configuration ou la requête n'est pas valide. |
 | `409 training_job_already_finished` | Le job a atteint un état terminal avant l'arrêt. |
+| `409 cancellation_unconfirmed` | Le fournisseur n'a pas confirmé l'annulation. Consultez l'état du job, puis réessayez si nécessaire. |
 | `422` | Le corps JSON de la requête du job de configuration n'est pas valide. |
 
-## Autorisation
+## Autorisation des jobs de configuration
 
-Nécessite le rôle Owner, Admin ou Editor de l’équipe. Les autres rôles reçoivent `403 Forbidden`.
+Pour les jobs de configuration, cette opération nécessite le rôle Owner, Admin ou Editor de l'équipe. Les autres rôles reçoivent `403 Forbidden`. Le gestionnaire interactif natif utilise l'autorisation de l'appelant du runtime interactif ; ne déduisez pas la RBAC des jobs de configuration de ce chemin partagé.

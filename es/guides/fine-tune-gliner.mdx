@@ -13,6 +13,10 @@ Establece `FASTINO_API_KEY` como se muestra en la [descripción general de la AP
 de entrenamiento](/es/training). Los ejemplos la envían en el encabezado
 `X-API-Key` y usan `jq` para leer las respuestas JSON.
 
+Los roles Owner o Admin pueden completar toda la guía. El rol Editor puede
+subir un dataset y crear un trabajo de entrenamiento, pero no puede realizar
+el despliegue en vivo.
+
 ## 1. Elige la tarea
 
 <CardGroup cols={2}>
@@ -155,9 +159,12 @@ curl --fail-with-body -sS -X POST \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-Vuelve a consultar el trabajo hasta que su estado de despliegue esté listo. El
-ID del trabajo de entrenamiento es el identificador de modelo que se usa para
-la inferencia alojada.
+Una respuesta correcta significa que el despliegue y la publicación del
+artefacto finalizaron de forma síncrona. Incluye `success: true`, los ID del
+trabajo y del checkpoint, y el `deployment_path` canónico; `mme_path` es un
+alias de compatibilidad obsoleto. No hay otro estado de despliegue listo que
+consultar. El ID del trabajo de entrenamiento es el identificador de modelo
+que se usa para la inferencia alojada.
 
 ## 7. Ejecuta inferencia con GLiNER
 
@@ -182,6 +189,14 @@ curl --fail-with-body -sS \
     }
   }" | jq -r '.choices[0].message.content | fromjson'
 ```
+
+Inmediatamente después del despliegue, la inferencia puede devolver `425`,
+`429` o `503` mientras se habilita la capacidad de servicio o se aplica un
+límite de solicitudes. Reintenta solo esos estados, usa un valor entero no
+negativo de `Retry-After` cuando esté presente, limita cada espera (por ejemplo,
+a 30 segundos) y detente tras un número limitado de intentos (por ejemplo,
+cinco). Falla de inmediato para otros estados y muestra la respuesta final si
+se alcanza el límite.
 
 <CardGroup cols={2}>
   <Card title="Llama a GLiNER" icon="braces" href="/es/inference/chat-completions">

@@ -27,12 +27,14 @@ pip install "tinker==0.32.0"
 
 ```bash macOS/Linux
 export FASTINO_API_KEY="fast_sk_..."
+unset TINKER_API_KEY
 export TINKER_BASE_URL="https://api.fastino.ai/v1/training/compat/tinker"
 export TINKER_CREDENTIAL_CMD='printf "%s\n" "$FASTINO_API_KEY"'
 ```
 
 ```powershell Windows
 $env:FASTINO_API_KEY = "fast_sk_..."
+Remove-Item Env:TINKER_API_KEY -ErrorAction SilentlyContinue
 $env:TINKER_BASE_URL = "https://api.fastino.ai/v1/training/compat/tinker"
 $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.WriteLine($env:FASTINO_API_KEY)"'
 ```
@@ -42,7 +44,8 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 `TINKER_CREDENTIAL_CMD` wird bei jedem Token-Request ausgeführt und muss
 nicht leere Anmeldedaten ausgeben. Verwenden Sie einen normalen Fastino-
 `fast_sk_`-Schlüssel; Anmeldedaten mit `tml-` werden abgelehnt. Setzen Sie
-`TINKER_API_KEY` nicht.
+`TINKER_API_KEY` zurück: Ein Umgebungswert hat Vorrang vor
+`TINKER_CREDENTIAL_CMD`.
 
 ## 3. Verbindung prüfen
 
@@ -60,7 +63,8 @@ expliziten TTL vor dem Sampling speichern. Erhöhen Sie danach die Workload-Grö
 
 ## Tinker-SDK-Kompatibilität
 
-Jeder Tinker-Trainingsclient ist ein interaktiver Fastino-Job. Die
+Mit `tinker==0.32.0` ist jeder Tinker-Trainingsclient ein interaktiver
+Fastino-Job. Die
 SDK-Modell-ID ist zugleich seine ID unter `/v1/training/jobs`.
 
 | Bereich | Unterstütztes Verhalten |
@@ -81,6 +85,9 @@ SDK-Modell-ID ist zugleich seine ID unter `/v1/training/jobs`.
     `unpublish_checkpoint_from_tinker_path`,
     `set_checkpoint_ttl_from_tinker_path`,
     `get_current_checkpoint_storage_usage` und `get_billing_usage`.
+
+    Die Laufauflistung liest nur interaktive Läufe. Verwenden Sie
+    `/v1/training/jobs`, um Config- und interaktive Jobs aufzulisten.
   </Accordion>
   <Accordion title="Limits">
     - Der LoRA-Rang muss zwischen 1 und 32 liegen.
@@ -89,7 +96,7 @@ SDK-Modell-ID ist zugleich seine ID unter `/v1/training/jobs`.
     - Prompt-Chunks müssen `encoded_text` verwenden.
     - Trainingsoperationen laufen der Reihe nach; ihre Futures können nicht abgebrochen werden.
     - Downloads erfordern die Berechtigung zum Herunterladen von Gewichten. Ohne sie wird `403` zurückgegeben; wenden Sie sich an sales@fastino.ai.
-    - Veröffentlichung ändert nur die Sichtbarkeit im besitzenden Team.
+    - Veröffentlichung ändert nur die Sichtbarkeit im besitzenden Team. Der Pfad kann dadurch nicht von einem anderen Team geladen werden.
   </Accordion>
   <Accordion title="Nicht unterstützte Aufrufe">
     - Batch-Abruf mit `retrieve_futures`

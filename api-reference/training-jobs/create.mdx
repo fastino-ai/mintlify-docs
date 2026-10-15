@@ -7,6 +7,10 @@ api: "POST /v1/training/jobs"
 
 `POST /v1/training/jobs`
 
+<Warning>
+  This renamed Training API is available in the development contract. Its production rollout is not yet verified: production may return `404` for `/v1/training/jobs`. Confirm availability for your team before launching paid work.
+</Warning>
+
 Creates an asynchronous `config` training job and returns its job record. In a
 config job, you provide a dataset and configuration and Fastino runs the
 training loop. To control the loop step by step, follow the
@@ -17,9 +21,10 @@ or the supported Tinker SDK. This endpoint does not create interactive jobs.
 After creation, both job types use their canonical IDs with the documented
 `/v1/training/jobs/{job_id}` lifecycle operations.
 
-Config jobs train GLiNER encoders: `fastino/gliner2-multi-v1` and
-`fastino/GLiNER-2.5-Decide`. Decoder base models return `400`; train decoders
-step by step with an interactive job instead.
+Config jobs train encoder models that are returned by
+`GET /v1/base-models?supports_training=true` and have a compatible config-job
+dispatch route. Decoder base models return `400`; train decoders step by step
+with an interactive job instead.
 
 This endpoint is limited to 20 requests per minute per user.
 
@@ -29,12 +34,16 @@ This endpoint is limited to 20 requests per minute per user.
   Your Fastino API key.
 </ParamField>
 
+<ParamField header="Idempotency-Key" type="string">
+  Client-generated retry key, 1–255 characters; a UUID is recommended. Repeating the same key and body returns the original job. Reusing the key with a different body returns `422`.
+</ParamField>
+
 <ParamField body="model_name" type="string" required>
   Display name for the trained model. Length: 1–100 characters.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  A GLiNER encoder ID, `fastino/gliner2-multi-v1` or `fastino/GLiNER-2.5-Decide`, or a supported checkpoint UUID. A decoder base model returns `400`.
+  A trainable encoder ID returned by `GET /v1/base-models?supports_training=true`, or a supported checkpoint UUID. The selected `training_type` must have a compatible dispatch route. A decoder base model returns `400`.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -46,19 +55,19 @@ This endpoint is limited to 20 requests per minute per user.
 </ParamField>
 
 <ParamField body="validation_data_percentage" type="number" default="0.2">
-  Fraction held out for validation, from `0` to `0.9`.
+  Fraction held out for validation, from `0` to `0.9` in increments of `0.01`.
 </ParamField>
 
 <ParamField body="nr_epochs" type="integer" default="100">
-  Maximum epoch count. Must be at least `1`; early stopping can finish sooner.
+  Maximum epoch count, from `1` to `10000`; early stopping can finish sooner.
 </ParamField>
 
 <ParamField body="learning_rate" type="number">
-  Positive peak learning rate. Omit it to use the selected model's training recipe.
+  Peak learning rate from `1e-8` to `1`. Omit it to use the selected model's training recipe.
 </ParamField>
 
 <ParamField body="batch_size" type="integer" default="4">
-  Per-device batch size. Prefer omitting it so the training service can apply or safely clamp to the model-specific default.
+  Per-device batch size from `1` to `256`. Prefer omitting it so the training service can apply or safely clamp to the model-specific default.
 </ParamField>
 
 <ParamField body="seed" type="integer">
@@ -71,7 +80,7 @@ This endpoint is limited to 20 requests per minute per user.
 
 <Expandable title="Additional training parameters">
   <ParamField body="save_steps" type="integer" default="100">
-    Save a checkpoint every N steps.
+    Save a checkpoint every N steps, from `1` to `2147483647`.
   </ParamField>
 
   <ParamField body="profile_training" type="boolean" default="false">
@@ -83,23 +92,15 @@ This endpoint is limited to 20 requests per minute per user.
   </ParamField>
 
   <ParamField body="lora_r" type="integer">
-    LoRA rank. Omit it to use the model recipe.
+    LoRA rank from `1` to `256`. Omit it to use the model recipe.
   </ParamField>
 
   <ParamField body="lora_alpha" type="integer">
-    LoRA alpha. Omit it to use the model recipe.
+    Positive LoRA alpha, up to `2147483647`. Omit it to use the model recipe.
   </ParamField>
 
   <ParamField body="lora_dropout" type="number">
-    LoRA dropout. Omit it to use the model recipe.
-  </ParamField>
-
-  <ParamField body="packing" type="boolean">
-    Decoder-only option. Not applicable: config jobs don't train decoders.
-  </ParamField>
-
-  <ParamField body="mask_history" type="boolean" default="false">
-    Decoder-only option. Not applicable: config jobs don't train decoders.
+    LoRA dropout from `0` (inclusive) to `1` (exclusive). Omit it to use the model recipe.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
@@ -107,7 +108,7 @@ This endpoint is limited to 20 requests per minute per user.
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    Positive absolute warmup-step count.
+    Absolute warmup-step count, from `1` to `2147483647`.
   </ParamField>
 
   <ParamField body="lr_scheduler_type" type="string" default="cosine">
@@ -119,31 +120,27 @@ This endpoint is limited to 20 requests per minute per user.
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
-    Validation epochs without improvement before stopping. Set `0` to disable.
+    Validation epochs without improvement before stopping, from `0` to `10000`. Set `0` to disable.
   </ParamField>
 
   <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
-    Minimum validation-loss improvement that counts as progress.
+    Non-negative minimum validation-loss improvement that counts as progress.
   </ParamField>
 
   <ParamField body="provider_name" type="string">
     Pin a compatible training provider. Omit it for automatic selection.
   </ParamField>
 
-  <ParamField body="system_prompt" type="string">
-    Decoder-only option. Not applicable: config jobs don't train decoders.
-  </ParamField>
-
   <ParamField body="encoder_learning_rate" type="number">
-    GLiNER encoder learning rate. Falls back to `learning_rate`.
+    GLiNER encoder learning rate from `1e-8` to `1`. Falls back to `learning_rate`.
   </ParamField>
 
   <ParamField body="task_learning_rate" type="number">
-    GLiNER task-head learning rate. Falls back to `learning_rate`.
+    GLiNER task-head learning rate from `1e-8` to `1`. Falls back to `learning_rate`.
   </ParamField>
 
   <ParamField body="gradient_accumulation_steps" type="integer">
-    Positive mini-batch accumulation count.
+    Positive mini-batch accumulation count, up to `2147483647`.
   </ParamField>
 
   <ParamField body="auto_data_sizing" type="boolean">
@@ -151,27 +148,43 @@ This endpoint is limited to 20 requests per minute per user.
   </ParamField>
 
   <ParamField body="min_samples_per_dataset" type="integer">
-    GLiNER auto-sizing lower bound.
+    GLiNER auto-sizing lower bound, from `1` to `2147483647`.
   </ParamField>
 
   <ParamField body="max_samples_per_dataset" type="integer">
-    GLiNER auto-sizing upper bound.
+    GLiNER auto-sizing upper bound, from `1` to `2147483647`.
   </ParamField>
 
   <ParamField body="samples_per_label" type="integer">
-    GLiNER auto-sizing scale per label.
+    GLiNER auto-sizing scale per label, from `1` to `2147483647`.
   </ParamField>
 
   <ParamField body="min_training_steps" type="integer">
-    Minimum GLiNER optimizer steps.
+    Minimum GLiNER optimizer steps, from `0` to `2147483647`.
+  </ParamField>
+
+  <ParamField body="eval_steps" type="integer">
+    GLiNER2 periodic validation interval, from `1` to `2147483647` optimizer steps. Omit it to validate only at epoch end.
+  </ParamField>
+
+  <ParamField body="max_eval_samples" type="integer">
+    GLiNER2 per-dataset cap for periodic validation, from `1` to `2147483647`. Omit it for no cap.
+  </ParamField>
+
+  <ParamField body="max_length" type="integer">
+    GLiNER maximum input length, from `1` to `2147483647` tokens. Omit it to use the model context limit.
+  </ParamField>
+
+  <ParamField body="max_gold_per_query" type="integer">
+    GLiNER2 maximum retained gold spans per query, from `1` to `1024`. Omit it to use `32`.
+  </ParamField>
+
+  <ParamField body="on_capacity_exceeded" type="string">
+    GLiNER2 behavior when gold spans exceed `max_gold_per_query`: `raise`, `truncate_with_warning`, or `skip_sample`. Omit it to use `raise`.
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
     Only `sft` is supported for config jobs. Omit it to use the default.
-  </ParamField>
-
-  <ParamField body="rl_config" type="object">
-    Decoder-only option. Not applicable: config jobs don't train decoders.
   </ParamField>
 
 </Expandable>
@@ -181,6 +194,7 @@ This endpoint is limited to 20 requests per minute per user.
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs \
   -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Idempotency-Key: YOUR_UNIQUE_RETRY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model_name": "my-model-name",
@@ -197,7 +211,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 
 ## Response
 
-Returns `200` with the full training-job record, including a UUID `id` and initial status.
+Returns `200` with the full training-job record, including a UUID `id` and initial status. The example below is abbreviated; the actual response includes all fields defined by `TrainingJobResponse`.
 
 <ResponseExample>
 
@@ -220,6 +234,16 @@ Returns `200` with the full training-job record, including a UUID `id` and initi
 Save the `id` from this response. You will use it to poll status, retrieve metrics and artifacts, and run inference against the trained model.
 
 A malformed body returns `422`. A valid but unavailable model, dataset, training type, or provider combination returns a request-specific `4xx` error.
+
+Creation can return these coded conflicts:
+
+| Status | Meaning |
+| --- | --- |
+| `409 duplicate_training_submission` | An identical job is already active. |
+| `409 idempotency_key_job_deleted` | The job originally created with this idempotency key was deleted. Use a new key for a new job. |
+| `409` | A referenced dataset retired between validation and job insertion. Resolve the dataset and retry with a new key. |
+
+The same `Idempotency-Key` and identical body replay the original job instead of creating another. A changed body with the same key returns `422`.
 
 A decoder base model returns `400`:
 

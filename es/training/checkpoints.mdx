@@ -32,10 +32,10 @@ state = call(
     f"/v1/training/jobs/{job_id}/save-weights",
     {"name": f"step-{step:06d}"},
 )
-wait(job_id, state["future_id"])
+state_path = wait(job_id, state["future_id"])
 record = {
     "source_job_id": job_id,
-    "state_path": state["path"],
+    "state_path": state_path,
     "model": model_name,
     "dataset_revision": dataset_revision,
     "optimizer": adam_params,
@@ -48,9 +48,13 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
     checkpoint_log.write(json.dumps(record, sort_keys=True) + "\n")
 ```
 
+La ruta de la respuesta inicial de guardado es provisional. El checkpoint solo
+es duradero cuando termina el future; si falla o se cancela, no persistas ni
+uses esa ruta.
+
 Usa nombres de checkpoint únicos para que cada registro identifique un punto de
 recuperación inequívoco. Los nombres usan de 1 a 128 caracteres de `A-Z`, `a-z`,
-`0-9`, `.`, `_` y `-`.
+`0-9`, `.`, `_` y `-`. Los prefijos `__park-` y `__snap-` están reservados.
 
 ## 2. Lee el registro completo más reciente
 
@@ -91,7 +95,7 @@ Después, elige cómo continuar:
 
 | Situación | Llamada |
 | --- | --- |
-| El trabajo de origen sigue activo y quieres revertir | `POST /v1/training/jobs/{job_id}/load-weights` con `{"path": name, "optimizer": true}` |
+| El trabajo de origen sigue activo y quieres revertir | `POST /v1/training/jobs/{job_id}/load-weights` con `{"path": "<name>", "optimizer": true}` |
 | El trabajo de origen se detuvo o se liberó | `POST /v1/training/jobs/create-model` con `from_checkpoint` y `load_optimizer` |
 
 Para continuar en un trabajo nuevo:
@@ -126,6 +130,12 @@ Si el proceso termina después de guardar el checkpoint pero antes de persistir
 el registro, conserva el registro completo anterior como punto de recuperación
 fiable. No marques un paso como completado antes de que su registro sea duradero.
 
+Los resultados de futures se pueden recuperar durante una hora. En ese plazo,
+consulta el `future_id` de guardado conocido. Si devuelve `410`, no repitas el
+guardado a ciegas: concilia los checkpoints del trabajo con el registro
+duradero. El límite de confirmación a largo plazo es un checkpoint completado
+con su registro duradero de aplicación.
+
 ## 5. Mantén separados los tipos de checkpoint
 
 ```python
@@ -142,13 +152,15 @@ sampler = call(
 )
 ```
 
-| Se guarda con | Ruta | Úsalo para |
-| --- | --- | --- |
-| `save-weights` | `weights/<name>` | Recuperar el entrenamiento: cargarlo o iniciar un trabajo nuevo desde él |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | Rollouts, evaluación y descarga como archivos PEFT LoRA |
+| Se guarda con | Sufijo del ID | Ruta completa | Úsalo para |
+| --- | --- | --- | --- |
+| `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Recuperar el entrenamiento: cargarlo o iniciar un trabajo nuevo desde él |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluación y descarga como archivos PEFT LoRA |
 
 No uses un checkpoint sampler como punto de recuperación: no tiene estado del
-optimizador y no se puede iniciar un trabajo nuevo desde él.
+optimizador y no se puede iniciar un trabajo nuevo desde él. Pasa la ruta
+completa `tinker://.../weights/<name>`, no el sufijo del ID, como
+`from_checkpoint`.
 
 `ttl_seconds` vale `null` por defecto, así que si lo omites el checkpoint se
 conserva hasta que lo elimines. Los checkpoints vivos cuentan para el
@@ -168,6 +180,11 @@ Gestiona los checkpoints con estas rutas:
 | Leer el uso de almacenamiento | [`GET /v1/training/usage`](/es/api-reference/training-jobs/interactive/storage-usage) |
 
 Descargar requiere el acceso de descarga de pesos del equipo.
+
+Después de detener un trabajo, se rechazan las operaciones de entrenamiento que
+lo modifican, pero aún puedes listar, inspeccionar, descargar, publicar, cambiar
+el TTL y eliminar sus checkpoints. También puedes muestrear desde sus
+checkpoints sampler.
 
 ## 6. Verifica la continuación
 
@@ -216,7 +233,7 @@ para ver los campos y errores.
 | Síntoma | Comprobación |
 | --- | --- |
 | Un future falla | Registra el ID del trabajo y el `error` del future. No avances el estado dependiente de la aplicación |
-| Una llamada de entrenamiento devuelve `400` tras una pausa | El trabajo se detuvo o se liberó tras 30 minutos inactivo. Inicia un trabajo nuevo desde el último checkpoint de estado |
+| Una llamada de entrenamiento devuelve `400` tras una pausa | El trabajo se detuvo o se liberó tras 30 minutos inactivo. El entrenamiento modificador no está disponible; la gestión de checkpoints y el muestreo siguen disponibles. Inicia un trabajo nuevo desde el último checkpoint de estado para continuar |
 | Un checkpoint no se puede cargar | Verifica su trabajo, su tipo y el registro de recuperación del cliente |
-| Se rechaza `from_checkpoint` | Confirma que es una ruta `weights/<name>` de tu equipo; los checkpoints sampler no pueden iniciar un trabajo |
+| Se rechaza `from_checkpoint` | Confirma que es una ruta completa `tinker://<job_id>/weights/<name>` de tu equipo; los checkpoints sampler no pueden iniciar un trabajo |
 | Falla la consulta del trabajo reanudado | Confirma que el ID vino de la respuesta de creación del trabajo nuevo y que estás autenticado en el mismo equipo de Fastino |

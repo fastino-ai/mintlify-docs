@@ -1023,6 +1023,19 @@ def run_published() -> None:
     print(f"Published agent journey passed: {len(links)} indexed resources")
 
 
+def run_diagnostics() -> None:
+    import agent_diagnostics
+
+    try:
+        target_count = agent_diagnostics.run_diagnostics(
+            request=_request,
+            validate_openapi=_validate_openapi,
+        )
+    except agent_diagnostics.DiagnosticsFailure as error:
+        fail(str(error))
+    print(f"Agent diagnostics passed: {target_count} discovery targets")
+
+
 def _auth_headers(api_key: str, *, bearer: bool = False) -> dict[str, str]:
     if bearer:
         return {"Authorization": f"Bearer {api_key}"}
@@ -1992,6 +2005,7 @@ def main() -> int:
         choices=(
             "static",
             "published",
+            "diagnostics",
             "api",
             "cookbooks",
             "training-replay",
@@ -2013,6 +2027,8 @@ def main() -> int:
             run_static()
         elif args.command == "published":
             run_published()
+        elif args.command == "diagnostics":
+            run_diagnostics()
         elif args.command == "api":
             run_api(replay_training=False)
         elif args.command == "cookbooks":

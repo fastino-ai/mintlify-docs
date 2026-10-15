@@ -8,21 +8,28 @@ The Fastino API uses standard HTTP status codes to communicate the outcome of ev
 
 ## Error response format
 
-Most error responses return a JSON body with a `detail` field:
+Most synchronous API errors use a shared nested `error` envelope:
 
 ```json
 {
-  "detail": "..."
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "..."
+  }
 }
 ```
 
-A few response families use a different shape:
+Validation failures use the same envelope and add an `errors` array inside `error`. Each item identifies the invalid field with `location` and `raw_location` and explains the failure in `message`.
 
-- **Billing denials** (`402`, some `403`s) return `{"code", "message", "resolution_url"}` instead of `detail` - see [402](#402-payment-required) and [403](#403-forbidden) below.
+Some endpoint families intentionally use different shapes:
+
+- **Billing denials** (`402`, some `403`s) return `{"code", "message", "resolution_url"}` instead of the nested envelope - see [402](#402-payment-required) and [403](#403-forbidden) below.
 - **Warm-up responses** (`425`) include a `Retry-After` header. OpenAI-shaped bodies also carry `code: "model_warming"` - see [425](#425-too-early) below.
-- **Rate-limit responses** (`429`) add `code` and `scope` fields alongside `detail`, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers - see [429](#429-too-many-requests) below.
-- **Unhandled server errors** (`500`) return `{"error", "message"}` rather than `detail`.
-- Requests against the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/responses`) receive an OpenAI-shaped `{"error": {"code", "type", "param", "message"}}` envelope, and requests carrying an `anthropic-version` header receive an Anthropic-shaped `{"type": "error", "error": {"type", "message"}}` envelope instead of the generic shapes above.
+- **Rate-limit responses** (`429`) add top-level `code` and `scope` fields alongside `detail`, plus `X-RateLimit-Scope` and `X-RateLimit-Code` headers - see [429](#429-too-many-requests) below.
+- **Unhandled server errors** (`500`) return `{"error", "message"}` rather than the nested envelope.
+- Requests to `/v1/messages` that carry an `anthropic-version` header receive an Anthropic-shaped `{"type": "error", "error": {"type", "message"}}` envelope.
 
 ### Interactive future failures
 
@@ -98,15 +105,27 @@ The request body - typically a file upload for an evaluation or dataset - exceed
 
 The request body failed validation. A required field is missing, a field has the wrong type, or a value is outside the accepted range.
 
-**How to fix:** Review the error `message` for the specific field that failed. Common causes include:
+**How to fix:** Review `error.message` and the entries in `error.errors` for the specific field that failed. Common causes include:
 
 - Omitting `model` or `type` from `POST /v1/training/jobs`
 - Sending fewer than 1 or more than 1,000 strings in the `inputs` array for label-existing endpoints
 
 ```json
 {
-    "detail": "For 'POST /v1/training/jobs', ...",
-    "errors": [...]
+  "error": {
+    "message": "For 'models', 'query.limit' is invalid: Input should be greater than or equal to 1.",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null,
+    "errors": [
+      {
+        "type": "greater_than_equal",
+        "location": "query.limit",
+        "raw_location": ["query", "limit"],
+        "message": "'query.limit' is invalid: Input should be greater than or equal to 1"
+      }
+    ]
+  }
 }
 ```
 
