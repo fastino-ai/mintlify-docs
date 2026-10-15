@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -20,22 +21,16 @@ SECTION_HEADINGS = {
 
 EXPECTED_RATES = {
     "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": (
-        r"\$0.96",
-        r"\$0.16",
-        r"\$0.032",
-        r"\$0.72",
+        r"\$0.65",
+        r"\$0.65",
     ),
     "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": (
-        r"\$0.30",
-        r"\$0.05",
-        r"\$0.01",
         r"\$0.35",
+        r"\$0.30",
     ),
     "Qwen/Qwen3.6-35B-A3B": (
-        r"\$0.35",
-        r"\$0.08",
-        r"\$0.016",
-        r"\$0.35",
+        r"\$0.44",
+        r"\$0.44",
     ),
 }
 
@@ -47,7 +42,13 @@ def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
             if f"`{model_id}`" not in line:
                 continue
             cells = tuple(cell.strip() for cell in line.split("|")[1:-1])
-            rows[model_id] = cells[1:]
+            current_rates = []
+            for cell in cells[1:]:
+                without_previous_rate = re.sub(r"~~.*?~~", "", cell)
+                match = re.search(r"\\\$\d+(?:\.\d+)?", without_previous_rate)
+                if match:
+                    current_rates.append(match.group())
+            rows[model_id] = tuple(current_rates)
     return rows
 
 
@@ -64,6 +65,11 @@ class TrainingPricingTests(unittest.TestCase):
                 self.assertIn(r"\$0.07", text)
                 self.assertIn("GPU", text)
                 self.assertEqual(text.count("per 1M tokens"), 1 if page == ROOT / "pricing.mdx" else 0)
+
+    def test_super_display_name_includes_version_and_vl(self) -> None:
+        for page in PRICING_PAGES:
+            with self.subTest(page=page.relative_to(ROOT)):
+                self.assertIn("Nemotron 3.5 Super VL", page.read_text(encoding="utf-8"))
 
     def test_training_precedes_inference(self) -> None:
         for page, (training_heading, inference_heading) in SECTION_HEADINGS.items():
