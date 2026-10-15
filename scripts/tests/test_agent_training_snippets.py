@@ -549,6 +549,33 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                     f"{path} code spans differ: {sorted(local_spans ^ english_spans)}",
                 )
 
+    def test_chat_templates_disable_thinking_before_supervised_answers(self) -> None:
+        pages = [
+            ROOT / f"{prefix}{page}"
+            for prefix in ("", "cn/", "de/", "es/", "fr/")
+            for page in (
+                "training/quickstart.mdx",
+                "training/verifiable-rewards.mdx",
+            )
+        ]
+        for page in pages:
+            text = page.read_text(encoding="utf-8")
+            calls = re.findall(
+                r"apply_chat_template\((.*?)\n\s*\)",
+                text,
+                flags=re.DOTALL,
+            )
+            with self.subTest(page=page.relative_to(ROOT)):
+                self.assertTrue(calls)
+                for call in calls:
+                    self.assertIn("enable_thinking=False", call)
+
+        for prefix in ("", "cn/", "de/", "es/", "fr/"):
+            loop = (ROOT / f"{prefix}training/training-loop.mdx").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("`enable_thinking=False`", loop)
+
     def test_retired_claim_guard_rejects_banned_text(self) -> None:
         cases = (
             ('uv add "tinker==0.33.1"\n', {"tinker==0.33.1"}),
