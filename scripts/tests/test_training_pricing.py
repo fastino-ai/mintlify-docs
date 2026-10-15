@@ -43,7 +43,7 @@ MODEL_SECTION_HEADINGS = {
 EXPECTED_RATES = {
     "Nemotron 3 Super": (
         r"\$0.16",
-        r"\$0.032",
+        r"\$0.04",
         r"\$0.72",
         r"\$0.96",
     ),
@@ -55,7 +55,7 @@ EXPECTED_RATES = {
     ),
     "Qwen3.6-35B-A3B": (
         r"\$0.08",
-        r"\$0.016",
+        r"\$0.01",
         r"\$0.35",
         r"\$0.35",
     ),
@@ -148,7 +148,7 @@ class TrainingPricingTests(unittest.TestCase):
                 self.assertIn(r"\$0.08", inference_rows[0])
                 self.assertIn(r"\$0.45", inference_rows[0])
                 self.assertIn(r"\$0.16", training_rows[0])
-                self.assertIn(r"\$0.032", training_rows[0])
+                self.assertIn(r"\$0.04", training_rows[0])
                 self.assertIn(r"\$0.72", training_rows[0])
                 self.assertIn(r"\$0.96", training_rows[0])
 
