@@ -50,7 +50,7 @@ EXPECTED_RATES = {
     "Nemotron 3.5 Lightning": (
         r"\$0.35",
         r"\$0.07",
-        r"\$0.05",
+        r"\$0.35",
         r"\$0.30",
     ),
     "Qwen3.6-35B-A3B": (
