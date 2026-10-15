@@ -165,7 +165,7 @@ sampler = call(
 | Gespeichert mit | Checkpoint-ID-Suffix | Vollständiger Pfad | Verwendung |
 | --- | --- | --- | --- |
 | `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Trainingswiederherstellung: laden oder einen neuen Job daraus starten |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, Evaluierung und Download als PEFT-LoRA-Dateien |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, Evaluierung, Deployment und Adapter-Download |
 
 Verwenden Sie keinen Sampler-Checkpoint als Wiederherstellungspunkt: Er enthält
 keinen Optimiererzustand, und ein neuer Job kann nicht daraus starten. Übergeben
@@ -189,7 +189,7 @@ Verwalten Sie Checkpoints mit diesen Routen:
 | Löschen | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/de/api-reference/training-jobs/interactive/delete-checkpoint) |
 | Speichernutzung lesen | [`GET /v1/training/usage`](/de/api-reference/training-jobs/interactive/storage-usage) |
 
-Für Downloads benötigt das Team Zugriff auf den Gewichte-Download.
+Checkpoint-Downloads sind standardmäßig aktiviert. Heruntergeladene Decoder-Adapter verwenden das Trainingszellen-Layout von Fastino und sind derzeit weder mit unverändertem PEFT noch mit Standard-vLLM kompatibel. Verwenden Sie Fastino, um aus einem Sampler-Checkpoint zu samplen oder ihn bereitzustellen, wenn sein Basismodell Deployment unterstützt.
 
 Nach dem Stoppen eines Jobs werden verändernde Trainingsoperationen abgelehnt.
 Sie können seine Checkpoints aber weiterhin auflisten, prüfen, herunterladen,
@@ -210,9 +210,7 @@ Bevor Sie den fortgesetzten Workload skalieren:
 
 ## Trainiertes Modell bereitstellen
 
-Stellen Sie einen Sampler-Checkpoint bereit, um ihn als Modell auszuliefern. Das
-Deployment ist für unterstützte Basismodelle verfügbar; andere Basismodelle
-geben `400` zurück.
+Stellen Sie einen Sampler-Checkpoint bereit, um ihn als Modell auszuliefern. Die Deployment-Verfügbarkeit wird pro Modell und Umgebung gesteuert. Nemotron 3.5 Lightning und Qwen3.6-35B-A3B sind derzeit aktiviert. Für Nemotron 3 Super ist die Serving-Implementierung vorhanden, es ist derzeit jedoch nicht aktiviert; das Deployment gibt daher `400` zurück.
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
@@ -232,12 +230,12 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "MODEL_ID",
-    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}],
+    "reasoning": {"enabled": false}
   }'
 ```
 
-Ersetzen Sie `MODEL_ID` durch die zurückgegebene `model_id`. Felder und Fehler
-finden Sie unter
+Ersetzen Sie `MODEL_ID` durch die zurückgegebene `model_id`. Die erste Inferenzanfrage kann `425 model_warming` zurückgeben; warten Sie das in `Retry-After` angegebene Intervall ab und versuchen Sie es erneut. Senden Sie wie oben gezeigt `"reasoning": {"enabled": false}`, um eine direkte Antwort ohne Reasoning-Präambel anzufordern. Felder und Fehler finden Sie unter
 [Checkpoint bereitstellen](/de/api-reference/training-jobs/interactive/deploy-checkpoint).
 
 ## Wiederherstellungsfehler diagnostizieren

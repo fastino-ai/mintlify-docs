@@ -15,8 +15,9 @@ dataset.
 
 ### Named entity recognition
 
-Use `text` plus an `entities` list of `[span, label]` pairs. Every span must appear verbatim
-in the text. Include negative examples with an empty list.
+Use `text` plus an `entities` list of `[span, label]` pairs. Every span must
+appear in the text, but matching is case-insensitive: `"ada lovelace"` is valid
+for `"Ada Lovelace"`. Include negative examples with an empty list.
 
 ```jsonl
 {"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]]}
@@ -53,6 +54,17 @@ row:
 Use one shape per row. Do not mix `text`, `label`, `labels`, or `entities` with
 `input` and `output` fields in the same row.
 
+### Joint NER and classification
+
+A row can contain both `entities` and `label` to train both heads. Keep that
+same joint shape in every row, and do not mix single-label `label` with
+multi-label `labels`.
+
+```jsonl
+{"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]],"label":"biography"}
+{"text":"No tagged entities here.","entities":[],"label":"other"}
+```
+
 ### Decoder
 
 Set `dataset_type` to `decoder` and give every row a `messages` array with chat
@@ -63,10 +75,12 @@ roles and content.
 ```
 
 <Note>
-  Config jobs don't accept decoder base models, so a decoder dataset can't
-  start a [config job](/api-reference/training-jobs/create). To train a decoder,
-  tokenize your examples and run them through an
-  [interactive job](/training/decoder-quickstart).
+  The dataset service accepts decoder datasets for fine-tune-agent and storage
+  workflows. Config jobs reject decoder base models, so don't treat
+  `dataset_type: decoder` as a direct config-job decoder-training path.
+  Interactive jobs don't accept a dataset name; read and tokenize the examples
+  in your application, then send tokenized datums as shown in the
+  [Decoder Quickstart](/training/decoder-quickstart).
 </Note>
 
 ## Upload a dataset

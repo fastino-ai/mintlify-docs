@@ -160,7 +160,7 @@ sampler = call(
 | Se guarda con | Sufijo del ID del checkpoint | Ruta completa | Úsalo para |
 | --- | --- | --- | --- |
 | `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Recuperar el entrenamiento: cargarlo o iniciar un trabajo nuevo desde él |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluación y descarga como archivos PEFT LoRA |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluación, despliegue y descarga del adaptador |
 
 No uses un checkpoint sampler como punto de recuperación: no tiene estado del
 optimizador y no se puede iniciar un trabajo nuevo desde él. Pasa la ruta
@@ -184,7 +184,7 @@ Gestiona los checkpoints con estas rutas:
 | Eliminar | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/es/api-reference/training-jobs/interactive/delete-checkpoint) |
 | Leer el uso de almacenamiento | [`GET /v1/training/usage`](/es/api-reference/training-jobs/interactive/storage-usage) |
 
-Descargar requiere el acceso de descarga de pesos del equipo.
+Las descargas de checkpoints están habilitadas de forma predeterminada. Los adaptadores de decodificador descargados usan el diseño de celdas de entrenamiento de Fastino y actualmente no son compatibles con PEFT sin modificar ni con vLLM estándar. Usa Fastino para muestrear desde un checkpoint sampler o desplegarlo cuando su modelo base admita el despliegue.
 
 Después de detener un trabajo, se rechazan las operaciones de entrenamiento que
 lo modifican, pero aún puedes listar, inspeccionar, descargar, publicar, cambiar
@@ -205,8 +205,7 @@ Antes de escalar la carga reanudada:
 
 ## Despliega tu modelo entrenado
 
-Despliega un checkpoint sampler para servirlo como modelo. El despliegue está
-disponible para los modelos base compatibles; las demás bases devuelven `400`.
+Despliega un checkpoint sampler para servirlo como modelo. La disponibilidad del despliegue se controla por modelo y entorno. Nemotron 3.5 Lightning y Qwen3.6-35B-A3B están habilitados actualmente. Nemotron 3 Super tiene implementación de inferencia, pero no está habilitado actualmente, por lo que el despliegue devuelve `400`.
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
@@ -225,11 +224,12 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "MODEL_ID",
-    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}],
+    "reasoning": {"enabled": false}
   }'
 ```
 
-Sustituye `MODEL_ID` por el `model_id` devuelto. Consulta
+Sustituye `MODEL_ID` por el `model_id` devuelto. La primera solicitud de inferencia puede devolver `425 model_warming`; espera el intervalo indicado por `Retry-After` y vuelve a intentarlo. Para solicitar una respuesta directa sin preámbulo de razonamiento, envía `"reasoning": {"enabled": false}` como se muestra arriba. Consulta
 [Desplegar checkpoint](/es/api-reference/training-jobs/interactive/deploy-checkpoint)
 para ver los campos y errores.
 

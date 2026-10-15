@@ -41,7 +41,7 @@ MODEL_SECTION_HEADINGS = {
 }
 
 EXPECTED_RATES = {
-    "Nemotron 3.5 Super VL": (
+    "Nemotron 3 Super": (
         r"\$0.16",
         r"\$0.032",
         r"\$0.72",
@@ -61,7 +61,7 @@ EXPECTED_RATES = {
     ),
 }
 CALLABLE_IDS = {
-    "Nemotron 3.5 Super VL": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+    "Nemotron 3 Super": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
     "Nemotron 3.5 Lightning": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
     "Qwen3.6-35B-A3B": "Qwen/Qwen3.6-35B-A3B",
 }
@@ -69,6 +69,7 @@ ENCODER_IDS = (
     "fastino/gliner2-base-v1",
     "fastino/GLiNER-2.5-Decide",
 )
+INFERENCE_SUPER_ID = "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
 
 
 def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
@@ -104,10 +105,10 @@ class TrainingPricingTests(unittest.TestCase):
                 self.assertIn("GPU", text)
                 self.assertEqual(text.count("per 1M tokens"), 1 if page == ROOT / "pricing.mdx" else 0)
 
-    def test_super_display_name_includes_version_and_vl(self) -> None:
+    def test_training_super_uses_its_distinct_short_name(self) -> None:
         for page in PRICING_PAGES:
             with self.subTest(page=page.relative_to(ROOT)):
-                self.assertIn("Nemotron 3.5 Super VL", page.read_text(encoding="utf-8"))
+                self.assertIn("Nemotron 3 Super", page.read_text(encoding="utf-8"))
 
     def test_callable_ids_live_in_model_catalogs_not_pricing_tables(self) -> None:
         for page in PRICING_PAGES:
@@ -122,6 +123,16 @@ class TrainingPricingTests(unittest.TestCase):
                 for display_name, model_id in CALLABLE_IDS.items():
                     self.assertIn(display_name, text)
                     self.assertIn(f"`{model_id}`", text)
+                self.assertIn(f"`{INFERENCE_SUPER_ID}`", text)
+
+    def test_inference_super_has_distinct_pricing(self) -> None:
+        for page in PRICING_PAGES:
+            lines = page.read_text(encoding="utf-8").splitlines()
+            with self.subTest(page=page.relative_to(ROOT)):
+                rows = [line for line in lines if "Nemotron 3.5 Super VL" in line]
+                self.assertEqual(len(rows), 1)
+                self.assertIn(r"\$0.08", rows[0])
+                self.assertIn(r"\$0.45", rows[0])
 
     def test_model_catalogs_publish_encoder_training_rates(self) -> None:
         for page in MODEL_CATALOG_PAGES:
@@ -171,7 +182,8 @@ class TrainingPricingTests(unittest.TestCase):
             text = page.read_text(encoding="utf-8")
             with self.subTest(page=page.relative_to(ROOT)):
                 self.assertIn('"effective_rate_usd_per_gigabyte_month": 0.05', text)
-                self.assertIn('"estimated_monthly_cost_usd": 0.0375', text)
+                self.assertIn('"size_gigabytes": 0.805306368', text)
+                self.assertIn('"estimated_monthly_cost_usd": 0.0402653184', text)
 
 
 if __name__ == "__main__":

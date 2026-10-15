@@ -7,7 +7,7 @@ api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
 
 `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
 
-将任务的某个采样器检查点作为训练后的模型提供服务。使用 [`POST /v1/chat/completions`](/cn/api-reference/inference/chat-completions) 并传入 `"model": "<model_id>"` 即可调用该模型。当前的部署允许列表仅包含 Nemotron 3.5 Lightning（`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`）。其他基础模型会返回 `400`。
+将任务的某个采样器检查点作为训练后的模型提供服务。使用 [`POST /v1/chat/completions`](/cn/api-reference/inference/chat-completions) 并传入 `"model": "<model_id>"` 即可调用该模型。部署可用性按模型和环境控制。目前已启用 Nemotron 3.5 Lightning（`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`）和 Qwen3.6-35B-A3B（`Qwen/Qwen3.6-35B-A3B`）。Nemotron 3 Super（`nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`）已有推理服务实现支持，但目前尚未启用；部署会返回 `400`。
 
 在推理服务引擎加载模型之前，模型的 `status` 为 `deploying`，加载完成后变为 `deployed`。再次部署同一检查点会返回同一个模型及其当前状态，因此您可以重复调用来查看进度。如果之前的尝试失败，重复调用会重新尝试部署。
 
@@ -83,7 +83,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoin
 
 | 状态 | 含义 |
 | --- | --- |
-| `400` | 基础模型不是 Nemotron 3.5 Lightning，或检查点不是推理服务引擎可接受的 PEFT 适配器。 |
+| `400` | 该基础模型无法提供推理服务，或检查点不是推理服务引擎可接受的适配器。 |
 | `404` | 任务或采样器检查点不存在、属于其他团队，或不包含任何文件。 |
 | `409` | 已有其他模型使用该 `model_name`，或基于此检查点提供服务的模型已被删除。请以新名称保存权重后再重新部署。 |
 | `422` | `model_name` 无效，或请求体包含未知字段。 |

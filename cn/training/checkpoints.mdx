@@ -140,7 +140,7 @@ sampler = call(
 | 保存方式 | 检查点 ID 后缀 | 完整路径 | 用途 |
 | --- | --- | --- | --- |
 | `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | 训练恢复：加载它或从它启动新任务 |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | rollout、评估，以及以 PEFT LoRA 文件下载 |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | rollout、评估、部署和适配器下载 |
 
 不要将 sampler 检查点用作恢复点；它不含优化器状态，也无法用来启动新任务。请将完整的 `tinker://.../weights/<name>` 路径（而不是检查点 ID 后缀）作为 `from_checkpoint` 传入。
 
@@ -158,7 +158,7 @@ sampler = call(
 | 删除 | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/cn/api-reference/training-jobs/interactive/delete-checkpoint) |
 | 读取存储用量 | [`GET /v1/training/usage`](/cn/api-reference/training-jobs/interactive/storage-usage) |
 
-下载需要团队具备权重下载权限。
+检查点下载默认启用。下载的解码器适配器采用 Fastino 训练单元布局，目前与原生 PEFT 或标准 vLLM 不兼容。请使用 Fastino 从采样器检查点进行采样，或在其基础模型支持部署时进行部署。
 
 任务停止后，会修改状态的训练操作将被拒绝，但你仍可列出、查看、下载、发布和删除其检查点，以及修改检查点的 TTL，也仍可从其 sampler 检查点采样。
 
@@ -175,7 +175,7 @@ sampler = call(
 
 ## 部署训练好的模型
 
-部署 sampler 检查点即可将其作为模型提供服务。部署适用于受支持的基础模型；其他基础模型返回 `400`。
+部署 sampler 检查点即可将其作为模型提供服务。部署可用性按模型和环境控制。目前已启用 Nemotron 3.5 Lightning 和 Qwen3.6-35B-A3B。Nemotron 3 Super 已有推理服务实现支持，但目前尚未启用，因此部署会返回 `400`。
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
@@ -192,11 +192,13 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "MODEL_ID",
-    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}],
+    "reasoning": {"enabled": false}
   }'
 ```
 
-将 `MODEL_ID` 替换为返回的 `model_id`。请求字段和错误请参阅[部署检查点](/cn/api-reference/training-jobs/interactive/deploy-checkpoint)。
+将 `MODEL_ID` 替换为返回的 `model_id`。首次推理请求可能返回 `425 model_warming`；请等待 `Retry-After` 指定的时间间隔后重试。如需直接回答而不带推理前言，请按上例发送 `"reasoning": {"enabled": false}`。请求字段和错误请参阅
+[部署检查点](/cn/api-reference/training-jobs/interactive/deploy-checkpoint)。
 
 ## 诊断恢复错误
 

@@ -1,16 +1,13 @@
 ---
 title: "Interaktiven Checkpoint herunterladen"
 sidebarTitle: "Checkpoint herunterladen"
-description: "Rufen Sie eine kurzlebige Download-URL für den Checkpoint eines interaktiven Trainingsjobs ab."
+description: "Rufen Sie eine kurzlebige, vorab signierte Objektspeicher-URL für den Checkpoint eines interaktiven Trainingsjobs ab."
 api: "GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"
 ---
 
 `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`
 
-Gibt eine kurzlebige signierte URL für einen Checkpoint eines
-`interactive`-Jobs zurück. Das Archiv eines Sampler-Checkpoints enthält die
-PEFT-LoRA-Adapterdateien. Config-Jobs verwenden für ihr endgültiges
-Modellartefakt
+Gibt eine kurzlebige, vorab signierte Objektspeicher-URL für einen Checkpoint eines `interactive`-Jobs zurück. Das Archiv eines Sampler-Checkpoints enthält die Decoder-Adapterdateien. Config-Jobs verwenden für ihr endgültiges Modellartefakt
 [`GET /v1/training/jobs/{job_id}/download`](/de/api-reference/training-jobs/download).
 
 ## Request
@@ -41,7 +38,7 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 
 ## Response
 
-Die Antwort enthält eine signierte Archiv-URL, die nach 15 Minuten abläuft.
+Die Antwort enthält eine vorab signierte Objektspeicher-URL, die nach 15 Minuten abläuft.
 Behandeln Sie die URL wie Anmeldedaten: Protokollieren, teilen oder speichern
 Sie sie nicht dauerhaft.
 
@@ -58,11 +55,11 @@ Sie sie nicht dauerhaft.
 </ResponseField>
 
 <ResponseField name="download_url" type="string">
-  Signierte Archiv-URL. Zum Abrufen ist kein API-Schlüssel erforderlich.
+  Vorab signierte Objektspeicher-URL. Zum Abrufen ist kein API-Schlüssel erforderlich.
 </ResponseField>
 
 <ResponseField name="expires_in_seconds" type="integer">
-  Verbleibende Gültigkeit der signierten URL. Neue Links laufen nach 900 Sekunden ab.
+  Verbleibende Gültigkeit der vorab signierten URL. Neue Links laufen nach 900 Sekunden ab.
 </ResponseField>
 
 <ResponseField name="file_name" type="string">
@@ -84,17 +81,18 @@ Sie sie nicht dauerhaft.
 
 </ResponseExample>
 
-Dieser Vorgang erfordert die Berechtigung des Teams zum Herunterladen von
-Gewichten. Ohne diese Berechtigung gibt der Endpunkt `403` zurück.
+Checkpoint-Downloads sind standardmäßig aktiviert. Ein Team, dessen Download-Zugriff ausdrücklich deaktiviert wurde, erhält `403`.
+
+<Warning>
+  Heruntergeladene Decoder-Adapter verwenden das Trainingszellen-Layout von Fastino. Sie sind derzeit weder mit unverändertem PEFT noch mit Standard-vLLM kompatibel; das Laden dort kann fehlschlagen oder trainierte Tensoren unbemerkt auslassen. Verwenden Sie Fastino, um aus einem Sampler-Checkpoint zu samplen oder ihn bereitzustellen, wenn sein Basismodell Deployment unterstützt.
+</Warning>
 
 ## Fehler
 
 | Status | Bedeutung |
 | --- | --- |
 | `400` | `checkpoint_id` ist nicht `weights/<name>` oder `sampler_weights/<name>`. |
-| `403` | Dem Team fehlt die Downloadberechtigung, Teamdaten werden gelöscht oder die signierte URL ist ungültig oder abgelaufen. |
-| `404` | Job oder Checkpoint ist nicht verfügbar, der Checkpoint hat keine herunterladbaren Dateien oder wurde nach Ausstellung der URL gelöscht. |
+| `403` | Gewichte-Downloads wurden für das Team ausdrücklich deaktiviert. |
+| `404` | Der Job oder Checkpoint ist nicht verfügbar, oder der Checkpoint hat keine herunterladbaren Dateien. |
 
-Der Abruf von `download_url` liefert einen `application/x-tar`-Anhang. Die
-signierte URL ist das Zugangsmittel. Sie liefert nach Ablauf oder Änderung des
-Tokens `403` und `404`, wenn der Checkpoint danach nicht mehr verfügbar ist.
+Der Abruf von `download_url` liefert einen `application/x-tar`-Anhang. Die vorab signierte Objektspeicher-URL ist das Zugangsmittel und läuft nach den in der Antwort angegebenen `expires_in_seconds` ab.
