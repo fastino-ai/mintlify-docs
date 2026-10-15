@@ -44,7 +44,7 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   direct each step. Check OpenAPI before using an operation because some routes
   support only one job type.
 - Create a managed `config` job with `POST /v1/training/jobs` for the GLiNER
-  encoders `fastino/gliner2-multi-v1` and `fastino/GLiNER-2.5-Decide` only; a
+  encoders `fastino/gliner2-base-v1` and `fastino/GLiNER-2.5-Decide` only; a
   decoder base model returns `400`. Decoders train only in `interactive` jobs.
   Native JSON clients create or restore an `interactive` job with
   `POST /v1/training/jobs/create-model`, using either `base_model` or

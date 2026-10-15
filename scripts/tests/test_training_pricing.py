@@ -66,7 +66,7 @@ CALLABLE_IDS = {
     "Qwen3.6-35B-A3B": "Qwen/Qwen3.6-35B-A3B",
 }
 ENCODER_IDS = (
-    "fastino/gliner2-multi-v1",
+    "fastino/gliner2-base-v1",
     "fastino/GLiNER-2.5-Decide",
 )
 

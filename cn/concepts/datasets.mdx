@@ -30,6 +30,25 @@ description: "在启动 Fastino GLiNER 训练任务之前，格式化、上传�
 {"text":"The request needs technical help.","label":"technical"}
 ```
 
+### GLiNER2 库格式
+
+NER 和分类上传也接受 GLiNER2 的规范 `input` 和 `output` 结构。对于 NER，
+请将每个实体标签映射到匹配的 span：
+
+```jsonl
+{"input":"Ada Lovelace worked in London.","output":{"entities":{"PERSON":["Ada Lovelace"],"LOCATION":["London"]}}}
+{"input":"No tagged entities here.","output":{"entities":{"PERSON":[],"LOCATION":[]}}}
+```
+
+对于分类，每行的 `classifications` 可以包含一个或多个任务：
+
+```jsonl
+{"input":"jump now","output":{"classifications":[{"task":"action","labels":["jump","wait"],"true_label":["jump"]},{"task":"urgency","labels":["now","later"],"true_label":["now"]}]}}
+```
+
+每行只能使用一种结构。请勿在同一行中混用 `text`、`label`、`labels` 或
+`entities` 与 `input` 和 `output` 字段。
+
 ### 解码器
 
 将 `dataset_type` 设为 `decoder`，并让每一行都包含带聊天 role 和 content 的 `messages` 数组。
@@ -95,7 +114,7 @@ curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
 ```json
 {
   "model_name": "my-ner-model",
-  "base_model": "fastino/gliner2-multi-v1",
+  "base_model": "fastino/gliner2-base-v1",
   "datasets": [
     {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
@@ -113,9 +132,6 @@ curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
 | `404` | 数据集名称不存在 | 确认确切名称并等待处理完成 |
 | `failed` | 异步内容验证失败 | 查看 `processing_error`，修正 JSONL，然后上传新版本 |
 | `422` | 请求结构在处理前被拒绝 | 修正请求字段后重试 |
-
-请勿上传 GLiNER 训练器内部使用的 `{"input": ..., "output": ...}` 结构。请先将其转换为公开的
-`text` 加 `entities` 格式。
 
 ## 数据集 API 契约
 

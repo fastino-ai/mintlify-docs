@@ -29,6 +29,11 @@ prompt -> sample a group -> grade -> center rewards -> build datums -> update
 </Warning>
 
 ```python
+def parse_answer(response: str) -> str | None:
+    answer = response.strip()
+    return answer if answer else None
+
+
 def get_reward(response: str, expected: str) -> float:
     actual = parse_answer(response)
     if actual is None:
@@ -43,31 +48,33 @@ def get_reward(response: str, expected: str) -> float:
 从当前权重保存 sampler 检查点，然后从中采样一组响应：
 
 ```python
-name = f"rollout-{step:06d}"
-saved = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
-    {"name": name, "ttl_seconds": 24 * 60 * 60},
-)
-wait(job_id, saved["future_id"])
+def sample_group(question: str, step: int, group_size: int = 4):
+    name = f"rollout-{step:06d}"
+    saved = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+        {"name": name, "ttl_seconds": 24 * 60 * 60},
+    )
+    wait(job_id, saved["future_id"])
 
-prompt_tokens = tokenizer.apply_chat_template(
-    [{"role": "user", "content": question}],
-    add_generation_prompt=True,
-    enable_thinking=False,
-    return_dict=False,
-)
-sampled = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/sample",
-    {
-        "checkpoint": name,
-        "prompt_tokens": prompt_tokens,
-        "num_samples": group_size,
-        "sampling_params": {"max_tokens": 512, "temperature": 1.0},
-    },
-)
-sample_result = wait(job_id, sampled["future_id"])
+    prompt_tokens = tokenizer.apply_chat_template(
+        [{"role": "user", "content": question}],
+        add_generation_prompt=True,
+        enable_thinking=False,
+        return_dict=False,
+    )
+    sampled = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/sample",
+        {
+            "checkpoint": name,
+            "prompt_tokens": prompt_tokens,
+            "num_samples": group_size,
+            "sampling_params": {"max_tokens": 512, "temperature": 1.0},
+        },
+    )
+    result = wait(job_id, sampled["future_id"])
+    return prompt_tokens, result["sequences"]
 ```
 
 这不会创建新任务。检查点和样本都属于同一个 交互式任务。
@@ -75,17 +82,14 @@ sample_result = wait(job_id, sampled["future_id"])
 ## 3. 将奖励转换为优势
 
 ```python
-sequences = sample_result["sequences"]
-rewards = [
-    get_reward(tokenizer.decode(sequence["tokens"]), expected)
-    for sequence in sequences
-]
-
-mean_reward = sum(rewards) / len(rewards)
-advantages = [reward - mean_reward for reward in rewards]
-
-if all(advantage == 0.0 for advantage in advantages):
-    continue
+def center_rewards(sequences, expected: str):
+    rewards = [
+        get_reward(tokenizer.decode(sequence["tokens"]), expected)
+        for sequence in sequences
+    ]
+    mean_reward = sum(rewards) / len(rewards)
+    advantages = [reward - mean_reward for reward in rewards]
+    return None if all(value == 0.0 for value in advantages) else advantages
 ```
 
 跟踪奖励没有方差的组。这可能说明任务过于简单、过于困难，或者解析有误。
@@ -113,10 +117,11 @@ def rl_datum(prompt_tokens, sequence, advantage):
     }
 
 
-datums = [
-    rl_datum(prompt_tokens, sequence, advantage)
-    for sequence, advantage in zip(sequences, advantages)
-]
+def build_datums(prompt_tokens, sequences, advantages):
+    return [
+        rl_datum(prompt_tokens, sequence, advantage)
+        for sequence, advantage in zip(sequences, advantages)
+    ]
 ```
 
 提示和解码都使用任务 `base_model` 的 tokenizer。
@@ -124,18 +129,20 @@ datums = [
 ## 5. 更新 交互式任务
 
 ```python
-backward = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/forward-backward",
-    {"datums": datums, "loss_fn": "importance_sampling"},
-)
-train_result = wait(job_id, backward["future_id"])
-update = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/optim-step",
-    {"adam_params": {"learning_rate": 1e-5}},
-)
-optim_result = wait(job_id, update["future_id"])
+def update_job(datums):
+    backward = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/forward-backward",
+        {"datums": datums, "loss_fn": "importance_sampling"},
+    )
+    train_result = wait(job_id, backward["future_id"])
+    update = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/optim-step",
+        {"adam_params": {"learning_rate": 1e-5}},
+    )
+    optim_result = wait(job_id, update["future_id"])
+    return train_result, optim_result
 ```
 
 请等待 forward-backward 成功完成后再提交优化器步骤。在推进应用步骤之前，请等待优化器结果并将其记录下来。
@@ -154,12 +161,13 @@ optim_result = wait(job_id, update["future_id"])
 ## 6. 保存恢复边界
 
 ```python
-state = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/save-weights",
-    {"name": f"step-{step:06d}"},
-)
-wait(job_id, state["future_id"])
+def save_recovery_boundary(step: int) -> str:
+    state = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/save-weights",
+        {"name": f"step-{step:06d}"},
+    )
+    return wait(job_id, state["future_id"])["path"]
 ```
 
 将返回的 `path` 与以下信息一起持久化：
@@ -171,6 +179,28 @@ wait(job_id, state["future_id"])
 - 评估指标
 
 有了这些元数据，控制器无需根据名称猜测就能选择检查点。
+
+## 7. 运行奖励循环
+
+在应用中定义训练样本，然后在循环内组合这些辅助函数。所有奖励相同时，
+`continue` 只跳过当前样本组：
+
+```python
+training_examples = [
+    ("What is 2 + 2? Reply with the number only.", "4"),
+]
+
+for step, (question, expected) in enumerate(training_examples):
+    prompt_tokens, sequences = sample_group(question, step, group_size=4)
+    advantages = center_rewards(sequences, expected)
+    if advantages is None:
+        continue
+
+    datums = build_datums(prompt_tokens, sequences, advantages)
+    train_result, optim_result = update_job(datums)
+    state_path = save_recovery_boundary(step)
+    # Persist state_path with the application metadata listed above.
+```
 
 ## 扩大规模前验证
 

@@ -1140,7 +1140,7 @@ def _discover_training_model(api_key: str) -> str:
     configured = os.getenv("FASTINO_DOCS_CANARY_BASE_MODEL", "")
     candidates = (
         configured,
-        "fastino/gliner2-multi-v1",
+        "fastino/gliner2-base-v1",
         "fastino/GLiNER-2.5-Decide",
     )
     selected = next((candidate for candidate in candidates if candidate in identifiers), "")

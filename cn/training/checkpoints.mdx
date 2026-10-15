@@ -28,7 +28,7 @@ state = call(
     f"/v1/training/jobs/{job_id}/save-weights",
     {"name": f"step-{step:06d}"},
 )
-state_path = wait(job_id, state["future_id"])
+state_path = wait(job_id, state["future_id"])["path"]
 record = {
     "source_job_id": job_id,
     "state_path": state_path,
@@ -91,6 +91,10 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 在新任务中继续：
 
 ```python
+resume = get_last_checkpoint(log_path)
+if resume is None:
+    raise RuntimeError("no durable checkpoint record found")
+
 resumed = call(
     "POST",
     "/v1/training/jobs/create-model",

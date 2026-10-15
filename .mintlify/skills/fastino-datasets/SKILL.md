@@ -76,7 +76,10 @@ them through an interactive job created with
 {"messages": [{"role": "user", "content": "What is 2+2?"}, {"role": "assistant", "content": "4"}]}
 ```
 
-> **Fastino does not accept the GLiNER2 canonical wire shape on upload.** If your data looks like `{"input": ..., "output": {"entities": {"<label>": ["<span>", ...]}}}` (the shape that GLiNER2 trainers consume internally), flatten it to top-level `text` + `entities` pair list before uploading. Per-label `entity_descriptions` are not stored on dataset rows; configure them at training-job time instead.
+> Fastino also accepts the GLiNER2 canonical wire shape on upload:
+> `{"input": ..., "output": {"entities": {"<label>": ["<span>", ...]}}}`.
+> Classification rows can put one or more tasks in `output.classifications`.
+> Use either the public fields or the canonical fields in a row; do not mix both shapes.
 
 ## Upload a Dataset
 

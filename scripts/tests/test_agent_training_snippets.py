@@ -56,12 +56,12 @@ EXPECTED_EMPTY_PAGES = (
 EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
     "training/encoder-quickstart.mdx": 5,
-    "training/decoder-quickstart.mdx": 14,
+    "training/decoder-quickstart.mdx": 13,
     "training/migrate-from-tinker.mdx": 3,
-    "concepts/datasets.mdx": 8,
+    "concepts/datasets.mdx": 10,
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
-    "training/verifiable-rewards.mdx": 7,
+    "training/verifiable-rewards.mdx": 8,
     "training/checkpoints.mdx": 6,
     "training/auto.mdx": 0,
 }
@@ -250,10 +250,40 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         skill = (ROOT / ".mintlify/skills/fastino-fine-tune/SKILL.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn('"base_model": "fastino/gliner2-multi-v1"', skill)
+        self.assertIn('"base_model": "fastino/gliner2-base-v1"', skill)
         self.assertNotIn('"type": "config"', skill)
-        self.assertNotIn('"model": "fastino/gliner2-multi-v1"', skill)
+        self.assertNotIn('"model": "fastino/gliner2-base-v1"', skill)
         self.assertNotIn("upcoming unified Training API", skill)
+
+    def test_gliner_training_examples_match_development_contract(self) -> None:
+        canonical_classification = (
+            '"classifications":[{"task":"action","labels":["jump","wait"],'
+            '"true_label":["jump"]},{"task":"urgency","labels":["now","later"],'
+            '"true_label":["now"]}]'
+        )
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            paths = (
+                ROOT / f"{prefix}training/encoder-quickstart.mdx",
+                ROOT / f"{prefix}api-reference/training-jobs/create.mdx",
+                ROOT / f"{prefix}concepts/datasets.mdx",
+            )
+            for path in paths:
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("fastino/gliner2-base-v1", text, path)
+                self.assertNotIn("fastino/gliner2-multi-v1", text, path)
+
+            datasets = paths[-1].read_text(encoding="utf-8")
+            self.assertIn(canonical_classification, datasets)
+            self.assertIn('"output":{"entities":', datasets)
+
+            models_path = ROOT / f"{prefix}concepts/models.mdx"
+            models = models_path.read_text(encoding="utf-8")
+            trainable = models.split(
+                "GET /v1/base-models?supports_inference=true", 1
+            )[0]
+            self.assertIn("fastino/gliner2-base-v1", trainable, models_path)
+            self.assertNotIn("fastino/gliner2-multi-v1", trainable, models_path)
 
     def test_checkpoint_download_examples_match_openapi_response_fields(self) -> None:
         expected = {
@@ -633,7 +663,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             set(),
         )
 
-    def test_inventory_is_exactly_51_fences_across_10_training_api_pages(self) -> None:
+    def test_inventory_is_exactly_53_fences_across_10_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -641,7 +671,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 51)
+        self.assertEqual(len(snippets), 53)
         self.assertEqual(len(pages), 10)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(
@@ -784,13 +814,13 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(inference.coverage, "static")
         self.assertEqual(inference.mapped_command, "blocker")
 
-        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 3))
+        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 5))
         self.assertEqual(upload.coverage, "static")
         self.assertEqual(upload.mapped_command, "blocker")
 
     def test_missing_placeholders_print_skip_and_do_not_guess(self) -> None:
         job = _snippet("training/encoder-quickstart.mdx", 4)
-        dataset = _snippet("concepts/datasets.mdx", 6)
+        dataset = _snippet("concepts/datasets.mdx", 8)
         catalog = _snippet("training/encoder-quickstart.mdx", 2)
 
         skipped_job = SNIPPETS.plan_live(job, SNIPPETS.classify(job), {})
@@ -909,7 +939,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             page="probe.mdx",
             ordinal=0,
             language="json",
-            body='{"type": "config", "model": "fastino/gliner2-multi-v1"}\n',
+            body='{"type": "config", "model": "fastino/gliner2-base-v1"}\n',
             body_sha256="0" * 64,
         )
         classification = SNIPPETS.classify(snippet)

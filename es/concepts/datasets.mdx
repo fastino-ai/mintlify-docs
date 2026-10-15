@@ -33,6 +33,26 @@ Usa el mismo campo en cada fila.
 {"text":"The request needs technical help.","label":"technical"}
 ```
 
+### Formato de la biblioteca GLiNER2
+
+Las cargas de NER y clasificación también aceptan el formato canónico `input`
+y `output` de GLiNER2. Para NER, asigna cada etiqueta de entidad a sus spans:
+
+```jsonl
+{"input":"Ada Lovelace worked in London.","output":{"entities":{"PERSON":["Ada Lovelace"],"LOCATION":["London"]}}}
+{"input":"No tagged entities here.","output":{"entities":{"PERSON":[],"LOCATION":[]}}}
+```
+
+Para clasificación, `classifications` puede contener una o varias tareas por
+fila:
+
+```jsonl
+{"input":"jump now","output":{"classifications":[{"task":"action","labels":["jump","wait"],"true_label":["jump"]},{"task":"urgency","labels":["now","later"],"true_label":["now"]}]}}
+```
+
+Usa una sola estructura por fila. No mezcles `text`, `label`, `labels` o
+`entities` con los campos `input` y `output` en la misma fila.
+
 ### Decodificador
 
 Establece `dataset_type` en `decoder` y da a cada fila un array `messages` con
@@ -107,7 +127,7 @@ de entrenamiento](/es/api-reference/training-jobs/create):
 ```json
 {
   "model_name": "my-ner-model",
-  "base_model": "fastino/gliner2-multi-v1",
+  "base_model": "fastino/gliner2-base-v1",
   "datasets": [
     {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
@@ -126,9 +146,6 @@ modelo base que se pueda entrenar actualmente.
 | `404` | El nombre del dataset no existe | Confirma el nombre exacto y espera a que termine el procesamiento |
 | `failed` | Falló la validación asíncrona del contenido | Lee `processing_error`, corrige el JSONL y sube una versión nueva |
 | `422` | La estructura de la solicitud se rechazó antes del procesamiento | Corrige los campos de la solicitud antes de reintentar |
-
-No subas la estructura interna `{"input": ..., "output": ...}` del entrenador de GLiNER. Conviértela
-primero al formato público de `text` más `entities`.
 
 ## Contratos de la API de datasets
 

@@ -33,6 +33,26 @@ same field in every row.
 {"text":"The request needs technical help.","label":"technical"}
 ```
 
+### GLiNER2 library format
+
+NER and classification uploads also accept GLiNER2's canonical `input` and
+`output` shape. For NER, map each entity label to its matching spans:
+
+```jsonl
+{"input":"Ada Lovelace worked in London.","output":{"entities":{"PERSON":["Ada Lovelace"],"LOCATION":["London"]}}}
+{"input":"No tagged entities here.","output":{"entities":{"PERSON":[],"LOCATION":[]}}}
+```
+
+For classification, `classifications` can contain one or several tasks in each
+row:
+
+```jsonl
+{"input":"jump now","output":{"classifications":[{"task":"action","labels":["jump","wait"],"true_label":["jump"]},{"task":"urgency","labels":["now","later"],"true_label":["now"]}]}}
+```
+
+Use one shape per row. Do not mix `text`, `label`, `labels`, or `entities` with
+`input` and `output` fields in the same row.
+
 ### Decoder
 
 Set `dataset_type` to `decoder` and give every row a `messages` array with chat
@@ -105,7 +125,7 @@ endpoint](/api-reference/training-jobs/create):
 ```json
 {
   "model_name": "my-ner-model",
-  "base_model": "fastino/gliner2-multi-v1",
+  "base_model": "fastino/gliner2-base-v1",
   "datasets": [
     {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
@@ -124,9 +144,6 @@ currently trainable base model.
 | `404` | Dataset name does not exist | Confirm the exact name and wait for processing |
 | `failed` | Asynchronous content validation failed | Read `processing_error`, correct the JSONL, and upload a new version |
 | `422` | The request shape was rejected before processing | Correct the request fields before retrying |
-
-Do not upload the GLiNER trainer's internal `{"input": ..., "output": ...}` shape. Convert it
-to the public `text` plus `entities` format first.
 
 ## Dataset API contracts
 

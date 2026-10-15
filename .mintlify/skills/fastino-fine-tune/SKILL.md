@@ -5,7 +5,7 @@ description: Fine-tune a GLiNER model on Fastino from a labeled dataset, then mo
 
 # Fastino Fine-Tune
 
-Run managed config training for the GLiNER encoders `fastino/gliner2-multi-v1`
+Run managed config training for the GLiNER encoders `fastino/gliner2-base-v1`
 and `fastino/GLiNER-2.5-Decide` from an uploaded dataset. Config jobs use SFT
 only. Query `GET /v1/base-models?supports_training=true` before selecting a
 base model.
@@ -48,7 +48,7 @@ Content-Type: application/json
 
 {
   "model_name": "my-ner-model",
-  "base_model": "fastino/gliner2-multi-v1",
+  "base_model": "fastino/gliner2-base-v1",
   "datasets": [{"name": "YOUR_DATASET_NAME"}],
   "training_type": "lora",
   "nr_epochs": 5,

@@ -33,6 +33,27 @@ multi-étiquettes. Utilisez le même champ dans chaque ligne.
 {"text":"The request needs technical help.","label":"technical"}
 ```
 
+### Format de la bibliothèque GLiNER2
+
+Les imports NER et de classification acceptent aussi le format canonique
+`input` et `output` de GLiNER2. Pour le NER, associez chaque étiquette d'entité
+à ses spans :
+
+```jsonl
+{"input":"Ada Lovelace worked in London.","output":{"entities":{"PERSON":["Ada Lovelace"],"LOCATION":["London"]}}}
+{"input":"No tagged entities here.","output":{"entities":{"PERSON":[],"LOCATION":[]}}}
+```
+
+Pour la classification, `classifications` peut contenir une ou plusieurs
+tâches par ligne :
+
+```jsonl
+{"input":"jump now","output":{"classifications":[{"task":"action","labels":["jump","wait"],"true_label":["jump"]},{"task":"urgency","labels":["now","later"],"true_label":["now"]}]}}
+```
+
+Utilisez une seule structure par ligne. Ne mélangez pas `text`, `label`,
+`labels` ou `entities` avec les champs `input` et `output` sur la même ligne.
+
 ### Décodeur
 
 Définissez `dataset_type` sur `decoder` et donnez à chaque ligne un tableau
@@ -107,7 +128,7 @@ jobs d'entraînement](/fr/api-reference/training-jobs/create) :
 ```json
 {
   "model_name": "my-ner-model",
-  "base_model": "fastino/gliner2-multi-v1",
+  "base_model": "fastino/gliner2-base-v1",
   "datasets": [
     {"name": "docs-example-ner", "version": "VERSION_NUMBER_FROM_UPLOAD"}
   ],
@@ -126,9 +147,6 @@ modèle de base actuellement entraînable.
 | `404` | Le nom du dataset n'existe pas | Vérifiez le nom exact et attendez la fin du traitement |
 | `failed` | Échec de la validation asynchrone du contenu | Lisez `processing_error`, corrigez le JSONL et importez une nouvelle version |
 | `422` | La structure de la requête a été rejetée avant le traitement | Corrigez les champs de la requête avant de réessayer |
-
-N'importez pas la structure interne `{"input": ..., "output": ...}` de l'entraîneur GLiNER. Convertissez-la
-d'abord au format public `text` plus `entities`.
 
 ## Contrats API des jeux de données
 

@@ -95,16 +95,18 @@ $env:FASTINO_TRAINING_MODEL = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16"
 
 </CodeGroup>
 
-## 4. 创建任务
+## 4. 了解创建请求
 
-```bash
-curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"base_model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", "lora_config": {"rank": 32}}'
+下一步的脚本会使用 `POST /v1/training/jobs/create-model` 和以下请求体创建一个任务：
+
+```json
+{
+  "base_model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+  "lora_config": {"rank": 32}
+}
 ```
 
-响应包含 `job_id` 以及该任务 `create` future 的 `future_id`：
+预期响应包含 `job_id` 以及该任务 `create` future 的 `future_id`。以下值是占位符：
 
 ```json
 {
@@ -116,12 +118,8 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 }
 ```
 
-每个执行工作的调用都会返回一个 future。读取它，直到 `status` 为 `completed`。使用 `wait=true` 时，请求最多等待 25 秒：
-
-```bash
-curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_ID?wait=true" \
-  -H "X-API-Key: $FASTINO_API_KEY"
-```
+每个执行工作的调用都会返回一个 future。脚本中的 `wait` 辅助函数会读取每个 future，直到
+`status` 为 `completed`、`failed` 或 `cancelled`。使用 `wait=true` 时，每个请求最多等待 25 秒。
 
 ## 5. 训练、保存并采样
 

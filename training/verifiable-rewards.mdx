@@ -38,6 +38,11 @@ Separate parsing from scoring so malformed output is observable:
 </Warning>
 
 ```python
+def parse_answer(response: str) -> str | None:
+    answer = response.strip()
+    return answer if answer else None
+
+
 def get_reward(response: str, expected: str) -> float:
     actual = parse_answer(response)
     if actual is None:
@@ -55,31 +60,33 @@ Save a sampler checkpoint from the current weights, then sample a group from
 it:
 
 ```python
-name = f"rollout-{step:06d}"
-saved = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
-    {"name": name, "ttl_seconds": 24 * 60 * 60},
-)
-wait(job_id, saved["future_id"])
+def sample_group(question: str, step: int, group_size: int = 4):
+    name = f"rollout-{step:06d}"
+    saved = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/save-weights-for-sampler",
+        {"name": name, "ttl_seconds": 24 * 60 * 60},
+    )
+    wait(job_id, saved["future_id"])
 
-prompt_tokens = tokenizer.apply_chat_template(
-    [{"role": "user", "content": question}],
-    add_generation_prompt=True,
-    enable_thinking=False,
-    return_dict=False,
-)
-sampled = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/sample",
-    {
-        "checkpoint": name,
-        "prompt_tokens": prompt_tokens,
-        "num_samples": group_size,
-        "sampling_params": {"max_tokens": 512, "temperature": 1.0},
-    },
-)
-sample_result = wait(job_id, sampled["future_id"])
+    prompt_tokens = tokenizer.apply_chat_template(
+        [{"role": "user", "content": question}],
+        add_generation_prompt=True,
+        enable_thinking=False,
+        return_dict=False,
+    )
+    sampled = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/sample",
+        {
+            "checkpoint": name,
+            "prompt_tokens": prompt_tokens,
+            "num_samples": group_size,
+            "sampling_params": {"max_tokens": 512, "temperature": 1.0},
+        },
+    )
+    result = wait(job_id, sampled["future_id"])
+    return prompt_tokens, result["sequences"]
 ```
 
 This doesn't create another job. The checkpoint and the samples belong to the
@@ -88,17 +95,14 @@ same interactive job.
 ## 3. Convert rewards to advantages
 
 ```python
-sequences = sample_result["sequences"]
-rewards = [
-    get_reward(tokenizer.decode(sequence["tokens"]), expected)
-    for sequence in sequences
-]
-
-mean_reward = sum(rewards) / len(rewards)
-advantages = [reward - mean_reward for reward in rewards]
-
-if all(advantage == 0.0 for advantage in advantages):
-    continue
+def center_rewards(sequences, expected: str):
+    rewards = [
+        get_reward(tokenizer.decode(sequence["tokens"]), expected)
+        for sequence in sequences
+    ]
+    mean_reward = sum(rewards) / len(rewards)
+    advantages = [reward - mean_reward for reward in rewards]
+    return None if all(value == 0.0 for value in advantages) else advantages
 ```
 
 Track groups with no reward variance. They may indicate that the task is too
@@ -129,10 +133,11 @@ def rl_datum(prompt_tokens, sequence, advantage):
     }
 
 
-datums = [
-    rl_datum(prompt_tokens, sequence, advantage)
-    for sequence, advantage in zip(sequences, advantages)
-]
+def build_datums(prompt_tokens, sequences, advantages):
+    return [
+        rl_datum(prompt_tokens, sequence, advantage)
+        for sequence, advantage in zip(sequences, advantages)
+    ]
 ```
 
 Use the tokenizer of the job's `base_model` for both prompts and decoding.
@@ -140,18 +145,20 @@ Use the tokenizer of the job's `base_model` for both prompts and decoding.
 ## 5. Update the interactive job
 
 ```python
-backward = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/forward-backward",
-    {"datums": datums, "loss_fn": "importance_sampling"},
-)
-train_result = wait(job_id, backward["future_id"])
-update = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/optim-step",
-    {"adam_params": {"learning_rate": 1e-5}},
-)
-optim_result = wait(job_id, update["future_id"])
+def update_job(datums):
+    backward = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/forward-backward",
+        {"datums": datums, "loss_fn": "importance_sampling"},
+    )
+    train_result = wait(job_id, backward["future_id"])
+    update = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/optim-step",
+        {"adam_params": {"learning_rate": 1e-5}},
+    )
+    optim_result = wait(job_id, update["future_id"])
+    return train_result, optim_result
 ```
 
 Wait for forward-backward to succeed before submitting the optimizer step.
@@ -173,12 +180,13 @@ configuration fields are rejected.
 ## 6. Save a recovery boundary
 
 ```python
-state = call(
-    "POST",
-    f"/v1/training/jobs/{job_id}/save-weights",
-    {"name": f"step-{step:06d}"},
-)
-wait(job_id, state["future_id"])
+def save_recovery_boundary(step: int) -> str:
+    state = call(
+        "POST",
+        f"/v1/training/jobs/{job_id}/save-weights",
+        {"name": f"step-{step:06d}"},
+    )
+    return wait(job_id, state["future_id"])["path"]
 ```
 
 Persist the returned `path` with:
@@ -191,6 +199,29 @@ Persist the returned `path` with:
 
 This metadata lets a controller choose a checkpoint without guessing from its
 name.
+
+## 7. Run the reward loop
+
+Define the training examples in your application, then compose the helpers
+inside the loop. `continue` now skips only the current group when all rewards
+are equal:
+
+```python
+training_examples = [
+    ("What is 2 + 2? Reply with the number only.", "4"),
+]
+
+for step, (question, expected) in enumerate(training_examples):
+    prompt_tokens, sequences = sample_group(question, step, group_size=4)
+    advantages = center_rewards(sequences, expected)
+    if advantages is None:
+        continue
+
+    datums = build_datums(prompt_tokens, sequences, advantages)
+    train_result, optim_result = update_job(datums)
+    state_path = save_recovery_boundary(step)
+    # Persist state_path with the application metadata listed above.
+```
 
 ## Verify before scaling
 

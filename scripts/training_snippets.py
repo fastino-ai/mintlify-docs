@@ -254,6 +254,17 @@ def _rule_python(snippet: FencedSnippet) -> Classification | None:
             coverage="static",
             risk="none",
         )
+    if any(
+        marker in snippet.body
+        for marker in ("def get_reward(", "def center_rewards(", "training_examples =")
+    ):
+        return Classification(
+            kind="python-reward-helper",
+            rule="python-reward-compile",
+            coverage="static",
+            risk="custom-loop",
+            mapped_command="blocker",
+        )
     if "import tinker" in snippet.body or re.search(r"\btinker\.", snippet.body):
         return Classification(
             kind="python-tinker",
