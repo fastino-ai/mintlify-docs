@@ -181,6 +181,25 @@ def _snippet(page: str, ordinal: int) -> object:
 
 
 class AgentTrainingSnippetsTests(unittest.TestCase):
+    def test_dataset_skill_uses_public_upload_contract(self) -> None:
+        skill = (ROOT / ".mintlify/skills/fastino-datasets/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"filename": "data.jsonl"', skill)
+        self.assertIn('"dataset_type": "ner"', skill)
+        self.assertIn("`presigned_url`", skill)
+        self.assertIn("`version_number` exactly matches", skill)
+        self.assertIn('`status` is `ready` or `failed`', skill)
+        self.assertIn("`processing_error`", skill)
+        self.assertNotIn('"file_name": "data.jsonl"', skill)
+        self.assertNotIn("Returns `upload_url`", skill)
+        self.assertNotIn("DPO uses `prompt`, `chosen`, and `rejected`", skill)
+
+    def test_agent_checkpoint_kinds_match_public_contract(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("`weights` or `sampler_weights`", agents)
+        self.assertNotIn("`state` or `sampler_weights`", agents)
+
     def test_sdk_contract_examples_do_not_use_stale_fields(self) -> None:
         corpus = "\n".join(
             path.read_text(encoding="utf-8")
@@ -216,6 +235,61 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             payload = json.loads(match.group("body"))
             self.assertEqual(set(payload), expected, path)
             self.assertNotIn("url", payload, path)
+
+    def test_checkpoint_deploy_examples_use_canonical_response(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}api-reference/training-jobs/deploy-checkpoint.mdx"
+            text = path.read_text(encoding="utf-8")
+            match = re.search(r"```json Response\n(?P<body>\{.*?\})\n```", text, re.DOTALL)
+            self.assertIsNotNone(match, path)
+            payload = json.loads(match.group("body"))
+            self.assertEqual(payload["message"], "Checkpoint deployed successfully", path)
+            self.assertIn("deployment_path", payload, path)
+            self.assertIn("mme_path", payload, path)
+            self.assertRegex(text, r"`mme_path` .*(?:deprecated|已弃用|veraltet|obsoleto|obsolète)", path)
+
+    def test_mutation_references_document_minimum_roles(self) -> None:
+        editor_pages = (
+            "api-reference/datasets/upload-url.mdx",
+            "api-reference/datasets/process-upload.mdx",
+            "api-reference/datasets/delete.mdx",
+            "api-reference/training-jobs/create.mdx",
+            "api-reference/training-jobs/delete.mdx",
+            "api-reference/training-jobs/stop.mdx",
+            "api-reference/training-jobs/terminate.mdx",
+            "api-reference/training-jobs/update-project.mdx",
+            "api-reference/training-jobs/update-model-name.mdx",
+        )
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            for relative in editor_pages:
+                path = ROOT / f"{prefix}{relative}"
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("Owner", text, path)
+                self.assertIn("Admin", text, path)
+                self.assertIn("Editor", text, path)
+                self.assertIn("`403 Forbidden`", text, path)
+
+            deploy = ROOT / f"{prefix}api-reference/training-jobs/deploy-checkpoint.mdx"
+            text = deploy.read_text(encoding="utf-8")
+            self.assertIn("Owner", text, deploy)
+            self.assertIn("Admin", text, deploy)
+            self.assertNotIn("Editor", text, deploy)
+            self.assertIn("`403 Forbidden`", text, deploy)
+
+    def test_status_filter_excludes_interactive_jobs(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}api-reference/training-jobs/list.mdx"
+            text = path.read_text(encoding="utf-8")
+            status = _between(
+                text,
+                '<ParamField query="status" type="string">',
+                "</ParamField>",
+            )
+            self.assertRegex(status, r"(?:config|Config|配置)")
+            self.assertRegex(status, r"(?:excludes|keine|excluye|exclut|不会包含)")
 
     def test_checkpoint_list_documents_config_and_interactive_shapes(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
@@ -258,16 +332,32 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 call = text[match.start():match.start() + 180]
                 self.assertIn("ttl_seconds=", call, f"{path}: {call}")
 
+    def test_tinker_quickstarts_require_python_311(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}training/quickstart.mdx"
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("Python 3.10", text, path)
+            self.assertGreaterEqual(text.count("Python 3.11"), 2, path)
+
     def test_interactive_billing_and_sdk_limits_are_documented_in_every_locale(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
             overview = (ROOT / f"{prefix}training.mdx").read_text(encoding="utf-8")
+            loop = (ROOT / f"{prefix}training/training-loop.mdx").read_text(
+                encoding="utf-8"
+            )
             migration = (ROOT / f"{prefix}training/migrate-from-tinker.mdx").read_text(
                 encoding="utf-8"
             )
 
             for marker in ("forward", "checkpoint"):
                 self.assertIn(marker, overview.lower(), f"{prefix}training.mdx")
+            self.assertIn("/api-reference/training-jobs/interactive/storage-usage", overview)
+            self.assertIn(f"/{prefix}training/migrate-from-tinker", overview)
+            self.assertIn("Tinker", overview)
+            self.assertRegex(loop, r"(?:canonical|kanonische|canónico|canonique|规范)")
+            self.assertRegex(migration, r"(?:explicit TTL|expliziten TTL|TTL explícito|TTL explicite|明确的 TTL)")
             for marker in (
                 "/v1/training/jobs",
                 "target_prompt_logprobs",

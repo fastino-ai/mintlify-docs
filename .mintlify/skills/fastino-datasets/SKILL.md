@@ -70,8 +70,9 @@ Managed config jobs train decoders from uploaded datasets with
 `POST /v1/training/jobs/create-model` when the application must tokenize
 examples and control each training step.
 
-- SFT and GRPO use `messages` with `{role, content}` objects.
-- DPO uses `prompt`, `chosen`, and `rejected`.
+- Public decoder uploads use `messages` with `{role, content}` objects.
+- Do not upload DPO-only rows containing `prompt`, `chosen`, and `rejected`;
+  `dataset_type: "decoder"` currently requires `messages` for every row.
 
 ```jsonl
 {"messages": [{"role": "user", "content": "What is 2+2?"}, {"role": "assistant", "content": "4"}]}
@@ -92,11 +93,14 @@ Content-Type: application/json
 
 {
   "dataset_name": "my-dataset",
-  "file_name": "data.jsonl"
+  "filename": "data.jsonl",
+  "dataset_type": "ner"
 }
 ```
 
-Returns `upload_url` (PUT to this with the file body) and `dataset_id`.
+Returns `presigned_url`, `dataset_id`, and `version_number`. PUT the exact file
+bytes to `presigned_url`, then retain the ID and version for processing and
+status polling.
 
 **Step 2 — process after upload:**
 
@@ -110,7 +114,10 @@ Content-Type: application/json
 }
 ```
 
-Returns HTTP 202 immediately. Poll `GET /v1/datasets/{name}` until the version appears.
+Returns HTTP 202 immediately. Poll `GET /v1/datasets/{name}` and select the
+entry whose `version_number` exactly matches the upload response. Continue
+until its `status` is `ready` or `failed`. If it is `failed`, stop and surface
+its `processing_error`; do not submit that version to training.
 
 ## Delete an Entire Dataset (All Versions)
 
@@ -138,5 +145,9 @@ See the `fastino-fine-tune` skill for the full training workflow.
 | 401 | Invalid or missing API key |
 | 402 | Insufficient credits |
 | 404 | Dataset not found |
-| 422 | Validation error — check request body fields |
+| 422 | Synchronous request-shape error — check body fields before retrying |
 | 500 | Server error — safe to retry |
+
+Dataset-content validation runs asynchronously after processing returns `202`.
+Content errors appear as a matching version with `status: "failed"` and a
+`processing_error`, not necessarily as a synchronous `422`.

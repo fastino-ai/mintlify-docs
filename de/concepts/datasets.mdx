@@ -91,8 +91,11 @@ curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
-Die Verarbeitung gibt `202` zurück. Fragen Sie den Datensatz über seinen Namen ab, suchen Sie den Eintrag, dessen `version_number`
-mit der Upload-Antwort übereinstimmt, und warten Sie, bis der `status` dieses Eintrags `ready` ist:
+Die Verarbeitung gibt `202` zurück. Fragen Sie den Datensatz über seinen Namen
+ab und wählen Sie den Eintrag aus, dessen `version_number` exakt mit der
+Upload-Antwort übereinstimmt. Fragen Sie weiter ab, bis der `status` dieser
+Version `ready` oder `failed` ist. Bei `failed` brechen Sie ab und zeigen
+`processing_error` an; verwenden Sie diese Version nicht für das Training.
 
 ```bash
 curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
@@ -124,7 +127,8 @@ aktuell trainierbares Basismodell auszuwählen.
 | --- | --- | --- |
 | `401` | Fehlender oder ungültiger API-Schlüssel | Senden Sie `X-API-Key: $FASTINO_API_KEY` |
 | `404` | Datensatzname existiert nicht | Prüfen Sie den exakten Namen und warten Sie auf die Verarbeitung |
-| `422` | Ungültige Zeilen oder ungültiger Datensatztyp | Korrigieren Sie die von der Validierung gemeldete JSONL-Struktur |
+| `failed` | Asynchrone Inhaltsvalidierung fehlgeschlagen | Lesen Sie `processing_error`, korrigieren Sie das JSONL und laden Sie eine neue Version hoch |
+| `422` | Die Request-Struktur wurde vor der Verarbeitung abgelehnt | Korrigieren Sie die Request-Felder und versuchen Sie es erneut |
 
 Laden Sie nicht die interne `{"input": ..., "output": ...}`-Struktur des GLiNER-Trainers hoch. Konvertieren Sie sie
 zuerst in das öffentliche Format aus `text` und `entities`.

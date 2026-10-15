@@ -90,8 +90,10 @@ curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
-Processing returns `202`. Poll the dataset by name, find the entry whose `version_number`
-matches the upload response, and wait until that entry's `status` is `ready`:
+Processing returns `202`. Poll the dataset by name and select the entry whose
+`version_number` exactly matches the upload response. Continue until that
+version's `status` is `ready` or `failed`. If it is `failed`, stop and surface
+its `processing_error`; do not submit that version to training.
 
 ```bash
 curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
@@ -123,7 +125,8 @@ currently trainable base model.
 | --- | --- | --- |
 | `401` | Missing or invalid API key | Send `X-API-Key: $FASTINO_API_KEY` |
 | `404` | Dataset name does not exist | Confirm the exact name and wait for processing |
-| `422` | Invalid rows or dataset type | Correct the JSONL shape reported by validation |
+| `failed` | Asynchronous content validation failed | Read `processing_error`, correct the JSONL, and upload a new version |
+| `422` | The request shape was rejected before processing | Correct the request fields before retrying |
 
 Do not upload the GLiNER trainer's internal `{"input": ..., "output": ...}` shape. Convert it
 to the public `text` plus `entities` format first.

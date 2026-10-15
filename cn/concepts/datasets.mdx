@@ -84,8 +84,9 @@ curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/process \
   -d "$(jq -n --arg dataset_id "$DATASET_ID" '{dataset_id: $dataset_id}')"
 ```
 
-处理请求返回 `202`。按名称轮询数据集，找到 `version_number` 与上传响应一致的条目，
-并等待该条目的 `status` 变为 `ready`：
+处理请求返回 `202`。按名称轮询数据集，并选择 `version_number` 与上传响应完全一致的条目。
+持续轮询，直到该版本的 `status` 变为 `ready` 或 `failed`。如果状态为 `failed`，
+请停止轮询并显示其 `processing_error`；不要将该版本提交给训练。
 
 ```bash
 curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
@@ -115,7 +116,8 @@ curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/docs-example-ner \
 | --- | --- | --- |
 | `401` | API 密钥缺失或无效 | 发送 `X-API-Key: $FASTINO_API_KEY` |
 | `404` | 数据集名称不存在 | 确认确切名称并等待处理完成 |
-| `422` | 数据行或数据集类型无效 | 根据验证报告修正 JSONL 结构 |
+| `failed` | 异步内容验证失败 | 查看 `processing_error`，修正 JSONL，然后上传新版本 |
+| `422` | 请求结构在处理前被拒绝 | 修正请求字段后重试 |
 
 请勿上传 GLiNER 训练器内部使用的 `{"input": ..., "output": ...}` 结构。请先将其转换为公开的
 `text` 加 `entities` 格式。

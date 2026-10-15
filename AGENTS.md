@@ -57,7 +57,7 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   `tinker://` path. Sampling remains available after stop.
 - Interactive checkpoint reads and mutations use
   `/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`, where `kind` is
-  `state` or `sampler_weights`. Deploy an interactive sampler checkpoint with
+  `weights` or `sampler_weights`. Deploy an interactive sampler checkpoint with
   `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`.
   Config checkpoint download and deployment routes use `checkpoint_id`
   instead. Do not interchange these identifiers.

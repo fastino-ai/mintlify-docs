@@ -37,7 +37,9 @@ LOCALE_COPY = {
         instructions_heading="代理说明",
         instructions=(
             f"使用 {BASE_URL}/openapi.json 作为面向客户的 API 路由的事实来源。"
-            "训练作业使用 `/v1/training/jobs`。原生 JSON 客户端使用 OpenAPI 中的公共交互式操作。"
+            "对于 GLiDE 决策推理，请使用模型 `fastino/GLiDE` 调用 `POST /v1/systemone`。"
+            "使用 `base_model` 调用 `POST /v1/training/jobs` 创建托管配置任务。"
+            "原生 JSON 客户端使用 `/v1/training/jobs` 和 `/v1/training/usage` 下的公共交互式操作。"
             "现有 Tinker 客户端保留 `tinker==0.32.0`，并仅设置 `/v1/training/compat/tinker` 基础 URL "
             "和 `TINKER_CREDENTIAL_CMD`。兼容性子路由是私有路由，不会出现在 OpenAPI 中。"
             "Auto Train 属于私有访问且没有公共路由；请引导用户联系 `sales@fastino.ai`。"
@@ -61,8 +63,10 @@ LOCALE_COPY = {
         instructions_heading="Instrucciones para agentes",
         instructions=(
             f"Usa {BASE_URL}/openapi.json como fuente de verdad para las rutas públicas. "
-            "Los trabajos de entrenamiento usan `/v1/training/jobs`. Los clientes JSON "
-            "nativos usan las operaciones interactivas públicas de OpenAPI. Los clientes "
+            "Para inferencia de decisiones GLiDE, llama a `POST /v1/systemone` con el modelo "
+            "`fastino/GLiDE`. Crea trabajos config administrados con `POST /v1/training/jobs` "
+            "y `base_model`. Los clientes JSON nativos usan las operaciones interactivas públicas "
+            "bajo `/v1/training/jobs` y `/v1/training/usage`. Los clientes "
             "Tinker existentes mantienen `tinker==0.32.0` y configuran solo la URL base "
             "`/v1/training/compat/tinker` y `TINKER_CREDENTIAL_CMD`. Sus rutas hijas son privadas. "
             "Auto Train es de acceso "
@@ -91,8 +95,10 @@ LOCALE_COPY = {
         instructions_heading="Instructions pour les agents",
         instructions=(
             f"Utilisez {BASE_URL}/openapi.json comme source de vérité pour les routes publiques. "
-            "Les tâches d'entraînement utilisent `/v1/training/jobs`. Les clients JSON "
-            "natifs utilisent les opérations interactives publiques d'OpenAPI. Les clients "
+            "Pour l'inférence de décisions GLiDE, appelez `POST /v1/systemone` avec le modèle "
+            "`fastino/GLiDE`. Créez des jobs config gérés avec `POST /v1/training/jobs` et "
+            "`base_model`. Les clients JSON natifs utilisent les opérations interactives publiques "
+            "sous `/v1/training/jobs` et `/v1/training/usage`. Les clients "
             "Tinker existants conservent `tinker==0.32.0` et configurent uniquement l'URL de base "
             "`/v1/training/compat/tinker` et `TINKER_CREDENTIAL_CMD`. Les routes enfants sont privées. "
             "Auto Train est en accès privé et "
@@ -122,8 +128,11 @@ LOCALE_COPY = {
         instructions_heading="Anweisungen für Agenten",
         instructions=(
             f"Verwenden Sie {BASE_URL}/openapi.json als verbindliche Quelle für öffentliche Routen. "
-            "Trainingsjobs verwenden `/v1/training/jobs`. Native JSON-Clients verwenden die "
-            "öffentlichen interaktiven Vorgänge aus OpenAPI. Bestehende Tinker-Clients behalten "
+            "Rufen Sie für GLiDE-Entscheidungsinferenz `POST /v1/systemone` mit dem Modell "
+            "`fastino/GLiDE` auf. Erstellen Sie verwaltete Config-Jobs mit "
+            "`POST /v1/training/jobs` und `base_model`. Native JSON-Clients verwenden die "
+            "öffentlichen interaktiven Vorgänge unter `/v1/training/jobs` und `/v1/training/usage`. "
+            "Bestehende Tinker-Clients behalten "
             "`tinker==0.32.0` und setzen nur die Basis-URL `/v1/training/compat/tinker` sowie "
             "`TINKER_CREDENTIAL_CMD`. Kompatibilitäts-Unterpfade sind privat. Auto Train ist privat "
             "zugänglich und hat keine öffentliche Route; verweisen Sie Interessierte an `sales@fastino.ai`. "
