@@ -5,7 +5,8 @@ description: "Save interactive-job state and application progress, then recover 
 
 A state checkpoint protects server-side training state. A complete recovery
 record also protects the user-owned state that tells your controller what to do
-next.
+next. Native JSON clients use the public checkpoint operations. Tinker clients
+use the matching SDK methods.
 
 The examples use the `call` and `wait` helpers from the
 [Quickstart script](/training/quickstart#custom-training-loop).
@@ -87,14 +88,10 @@ Compare the record with the source checkpoint and requested continuation:
 Stop for an explicit decision if these fields conflict. Don't silently combine
 a checkpoint with a different experiment.
 
-Then choose how to continue:
-
-| Situation | Call |
-| --- | --- |
-| The source job is still active and you want to roll back | `POST /v1/training/jobs/{job_id}/load-weights` with `{"path": name, "optimizer": true}` |
-| The source job was stopped or released | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `load_optimizer` |
-
-To continue in a new job:
+Native clients create a new job with `from_checkpoint`, or send a state name or
+the same job's `tinker://` path to
+[`load-weights`](/api-reference/training-jobs/interactive/load-weights).
+Tinker clients use the supported state-load flow:
 
 ```python
 resumed = call(
@@ -107,9 +104,11 @@ wait(resumed["job_id"], resumed["load_future_id"])
 resumed_job_id = resumed["job_id"]
 ```
 
-The new job takes the checkpoint's base model and LoRA settings, so don't send
-`lora_config`. Its ID differs from the source job ID. Record `source_job_id`,
-`state_path`, and `resumed_job_id` as application-owned lineage.
+This factory creates a new interactive job, then loads the source checkpoint's
+weights and optimizer state into it. The resumed job ID normally differs from
+the source job ID. Record `source_job_id`, `state_path`, and `resumed_job_id` as
+application-owned lineage. Do not reject a continuation because the two job IDs
+differ. Do not construct private compatibility child routes.
 
 ## 4. Make the boundary recoverable
 
@@ -149,24 +148,16 @@ sampler = call(
 Don't use a sampler checkpoint as a recovery point; it has no optimizer state
 and a new job can't start from it.
 
-`ttl_seconds` defaults to `null`, so an omitted TTL keeps the checkpoint until
-you delete it. Live checkpoints count toward checkpoint storage. To enable
-automatic cleanup, pass a value from `3600` to `315360000` seconds (1 hour to
-10 years).
-
-Manage checkpoints with these routes:
-
-| Task | Route |
-| --- | --- |
-| List a job's checkpoints | [`GET /v1/training/jobs/{job_id}/checkpoints`](/api-reference/training-jobs/checkpoints) |
-| Get one checkpoint | [`GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/api-reference/interactive-jobs/get-checkpoint) |
-| Download as a `.tar` archive | [`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/api-reference/training-jobs/download-checkpoint) |
-| Change its TTL | [`PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl`](/api-reference/interactive-jobs/set-checkpoint-ttl) |
-| Publish or unpublish | [`POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish`](/api-reference/interactive-jobs/publish-checkpoint) |
-| Delete | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/api-reference/interactive-jobs/delete-checkpoint) |
-| Read storage usage | [`GET /v1/training/usage`](/api-reference/interactive-jobs/usage) |
-
-Downloading needs the team's weight-download access.
+The public Training API saves training state through
+[`save-weights`](/api-reference/training-jobs/interactive/save-weights) and
+sampling weights through
+[`save-weights-for-sampler`](/api-reference/training-jobs/interactive/save-sampler-weights).
+The direct load and sample routes accept a checkpoint name or the same job's
+`tinker://` path. Sampling remains available after the job is stopped. The
+shared list and download routes cover interactive checkpoints, and download
+still requires weight-download access. Tinker provides matching SDK methods.
+Do not construct private compatibility child routes or assume an undocumented
+retention period.
 
 ## 6. Verify the continuation
 
@@ -180,42 +171,14 @@ Before scaling the resumed workload:
 5. Save a new state checkpoint under a new name.
 6. Persist the next loop record.
 
-## Deploy your trained model
-
-Deploy a sampler checkpoint to serve it as a model. Deployment is available for
-supported base models; other bases return `400`.
-
-```bash
-curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model_name": "support-replies-v1"}'
-```
-
-The response has the model's `model_id` and a `status` of `deploying`. Repeat
-the same call to check progress; it returns the same model, and `status` becomes
-`deployed` once the model is ready. Then call it by ID:
-
-```bash
-curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "MODEL_ID",
-    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
-  }'
-```
-
-Replace `MODEL_ID` with the returned `model_id`. See
-[Deploy checkpoint](/api-reference/interactive-jobs/deploy-checkpoint) for the
-request fields and errors.
+Use either the native JSON operations or the supported Tinker SDK for
+interactive model operations.
 
 ## Diagnose recovery errors
 
 | Symptom | Check |
 | --- | --- |
-| A future fails | Record the job ID and the future's `error`. Don't advance dependent application state |
-| A training call returns `400` after a pause | The job was stopped or released after 30 idle minutes. Start a new job from the latest state checkpoint |
-| A checkpoint can't be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
-| `from_checkpoint` is rejected | Confirm it is a `weights/<name>` path from your team; sampler checkpoints can't seed a job |
-| Resumed job lookup fails | Confirm that the ID came from the new job's create response and that the same Fastino team is authenticated |
+| A future fails | Record the job ID and future result. Do not advance dependent application state |
+| A checkpoint cannot be loaded | Verify its job, checkpoint kind, and client-owned recovery record |
+| Source checkpoint is rejected | Confirm its source job, checkpoint kind, and persisted `state_path`; do not require the new job ID to equal the source ID |
+| Resumed job lookup fails | Confirm that the ID came from the resumed client's `get_info().model_id` and that the same Fastino team is authenticated |

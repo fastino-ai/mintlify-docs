@@ -106,10 +106,50 @@ Eignung für die Bereitstellung.
 
 ## Benutzerdefinierter Trainingsloop
 
-Ein benutzerdefinierter Loop erstellt einen `interactive`-Job auf einem
-Decoder-Modell. Ihr Code tokenisiert die Daten, sendet jeden Trainingsschritt als
-JSON und liest die Ergebnisse. Jeder Aufruf verwendet denselben
-Fastino-API-Schlüssel; Sie nummerieren keine Anfragen und senden keine Heartbeats.
+Wählen Sie eine unterstützte Schnittstelle:
+
+- Native JSON-Clients rufen
+  [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
+  auf, reihen Modelloperationen unter `/v1/training/jobs/{job_id}` ein und fragen
+  jede zurückgegebene `future_id` ab, bis sie `completed`, `failed` oder
+  `cancelled` ist.
+- Bestehende Tinker-Programme behalten `tinker==0.32.0` und verwenden die
+  folgende Einrichtung.
+
+Native Clients senden weder `seq_id` noch Heartbeats. Der Server weist die
+Operationsreihenfolge zu und hält die interne Sitzung aktiv. Ein Request mit
+`wait=true` wartet höchstens 25 Sekunden. Der Client muss eine nicht
+abgeschlossene Operation daher weiter abfragen. Die native Routenfolge finden
+Sie unter [Benutzerdefinierten Trainingsloop erstellen](/de/training/training-loop).
+
+### Nativer JSON-Weg
+
+1. Rufen Sie
+   [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
+   mit `base_model` oder mit `from_checkpoint` und `load_optimizer` auf.
+2. Fragen Sie die zurückgegebene Erstell-`future_id` über
+   [Future abrufen](/de/api-reference/training-jobs/interactive/get-future)
+   ab, bis sie `completed`, `failed` oder `cancelled` ist.
+3. Reihen Sie
+   [forward-backward](/de/api-reference/training-jobs/interactive/forward-backward)
+   und [einen Optimizer-Schritt](/de/api-reference/training-jobs/interactive/optim-step)
+   ein. Fragen Sie jede `future_id` bis zu einem Endstatus ab, bevor Sie den
+   nächsten abhängigen Schritt starten.
+4. [Speichern Sie Sampler-Gewichte](/de/api-reference/training-jobs/interactive/save-sampler-weights)
+   und fragen Sie die Speicher-Future bis zu einem Endstatus ab.
+5. Stoppen Sie den Job über den gemeinsamen
+   [Stopp-Vorgang](/de/api-reference/training-jobs/stop).
+6. [Sampeln Sie nach dem Stopp aus dem gespeicherten Checkpoint](/de/api-reference/training-jobs/interactive/sample)
+   und fragen Sie die Sampling-Operation bis zu einem Endstatus ab.
+
+Nur eine eingereihte oder laufende Sample-Future kann abgebrochen werden.
+Eine HTTP-Ablehnung bedeutet, dass der Server die Operation nicht eingereiht
+hat. Eine eingereihte Operation kann stattdessen mit `status: "failed"` enden.
+
+### Tinker-SDK-Weg
+
+Der Tinker-Weg erfordert Python 3.11 oder neuer. Konstruieren Sie keine privaten
+Kompatibilitäts-Unterpfade.
 
 ### 3. Client-Bibliotheken installieren
 
@@ -121,14 +161,22 @@ Modells; das Training selbst läuft auf Fastino.
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add requests transformers
+uv add "tinker==0.32.0"
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install requests transformers
+pip install "tinker==0.32.0"
+```
+
+```powershell pip · Windows
+mkdir fastino-training
+cd fastino-training
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -330,9 +378,11 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-Die Antwort beschreibt den Job mit `type` `interactive` und seine neuesten
-Checkpoints. Um den Sampler-Checkpoint als PEFT-LoRA-Dateien herunterzuladen,
-verwenden Sie [Interaktiven Checkpoint herunterladen](/de/api-reference/training-jobs/download-checkpoint).
+Die Antwort beschreibt denselben Job, der von
+`create_lora_training_client(...)` erstellt wurde. Verwenden Sie weiterhin den
+SDK-Client für Modelloperationen und die kanonische Jobs-API für dokumentierte
+Job-Lesezugriffe. Native JSON-Clients verwenden die öffentlichen Seiten für
+interaktive Operationen.
 
 ## Weiter
 

@@ -97,10 +97,47 @@ checkpoints, logs, and deployment eligibility.
 
 ## Custom training loop
 
-A custom loop creates an `interactive` job on a decoder model. Your code
-tokenizes data, sends each training step as JSON, and reads the results. Every
-call uses the same Fastino API key; you don't number requests or send
-heartbeats.
+Choose one supported interface:
+
+- Native JSON clients call
+  [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create-model),
+  queue model operations under `/v1/training/jobs/{job_id}`, and poll each
+  returned `future_id` until `completed`, `failed`, or `cancelled`.
+- Existing Tinker programs keep `tinker==0.32.0` and use the setup below.
+
+Native clients send no `seq_id` and no heartbeat. The server assigns operation
+ordering and keeps the internal session alive. A request with `wait=true` waits
+for at most 25 seconds, so a client must continue polling a nonterminal
+future. Follow [Build a custom training loop](/training/training-loop) for
+the native route sequence.
+
+### Native JSON path
+
+1. Call
+   [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create-model)
+   with `base_model`, or with `from_checkpoint` and `load_optimizer`.
+2. Poll the returned create `future_id` through
+   [Get a future](/api-reference/training-jobs/interactive/get-future)
+   until `completed`, `failed`, or `cancelled`.
+3. Queue
+   [forward-backward](/api-reference/training-jobs/interactive/forward-backward)
+   and [an optimizer step](/api-reference/training-jobs/interactive/optim-step).
+   Poll each `future_id` to a terminal status before the next dependent step.
+4. [Save sampler weights](/api-reference/training-jobs/interactive/save-sampler-weights)
+   and poll the save future to a terminal status.
+5. Stop the job through the shared
+   [stop operation](/api-reference/training-jobs/stop).
+6. [Sample from the saved checkpoint](/api-reference/training-jobs/interactive/sample)
+   after stop, then poll the sample future to a terminal status.
+
+Only a queued or running sample future can be cancelled. An HTTP rejection
+means that the server did not queue the call. A queued future can
+instead finish with `status: "failed"`.
+
+### Tinker SDK path
+
+The Tinker path requires Python 3.11 or later. Do not construct private
+compatibility child routes.
 
 ### 3. Install the client libraries
 
@@ -112,14 +149,22 @@ the training itself runs on Fastino.
 ```bash uv
 uv init fastino-training
 cd fastino-training
-uv add requests transformers
+uv add "tinker==0.32.0"
 ```
 
 ```bash pip
 mkdir fastino-training && cd fastino-training
 python -m venv .venv
 source .venv/bin/activate
-pip install requests transformers
+pip install "tinker==0.32.0"
+```
+
+```powershell pip · Windows
+mkdir fastino-training
+cd fastino-training
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install "tinker==0.32.0"
 ```
 
 </CodeGroup>
@@ -318,9 +363,10 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-The response describes the job with `type` `interactive` and its latest
-checkpoints. To download the sampler checkpoint as PEFT LoRA files, use
-[Download an interactive checkpoint](/api-reference/training-jobs/download-checkpoint).
+The response describes the same job created by
+`create_lora_training_client(...)`. Continue with the SDK client for model
+operations and use the canonical jobs API for documented job reads. Native
+JSON clients use the public interactive operation pages instead.
 
 ## Continue
 

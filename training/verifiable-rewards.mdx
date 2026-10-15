@@ -17,10 +17,11 @@ remain in your code.
 
 ## Before you start
 
-Complete the [custom-loop Quickstart](/training/quickstart#custom-training-loop).
-The snippets below reuse its `call` and `wait` helpers, its `tokenizer`, and a
-`job_id`. They use the built-in `importance_sampling` loss and focus on the
-user-owned reward flow.
+Complete the [custom-loop Quickstart](/training/quickstart#custom-training-loop),
+then select a supported base model. The snippets below use the documented
+`importance_sampling` loss and focus on the user-owned reward flow. Adapt datum
+construction to either the native JSON schema or the
+[tested SDK](/training/migrate-from-tinker) and your selected model.
 
 <Note>
   This guide is not a standalone copy-and-paste trainer. Start from the
@@ -161,9 +162,12 @@ train_result = wait(job_id, backward["future_id"])
 optim_result = wait(job_id, update["future_id"])
 ```
 
-Both calls update the same job, in the order they were sent. Wait for and
-record each result before advancing the application step. For clipped
-objectives, use `ppo` or `cispo` with `loss_fn_config` thresholds.
+Both operations mutate the existing interactive job. Native clients queue the
+same work through
+[`forward-backward`](/api-reference/training-jobs/interactive/forward-backward)
+and [`optim-step`](/api-reference/training-jobs/interactive/optim-step), then
+poll each `future_id` to a terminal status. Tinker clients resolve each
+future. Record each result before advancing the application step.
 
 ## 6. Save a recovery boundary
 

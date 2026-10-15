@@ -3,10 +3,11 @@ title: "Migrar desde Tinker"
 description: "Traslada una carga de trabajo compatible del SDK de Tinker a los trabajos de entrenamiento interactivos de Fastino."
 ---
 
-Fastino admite un subconjunto definido del SDK `tinker` como interfaz de cliente
-para trabajos de entrenamiento interactivos. Un cliente de entrenamiento
-migrado es un trabajo de Fastino en `/v1/training/jobs`; su ID de modelo del SDK
-y su ID canónico de trabajo de Fastino son idénticos.
+La API de entrenamiento admite el SDK de Python `tinker==0.32.0` sin
+modificaciones para las operaciones que se indican abajo. Cambia solo la URL
+base y la credencial. Un cliente de entrenamiento migrado es un trabajo de
+Fastino en `/v1/training/jobs`; su ID de modelo del SDK y su ID canónico de
+trabajo de Fastino son idénticos.
 
 Tienes dos opciones:
 
@@ -91,15 +92,17 @@ trabajo existente para realizar una prueba de bajo coste que:
 - Obtenga el ID de cada cliente de `GET /v1/training/jobs/{job_id}`; una
   reanudación mediante la fábrica crea un ID nuevo a partir del checkpoint de origen
 
-Usa el SDK de Tinker para las cargas del SDK. Para clientes HTTP directos, usa
-las [rutas nativas](#switch-to-the-native-routes).
+Sigue usando el SDK de Tinker compatible para esta migración. Fastino también
+publica operaciones JSON nativas para clientes nuevos. Las rutas hijas de
+compatibilidad siguen siendo privadas. Configura solo `TINKER_BASE_URL` y no
+construyas URL hijas.
 
 <span id="supported-client-behavior" />
 
 ## Comportamiento compatible del cliente
 
-Fastino admite las siguientes llamadas de `tinker==0.32.0` sobre un trabajo
-interactivo.
+La API de entrenamiento admite las siguientes llamadas de `tinker==0.32.0`
+sobre un trabajo interactivo de Fastino.
 
 ### Entrenamiento y muestreo
 
@@ -127,19 +130,25 @@ errores de validación del servicio activo.
 | Método u operación del SDK | Comportamiento de Fastino |
 | --- | --- |
 | Resultado/obtención de future | Obtiene un resultado asíncrono |
-| Cancelación de future | Cancela un future de muestreo de `sample` que no haya terminado. Los futures de operaciones de entrenamiento no se cancelan |
-| `list_training_runs` o `get_training_run` | Lee solo ejecuciones interactivas |
-| Listar checkpoints | Lee los checkpoints que pertenecen al trabajo |
-| Descargar el archivo de un checkpoint | Descarga un checkpoint interactivo |
-| Eliminar un checkpoint | Elimina un checkpoint mediante el SDK |
-| Publicar o despublicar un checkpoint | Cambia la publicación del checkpoint mediante el SDK |
-| Establecer o borrar el TTL de un checkpoint | Cambia la retención del checkpoint mediante el SDK |
-| Uso de almacenamiento de checkpoints | Lee el almacenamiento actual de checkpoints mediante el SDK |
-| Uso de facturación | Lee eventos de uso por hora mediante el SDK |
+| Cancelación de future | Cancela solo un future de muestreo no terminado de `sample`. Los futures de operaciones de entrenamiento no se cancelan |
+| `list_training_runs` o `get_training_run` | Lee solo ejecuciones interactivas. `/v1/training/jobs` lee trabajos de configuración e interactivos |
+| `list_checkpoints` o `list_user_checkpoints` | Lee los checkpoints que pertenecen al trabajo o al equipo |
+| `get_weights_info_by_tinker_path` | Lee los metadatos de pesos de un checkpoint, incluido el rango LoRA |
+| `get_checkpoint_archive_url` | Devuelve un enlace de archivo firmado para un checkpoint interactivo. Requiere permiso de descarga de pesos |
+| `delete_checkpoint_from_tinker_path` | Elimina un checkpoint |
+| `publish_checkpoint_from_tinker_path` o `unpublish_checkpoint_from_tinker_path` | Cambia la publicación dentro del equipo propietario. No permite que otro equipo cargue la ruta |
+| `set_checkpoint_ttl_from_tinker_path` | Establece o borra la retención del checkpoint |
+| `get_current_checkpoint_storage_usage` | Lee el almacenamiento actual de checkpoints, opcionalmente para un proyecto |
+| `get_billing_usage` | Lee eventos de uso por hora en una ventana alineada a la hora |
 
-El SDK gestiona el intercambio de tokens automáticamente con la clave que
-imprime `TINKER_CREDENTIAL_CMD`. Estos métodos también tienen
-[rutas nativas](#switch-to-the-native-routes).
+Las dos rutas de descarga de checkpoints requieren el permiso del equipo para
+descargar pesos. Una es el método del SDK `get_checkpoint_archive_url`. La otra
+es la ruta pública
+[`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/es/api-reference/training-jobs/download-checkpoint).
+Sin ese permiso, ambas devuelven `403` con
+`For downloading models, please contact sales@fastino.ai`. El SDK gestiona
+automáticamente el intercambio de tokens con la clave que imprime
+`TINKER_CREDENTIAL_CMD`. No construyas rutas hijas de compatibilidad.
 
 ### Llamadas no compatibles
 
@@ -150,6 +159,17 @@ Fastino no admite:
 - `external_weights_urls`
 - Exportación de trazas de sesión
 - Entradas del registro de auditoría
+- Muestreo sin un `SamplingClient` y su sesión de muestreo
+- `target_prompt_logprobs` o un `prompt_alt_tokens_k` positivo
+- Fragmentos de prompt distintos de `encoded_text`
+- Optimizadores distintos de AdamW
+- Rangos LoRA fuera del intervalo de 1 a 32
+
+Estas restricciones describen el comportamiento con claves de API normales de
+Fastino. Una clave de ejecución de sandbox tiene un ámbito de escritura más
+reducido: tampoco puede eliminar o publicar checkpoints, cambiar su TTL ni
+reasignar el proyecto de una sesión. Las operaciones
+correspondientes siguen siendo compatibles con claves de API normales.
 
 No deduzcas la compatibilidad porque un método exista en el paquete instalado.
 La tabla define el subconjunto compatible; capabilities solo informa modelos
@@ -161,6 +181,8 @@ habilitados y longitudes de contexto.
 | --- | --- |
 | La autenticación falla | Confirma que `TINKER_CREDENTIAL_CMD` imprima una única clave `fast_sk_` actual y ninguna salida adicional |
 | El cliente no puede conectarse | Confirma que `TINKER_BASE_URL` sea exactamente `https://api.fastino.ai/v1/training/compat/tinker` |
+| Una llamada del SDK o descarga de checkpoint devuelve `403` con un mensaje sobre el borrado de datos del equipo | El equipo se está eliminando. No reintentes la operación; contacta con el administrador de la cuenta o con el soporte de Fastino si la eliminación es inesperada |
+| Una descarga de checkpoint devuelve `403` y pide contactar con ventas | Al equipo le falta el permiso de descarga de pesos. Contacta con sales@fastino.ai |
 | Se rechaza un modelo | Vuelve a consultar capabilities y elige un modelo habilitado |
 | Se rechaza un rango, pérdida u operación | Compara la llamada con los límites documentados y la tabla de compatibilidad |
 | Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_id` y que esté autenticado el mismo equipo de Fastino |
@@ -168,7 +190,7 @@ habilitados y longitudes de contexto.
 ## Lista de comprobación de la migración
 
 - [ ] Fija `tinker==0.32.0`.
-- [ ] Establece la URL base del adaptador de Fastino.
+- [ ] Establece la URL base de la API de entrenamiento para el SDK de Tinker.
 - [ ] Proporciona una clave `fast_sk_` mediante `TINKER_CREDENTIAL_CMD`.
 - [ ] Comprueba cada método del SDK con el comportamiento compatible del cliente.
 - [ ] Elige un modelo habilitado mediante capabilities y valida rango, pérdida

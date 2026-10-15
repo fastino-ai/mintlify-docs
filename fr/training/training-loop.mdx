@@ -4,17 +4,20 @@ sidebarTitle: "Boucle d'entraînement"
 description: "Reliez l'échantillonnage, les récompenses, les mises à jour et les checkpoints au sein d'un même job interactif Fastino."
 ---
 
-Votre application décide quoi échantillonner, comment le noter et quand mettre
-à jour. Fastino exécute chaque opération du modèle sur un job interactif. Chaque
-étape est une requête JSON vers une route sous `/v1/training/jobs/{job_id}`.
+Votre application décide quoi échantillonner, comment l'évaluer et quand
+effectuer une mise à jour. Fastino exécute les opérations interactives du
+modèle. Un client natif identifie le job par `job_id`. Un `TrainingClient`
+Tinker représente le même job.
 
 ## La boucle de contrôle
 
 <Steps>
   <Step title="Créer le job interactif">
-    Appelez `POST /v1/training/jobs/create-model` avec un `base_model` et un
-    `lora_config` facultatif. Conservez le `job_id` renvoyé et attendez la fin du
-    future `create`.
+    Un client natif appelle
+    [`POST /v1/training/jobs/create-model`](/fr/api-reference/training-jobs/interactive/create-model)
+    avec `base_model`, ou avec `from_checkpoint` et `load_optimizer`. Un client
+    Tinker appelle `create_lora_training_client(...)`. Les clients natifs
+    n'envoient ni `seq_id` ni signal de présence.
   </Step>
   <Step title="Enregistrer des poids pour l'échantillonnage">
     Appelez `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` avec un
@@ -49,15 +52,11 @@ Votre application décide quoi échantillonner, comment le noter et quand mettre
 
 | Étape | Route |
 | --- | --- |
-| Créer un job | [`POST /v1/training/jobs/create-model`](/fr/api-reference/interactive-jobs/create) |
-| Calculer la perte et les gradients | [`POST /v1/training/jobs/{job_id}/forward-backward`](/fr/api-reference/interactive-jobs/forward-backward) |
-| Calculer la perte seule | [`POST /v1/training/jobs/{job_id}/forward`](/fr/api-reference/interactive-jobs/forward) |
-| Appliquer les gradients | [`POST /v1/training/jobs/{job_id}/optim-step`](/fr/api-reference/interactive-jobs/optim-step) |
-| Lire un résultat | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/fr/api-reference/interactive-jobs/get-future) |
-| Enregistrer l'état d'entraînement | [`POST /v1/training/jobs/{job_id}/save-weights`](/fr/api-reference/interactive-jobs/save-weights) |
-| Enregistrer des poids pour l'échantillonnage | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/fr/api-reference/interactive-jobs/save-weights-for-sampler) |
-| Échantillonner | [`POST /v1/training/jobs/{job_id}/sample`](/fr/api-reference/interactive-jobs/sample) |
-| Arrêter le job | [`POST /v1/training/jobs/{job_id}/stop`](/fr/api-reference/training-jobs/stop) |
+| `ServiceClient` | Interroge les capacités et crée les clients SDK |
+| `TrainingClient` | Représente un job interactif Fastino et soumet ses opérations de modèle |
+| `SamplingClient` | Échantillonne depuis un checkpoint résolu |
+| `RestClient` | Liste ou obtient les exécutions interactives et administre leurs checkpoints ; `/v1/training/jobs` lit les deux types de jobs |
+| Future | Suit une opération soumise au job |
 
 Pour transformer une notation déterministe en avantages relatifs au groupe,
 suivez [Entraîner avec des récompenses vérifiables](/fr/training/verifiable-rewards).
@@ -85,11 +84,11 @@ Pour un prompt suivi d'une complétion :
   sur celles du prompt.
 
 <Warning>
-  Le rendu du prompt, la tokenisation, la construction des datums et le calcul
-  des récompenses s'exécutent dans votre code. Vérifiez la longueur des tenseurs
-  avant d'envoyer un lot. Validez un petit lot avant une charge plus importante.
-  Un datum plus long que la longueur de contexte du modèle fait échouer
-  l'opération.
+  Le rendu des prompts, la tokenisation, la construction des datums et
+  l'exécution des récompenses sont contrôlés par le client. Validez leurs formes
+  par rapport au [SDK testé](/fr/training/migrate-from-tinker) et au contrat d'opération documenté avant
+  d'exécuter un workload plus important. Capabilities ne rapporte que les
+  modèles activés et longueurs de contexte.
 </Warning>
 
 Seules les fonctions de perte intégrées ci-dessus sont prises en charge. Une
@@ -103,14 +102,18 @@ Lisez le résultat de forward-backward avant de considérer l'étape comme
 terminée. Attendez la fin de l'étape d'optimiseur avant d'enregistrer l'état
 mis à jour.
 
-Ne laissez pas des contrôleurs indépendants envoyer des mises à jour au même job
-sans coordination. Pour annuler un échantillonnage inachevé, appelez
-`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`. Les
-opérations d'entraînement ne peuvent pas être annulées.
+Les clients JSON natifs appellent
+[`forward-backward`](/fr/api-reference/training-jobs/interactive/forward-backward)
+et [`optim-step`](/fr/api-reference/training-jobs/interactive/optim-step). Chaque
+réponse de mise en file contient un `future_id`. Interrogez
+[`get-future`](/fr/api-reference/training-jobs/interactive/get-future)
+jusqu'à l'état `completed`, `failed` ou `cancelled`. Une requête avec
+`wait=true` peut répondre avant la fin.
 
-Un job interactif sans appel pendant 30 minutes est libéré, et les appels
-d'entraînement suivants échouent. Ses checkpoints sont conservés : vous pouvez
-démarrer un nouveau job depuis le dernier checkpoint d'état.
+Les clients Tinker suivent chaque future renvoyée par un appel pris en charge et
+résolvent les futures individuellement. Sur les deux interfaces, seules les
+futures d'échantillonnage peuvent être annulées. La récupération par lots via
+`retrieve_futures` n'est pas prise en charge.
 
 ## Récupérer la boucle
 
@@ -121,7 +124,7 @@ s'est terminé sans rejouer une mise à jour.
 Pour la séquence de reprise et les types de checkpoints, suivez
 [Checkpoints et reprise](/fr/training/checkpoints).
 
-Pour reprendre un état enregistré dans un nouveau job, passez le `path`
-du checkpoint comme `from_checkpoint` à `POST /v1/training/jobs/create-model`.
-Le nouveau job a un nouvel ID ; conservez les deux IDs comme lignée gérée par
-l'application.
+Un contrôleur met à jour un job pendant sa durée de vie. Un client natif peut
+créer depuis un checkpoint, et un client Tinker peut créer depuis un état
+enregistré. Les deux voies démarrent un nouveau job interactive à partir du
+checkpoint source. Enregistrez les deux ID comme lignée gérée par l'application.

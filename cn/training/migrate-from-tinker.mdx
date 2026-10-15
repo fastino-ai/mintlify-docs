@@ -3,7 +3,7 @@ title: "从 Tinker 迁移"
 description: "将兼容的 Tinker SDK 工作负载迁移到 Fastino 交互式训练任务。"
 ---
 
-Fastino 支持将 `tinker` SDK 的一个明确子集用作交互式训练任务的客户端接口。
+训练 API 支持未经修改的 `tinker==0.32.0` Python SDK，用于下面列出的操作。只需更改基础 URL 和凭据。
 迁移后的训练客户端是 `/v1/training/jobs` 中的一个 Fastino 任务；其 SDK 模型 ID
 与规范的 Fastino 任务 ID 相同。
 
@@ -82,14 +82,14 @@ Capabilities 仅列出已启用的模型及其上下文长度，不列出 LoRA �
 - 通过 `GET /v1/training/jobs/{job_id}` 获取每个客户端的 ID；工厂恢复会从来源
   检查点创建一个新的任务 ID
 
-使用 Tinker SDK 执行 SDK 工作负载。对于直接 HTTP 客户端，请使用
-[原生路由](#switch-to-the-native-routes)。
+此迁移请继续使用受支持的 Tinker SDK。Fastino 也为新客户端发布了原生 JSON 操作。
+兼容性子路由仍是私有路由，因此只设置 `TINKER_BASE_URL`，不要构造子 URL。
 
 <span id="supported-client-behavior" />
 
 ## 受支持的客户端行为
 
-Fastino 在一个交互式任务上支持下列 `tinker==0.32.0` 调用。
+训练 API 支持以下针对单个 Fastino 交互式任务的 `tinker==0.32.0` 调用。
 
 ### 训练和采样
 
@@ -116,18 +116,23 @@ Fastino 在一个交互式任务上支持下列 `tinker==0.32.0` 调用。
 | SDK 方法或操作 | Fastino 行为 |
 | --- | --- |
 | Future result/get | 获取一个异步结果 |
-| Future cancel | 取消一个尚未完成的 `sample` 采样 future。训练 operation 的 future 不会被取消 |
-| `list_training_runs` 或 `get_training_run` | 仅读取交互式运行 |
-| 列出检查点 | 读取属于该任务的检查点 |
-| 下载检查点归档 | 下载交互式检查点 |
-| 删除检查点 | 通过 SDK 删除检查点 |
-| 发布或取消发布检查点 | 通过 SDK 更改检查点的发布状态 |
-| 设置或清除检查点 TTL | 通过 SDK 更改检查点保留期 |
-| 检查点存储用量 | 通过 SDK 读取当前检查点存储用量 |
-| 计费用量 | 通过 SDK 读取按小时统计的用量事件 |
+| Future cancel | 仅取消来自 `sample` 的未完成采样 future。训练操作的 future 不会被取消 |
+| `list_training_runs` 或 `get_training_run` | 仅读取交互式运行。配置任务和交互式任务使用 `/v1/training/jobs` |
+| `list_checkpoints` 或 `list_user_checkpoints` | 读取属于该任务或该团队的检查点 |
+| `get_weights_info_by_tinker_path` | 读取检查点的权重元数据，包括 LoRA 秩 |
+| `get_checkpoint_archive_url` | 返回交互式检查点的签名归档链接。需要权重下载权限 |
+| `delete_checkpoint_from_tinker_path` | 删除检查点 |
+| `publish_checkpoint_from_tinker_path` 或 `unpublish_checkpoint_from_tinker_path` | 在所属团队内更改发布状态。不会允许其他团队加载该路径 |
+| `set_checkpoint_ttl_from_tinker_path` | 设置或清除检查点保留期 |
+| `get_current_checkpoint_storage_usage` | 读取当前检查点存储用量，可选限定到一个项目 |
+| `get_billing_usage` | 读取按小时对齐窗口内的用量事件 |
 
-SDK 会使用 `TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。这些方法也有
-[原生路由](#switch-to-the-native-routes)。
+两条检查点下载路径都需要团队的权重下载权限。一条是 SDK 方法
+`get_checkpoint_archive_url`。另一条是公开路由
+[`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/cn/api-reference/training-jobs/download-checkpoint)。
+没有该权限时，两者都返回 `403`，详情为
+`For downloading models, please contact sales@fastino.ai`。SDK 会使用
+`TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。不要构造兼容性子路由。
 
 ### 不受支持的调用
 
@@ -136,8 +141,17 @@ Fastino 不支持：
 - 通过 `retrieve_futures` 批量检索 future
 - `save_weights_external`
 - `external_weights_urls`
-- 导出 session trace
+- 导出会话跟踪
 - 审计日志条目
+- 不使用 `SamplingClient` 及其采样会话进行采样
+- `target_prompt_logprobs` 或正数 `prompt_alt_tokens_k`
+- `encoded_text` 以外的提示词块
+- AdamW 以外的优化器
+- 超出 1 到 32 范围的 LoRA 秩
+
+这些限制描述使用普通 Fastino API 密钥时的行为。沙箱运行密钥的写入范围更窄：
+它也不能删除或发布检查点、修改检查点 TTL 或重新分配会话项目。
+对应操作仍可使用普通 API 密钥。
 
 不要仅因为已安装的软件包中存在某个方法就推断其受支持。支持表定义 Fastino
 支持的 SDK 子集；capabilities 仅报告已启用的模型及其上下文长度。
@@ -148,6 +162,8 @@ Fastino 不支持：
 | --- | --- |
 | 身份验证失败 | 确认 `TINKER_CREDENTIAL_CMD` 打印一个当前的 `fast_sk_` 密钥，且没有额外输出 |
 | 客户端无法连接 | 确认 `TINKER_BASE_URL` 恰好为 `https://api.fastino.ai/v1/training/compat/tinker` |
+| SDK 调用或检查点下载返回 `403`，并显示团队数据正在擦除 | 团队删除正在进行。不要重试；如果删除并非预期，请联系账户管理员或 Fastino 支持 |
+| 检查点下载返回 `403`，并要求联系销售 | 团队没有权重下载权限。请联系 sales@fastino.ai |
 | 模型被拒绝 | 重新查询 capabilities 并选择已启用的模型 |
 | 秩、损失或操作被拒绝 | 对照记录的限制和支持表检查调用；capabilities 不列出这些设置 |
 | 规范任务查找失败 | 确认 ID 来自 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |
@@ -155,7 +171,7 @@ Fastino 不支持：
 ## 迁移检查清单
 
 - [ ] 锁定 `tinker==0.32.0`。
-- [ ] 设置 Fastino 适配器基础 URL。
+- [ ] 为 Tinker SDK 设置训练 API 基础 URL。
 - [ ] 通过 `TINKER_CREDENTIAL_CMD` 提供 `fast_sk_` 密钥。
 - [ ] 对照受支持的客户端行为检查每个 SDK 方法。
 - [ ] 从 capabilities 中选择已启用的模型，并根据本指南验证秩、损失和可选操作。

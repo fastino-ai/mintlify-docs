@@ -25,11 +25,48 @@ INFERENCE_OPERATIONS = {
     ("GET", "/v1/inferences/{inference_id}/feedback"),
     ("POST", "/v1/inferences/{inference_id}/feedback"),
 }
-# Documented ahead of Pioneer main. Pioneer's contract check accepts their bindings and routes
-# before its projection and route manifest carry them; the static harness still requires them.
-UNRELEASED_OPERATIONS = frozenset(
-    {("POST", "/v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy")}
-)
+TRAINING_OPERATIONS = {
+    ("GET", "/v1/base-models"),
+    ("GET", "/v1/datasets"),
+    ("POST", "/v1/datasets/upload/process"),
+    ("POST", "/v1/datasets/upload/url"),
+    ("DELETE", "/v1/datasets/{name}"),
+    ("GET", "/v1/datasets/{name}"),
+    ("GET", "/v1/training/jobs"),
+    ("POST", "/v1/training/jobs"),
+    ("POST", "/v1/training/jobs/create-model"),
+    ("DELETE", "/v1/training/jobs/{job_id}"),
+    ("GET", "/v1/training/jobs/{job_id}"),
+    ("PATCH", "/v1/training/jobs/{job_id}"),
+    ("GET", "/v1/training/jobs/{job_id}/billing"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
+    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
+    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
+    ("PUT", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints"),
+    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/deploy"),
+    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"),
+    ("GET", "/v1/training/jobs/{job_id}/deployments"),
+    ("GET", "/v1/training/jobs/{job_id}/download"),
+    ("POST", "/v1/training/jobs/{job_id}/forward"),
+    ("POST", "/v1/training/jobs/{job_id}/forward-backward"),
+    ("GET", "/v1/training/jobs/{job_id}/futures/{future_id}"),
+    ("POST", "/v1/training/jobs/{job_id}/futures/{future_id}/cancel"),
+    ("POST", "/v1/training/jobs/{job_id}/load-weights"),
+    ("GET", "/v1/training/jobs/{job_id}/logs"),
+    ("POST", "/v1/training/jobs/{job_id}/optim-step"),
+    ("PATCH", "/v1/training/jobs/{job_id}/model-name"),
+    ("POST", "/v1/training/jobs/{job_id}/push-to-hub"),
+    ("POST", "/v1/training/jobs/{job_id}/sample"),
+    ("POST", "/v1/training/jobs/{job_id}/save-weights"),
+    ("POST", "/v1/training/jobs/{job_id}/save-weights-for-sampler"),
+    ("POST", "/v1/training/jobs/{job_id}/stop"),
+    ("POST", "/v1/training/jobs/{job_id}/sync"),
+    ("POST", "/v1/training/jobs/{job_id}/terminate"),
+    ("GET", "/v1/training/usage"),
+}
+EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",

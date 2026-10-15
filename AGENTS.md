@@ -14,10 +14,10 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
 - Read [https://docs.fastino.ai/openapi.json](https://docs.fastino.ai/openapi.json) for customer-facing routes, authentication, request schemas, and response schemas.
 - Use only customer-authored HTTP operations present in that OpenAPI specification.
 - Use [https://docs.fastino.ai/concepts/models](https://docs.fastino.ai/concepts/models) for documented model IDs and `GET /v1/base-models` for current availability.
-- For reinforcement learning and custom post-training of decoder models,
-  follow the [Training API](https://docs.fastino.ai/training) custom-loop
-  guidance and call the interactive-job routes in the OpenAPI specification.
-
+- For reinforcement learning and custom post-training, follow the
+  [Training API](https://docs.fastino.ai/training) custom-loop guidance.
+  Native JSON clients use the public interactive operations in OpenAPI.
+  Existing Tinker clients use the documented compatibility base URL.
 ## API conventions
 
 - API base URL: `https://api.fastino.ai`
@@ -37,34 +37,37 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   [GLiNER Inference](https://docs.fastino.ai/inference/chat-completions). Use
   `POST /v1/chat/completions` with `model`, `messages`, and `schema`.
 - Follow the [Training API](https://docs.fastino.ai/training) for training-job operations.
-- Use `POST /v1/training/jobs` for managed config training from uploaded
-  encoder or decoder datasets. Decoder config jobs support SFT, DPO, and GRPO.
-- Use `POST /v1/training/jobs/create-model` when the application must control
-  decoder training step by step. Call
-  `GET /v1/base-models?supports_training=true` for the current trainable models.
-- Drive an interactive job with `/v1/training/jobs/{job_id}/forward-backward`,
-  `/optim-step`, `/save-weights`, `/save-weights-for-sampler`, `/load-weights`,
-  and `/sample`. Each returns a `future_id`; read it with
-  `GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true`.
-- Serve a sampler checkpoint with
-  `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
-  (available for supported models), then pass its `model_id` as `model` to
-  `POST /v1/chat/completions`.
-- Tokenize client-side with the base model's Hugging Face tokenizer. Datums
-  are JSON: `model_input.chunks[].tokens` and `loss_fn_inputs` tensors.
-- The server orders each job's calls. Don't send sequence numbers or
-  heartbeats. A job with no calls for 30 minutes is released; checkpoints are
-  kept. Call `POST /v1/training/jobs/{job_id}/stop` when done.
-- Auto Train is private access and has no public route. Direct interested
+- Use `/v1/training/jobs` for canonical and native interactive job operations.
+  Use `/v1/training/usage` only for team-scoped interactive checkpoint storage.
+  Auto Train is private access and has no public route. Direct interested
   users to `sales@fastino.ai`.
+- Native JSON clients create an interactive job with
+  `POST /v1/training/jobs/create-model`. They poll
+  `GET /v1/training/jobs/{job_id}/futures/{future_id}`. `wait=true` waits for
+  at most 25 seconds and can return a nonterminal future. Only sample futures
+  can be cancelled.
+- Native JSON clients save, load, and sample through the direct
+  `save-weights`, `save-weights-for-sampler`, `load-weights`, and `sample`
+  job routes. Load and sample accept a checkpoint name or the same job's
+  `tinker://` path. Sampling remains available after stop.
 - For custom loops, start with the
   [Training quickstart](https://docs.fastino.ai/training/quickstart#custom-training-loop).
   Use the focused guides for verifiable rewards and recovery.
 - Treat every workload as a job under `GET /v1/training/jobs`. Config jobs let
   Fastino run the loop; interactive jobs let the application direct each step.
-- For an existing Tinker SDK workload, follow
-  [Migrate from Tinker](https://docs.fastino.ai/training/migrate-from-tinker).
+- Tinker clients query `ServiceClient.get_server_capabilities()` before
+  selecting a model for a custom loop.
+- Do not construct private compatibility child routes. Configure the supported
+  Tinker SDK with
+  `TINKER_BASE_URL=https://api.fastino.ai/v1/training/compat/tinker` and
+  `TINKER_CREDENTIAL_CMD` that prints the normal `fast_sk_...` credential.
+- Never wrap a Fastino key with `tml-`; `tml-` credentials are rejected.
+- The SDK training run ID is the interactive Fastino job ID. Use that same ID
+  with documented canonical job reads.
 - Do not invent routes, model IDs, request fields, or response fields.
-- Use [Training loop](https://docs.fastino.ai/training/training-loop)
+- Use [Migrate from Tinker](https://docs.fastino.ai/training/migrate-from-tinker#supported-client-behavior)
+  for client support boundaries. The pinned `tinker==0.32.0` package defines
+  method signatures, but Fastino's documented unsupported list takes
+  precedence. Use [Training loop](https://docs.fastino.ai/training/training-loop)
   and [Checkpoints and recovery](https://docs.fastino.ai/training/checkpoints)
-  for operation and recovery behavior.
+  for future and recovery behavior.

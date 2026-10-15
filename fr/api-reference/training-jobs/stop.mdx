@@ -16,7 +16,7 @@ Arrête un job en cours et conserve les checkpoints créés avant l'arrêt.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID d'un job config ou ID d'un job interactif.
+  UUID du job de configuration ou ID du job interactif.
 </ParamField>
 
 ### Job de configuration
@@ -37,13 +37,12 @@ Le corps JSON est facultatif pour un job de configuration.
 
 ### Job interactif
 
-N'envoyez aucun corps. L'opération renvoie immédiatement `success`, `job_id` et
-`status`, et le job n'accepte plus de nouveaux appels. Les opérations déjà en
-file peuvent se terminer avant la libération des ressources ; l'utilisation
-peut donc continuer jusque-là. Les checkpoints sampler restent disponibles
-pour l'échantillonnage et le téléchargement.
+N'envoyez aucun corps de requête. La réponse contient les champs communs
+vérifiés `success`, `job_id` et `status`.
 
 ### Exemple de requête pour un job de configuration
+
+<RequestExample>
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
@@ -54,10 +53,16 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 ### Exemple de requête pour un job interactif
 
+### Exemple de requête pour un job interactif
+
+<RequestExample>
+
 ```bash cURL
-curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
+curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/stop \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
+
+</RequestExample>
 
 ## Réponse d'un job de configuration
 
@@ -83,30 +88,34 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
 
 </ResponseExample>
 
-Le champ `message`, la réponse `202`, la règle d'interrogation et les erreurs
-propres à la configuration s'appliquent uniquement aux jobs de configuration.
-Après une réponse de configuration `202`, interrogez
-`GET /v1/training/jobs/{job_id}`. Ne répétez pas la requête d'arrêt pendant que
-l'annulation est en attente.
+Le champ `message`, la réponse `202` et la règle d'interrogation concernent
+uniquement les jobs de configuration. Après une réponse `202` pour un job de
+configuration, interrogez `GET /v1/training/jobs/{job_id}`. Ne répétez pas la
+requête d'arrêt pendant que l'annulation est en attente.
 
 ## Réponse d'un job interactif
 
-Un arrêt interactif renvoie immédiatement `200` sans interrogation ultérieure.
+Un job interactif utilise la même opération sans corps. La réponse contient les
+champs communs `success`, `job_id` et `status`. N'exigez pas le champ `message`,
+propre aux jobs de configuration.
 
-```json Interactive job
+```json Response
 {
   "success": true,
-  "job_id": "SESSION_ID:train:0",
+  "job_id": "YOUR_INTERACTIVE_JOB_ID",
   "status": "stopped"
 }
 ```
 
-## Statuts d'un job de configuration
+## Statuts des jobs de configuration
+
+Les statuts et détails d'erreur suivants concernent uniquement les jobs de
+configuration.
 
 | Statut | Signification |
 | --- | --- |
 | `200` | Le job est arrêté et les checkpoints existants restent disponibles. |
 | `202` | La confirmation de l'annulation par le fournisseur est toujours en attente. |
-| `400` | L'ID ou la requête du job de configuration n'est pas valide. |
+| `400` | L'ID du job de configuration ou la requête n'est pas valide. |
 | `409 training_job_already_finished` | Le job a atteint un état terminal avant l'arrêt. |
-| `422` | Le corps JSON du job de configuration n'est pas valide. |
+| `422` | Le corps JSON de la requête du job de configuration n'est pas valide. |

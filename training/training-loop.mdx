@@ -5,16 +5,18 @@ description: "Connect sampling, rewards, updates, and checkpoints inside one int
 ---
 
 Your application decides what to sample, how to score it, and when to update.
-Fastino runs each model call on one interactive job. Every step is a
-JSON request to a route under `/v1/training/jobs/{job_id}`.
+Fastino executes the interactive model operations. A native client addresses
+the job by `job_id`. A Tinker `TrainingClient` represents the same job.
 
 ## The control loop
 
 <Steps>
   <Step title="Create the interactive job">
-    Call `POST /v1/training/jobs/create-model` with a `base_model` and optional
-    `lora_config`. Save the returned `job_id`, and wait for the `create`
-    future to complete.
+    A native client calls
+    [`POST /v1/training/jobs/create-model`](/api-reference/training-jobs/interactive/create-model)
+    with `base_model`, or with `from_checkpoint` and `load_optimizer`. A Tinker
+    client calls `create_lora_training_client(...)`. Native clients send no
+    `seq_id` and no heartbeat.
   </Step>
   <Step title="Checkpoint weights for sampling">
     Call `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` with a
@@ -49,15 +51,14 @@ JSON request to a route under `/v1/training/jobs/{job_id}`.
 
 | Step | Route |
 | --- | --- |
-| Create a job | [`POST /v1/training/jobs/create-model`](/api-reference/interactive-jobs/create) |
-| Compute loss and gradients | [`POST /v1/training/jobs/{job_id}/forward-backward`](/api-reference/interactive-jobs/forward-backward) |
-| Compute loss only | [`POST /v1/training/jobs/{job_id}/forward`](/api-reference/interactive-jobs/forward) |
-| Apply gradients | [`POST /v1/training/jobs/{job_id}/optim-step`](/api-reference/interactive-jobs/optim-step) |
-| Read a result | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/api-reference/interactive-jobs/get-future) |
-| Save the training state | [`POST /v1/training/jobs/{job_id}/save-weights`](/api-reference/interactive-jobs/save-weights) |
-| Save weights for sampling | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/api-reference/interactive-jobs/save-weights-for-sampler) |
-| Sample | [`POST /v1/training/jobs/{job_id}/sample`](/api-reference/interactive-jobs/sample) |
-| Stop the job | [`POST /v1/training/jobs/{job_id}/stop`](/api-reference/training-jobs/stop) |
+| `ServiceClient` | Queries capabilities and creates SDK clients |
+| `TrainingClient` | Represents one interactive Fastino job and submits its model operations |
+| `SamplingClient` | Samples from a resolved checkpoint |
+| `RestClient` | Lists or gets interactive runs and uses supported SDK methods to administer their checkpoints; use `/v1/training/jobs` to read both job types |
+| Future | Tracks one queued call submitted to the job |
+
+The SDK model ID is the canonical Fastino job ID. Futures and sampling clients
+do not create independent runs.
 
 To turn deterministic grading into group-relative advantages, follow
 [Train with verifiable rewards](/training/verifiable-rewards).
@@ -85,10 +86,10 @@ For a prompt followed by a completion:
   on prompt positions.
 
 <Warning>
-  Prompt rendering, tokenization, datum construction, and reward execution run
-  in your code. Check tensor lengths before you send a batch. Validate a small
-  batch before a larger workload. A datum longer than the model's context
-  length fails the call.
+  Prompt rendering, tokenization, datum construction, and reward execution are
+  client-owned. Validate their shapes against the [tested SDK](/training/migrate-from-tinker) and the
+  documented operation contract before a larger workload. The capability
+  response only lists enabled models and advertised context lengths.
 </Warning>
 
 Only the built-in loss functions above are supported. A loss written in your
@@ -101,14 +102,17 @@ optimizer step right after a forward-backward pass. Read the forward-backward
 result before you treat that step as complete. Wait for the optimizer step to
 complete before you save the updated state.
 
-Don't let independent controllers send updates to the same job without
-coordinating. To cancel an unfinished sample, call
-`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`. Training
-calls can't be cancelled.
+Native JSON clients call
+[`forward-backward`](/api-reference/training-jobs/interactive/forward-backward)
+and [`optim-step`](/api-reference/training-jobs/interactive/optim-step). Each
+queueing response contains a `future_id`. Poll
+[`get-future`](/api-reference/training-jobs/interactive/get-future) until
+the status is `completed`, `failed`, or `cancelled`; one `wait=true` request can
+return before completion.
 
-An interactive job with no calls for 30 minutes is released, and later
-training calls fail. Its checkpoints are kept, so you can start a new job from
-the latest state checkpoint.
+Tinker clients track each future returned by a supported call and resolve
+futures individually. Only sample futures can be cancelled on either
+interface. Batch retrieval through `retrieve_futures` is not supported.
 
 ## Recover the loop
 
@@ -119,6 +123,7 @@ without replaying an update.
 For the recovery sequence and checkpoint kinds, follow
 [Checkpoints and recovery](/training/checkpoints).
 
-To continue from a saved state in a new job, pass the checkpoint's
-`path` as `from_checkpoint` to `POST /v1/training/jobs/create-model`.
-The new job has a new ID; persist both job IDs as application-owned lineage.
+One controller updates one job during its lifetime. A native client can create
+from a checkpoint, and a Tinker client can create from saved state. Both paths
+start a new interactive job seeded from the source checkpoint, so persist both
+job IDs as application-owned lineage.

@@ -80,14 +80,10 @@ def get_last_checkpoint(log_path: str) -> dict[str, object] | None:
 
 如果这些字段存在冲突，请停下来做出明确决定。不要在无提示的情况下将检查点与其他实验混用。
 
-然后选择继续方式：
-
-| 情况 | 调用 |
-| --- | --- |
-| 源任务仍处于活动状态，且你想回滚 | 使用 `{"path": name, "optimizer": true}` 调用 `POST /v1/training/jobs/{job_id}/load-weights` |
-| 源任务已停止或已释放 | 使用 `from_checkpoint` 和 `load_optimizer` 调用 `POST /v1/training/jobs/create-model` |
-
-在新任务中继续：
+原生客户端使用 `from_checkpoint` 创建新任务，或将状态名称或同一任务的
+`tinker://` 路径传给
+[`load-weights`](/cn/api-reference/training-jobs/interactive/load-weights)。
+Tinker 客户端使用受支持的状态加载流程：
 
 ```python
 resumed = call(
@@ -100,8 +96,10 @@ wait(resumed["job_id"], resumed["load_future_id"])
 resumed_job_id = resumed["job_id"]
 ```
 
-新任务沿用检查点的基础模型和 LoRA 设置，因此不要发送 `lora_config`。其 ID 与源任务 ID 不同。
-请将 `source_job_id`、`state_path` 和 `resumed_job_id` 记录为应用自有的谱系。
+此工厂方法先创建新的交互式任务，再将来源检查点的权重和优化器状态加载到新任务中。
+恢复后的任务 ID 通常与来源任务 ID 不同。将 `source_job_id`、`state_path` 和
+`resumed_job_id` 记录为应用负责的沿袭关系。不要因为两个任务 ID 不同而拒绝恢复。
+请勿构造私有兼容性子路由。
 
 ## 4. 让边界可恢复
 
@@ -139,8 +137,14 @@ sampler = call(
 
 不要将 sampler 检查点用作恢复点；它不含优化器状态，也无法用来启动新任务。
 
-`ttl_seconds` 默认为 `null`，因此省略 TTL 时检查点会一直保留到你删除为止。存活的检查点计入检查点存储。
-要启用自动清理，请传入 `3600` 到 `315360000` 秒（1 小时到 10 年）之间的值。
+公开训练 API 通过
+[`save-weights`](/cn/api-reference/training-jobs/interactive/save-weights)
+保存训练状态，并通过
+[`save-weights-for-sampler`](/cn/api-reference/training-jobs/interactive/save-sampler-weights)
+保存采样权重。直接加载和采样路由接受检查点名称或同一任务的 `tinker://` 路径。
+停止任务后仍可采样。共享的列表和下载路由适用于交互式检查点，下载仍需要权重下载
+权限。Tinker 提供匹配的 SDK 方法。请勿构造私有兼容性子路由，也不要假设未记录的
+保留期。
 
 使用以下路由管理检查点：
 
@@ -167,37 +171,13 @@ sampler = call(
 5. 以新名称保存新的状态检查点。
 6. 持久化下一条循环记录。
 
-## 部署训练好的模型
-
-部署 sampler 检查点即可将其作为模型提供服务。部署适用于受支持的基础模型；其他基础模型返回 `400`。
-
-```bash
-curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model_name": "support-replies-v1"}'
-```
-
-响应包含模型的 `model_id`，`status` 为 `deploying`。重复同一调用即可查看进度：它返回同一个模型，模型就绪后 `status` 变为 `deployed`。然后按 ID 调用它：
-
-```bash
-curl -X POST "https://api.fastino.ai/v1/chat/completions" \
-  -H "X-API-Key: $FASTINO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "MODEL_ID",
-    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
-  }'
-```
-
-将 `MODEL_ID` 替换为返回的 `model_id`。请求字段和错误请参阅[部署检查点](/cn/api-reference/interactive-jobs/deploy-checkpoint)。
+交互式模型操作可以使用原生 JSON 路由或受支持的 Tinker SDK。
 
 ## 诊断恢复错误
 
 | 现象 | 检查 |
 | --- | --- |
-| future 失败 | 记录任务 ID 和 future 的 `error`。不要推进依赖它的应用状态 |
-| 暂停后训练调用返回 `400` | 任务已停止，或在空闲 30 分钟后被释放。请从最新的状态检查点启动新任务 |
-| 检查点无法加载 | 核实其任务、检查点类型以及客户端持有的恢复记录 |
-| `from_checkpoint` 被拒绝 | 确认它是你团队的 `weights/<name>` 路径；sampler 检查点无法用于启动任务 |
-| 查询恢复后的任务失败 | 确认 ID 来自新任务的创建响应，且已使用同一 Fastino 团队进行身份验证 |
+| Future 失败 | 记录任务 ID 和操作结果。不要推进依赖的应用状态 |
+| 无法加载检查点 | 验证其任务、检查点类型和客户端负责的恢复记录 |
+| 来源检查点被拒绝 | 确认其来源任务、检查点类型和持久化的 `state_path`；不要要求新任务 ID 等于来源 ID |
+| 恢复后的任务查找失败 | 确认 ID 来自恢复后客户端的 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |

@@ -64,6 +64,105 @@ EXPECTED_FENCE_COUNTS = {
     "training/auto.mdx": 0,
 }
 EXPECTED_LIVE_GETS_WITH_FIXTURES = 9
+PARITY_PAGES = (
+    "training/quickstart.mdx",
+    "training/migrate-from-tinker.mdx",
+    "training/training-loop.mdx",
+    "training/verifiable-rewards.mdx",
+    "training/checkpoints.mdx",
+    "api-reference/training-jobs/download-checkpoint.mdx",
+)
+ONE_FUTURE_CLAIMS = {
+    "": "Requests cancellation of one future",
+    "cn": "请求取消一个 future",
+    "de": "Fordert den Abbruch eines Future an",
+    "es": "Solicita la cancelación de un future",
+    "fr": "Demande l'annulation d'une future",
+}
+RUN_KEY_EXPORT_CLAIMS = (
+    "export external weights",
+    "导出外部权重",
+    "keine externen Gewichte exportieren",
+    "exportar pesos externos",
+    "exporter des poids externes",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class TinkerSdkSupport:
+    package: str
+    rest_client_methods: frozenset[str]
+    unsupported_calls: frozenset[str]
+    retired_text: frozenset[str]
+
+
+TINKER_SDK_SUPPORT = TinkerSdkSupport(
+    package="tinker==0.32.0",
+    rest_client_methods=frozenset({
+        "list_training_runs",
+        "get_training_run",
+        "list_checkpoints",
+        "list_user_checkpoints",
+        "publish_checkpoint_from_tinker_path",
+        "unpublish_checkpoint_from_tinker_path",
+        "set_checkpoint_ttl_from_tinker_path",
+        "get_weights_info_by_tinker_path",
+        "delete_checkpoint_from_tinker_path",
+        "get_checkpoint_archive_url",
+        "get_current_checkpoint_storage_usage",
+        "get_billing_usage",
+    }),
+    unsupported_calls=frozenset({
+        "retrieve_futures",
+        "save_weights_external",
+        "external_weights_urls",
+    }),
+    retired_text=frozenset({
+        "tinker==0.33.1",
+        "training_runs_api_enabled",
+        "/api/v1/{operation}",
+        "/v1/training/compat/tinker/api/",
+    }),
+)
+
+
+def retired_claim_hits(text: str) -> set[str]:
+    return {token for token in TINKER_SDK_SUPPORT.retired_text if token in text}
+
+
+def _between(text: str, start: str, end: str) -> str:
+    if start not in text or end not in text:
+        raise AssertionError(f"missing section markers {start!r} .. {end!r}")
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+def fence_bodies(mdx: str) -> list[str]:
+    return re.findall(r"```[^\n]*\n(.*?)```", mdx, flags=re.DOTALL)
+
+
+def code_spans(mdx: str) -> set[str]:
+    without_fences = re.sub(r"```.*?```", "", mdx, flags=re.DOTALL)
+    return set(re.findall(r"`([^`\n]+)`", without_fences))
+
+
+def _claim_texts() -> list[tuple[Path, str]]:
+    paths = list(ROOT.rglob("*.mdx"))
+    paths.append(ROOT / "AGENTS.md")
+    paths.extend((ROOT / ".mintlify" / "skills").rglob("SKILL.md"))
+    return [(path, path.read_text(encoding="utf-8")) for path in paths]
+
+
+def _future_cancel_row(text: str) -> str:
+    rows = [
+        line
+        for line in text.splitlines()
+        if line.startswith("|") and "`sample`" in line
+    ]
+    if len(rows) != 1:
+        raise AssertionError(
+            f"expected one Future cancel row containing `sample`, found {rows}"
+        )
+    return rows[0]
 
 
 def _snippet(page: str, ordinal: int) -> object:
@@ -85,6 +184,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         )
         self.assertNotIn("model_data.model_id", corpus)
         self.assertNotIn("plans to rename that request field", corpus)
+        self.assertNotIn("compatibility adapter", corpus.lower())
 
         skill = (ROOT / ".mintlify/skills/fastino-fine-tune/SKILL.md").read_text(
             encoding="utf-8"
@@ -127,37 +227,16 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             prefix = f"{locale}/" if locale else ""
             stop_path = ROOT / f"{prefix}api-reference/training-jobs/stop.mdx"
             stop = stop_path.read_text(encoding="utf-8")
-            curls = re.findall(r"```bash cURL\n(?P<body>.*?)```", stop, re.DOTALL)
-            self.assertEqual(len(curls), 2, stop_path)
-            self.assertEqual(sum("-d " in curl for curl in curls), 1, stop_path)
-            interactive_curl = next(curl for curl in curls if "-d " not in curl)
-            self.assertIn("SESSION_ID:train:0", interactive_curl, stop_path)
-
-            responses = [
-                json.loads(body)
-                for body in re.findall(
-                    r"```json[^\n]*\n(?P<body>\{.*?\})\n```",
-                    stop,
-                    re.DOTALL,
-                )
-            ]
-            interactive = next(
-                response
-                for response in responses
-                if response.get("job_id") == "SESSION_ID:train:0"
-            )
-            self.assertEqual(
-                set(interactive),
-                {"success", "job_id", "status"},
+            for field in ("`success`", "`job_id`", "`status`"):
+                self.assertIn(field, stop, stop_path)
+            self.assertIn("`202`", stop, stop_path)
+            self.assertRegex(stop, r"(?:config|Config|配置)", stop_path)
+            self.assertNotRegex(stop, r"(?:interactive|交互).{0,30}UUID", stop_path)
+            self.assertRegex(
+                stop,
+                r"\| `422` \|[^\n]+(?:JSON|corps|cuerpo|请求体|Anfragetext)",
                 stop_path,
             )
-            config = [
-                response
-                for response in responses
-                if response.get("job_id") == "YOUR_TRAINING_JOB_ID"
-            ]
-            self.assertEqual(len(config), 2, stop_path)
-            self.assertTrue(all("message" in response for response in config), stop_path)
 
             terminate_path = ROOT / f"{prefix}api-reference/training-jobs/terminate.mdx"
             terminate = terminate_path.read_text(encoding="utf-8")
@@ -168,14 +247,6 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 terminate_path,
             )
 
-    def test_interactive_stop_discloses_queued_work_before_release(self) -> None:
-        stop = (ROOT / "api-reference/training-jobs/stop.mdx").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("Already queued operations", stop)
-        self.assertIn("usage can continue until release", stop)
-
     def test_sampler_checkpoint_examples_set_an_explicit_ttl(self) -> None:
         for path in ROOT.glob("**/training/*.mdx"):
             text = path.read_text(encoding="utf-8")
@@ -183,33 +254,157 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 call = text[match.start():match.start() + 180]
                 self.assertIn("ttl_seconds=", call, f"{path}: {call}")
 
-    def test_tinker_migration_keeps_supported_and_unsupported_calls_separate(self) -> None:
-        text = (ROOT / "training/migrate-from-tinker.mdx").read_text(
-            encoding="utf-8"
+    def test_interactive_billing_and_sdk_limits_are_documented_in_every_locale(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            overview = (ROOT / f"{prefix}training.mdx").read_text(encoding="utf-8")
+            migration = (ROOT / f"{prefix}training/migrate-from-tinker.mdx").read_text(
+                encoding="utf-8"
+            )
+
+            for marker in ("forward", "checkpoint"):
+                self.assertIn(marker, overview.lower(), f"{prefix}training.mdx")
+            for marker in (
+                "/v1/training/jobs",
+                "target_prompt_logprobs",
+                "prompt_alt_tokens_k",
+                "encoded_text",
+                "AdamW",
+                "`403`",
+            ):
+                self.assertIn(marker, migration, f"{prefix}training/migrate-from-tinker.mdx")
+
+        english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
+        english_overview = (ROOT / "training.mdx").read_text(encoding="utf-8")
+        self.assertIn("GB-month", english_overview)
+        self.assertIn("Reads interactive runs only", english)
+        self.assertIn("weight-download access", english)
+        self.assertIn("does not make the path loadable by another team", english)
+        self.assertNotIn("Reads canonical Fastino jobs", english)
+
+    def test_tinker_sdk_support_matches_pioneer_contract(self) -> None:
+        support = TINKER_SDK_SUPPORT
+        for path, text in _claim_texts():
+            self.assertEqual(retired_claim_hits(text), set(), path)
+
+        english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
+        install_fences = [body for body in fence_bodies(english) if "tinker==" in body]
+        self.assertEqual(len(install_fences), 2)
+        for body in install_fences:
+            self.assertIn(support.package, body)
+        self.assertIn(
+            support.package,
+            _between(english, "## Supported client behavior", "### Training and sampling"),
         )
-        supported, remainder = text.split("### Unsupported calls", maxsplit=1)
-        unsupported = remainder.split("## Troubleshoot the connection", maxsplit=1)[0]
-        for name in (
-            "retrieve_futures",
-            "save_weights_external",
-            "external_weights_urls",
-        ):
-            self.assertNotIn(name, supported)
+        self.assertIn(support.package, english.split("## Migration checklist", 1)[1])
+
+        futures = _between(english, "### Futures and administration", "### Unsupported calls")
+        future_spans = code_spans(futures)
+        self.assertTrue(support.rest_client_methods <= future_spans, future_spans)
+        supported = _between(english, "## Supported client behavior", "### Unsupported calls")
+        unsupported = _between(english, "### Unsupported calls", "## Troubleshoot the connection")
+        for name in support.unsupported_calls:
             self.assertIn(f"`{name}`", unsupported)
-        self.assertIn("Session-trace export", unsupported)
+            self.assertNotIn(name, supported)
+        self.assertIn("Session trace export", unsupported)
         self.assertIn("Audit-log entries", unsupported)
 
-        cancel = next(
-            line for line in supported.splitlines() if line.startswith("| Future cancel")
-        )
+        cancel = _future_cancel_row(english)
         self.assertIn("`sample`", cancel)
-        self.assertRegex(cancel, r"Training-operation futures.*not cancelled")
-        runs = next(
-            line for line in supported.splitlines() if "`list_training_runs`" in line
-        )
-        self.assertIn("interactive runs only", runs)
+        self.assertIn("unfinished sampling future", cancel)
+        self.assertIn("Training-operation futures are not cancelled", cancel)
+        self.assertNotIn("one future", cancel)
+        for locale, claim in ONE_FUTURE_CLAIMS.items():
+            prefix = f"{locale}/" if locale else ""
+            page = ROOT / f"{prefix}training/migrate-from-tinker.mdx"
+            text = page.read_text(encoding="utf-8")
+            row = _future_cancel_row(text)
+            self.assertIn("`sample`", row, page)
+            self.assertNotIn(claim, text, page)
+            for phrase in RUN_KEY_EXPORT_CLAIMS:
+                self.assertNotIn(phrase, text, page)
 
-    def test_inventory_is_exactly_50_fences_across_9_training_api_pages(self) -> None:
+        loop = (ROOT / "training/training-loop.mdx").read_text(encoding="utf-8")
+        self.assertIn("Only sample futures can be cancelled", loop)
+        self.assertNotIn("Resolve or cancel futures individually", loop)
+
+    def test_native_interactive_semantics_are_documented(self) -> None:
+        interactive = ROOT / "api-reference/training-jobs/interactive"
+        create = (interactive / "create-model.mdx").read_text(encoding="utf-8")
+        future = (interactive / "get-future.mdx").read_text(encoding="utf-8")
+        cancel = (interactive / "cancel-future.mdx").read_text(encoding="utf-8")
+        save = (interactive / "save-weights.mdx").read_text(encoding="utf-8")
+        save_sampler = (interactive / "save-sampler-weights.mdx").read_text(
+            encoding="utf-8"
+        )
+        load = (interactive / "load-weights.mdx").read_text(encoding="utf-8")
+        sample = (interactive / "sample.mdx").read_text(encoding="utf-8")
+        usage = (interactive / "storage-usage.mdx").read_text(encoding="utf-8")
+
+        self.assertIn("POST /v1/training/jobs/create-model", create)
+        self.assertIn("`base_model`", create)
+        self.assertIn("`from_checkpoint`", create)
+        self.assertIn("`load_optimizer`", create)
+        self.assertIn("do not send `seq_id` values or heartbeats", create)
+        self.assertIn("{future_id}", future)
+        self.assertIn("`wait=true`", future)
+        self.assertIn("at most 25 seconds", future)
+        self.assertIn("nonterminal", future)
+        for status in ("`completed`", "`failed`", "`cancelled`"):
+            self.assertIn(status, future)
+        self.assertIn("Only sample futures can be cancelled", cancel)
+        self.assertIn("Training futures", cancel)
+        self.assertIn("POST /v1/training/jobs/{job_id}/save-weights", save)
+        self.assertIn(
+            "POST /v1/training/jobs/{job_id}/save-weights-for-sampler",
+            save_sampler,
+        )
+        self.assertIn("POST /v1/training/jobs/{job_id}/load-weights", load)
+        self.assertIn("state name", load)
+        self.assertIn("this job's own `tinker://", load)
+        self.assertIn("POST /v1/training/jobs/{job_id}/sample", sample)
+        self.assertIn("sampler checkpoint name", sample)
+        self.assertIn("after the interactive job is stopped", sample)
+        self.assertIn("checkpoint storage", usage.lower())
+        self.assertIn("team-scoped", usage)
+        self.assertIn("does not report compute usage or total billing", usage)
+
+    def test_localized_training_pages_keep_english_code_and_identifiers(self) -> None:
+        for page in PARITY_PAGES:
+            english = (ROOT / page).read_text(encoding="utf-8")
+            english_fences = fence_bodies(english)
+            english_spans = code_spans(english)
+            for locale in ("cn", "de", "es", "fr"):
+                path = ROOT / locale / page
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    fence_bodies(text),
+                    english_fences,
+                    f"{path} fence bodies differ",
+                )
+                local_spans = code_spans(text)
+                self.assertEqual(
+                    local_spans,
+                    english_spans,
+                    f"{path} code spans differ: {sorted(local_spans ^ english_spans)}",
+                )
+
+    def test_retired_claim_guard_rejects_banned_text(self) -> None:
+        cases = (
+            ('uv add "tinker==0.33.1"\n', {"tinker==0.33.1"}),
+            ("training_runs_api_enabled\n", {"training_runs_api_enabled"}),
+            ("/api/v1/{operation}", {"/api/v1/{operation}"}),
+            (
+                "/v1/training/compat/tinker/api/v1/cancel_future\n",
+                {"/v1/training/compat/tinker/api/"},
+            ),
+            ("https://api.fastino.ai/v1/training/compat/tinker\n", set()),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(retired_claim_hits(text), expected)
+
+    def test_inventory_is_exactly_47_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}

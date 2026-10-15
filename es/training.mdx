@@ -1,5 +1,5 @@
 ---
-title: "API de entrenamiento: tipos de trabajo y ciclo de vida"
+title: "Descripción general de la API de entrenamiento"
 sidebarTitle: "Descripción general"
 description: "Elige entre entrenamiento gestionado, entrenamiento dirigido por la aplicación o un agente de entrenamiento autónomo privado."
 ---
@@ -36,16 +36,7 @@ Ambos tipos comparten la misma identidad de trabajo. Las lecturas canónicas usa
 `GET /v1/training/jobs`, `GET /v1/training/jobs/{job_id}` y
 `GET /v1/training/jobs/{job_id}/checkpoints`.
 
-## Modelos entrenables
-
-Llama a `GET /v1/base-models?supports_training=true` antes de crear un trabajo.
-El catálogo enumera los modelos entrenables actuales y sus capacidades.
-
-Los trabajos de configuración ejecutan entrenamiento LoRA gestionado desde
-datasets subidos. Los trabajos de configuración para decodificadores admiten
-SFT, DPO y GRPO. Los trabajos interactivos son otra opción para decodificadores
-cuando tu aplicación debe controlar cada pasada, paso del optimizador,
-checkpoint y muestreo.
+Los clientes JSON nativos usan las operaciones públicas de OpenAPI bajo `/v1/training/jobs` y `/v1/training/usage`. Los clientes Tinker existentes mantienen `tinker==0.32.0` y configuran solo `TINKER_BASE_URL=https://api.fastino.ai/v1/training/compat/tinker` y `TINKER_CREDENTIAL_CMD`. No construyas rutas hijas privadas de compatibilidad.
 
 ## Ciclo de vida de los trabajos de configuración
 
@@ -94,13 +85,25 @@ las recibe. Cada llamada devuelve un `future_id`; lee su resultado en
 | [Forward, forward-backward y paso del optimizador](/es/api-reference/interactive-jobs/forward-backward) | — | Compatible |
 | [Guardar, cargar y muestrear checkpoints](/es/api-reference/interactive-jobs/save-weights) | — | Compatible |
 | [Descargar un checkpoint interactivo](/es/api-reference/training-jobs/download-checkpoint) | — | Compatible |
-| [Detener](/es/api-reference/training-jobs/stop) | Compatible | Compatible |
+| Crear mediante REST nativo | [Trabajo config](/es/api-reference/training-jobs/create) | [Trabajo interactivo](/es/api-reference/training-jobs/interactive/create-model) |
 | Actualizar o eliminar el trabajo | Compatible | — |
-| [Terminar](/es/api-reference/training-jobs/terminate) o [sincronizar](/es/api-reference/training-jobs/sync) | Compatible | — |
-| [Logs](/es/api-reference/training-jobs/logs) y [facturación](/es/api-reference/training-jobs/billing) | Compatible | — |
-| Despliegues y despliegue de checkpoints | Compatible | [Modelos compatibles](/es/api-reference/interactive-jobs/deploy-checkpoint) |
+| [Detener](/es/api-reference/training-jobs/stop), [terminar](/es/api-reference/training-jobs/terminate) o [sincronizar](/es/api-reference/training-jobs/sync) | Compatible | — |
+| Endpoints de [logs](/es/api-reference/training-jobs/logs) y [facturación](/es/api-reference/training-jobs/billing) de trabajos de configuración | Compatible | — |
+| Despliegues y despliegue de checkpoints | Compatible | — |
 | [Descargar el modelo final](/es/api-reference/training-jobs/download) | Compatible | — |
 | Cambiar el nombre o enviar a Hugging Face Hub | Compatible | — |
+
+## Facturación de trabajos interactivos
+
+Los trabajos interactivos facturan los tokens de entrenamiento de las llamadas
+forward y forward/backward; los tokens de entrada, lectura de caché y salida del
+muestreo; y el almacenamiento de checkpoints. El almacenamiento se mide
+diariamente según su tarifa por GB-mes.
+
+Crear un modelo, aplicar un paso del optimizador y guardar o cargar checkpoints
+no añade cargos de uso de entrenamiento interactivo. Los controles de gasto de
+la cuenta y del proyecto siguen aplicándose al iniciar o ampliar el cómputo.
+`GET /v1/training/usage` devuelve solo el almacenamiento de puntos interactivos del equipo y su precio mensual. No incluye cómputo ni facturación total.
 
 ## Próximos pasos
 
@@ -116,6 +119,3 @@ las recibe. Cada llamada devuelve un `future_id`; lee su resultado en
     Prepara datos de entidades y entrena un modelo GLiNER.
   </Card>
 </CardGroup>
-
-¿Trasladas una carga de trabajo existente del SDK de Tinker? Consulta
-[Migrar desde Tinker](/es/training/migrate-from-tinker).

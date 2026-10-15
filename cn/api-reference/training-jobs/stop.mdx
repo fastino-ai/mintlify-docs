@@ -7,7 +7,7 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 `POST /v1/training/jobs/{job_id}/stop`
 
-停止一个运行中的任务，并保留停止前创建的检查点。
+停止一个运行中的任务，并保留在停止之前创建的检查点。
 
 ## 请求
 
@@ -37,11 +37,11 @@ api: "POST /v1/training/jobs/{job_id}/stop"
 
 ### 交互式任务
 
-不要发送请求体。该操作会立即返回 `success`、`job_id` 和 `status`，并停止接受
-新的训练调用。已排队的 operation 可能会在资源释放前完成，因此用量可能持续到释放完成。
-sampler 检查点仍可用于采样和下载。
+不要发送请求体。响应包含已验证的公共字段 `success`、`job_id` 和 `status`。
 
 ### 配置任务请求示例
+
+<RequestExample>
 
 ```bash cURL
 curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
@@ -52,10 +52,16 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID/stop \
 
 ### 交互式任务请求示例
 
+### 交互式任务请求示例
+
+<RequestExample>
+
 ```bash cURL
-curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
+curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/stop \
   -H "X-API-Key: $FASTINO_API_KEY"
 ```
+
+</RequestExample>
 
 ## 配置任务响应
 
@@ -81,22 +87,25 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
 
 </ResponseExample>
 
-`message` 字段、`202` 响应、轮询规则和配置任务特有错误仅适用于配置任务。配置任务返回
-`202` 后，请轮询 `GET /v1/training/jobs/{job_id}`。等待确认取消期间不要重复停止请求。
+`message` 字段、`202` 响应和轮询规则仅适用于配置任务。配置任务收到 `202` 后，请轮询
+`GET /v1/training/jobs/{job_id}`。在等待确认取消期间，请勿重复发送停止请求。
 
 ## 交互式任务响应
 
-交互式停止会立即返回 `200`，无需轮询。
+交互式任务使用同一操作，但不发送请求体。响应包含公共字段 `success`、`job_id` 和
+`status`。交互式客户端不得要求仅配置任务具有的 `message` 字段。
 
-```json Interactive job
+```json Response
 {
   "success": true,
-  "job_id": "SESSION_ID:train:0",
+  "job_id": "YOUR_INTERACTIVE_JOB_ID",
   "status": "stopped"
 }
 ```
 
 ## 配置任务状态
+
+以下状态和错误详情仅适用于配置任务。
 
 | 状态 | 含义 |
 | --- | --- |
@@ -104,4 +113,4 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/SESSION_ID:train:0/stop \
 | `202` | 仍在确认提供方取消操作。 |
 | `400` | 配置任务 ID 或请求无效。 |
 | `409 training_job_already_finished` | 任务在停止前已进入最终状态。 |
-| `422` | 配置任务 JSON 请求体无效。 |
+| `422` | 配置任务的 JSON 请求体无效。 |

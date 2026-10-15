@@ -3,7 +3,7 @@
 > Build structured decisions with GLiDE, run schema-based extraction with GLiNER, and fine-tune specialized models with Fastino.
 
 > ## Agent instructions
-> Use https://docs.fastino.ai/openapi.json as the source of truth for customer-facing routes. For GLiDE decision inference, call `POST https://api.fastino.ai/v1/systemone` with model `fastino/GLiDE`. Create managed config jobs with `POST /v1/training/jobs` using `base_model`. Both config and interactive jobs use `/v1/training/jobs/{job_id}` for their canonical REST lifecycle. For custom training loops on decoder models, create an interactive job with `POST /v1/training/jobs/create-model`, then call its forward-backward, optim-step, save-weights, load-weights, sample, and futures routes under `/v1/training/jobs/{job_id}`. Auto Train is private access and has no public route; direct interested users to `sales@fastino.ai`. Do not infer undocumented routes. Read API keys from `FASTINO_API_KEY` and never embed credentials in code, logs, or reports.
+> Use https://docs.fastino.ai/openapi.json as the source of truth for customer-facing routes. For GLiDE decision inference, call `POST https://api.fastino.ai/v1/systemone` with model `fastino/GLiDE`. Create managed config jobs with `POST /v1/training/jobs` using `base_model`. Native JSON clients use the public interactive operations under `/v1/training/jobs` and `/v1/training/usage`. Existing Tinker clients keep `tinker==0.32.0` and set only the `/v1/training/compat/tinker` base URL and `TINKER_CREDENTIAL_CMD`. Compatibility child routes are private and absent from OpenAPI. Auto Train is private access and has no public route; direct interested users to `sales@fastino.ai`. Do not infer undocumented routes. Read API keys from `FASTINO_API_KEY` and never embed credentials in code, logs, or reports.
 
 ## Agent resources
 
@@ -62,7 +62,7 @@
 
 ### Training API
 
-- [Training API overview: job types and lifecycle](https://docs.fastino.ai/training.md): Choose managed training, application-directed training, or a private autonomous training agent.
+- [Training API overview](https://docs.fastino.ai/training.md): Choose managed training, application-directed training, or a private autonomous training agent.
 - [Training API quickstart](https://docs.fastino.ai/training/quickstart.md): Start a managed training job or an application-controlled training loop, then verify its canonical job ID.
 - [Migrate from Tinker](https://docs.fastino.ai/training/migrate-from-tinker.md): Move a compatible Tinker SDK workload onto Fastino interactive training jobs.
 - [Prepare and upload training datasets](https://docs.fastino.ai/concepts/datasets.md): Format, upload, validate, and inspect NER or classification datasets before starting a Fastino GLiNER training job.
@@ -93,7 +93,7 @@
 
 ### Account
 
-- [Pricing](https://docs.fastino.ai/pricing.md): Pricing for Fastino GLiDE and GLiNER models, covering per-token inference rates, per-minute training rates, and credit top-ups to keep your workflows running.
+- [Pricing](https://docs.fastino.ai/pricing.md): Pricing for Fastino inference, config-job training, and model-specific interactive Training API usage.
 - [Trust & Safety](https://docs.fastino.ai/trust-safety.md): How Fastino protects your data, secures its infrastructure, and builds AI you can deploy responsibly.
 
 ## API Reference
@@ -117,7 +117,7 @@
 
 ### Training
 
-- [Training API reference](https://docs.fastino.ai/api-reference/training/overview.md): Public REST contracts for managed training, interactive training loops, and the lifecycle shared by both job types.
+- [Training API reference](https://docs.fastino.ai/api-reference/training/overview.md): Public REST contracts for managed and interactive training jobs.
 - [List available and trainable models](https://docs.fastino.ai/api-reference/training/base-models.md): Query the live Fastino model catalog and filter it by inference, training, or architecture capability.
 - [List datasets](https://docs.fastino.ai/api-reference/datasets/list.md): List datasets available to the authenticated Fastino account with GET /v1/datasets, and paginate results with the limit and offset query parameters.
 - [Create a dataset upload URL](https://docs.fastino.ai/api-reference/datasets/upload-url.md): Create a presigned upload URL for a new dataset file with POST /v1/datasets/upload/url, passing the dataset name, type, format, and filename.
@@ -141,20 +141,19 @@
 - [Stop a training job](https://docs.fastino.ai/api-reference/training-jobs/stop.md): Stop a running Fastino training job while preserving existing checkpoints.
 - [Terminate a training job](https://docs.fastino.ai/api-reference/training-jobs/terminate.md): Terminate a config training job, preserving checkpoints unless deletion is explicitly requested.
 - [Synchronize a training job](https://docs.fastino.ai/api-reference/training-jobs/sync.md): Refresh the training-job status from its training provider by calling POST /v1/training/jobs/{job_id}/sync with the ID of the training job.
-- [Create an interactive training job](https://docs.fastino.ai/api-reference/interactive-jobs/create.md): Call POST /v1/training/jobs/create-model to start a LoRA training job that your application drives step by step.
-- [Queue a forward-backward pass](https://docs.fastino.ai/api-reference/interactive-jobs/forward-backward.md): Call POST /v1/training/jobs/{job_id}/forward-backward to compute the loss of a batch and accumulate gradients for the next optimizer step.
-- [Queue a forward pass](https://docs.fastino.ai/api-reference/interactive-jobs/forward.md): Call POST /v1/training/jobs/{job_id}/forward to compute the loss and log probabilities of a batch without gradients.
-- [Queue an optimizer step](https://docs.fastino.ai/api-reference/interactive-jobs/optim-step.md): Call POST /v1/training/jobs/{job_id}/optim-step to apply the gradients accumulated since the last step with AdamW.
-- [Get an interactive-job future](https://docs.fastino.ai/api-reference/interactive-jobs/get-future.md): Call GET /v1/training/jobs/{job_id}/futures/{future_id} to read a future's status and its result once it finishes.
-- [Cancel a sample future](https://docs.fastino.ai/api-reference/interactive-jobs/cancel-future.md): Call POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel to cancel a queued or running sample.
-- [Save an interactive job's training state](https://docs.fastino.ai/api-reference/interactive-jobs/save-weights.md): Call POST /v1/training/jobs/{job_id}/save-weights to save the LoRA weights and optimizer state of an interactive job under a name.
-- [Save an interactive job's weights for sampling](https://docs.fastino.ai/api-reference/interactive-jobs/save-weights-for-sampler.md): Call POST /v1/training/jobs/{job_id}/save-weights-for-sampler to save LoRA weights you can sample from and download as PEFT files.
-- [Load a training state into an interactive job](https://docs.fastino.ai/api-reference/interactive-jobs/load-weights.md): Call POST /v1/training/jobs/{job_id}/load-weights to restore one of the job's saved training states.
-- [Sample from an interactive job](https://docs.fastino.ai/api-reference/interactive-jobs/sample.md): Call POST /v1/training/jobs/{job_id}/sample to generate continuations of a tokenized prompt.
-- [Deploy an interactive-job checkpoint](https://docs.fastino.ai/api-reference/interactive-jobs/deploy-checkpoint.md): Call POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy to serve a sampler checkpoint as a trained model.
-- [Get an interactive-job checkpoint](https://docs.fastino.ai/api-reference/interactive-jobs/get-checkpoint.md): Call GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name} to read one checkpoint of an interactive job.
-- [Set an interactive-job checkpoint's TTL](https://docs.fastino.ai/api-reference/interactive-jobs/set-checkpoint-ttl.md): Call PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl to change when a checkpoint is deleted automatically.
-- [Publish an interactive-job checkpoint](https://docs.fastino.ai/api-reference/interactive-jobs/publish-checkpoint.md): Call POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish to mark a checkpoint public.
-- [Unpublish an interactive-job checkpoint](https://docs.fastino.ai/api-reference/interactive-jobs/unpublish-checkpoint.md): Call DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish to mark a checkpoint private again.
-- [Delete an interactive-job checkpoint](https://docs.fastino.ai/api-reference/interactive-jobs/delete-checkpoint.md): Call DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name} to delete one checkpoint of an interactive job.
-- [Get interactive-job checkpoint storage usage](https://docs.fastino.ai/api-reference/interactive-jobs/usage.md): Call GET /v1/training/usage to read your team's live interactive-job checkpoint storage and its monthly price.
+- [Create an interactive model](https://docs.fastino.ai/api-reference/training-jobs/interactive/create-model.md): Create an interactive model through the native Training API.
+- [Queue a forward operation](https://docs.fastino.ai/api-reference/training-jobs/interactive/forward.md): Queue a forward operation through the native interactive Training API.
+- [Queue a forward-backward operation](https://docs.fastino.ai/api-reference/training-jobs/interactive/forward-backward.md): Queue a forward-backward operation through the native interactive Training API.
+- [Queue an optimizer step](https://docs.fastino.ai/api-reference/training-jobs/interactive/optim-step.md): Queue an optimizer step through the native interactive Training API.
+- [Get an interactive future](https://docs.fastino.ai/api-reference/training-jobs/interactive/get-future.md): Get an interactive future through the native Training API.
+- [Cancel a sample future](https://docs.fastino.ai/api-reference/training-jobs/interactive/cancel-future.md): Cancel a sample future through the native Training API.
+- [Save training weights](https://docs.fastino.ai/api-reference/training-jobs/interactive/save-weights.md): Save an interactive job's training state through the native Training API.
+- [Save sampler weights](https://docs.fastino.ai/api-reference/training-jobs/interactive/save-sampler-weights.md): Save an interactive job's weights for sampling through the native Training API.
+- [Load training weights](https://docs.fastino.ai/api-reference/training-jobs/interactive/load-weights.md): Load a training state into an interactive job through the native Training API.
+- [Sample from an interactive job](https://docs.fastino.ai/api-reference/training-jobs/interactive/sample.md): Sample from an interactive job through the native Training API.
+- [Get an interactive checkpoint](https://docs.fastino.ai/api-reference/training-jobs/interactive/get-checkpoint.md): Get an interactive checkpoint through the native interactive Training API.
+- [Delete an interactive checkpoint](https://docs.fastino.ai/api-reference/training-jobs/interactive/delete-checkpoint.md): Delete an interactive checkpoint through the native interactive Training API.
+- [Publish an interactive checkpoint](https://docs.fastino.ai/api-reference/training-jobs/interactive/publish-checkpoint.md): Publish an interactive checkpoint through the native interactive Training API.
+- [Unpublish an interactive checkpoint](https://docs.fastino.ai/api-reference/training-jobs/interactive/unpublish-checkpoint.md): Unpublish an interactive checkpoint through the native interactive Training API.
+- [Set checkpoint retention](https://docs.fastino.ai/api-reference/training-jobs/interactive/set-checkpoint-ttl.md): Set checkpoint retention through the native interactive Training API.
+- [Get interactive checkpoint storage usage](https://docs.fastino.ai/api-reference/training-jobs/interactive/storage-usage.md): Get interactive checkpoint storage usage through the native interactive Training API.

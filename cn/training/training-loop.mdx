@@ -4,15 +4,17 @@ sidebarTitle: "训练循环"
 description: "由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中构建对齐的 datum 并管理检查点。"
 ---
 
-由你的应用决定采样什么、如何评分以及何时更新。Fastino 在一个 交互式任务上运行每个模型操作。
-每一步都是发送到 `/v1/training/jobs/{job_id}` 下某个路由的 JSON 请求。
+你的应用决定采样内容、评分方式和更新时机。Fastino 执行交互式模型操作。
+原生客户端通过 `job_id` 寻址任务。Tinker `TrainingClient` 代表同一个任务。
 
 ## 控制循环
 
 <Steps>
-  <Step title="创建 交互式任务">
-    使用 `base_model` 和可选的 `lora_config` 调用 `POST /v1/training/jobs/create-model`。
-    保存返回的 `job_id`，并等待 `create` future 完成。
+  <Step title="创建交互式任务">
+    原生客户端使用 `base_model`，或使用 `from_checkpoint` 和 `load_optimizer`，调用
+    [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)。
+    Tinker 客户端调用 `create_lora_training_client(...)`。原生客户端不发送 `seq_id`
+    或心跳。
   </Step>
   <Step title="保存用于采样的权重">
     使用名称调用 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`。
@@ -41,15 +43,11 @@ description: "由你的应用控制采样、评分和更新时机，在一个 Fa
 
 | 步骤 | 路由 |
 | --- | --- |
-| 创建任务 | [`POST /v1/training/jobs/create-model`](/cn/api-reference/interactive-jobs/create) |
-| 计算损失和梯度 | [`POST /v1/training/jobs/{job_id}/forward-backward`](/cn/api-reference/interactive-jobs/forward-backward) |
-| 仅计算损失 | [`POST /v1/training/jobs/{job_id}/forward`](/cn/api-reference/interactive-jobs/forward) |
-| 应用梯度 | [`POST /v1/training/jobs/{job_id}/optim-step`](/cn/api-reference/interactive-jobs/optim-step) |
-| 读取结果 | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/interactive-jobs/get-future) |
-| 保存训练状态 | [`POST /v1/training/jobs/{job_id}/save-weights`](/cn/api-reference/interactive-jobs/save-weights) |
-| 保存用于采样的权重 | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/cn/api-reference/interactive-jobs/save-weights-for-sampler) |
-| 采样 | [`POST /v1/training/jobs/{job_id}/sample`](/cn/api-reference/interactive-jobs/sample) |
-| 停止任务 | [`POST /v1/training/jobs/{job_id}/stop`](/cn/api-reference/training-jobs/stop) |
+| `ServiceClient` | 查询功能并创建 SDK 客户端 |
+| `TrainingClient` | 代表一个 Fastino 交互式任务并提交其模型操作 |
+| `SamplingClient` | 从已解析的检查点采样 |
+| `RestClient` | 列出或获取交互式运行并管理其检查点；使用 `/v1/training/jobs` 读取两种任务 |
+| Future | 跟踪提交给任务的一项操作 |
 
 要将确定性评分转换为组相对优势，请参阅[使用可验证奖励训练](/cn/training/verifiable-rewards)。
 
@@ -73,8 +71,9 @@ tokenizer 解码采样结果。
 - `advantages` 在补全位置为该补全的优势，提示位置为 `0`。
 
 <Warning>
-  提示渲染、分词、datum 构建和奖励计算都在你的代码中运行。发送批次前请检查张量长度。
-  在较大的工作负载之前先验证一个小批次。超过模型上下文长度的 datum 会导致 operation 失败。
+  提示词渲染、token 化、datum 构建和奖励执行均由客户端负责。在运行更大的工作负载前，
+  请根据[经过测试的 SDK](/cn/training/migrate-from-tinker)和已记录的操作契约验证它们的形式。Capabilities
+  仅报告已启用的模型及其上下文长度。
 </Warning>
 
 仅支持上面的内置损失函数。在你自己的代码中编写的损失函数无法在任务上运行。
@@ -84,11 +83,15 @@ tokenizer 解码采样结果。
 任务按接收顺序运行 operation，因此可以在 forward-backward 之后立即排队优化器步骤。
 在将该步骤视为完成之前，请先读取 forward-backward 的结果。保存更新后的状态之前，请等待优化器步骤完成。
 
-不要让彼此独立的控制器在未协调的情况下向同一任务发送更新。要取消未完成的采样，请调用
-`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`。训练 operation 无法取消。
+原生 JSON 客户端调用
+[`forward-backward`](/cn/api-reference/training-jobs/interactive/forward-backward)
+和 [`optim-step`](/cn/api-reference/training-jobs/interactive/optim-step)。每个排队响应
+都包含 `future_id`。轮询
+[`get-future`](/cn/api-reference/training-jobs/interactive/get-future)，直到状态为
+`completed`、`failed` 或 `cancelled`。一次 `wait=true` 请求可能在 future 完成前返回。
 
-交互式任务 30 分钟内没有调用就会被释放，之后的训练调用会失败。其检查点会保留，
-因此你可以从最新的状态检查点启动新任务。
+Tinker 客户端跟踪受支持调用返回的每个 future，并逐个解析。两种接口都只有 sample
+future 可以取消。不支持通过 `retrieve_futures` 批量检索。
 
 ## 恢复循环
 
@@ -96,5 +99,6 @@ tokenizer 解码采样结果。
 
 关于恢复顺序和检查点类型，请参阅[检查点与恢复](/cn/training/checkpoints)。
 
-要在新任务中从已保存的状态继续，请将检查点的 `path` 作为 `from_checkpoint` 传给
-`POST /v1/training/jobs/create-model`。新任务会有新的 ID；请将两个任务 ID 作为应用自有的谱系一并持久化。
+一个控制器在一个任务的生命周期内更新该任务。原生客户端可以从检查点创建任务，
+Tinker 客户端可以从已保存状态创建任务。两条路径都会从来源检查点启动新的交互式
+任务。请将两个任务 ID 记录为应用负责的沿袭关系。

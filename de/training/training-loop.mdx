@@ -4,18 +4,20 @@ sidebarTitle: "Trainingsloop"
 description: "Verbinden Sie Sampling, Rewards, Updates und Checkpoints innerhalb eines interaktiven Fastino-Jobs."
 ---
 
-Ihre Anwendung entscheidet, was gesampelt wird, wie es bewertet wird und wann
-aktualisiert wird. Fastino führt jede Modelloperation auf einem interaktiven Job
-aus. Jeder Schritt ist eine JSON-Anfrage an eine Route unter
-`/v1/training/jobs/{job_id}`.
+Ihre Anwendung entscheidet, was gesampelt, wie es bewertet und wann es
+aktualisiert wird. Fastino führt die interaktiven Modelloperationen aus. Ein
+nativer Client adressiert den Job über `job_id`. Ein Tinker-`TrainingClient`
+repräsentiert denselben Job.
 
 ## Der Kontrollloop
 
 <Steps>
   <Step title="Interaktiven Job erstellen">
-    Rufen Sie `POST /v1/training/jobs/create-model` mit einem `base_model` und
-    optional `lora_config` auf. Speichern Sie die zurückgegebene `job_id` und
-    warten Sie, bis das `create`-Future abgeschlossen ist.
+    Ein nativer Client ruft
+    [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
+    mit `base_model` oder mit `from_checkpoint` und `load_optimizer` auf. Ein
+    Tinker-Client ruft `create_lora_training_client(...)` auf. Native Clients
+    senden weder `seq_id` noch Heartbeats.
   </Step>
   <Step title="Gewichte zum Samplen speichern">
     Rufen Sie `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` mit
@@ -50,15 +52,11 @@ aus. Jeder Schritt ist eine JSON-Anfrage an eine Route unter
 
 | Schritt | Route |
 | --- | --- |
-| Job erstellen | [`POST /v1/training/jobs/create-model`](/de/api-reference/interactive-jobs/create) |
-| Loss und Gradienten berechnen | [`POST /v1/training/jobs/{job_id}/forward-backward`](/de/api-reference/interactive-jobs/forward-backward) |
-| Nur den Loss berechnen | [`POST /v1/training/jobs/{job_id}/forward`](/de/api-reference/interactive-jobs/forward) |
-| Gradienten anwenden | [`POST /v1/training/jobs/{job_id}/optim-step`](/de/api-reference/interactive-jobs/optim-step) |
-| Ergebnis lesen | [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/interactive-jobs/get-future) |
-| Trainingszustand speichern | [`POST /v1/training/jobs/{job_id}/save-weights`](/de/api-reference/interactive-jobs/save-weights) |
-| Gewichte zum Samplen speichern | [`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/de/api-reference/interactive-jobs/save-weights-for-sampler) |
-| Samplen | [`POST /v1/training/jobs/{job_id}/sample`](/de/api-reference/interactive-jobs/sample) |
-| Job stoppen | [`POST /v1/training/jobs/{job_id}/stop`](/de/api-reference/training-jobs/stop) |
+| `ServiceClient` | Fragt Fähigkeiten ab und erstellt SDK-Clients |
+| `TrainingClient` | Repräsentiert einen interaktiven Fastino-Job und sendet dessen Modelloperationen |
+| `SamplingClient` | Sampelt aus einem aufgelösten Checkpoint |
+| `RestClient` | Listet interaktive Läufe auf oder ruft sie ab und verwaltet deren Checkpoints; `/v1/training/jobs` liest beide Jobtypen |
+| Future | Verfolgt eine an den Job gesendete Operation |
 
 Um eine deterministische Bewertung in gruppenrelative Advantages umzuwandeln,
 folgen Sie [Mit verifizierbaren Rewards trainieren](/de/training/verifiable-rewards).
@@ -86,10 +84,10 @@ Für einen Prompt gefolgt von einer Antwort:
   Prompt-Positionen.
 
 <Warning>
-  Prompt-Rendering, Tokenisierung, Datum-Aufbau und Reward-Berechnung laufen in
-  Ihrem Code. Prüfen Sie die Tensorlängen, bevor Sie einen Batch senden.
-  Validieren Sie einen kleinen Batch vor einem größeren Workload. Ein Datum, das
-  länger als die Kontextlänge des Modells ist, lässt die Operation fehlschlagen.
+  Prompt-Rendering, Tokenisierung, Erstellung von Datums und Reward-Ausführung
+  liegen beim Client. Validieren Sie ihre Formen anhand des [getesteten SDK](/de/training/migrate-from-tinker)
+  und des dokumentierten Operationsvertrags, bevor Sie einen größeren Workload
+  ausführen. Capabilities melden nur aktivierte Modelle und Kontextlängen.
 </Warning>
 
 Nur die oben genannten eingebauten Loss-Funktionen werden unterstützt. Ein Loss
@@ -103,14 +101,18 @@ Lesen Sie das Forward-Backward-Ergebnis, bevor Sie den Schritt als abgeschlossen
 behandeln. Warten Sie auf den Abschluss des Optimiererschritts, bevor Sie den
 aktualisierten Zustand speichern.
 
-Lassen Sie unabhängige Controller nicht unkoordiniert Updates an denselben Job
-senden. Um ein unfertiges Sampling abzubrechen, rufen Sie
-`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` auf.
-Trainingsoperationen können nicht abgebrochen werden.
+Native JSON-Clients rufen
+[`forward-backward`](/de/api-reference/training-jobs/interactive/forward-backward)
+und [`optim-step`](/de/api-reference/training-jobs/interactive/optim-step) auf.
+Jede Einreihungsantwort enthält eine `future_id`. Fragen Sie
+[`get-future`](/de/api-reference/training-jobs/interactive/get-future)
+ab, bis der Status `completed`, `failed` oder `cancelled` ist. Ein einzelner
+Request mit `wait=true` kann vor dem Abschluss zurückkehren.
 
-Ein interaktiver Job ohne Aufrufe für 30 Minuten wird freigegeben, und spätere
-Trainingsaufrufe schlagen fehl. Seine Checkpoints bleiben erhalten, sodass Sie
-einen neuen Job aus dem letzten Zustands-Checkpoint starten können.
+Tinker-Clients verfolgen jedes Future, das ein unterstützter Aufruf zurückgibt,
+und lösen Futures einzeln auf. Auf beiden Schnittstellen können nur
+Sample-Futures abgebrochen werden. Der Batch-Abruf über `retrieve_futures`
+wird nicht unterstützt.
 
 ## Loop wiederherstellen
 
@@ -121,7 +123,7 @@ Arbeit abgeschlossen wurde, ohne ein Update zu wiederholen.
 Für die Wiederherstellungssequenz und die Checkpoint-Arten folgen Sie
 [Checkpoints und Wiederherstellung](/de/training/checkpoints).
 
-Um einen gespeicherten Zustand in einem neuen Job fortzusetzen, übergeben Sie den
-`path` des Checkpoints als `from_checkpoint` an
-`POST /v1/training/jobs/create-model`. Der neue Job hat eine neue ID; persistieren
-Sie beide Job-IDs als anwendungseigene Herkunft.
+Ein Controller aktualisiert einen Job während dessen Lebensdauer. Ein nativer
+Client kann aus einem Checkpoint erstellen. Ein Tinker-Client kann aus
+gespeichertem Status erstellen. Beide Wege starten einen neuen Interactive-Job
+aus dem Quell-Checkpoint. Speichern Sie beide IDs als anwendungseigene Linie.

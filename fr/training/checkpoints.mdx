@@ -87,14 +87,10 @@ Comparez l'enregistrement avec le checkpoint source et la reprise demandée :
 Arrêtez-vous pour une décision explicite si ces champs se contredisent. Ne
 combinez pas silencieusement un checkpoint avec une autre expérience.
 
-Choisissez ensuite comment continuer :
-
-| Situation | Appel |
-| --- | --- |
-| Le job source est encore actif et vous voulez revenir en arrière | `POST /v1/training/jobs/{job_id}/load-weights` avec `{"path": name, "optimizer": true}` |
-| Le job source a été arrêté ou libéré | `POST /v1/training/jobs/create-model` avec `from_checkpoint` et `load_optimizer` |
-
-Pour continuer dans un nouveau job :
+Les clients natifs créent un nouveau job avec `from_checkpoint` ou envoient un
+nom d'état ou le chemin `tinker://` du même job à
+[`load-weights`](/fr/api-reference/training-jobs/interactive/load-weights).
+Les clients Tinker utilisent le flux de chargement d'état pris en charge :
 
 ```python
 resumed = call(
@@ -107,10 +103,11 @@ wait(resumed["job_id"], resumed["load_future_id"])
 resumed_job_id = resumed["job_id"]
 ```
 
-Le nouveau job reprend le modèle de base et les paramètres LoRA du checkpoint :
-n'envoyez donc pas `lora_config`. Son ID diffère de celui du job source.
-Enregistrez `source_job_id`, `state_path` et `resumed_job_id` comme lignée gérée
-par l'application.
+Cette fabrique crée un nouveau job interactive, puis charge les poids et l'état
+de l'optimiseur du checkpoint source. L'ID repris diffère normalement de l'ID
+source. Enregistrez `source_job_id`, `state_path` et `resumed_job_id` comme
+lignée gérée par l'application. Ne refusez pas la reprise parce que les ID
+diffèrent. Ne construisez pas de routes enfants privées de compatibilité.
 
 ## 4. Rendre la frontière récupérable
 
@@ -151,10 +148,17 @@ sampler = call(
 N'utilisez pas un checkpoint sampler comme point de reprise : il ne contient pas
 l'état de l'optimiseur et aucun nouveau job ne peut démarrer depuis celui-ci.
 
-`ttl_seconds` vaut `null` par défaut : sans TTL, le checkpoint est conservé
-jusqu'à sa suppression. Les checkpoints actifs comptent dans le stockage des
-checkpoints. Pour activer le nettoyage automatique, passez une valeur de `3600`
-à `315360000` secondes (1 heure à 10 ans).
+L'API d'entraînement publique enregistre l'état d'entraînement via
+[`save-weights`](/fr/api-reference/training-jobs/interactive/save-weights) et
+les poids d'échantillonnage via
+[`save-weights-for-sampler`](/fr/api-reference/training-jobs/interactive/save-sampler-weights).
+Les routes directes de chargement et d'échantillonnage acceptent un nom de
+checkpoint ou le chemin `tinker://` du même job. L'échantillonnage reste
+disponible après l'arrêt du job. Les routes partagées de liste et de
+téléchargement couvrent les checkpoints interactifs. Le téléchargement exige
+toujours l'autorisation de téléchargement des poids. Tinker fournit des méthodes
+SDK équivalentes. Ne construisez pas de routes enfants privées de compatibilité
+et ne supposez pas une durée de rétention non documentée.
 
 Gérez les checkpoints avec ces routes :
 
@@ -182,7 +186,7 @@ Avant de faire monter en charge la reprise :
 5. Enregistrez un nouveau checkpoint d'état sous un nouveau nom.
 6. Conservez l'enregistrement de boucle suivant.
 
-## Déployer votre modèle entraîné
+Utilisez les routes JSON natives ou le SDK Tinker pris en charge pour les opérations interactives sur le modèle.
 
 Déployez un checkpoint sampler pour le servir comme modèle. Le déploiement est
 disponible pour les modèles de base pris en charge ; les autres bases renvoient
@@ -217,8 +221,7 @@ pour les champs et les erreurs.
 
 | Symptôme | Vérification |
 | --- | --- |
-| Un future échoue | Notez l'ID du job et l'`error` du future. Ne faites pas avancer l'état dépendant de l'application |
-| Un appel d'entraînement renvoie `400` après une pause | Le job a été arrêté ou libéré après 30 minutes d'inactivité. Démarrez un nouveau job depuis le dernier checkpoint d'état |
-| Un checkpoint ne peut pas être chargé | Vérifiez son job, son type et l'enregistrement de reprise côté client |
-| `from_checkpoint` est refusé | Confirmez qu'il s'agit d'un chemin `weights/<name>` de votre équipe ; les checkpoints sampler ne peuvent pas démarrer un job |
-| La recherche du job repris échoue | Confirmez que l'ID provient de la réponse de création du nouveau job et que vous êtes authentifié dans la même équipe Fastino |
+| Une future échoue | Enregistrez l'ID du job et le résultat de l'opération. Ne faites pas avancer l'état dépendant de l'application |
+| Un checkpoint ne peut pas être chargé | Vérifiez son job, son type de checkpoint et l'enregistrement de récupération contrôlé par le client |
+| Le checkpoint source est refusé | Vérifiez le job source, le type de checkpoint et `state_path` ; n'exigez pas que le nouvel ID égale l'ID source |
+| La recherche du job repris échoue | Vérifiez que l'ID provient de `get_info().model_id` du client repris et que la même équipe Fastino est authentifiée |

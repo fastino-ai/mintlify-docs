@@ -3,7 +3,7 @@
 > Erstellen Sie strukturierte Entscheidungen mit GLiDE, führen Sie schema-basierte Extraktion mit GLiNER aus und optimieren Sie spezialisierte Modelle mit Fastino.
 
 > ## Anweisungen für Agenten
-> Verwenden Sie https://docs.fastino.ai/openapi.json als verbindliche Quelle für öffentliche Routen. Trainingsjobs verwenden `/v1/training/jobs`. Erstellen Sie für eigene Decoder-Trainingsabläufe einen interaktiven Job mit `POST /v1/training/jobs/create-model` und rufen Sie die nativen Routen unter `/v1/training/jobs/{job_id}` auf. Config-Jobs trainieren GLiNER-Encoder. Auto Train ist privat zugänglich und hat keine öffentliche Route; verweisen Sie Interessierte an `sales@fastino.ai`. Leiten Sie keine undokumentierten Routen ab. Lesen Sie API-Schlüssel aus `FASTINO_API_KEY` und betten Sie Anmeldedaten niemals in Code, Protokolle oder Berichte ein.
+> Verwenden Sie https://docs.fastino.ai/openapi.json als verbindliche Quelle für öffentliche Routen. Trainingsjobs verwenden `/v1/training/jobs`. Native JSON-Clients verwenden die öffentlichen interaktiven Vorgänge aus OpenAPI. Bestehende Tinker-Clients behalten `tinker==0.32.0` und setzen nur die Basis-URL `/v1/training/compat/tinker` sowie `TINKER_CREDENTIAL_CMD`. Kompatibilitäts-Unterpfade sind privat. Auto Train ist privat zugänglich und hat keine öffentliche Route; verweisen Sie Interessierte an `sales@fastino.ai`. Leiten Sie keine undokumentierten Routen ab. Lesen Sie API-Schlüssel aus `FASTINO_API_KEY` und betten Sie Anmeldedaten niemals in Code, Protokolle oder Berichte ein.
 
 ## Ressourcen für Agenten
 
@@ -55,7 +55,7 @@
 
 ### Trainings-API
 
-- [Training API im Überblick: Jobtypen und Lebenszyklus](https://docs.fastino.ai/de/training.md): Wählen Sie verwaltetes Training, anwendungsgesteuertes Training oder einen privaten autonomen Trainingsagenten.
+- [Training API im Überblick](https://docs.fastino.ai/de/training.md): Wählen Sie verwaltetes Training, anwendungsgesteuertes Training oder einen privaten autonomen Trainingsagenten.
 - [Training API – Schnellstart](https://docs.fastino.ai/de/training/quickstart.md): Starten Sie einen verwalteten Trainingsjob oder einen anwendungsgesteuerten Trainingsloop und prüfen Sie anschließend seine kanonische Job-ID.
 - [Von Tinker migrieren](https://docs.fastino.ai/de/training/migrate-from-tinker.md): Migrieren Sie einen kompatiblen Workload des Tinker SDK zu interaktiven Fastino-Trainingsjobs.
 - [Trainingsdatensätze vorbereiten und hochladen](https://docs.fastino.ai/de/concepts/datasets.md): Formatieren, hochladen, validieren und prüfen Sie NER- oder Klassifizierungs-Datensätze, bevor Sie einen Fastino-GLiNER-Trainingsjob starten.
@@ -86,7 +86,7 @@
 
 ### Konto
 
-- [Preise](https://docs.fastino.ai/de/pricing.md): Preise für GLiDE und GLiNER: Inferenztarife pro 1 Mio. Tokens, Trainingstarife pro Minute für GLiNER-Fine-Tuning und Guthaben-Aufladungen.
+- [Preise](https://docs.fastino.ai/de/pricing.md): Preise für Fastino-Inferenz, Training mit Konfigurationsjobs und modellspezifische interaktive Training-API-Nutzung.
 - [Vertrauen & Sicherheit](https://docs.fastino.ai/de/trust-safety.md): Wie Fastino Ihre Daten schützt, seine Infrastruktur absichert und KI entwickelt, die Sie verantwortungsvoll einsetzen können.
 
 ## API-Referenz
@@ -134,20 +134,19 @@
 - [Trainingsjob stoppen](https://docs.fastino.ai/de/api-reference/training-jobs/stop.md): Stoppen Sie einen laufenden Fastino-Trainingsjob und erhalten Sie vorhandene Checkpoints.
 - [Trainingsjob terminieren](https://docs.fastino.ai/de/api-reference/training-jobs/terminate.md): Terminieren Sie einen Config-Trainingsjob; Checkpoints bleiben erhalten, sofern ihre Löschung nicht ausdrücklich angefordert wird.
 - [Trainingsjob synchronisieren](https://docs.fastino.ai/de/api-reference/training-jobs/sync.md): Aktualisieren Sie mit POST /v1/training/jobs/{job_id}/sync den Status eines Trainingsjobs beim Trainingsanbieter. Übergeben Sie die Job-ID im Pfad.
-- [Einen interaktiven Trainingsjob erstellen](https://docs.fastino.ai/de/api-reference/interactive-jobs/create.md): Rufen Sie POST /v1/training/jobs/create-model auf, um einen LoRA-Trainingsjob zu starten, den Ihre Anwendung Schritt für Schritt steuert.
-- [Einen Forward-Backward-Durchlauf einreihen](https://docs.fastino.ai/de/api-reference/interactive-jobs/forward-backward.md): Rufen Sie POST /v1/training/jobs/{job_id}/forward-backward auf, um den Loss eines Batches zu berechnen und Gradienten für den nächsten Optimiererschritt zu sammeln.
-- [Einen Forward-Durchlauf einreihen](https://docs.fastino.ai/de/api-reference/interactive-jobs/forward.md): Rufen Sie POST /v1/training/jobs/{job_id}/forward auf, um Loss und Log-Wahrscheinlichkeiten eines Batches ohne Gradienten zu berechnen.
-- [Einen Optimiererschritt einreihen](https://docs.fastino.ai/de/api-reference/interactive-jobs/optim-step.md): Rufen Sie POST /v1/training/jobs/{job_id}/optim-step auf, um die seit dem letzten Schritt gesammelten Gradienten mit AdamW anzuwenden.
-- [Ein Future eines interaktiven Jobs abrufen](https://docs.fastino.ai/de/api-reference/interactive-jobs/get-future.md): Rufen Sie GET /v1/training/jobs/{job_id}/futures/{future_id} auf, um den Status eines Futures und nach Abschluss sein Ergebnis zu lesen.
-- [Ein Sampling-Future abbrechen](https://docs.fastino.ai/de/api-reference/interactive-jobs/cancel-future.md): Rufen Sie POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel auf, um ein eingereihtes oder laufendes Sampling abzubrechen.
-- [Den Trainingszustand eines interaktiven Jobs speichern](https://docs.fastino.ai/de/api-reference/interactive-jobs/save-weights.md): Rufen Sie POST /v1/training/jobs/{job_id}/save-weights auf, um LoRA-Gewichte und Optimiererzustand eines interaktiven Jobs unter einem Namen zu speichern.
-- [Gewichte eines interaktiven Jobs zum Samplen speichern](https://docs.fastino.ai/de/api-reference/interactive-jobs/save-weights-for-sampler.md): Rufen Sie POST /v1/training/jobs/{job_id}/save-weights-for-sampler auf, um LoRA-Gewichte zu speichern, die Sie samplen und als PEFT-Dateien herunterladen können.
-- [Einen Trainingszustand in einen interaktiven Job laden](https://docs.fastino.ai/de/api-reference/interactive-jobs/load-weights.md): Rufen Sie POST /v1/training/jobs/{job_id}/load-weights auf, um einen gespeicherten Trainingszustand des Jobs wiederherzustellen.
-- [Aus einem interaktiven Job samplen](https://docs.fastino.ai/de/api-reference/interactive-jobs/sample.md): Rufen Sie POST /v1/training/jobs/{job_id}/sample auf, um Fortsetzungen eines tokenisierten Prompts zu erzeugen.
-- [Einen Checkpoint eines interaktiven Jobs bereitstellen](https://docs.fastino.ai/de/api-reference/interactive-jobs/deploy-checkpoint.md): Rufen Sie POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy auf, um einen Sampler-Checkpoint als trainiertes Modell auszuliefern.
-- [Einen Checkpoint eines interaktiven Jobs abrufen](https://docs.fastino.ai/de/api-reference/interactive-jobs/get-checkpoint.md): Rufen Sie GET /v1/training/jobs/{job_id}/checkpoints/{kind}/{name} auf, um einen Checkpoint eines interaktiven Jobs zu lesen.
-- [TTL eines Checkpoints eines interaktiven Jobs festlegen](https://docs.fastino.ai/de/api-reference/interactive-jobs/set-checkpoint-ttl.md): Rufen Sie PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl auf, um festzulegen, wann ein Checkpoint automatisch gelöscht wird.
-- [Einen Checkpoint eines interaktiven Jobs veröffentlichen](https://docs.fastino.ai/de/api-reference/interactive-jobs/publish-checkpoint.md): Rufen Sie POST /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish auf, um einen Checkpoint als öffentlich zu markieren.
-- [Veröffentlichung eines Checkpoints eines interaktiven Jobs aufheben](https://docs.fastino.ai/de/api-reference/interactive-jobs/unpublish-checkpoint.md): Rufen Sie DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish auf, um einen Checkpoint wieder als privat zu markieren.
-- [Einen Checkpoint eines interaktiven Jobs löschen](https://docs.fastino.ai/de/api-reference/interactive-jobs/delete-checkpoint.md): Rufen Sie DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name} auf, um einen Checkpoint eines interaktiven Jobs zu löschen.
-- [Checkpoint-Speichernutzung interaktiver Jobs abrufen](https://docs.fastino.ai/de/api-reference/interactive-jobs/usage.md): Rufen Sie GET /v1/training/usage auf, um den aktuellen Checkpoint-Speicher der interaktiven Jobs Ihres Teams und dessen Monatspreis zu lesen.
+- [Interaktives Modell erstellen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/create-model.md): Erstellen Sie ein interaktives Modell über die native Training API.
+- [Forward-Operation einreihen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/forward.md): Reihen Sie eine Forward-Operation über die native interaktive Training API ein.
+- [Forward-Backward-Operation einreihen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/forward-backward.md): Reihen Sie eine Forward-Backward-Operation über die native interaktive Training API ein.
+- [Optimizer-Schritt einreihen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/optim-step.md): Reihen Sie einen Optimizer-Schritt über die native interaktive Training API ein.
+- [Interaktives Future abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/get-future.md): Rufen Sie ein interaktives Future über die native Training API ab.
+- [Sample-Future abbrechen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/cancel-future.md): Brechen Sie ein Sample-Future über die native Training API ab.
+- [Trainingsgewichte speichern](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/save-weights.md): Speichern Sie den Trainingszustand eines interaktiven Jobs über die native Training API.
+- [Sampler-Gewichte speichern](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/save-sampler-weights.md): Speichern Sie die Gewichte eines interaktiven Jobs zum Sampling über die native Training API.
+- [Trainingsgewichte laden](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/load-weights.md): Laden Sie einen Trainingszustand über die native Training API in einen interaktiven Job.
+- [Aus einem interaktiven Job samplen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/sample.md): Samplen Sie über die native Training API aus einem interaktiven Job.
+- [Interaktiven Checkpoint abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/get-checkpoint.md): Interaktiven Checkpoint abrufen. Diese native JSON-Operation gilt für interaktive Trainingsjobs.
+- [Interaktiven Checkpoint löschen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/delete-checkpoint.md): Interaktiven Checkpoint löschen. Diese native JSON-Operation gilt für interaktive Trainingsjobs.
+- [Interaktiven Checkpoint veröffentlichen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/publish-checkpoint.md): Interaktiven Checkpoint veröffentlichen. Diese native JSON-Operation gilt für interaktive Trainingsjobs.
+- [Checkpoint-Veröffentlichung aufheben](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/unpublish-checkpoint.md): Checkpoint-Veröffentlichung aufheben. Diese native JSON-Operation gilt für interaktive Trainingsjobs.
+- [Checkpoint-Aufbewahrung festlegen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/set-checkpoint-ttl.md): Checkpoint-Aufbewahrung festlegen. Diese native JSON-Operation gilt für interaktive Trainingsjobs.
+- [Speichernutzung interaktiver Checkpoints abrufen](https://docs.fastino.ai/de/api-reference/training-jobs/interactive/storage-usage.md): Speichernutzung interaktiver Checkpoints abrufen. Diese native JSON-Operation gilt für interaktive Trainingsjobs.
