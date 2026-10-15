@@ -1,33 +1,35 @@
 ---
 title: "Obtenir un future interactif"
 sidebarTitle: "Obtenir un future"
-description: "Lisez le statut et le résultat d'un future interactif. Avec wait=true, chaque requête attend jusqu'à 25 secondes ; les résultats sont conservés une heure."
+description: "Interrogez un future interactif pour obtenir son statut et son résultat. Avec wait=true, la requête attend jusqu'à 25 secondes, et le service conserve les résultats pendant une heure."
 api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 ---
+
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-Chaque appel de travail interactif qui fonctionne renvoie un `future_id`. Sondez l'avenir
-jusqu'à ce que son `status` soit `completed`, `failed` ou `cancelled`. Utilisez `wait=true` pour
-attendez jusqu'à 25 secondes par demande ; un timeout peut toujours renvoyer un non-terminal
-futur. Les résultats sont conservés pendant une heure.
+Chaque appel d'un job interactif qui effectue un travail renvoie un `future_id`.
+Interrogez le future jusqu'à ce que son `status` soit `completed`, `failed` ou
+`cancelled`. Utilisez `wait=true` pour attendre au maximum 25 secondes par
+requête ; un délai d'attente expiré peut tout de même renvoyer un future non
+terminal. Les résultats sont conservés pendant une heure.
 
-## Demande
+## Requête
 
 <ParamField header="X-API-Key" type="string" required>
   Votre clé API Fastino.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID de travail interactif.
+  ID du job interactif.
 </ParamField>
 
 <ParamField path="future_id" type="string" required>
-  L'ID futur est renvoyé lorsque le travail a été mis en file d'attente.
+  ID du future renvoyé lors de la mise en file d'attente du travail.
 </ParamField>
 
 <ParamField query="wait" type="boolean" default="false">
-  Attendez jusqu'à 25 secondes pour un futur inachevé avant de répondre. Répéter
-  la demande jusqu'à ce qu'elle se termine.
+  Attendre jusqu'à 25 secondes qu'un future inachevé se termine avant de
+  répondre. Répétez la requête jusqu'à ce qu'il soit terminé.
 </ParamField>
 
 <RequestExample>
@@ -42,11 +44,11 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 ## Réponse
 
 <ResponseField name="future_id" type="string">
-  L'avenir.
+  Le future.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  Le travail.
+  Le job.
 </ResponseField>
 
 <ResponseField name="type" type="string">
@@ -58,28 +60,28 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 </ResponseField>
 
 <ResponseField name="queue_state" type="string | null">
-  Tant qu'il n'est pas terminé : `active` ou `paused_capacity` pendant que la capacité du GPU se réchauffe.
+  Tant qu'il n'est pas terminé : `active` ou `paused_capacity` pendant le préchauffage de la capacité GPU.
 </ResponseField>
 
 <ResponseField name="queue_state_reason" type="string | null">
-  Une explication de capacité lisible par l'homme alors que `queue_state` est
-  `paused_capacity` ; sinon `null`.
+  Une explication lisible de l'état de la capacité lorsque `queue_state` vaut
+  `paused_capacity` ; sinon `null`.
 </ResponseField>
 
 <ResponseField name="result" type="any">
-  Une fois `completed` :
+  Une fois `completed` :
 
   - `forward` et `forward_backward` : `loss_fn_outputs` (une entrée de tenseurs par
-    donnée, telle que `logprobs`) et `metrics`.
-  - `sample` : `sequences`, chacun avec `tokens`, `logprobs` et `stop_reason`,
-    plus `prompt_logprobs` sur demande.
-  - `save` : le chemin du point de contrôle.
+    datum, comme `logprobs`) et `metrics`.
+  - `sample` : `sequences`, chacune avec `tokens`, `logprobs` et `stop_reason`,
+    ainsi que `prompt_logprobs` si demandé.
+  - `save` : le chemin du checkpoint.
   - Autres types : un accusé de réception.
 </ResponseField>
 
 <ResponseField name="error" type="object | null">
   Lorsque `failed` ou `cancelled` : `message`, et `category` (`user` pour un problème
-  avec la demande, `server` pour un problème Fastino).
+  lié à la requête, `server` pour un problème Fastino).
 </ResponseField>
 
 <ResponseExample>
@@ -121,5 +123,5 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 | Statut | Signification |
 | --- | --- |
-| `404` | Le travail ou l'avenir n'existe pas ou appartient à une autre équipe. |
-| `410` | L'opération a été perdue ou son résultat conservé a expiré. Soumettez à nouveau l'opération ; un résultat expiré ne peut pas être récupéré. |
+| `404` | Le job ou le future n'existe pas ou appartient à une autre équipe. |
+| `410` | L'opération a été perdue ou son résultat conservé a expiré. Soumettez à nouveau l'opération ; un résultat expiré ne peut pas être récupéré. |

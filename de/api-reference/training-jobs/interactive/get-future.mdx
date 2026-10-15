@@ -4,12 +4,14 @@ sidebarTitle: "Future abrufen"
 description: "Fragt Status und Ergebnis eines interaktiven Futures ab. Mit wait=true wartet die Anfrage bis zu 25 Sekunden; Ergebnisse bleiben eine Stunde erhalten."
 api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 ---
+
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-Jeder interaktive Jobaufruf, der funktioniert, gibt einen `future_id` zurück. Befragen Sie die Zukunft
-bis sein `status` `completed`, `failed` oder `cancelled` ist. Verwenden Sie `wait=true`, um
-bis zu 25 Sekunden pro Anfrage warten; Ein Timeout kann immer noch ein Nicht-Terminal zurückgeben
-Zukunft. Die Ergebnisse werden eine Stunde lang gespeichert.
+Jeder Aufruf eines interaktiven Jobs, der Arbeit auslöst, gibt eine `future_id`
+zurück. Fragen Sie das Future ab, bis sein `status` `completed`, `failed` oder
+`cancelled` ist. Mit `wait=true` wartet jede Anfrage höchstens 25 Sekunden; nach
+einem Timeout kann trotzdem ein nicht terminales Future zurückgegeben werden.
+Ergebnisse werden eine Stunde lang aufbewahrt.
 
 ## Anfrage
 
@@ -18,16 +20,16 @@ Zukunft. Die Ergebnisse werden eine Stunde lang gespeichert.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Interaktive Job-ID.
+  ID des interaktiven Jobs.
 </ParamField>
 
 <ParamField path="future_id" type="string" required>
-  Die zukünftige ID wurde zurückgegeben, als die Arbeit in die Warteschlange gestellt wurde.
+  Future-ID, die beim Einreihen der Arbeit zurückgegeben wurde.
 </ParamField>
 
 <ParamField query="wait" type="boolean" default="false">
-  Warten Sie bis zu 25 Sekunden auf eine unvollendete Zukunft, bevor Sie antworten. Wiederholen
-  die Anfrage, bis sie abgeschlossen ist.
+  Wartet vor der Antwort bis zu 25 Sekunden auf ein nicht abgeschlossenes
+  Future. Wiederholen Sie die Anfrage, bis es abgeschlossen ist.
 </ParamField>
 
 <RequestExample>
@@ -42,7 +44,7 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 ## Antwort
 
 <ResponseField name="future_id" type="string">
-  Die Zukunft.
+  Das Future.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
@@ -58,28 +60,28 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 </ResponseField>
 
 <ResponseField name="queue_state" type="string | null">
-  Im unvollendeten Zustand: `active` oder `paused_capacity`, während die GPU-Kapazität aufgewärmt wird.
+  Solange nicht abgeschlossen: `active` oder `paused_capacity`, während GPU-Kapazität hochgefahren wird.
 </ResponseField>
 
 <ResponseField name="queue_state_reason" type="string | null">
-  Eine für Menschen lesbare Kapazitätserklärung, während `queue_state` ist
-  `paused_capacity`; andernfalls `null`.
+  Eine menschenlesbare Erklärung zur Kapazität, solange `queue_state`
+  `paused_capacity` ist; andernfalls `null`.
 </ResponseField>
 
 <ResponseField name="result" type="any">
-  Einmal `completed`:
+  Sobald `completed`:
 
-  - `forward` und `forward_backward`: `loss_fn_outputs` (ein Eintrag von Tensoren pro
-    (z. B. `logprobs`) und `metrics`.
+  - `forward` und `forward_backward`: `loss_fn_outputs` (ein Eintrag mit Tensoren
+    pro Datum, etwa `logprobs`) und `metrics`.
   - `sample`: `sequences`, jeweils mit `tokens`, `logprobs` und `stop_reason`,
-    plus `prompt_logprobs` auf Anfrage.
-  - `save`: der Prüfpunktpfad.
-  - Andere Arten: eine Bestätigung.
+    sowie `prompt_logprobs`, falls angefordert.
+  - `save`: der Checkpoint-Pfad.
+  - Andere Typen: eine Bestätigung.
 </ResponseField>
 
 <ResponseField name="error" type="object | null">
-  Wenn `failed` oder `cancelled`: `message` und `category` (`user`) für ein Problem
-  mit der Anfrage `server` für ein Fastino-Problem).
+  Bei `failed` oder `cancelled`: `message` und `category` (`user` bei einem
+  Problem mit der Anfrage, `server` bei einem Problem auf Seiten von Fastino).
 </ResponseField>
 
 <ResponseExample>
@@ -121,5 +123,5 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 | Status | Bedeutung |
 | --- | --- |
-| `404` | Der Job oder die Zukunft existiert nicht oder gehört zu einem anderen Team. |
-| `410` | Der Vorgang ging verloren oder das gespeicherte Ergebnis ist abgelaufen. Senden Sie den Vorgang erneut. Ein abgelaufenes Ergebnis kann nicht wiederhergestellt werden. |
+| `404` | Der Job oder das Future existiert nicht oder gehört zu einem anderen Team. |
+| `410` | Die Operation ging verloren, oder ihr aufbewahrtes Ergebnis ist abgelaufen. Senden Sie die Operation erneut; ein abgelaufenes Ergebnis lässt sich nicht wiederherstellen. |

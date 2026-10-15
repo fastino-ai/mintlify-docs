@@ -5,24 +5,25 @@ description: "Rufen Sie POST /v1/training/jobs auf, um einen asynchronen, von Fa
 api: "POST /v1/training/jobs"
 ---
 
-Native Clients erstellen einen `interactive`-Job über [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model). Tinker-Clients erstellen denselben Jobtyp über das unterstützte SDK.
-
 `POST /v1/training/jobs`
 
 Erstellt einen asynchronen `config`-Trainingsjob und gibt dessen Job-Datensatz
 zurück. Bei einem Config-Job stellen Sie einen Datensatz und eine Konfiguration
-bereit, und Fastino führt den Trainingsloop aus.
+bereit, und Fastino führt den Trainingsloop aus. Um den Loop Schritt für Schritt
+zu steuern, folgen Sie dem
+[Pfad für einen eigenen Trainingsablauf](/de/training/quickstart#custom-training-loop),
+der einen `interactive`-Job über
+[`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
+oder das unterstützte Tinker SDK erstellt. Dieser Endpunkt erstellt keine
+interaktiven Jobs. Nach der Erstellung verwenden beide Jobtypen ihre kanonischen
+IDs mit den dokumentierten Lebenszyklusoperationen unter
+`/v1/training/jobs/{job_id}`.
 
 Config-Jobs trainieren Encoder-Modelle, die von
 `GET /v1/base-models?supports_training=true` zurückgegeben werden und eine
-kompatible Config-Job-Dispatchroute haben. Decoder-Basismodelle geben `400`
-zurück; trainieren Sie Decoder stattdessen Schritt für Schritt mit einem interaktiven Job.
-
-Um den Loop Schritt für Schritt zu steuern, erstellen Sie einen `interactive`-Job mit
-[`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
-und folgen dem [Pfad für einen eigenen Trainingsablauf](/de/training/quickstart#custom-training-loop).
-Nach der Erstellung verwenden beide Jobtypen ihre kanonischen IDs mit den
-dokumentierten Lebenszyklusoperationen unter `/v1/training/jobs/{job_id}`.
+kompatible Dispatch-Route für Config-Jobs haben. Decoder-Basismodelle geben
+`400` zurück; trainieren Sie Decoder stattdessen Schritt für Schritt mit einem
+interaktiven Job.
 
 Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 
@@ -41,7 +42,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Eine trainierbare Encoder-ID aus `GET /v1/base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID. Der ausgewählte `training_type` muss eine kompatible Dispatchroute haben. Ein Decoder-Basismodell gibt `400` zurück.
+  Eine trainierbare Encoder-ID aus `GET /v1/base-models?supports_training=true` oder eine unterstützte Checkpoint-UUID. Der ausgewählte `training_type` muss eine kompatible Dispatch-Route haben. Ein Decoder-Basismodell gibt `400` zurück.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -138,7 +139,7 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="gradient_accumulation_steps" type="integer">
-    Positive Anzahl an Mini-Batch-Akkumulationen.
+    Positive Anzahl an Mini-Batch-Akkumulationen, bis `2147483647`.
   </ParamField>
 
   <ParamField body="auto_data_sizing" type="boolean">
@@ -162,11 +163,11 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="eval_steps" type="integer">
-    Intervall für periodische GLiNER2-Validierung, von `1` bis `2147483647` Optimizer-Schritten. Weglassen für Validierung nur am Epochenende.
+    Intervall für periodische GLiNER2-Validierung, von `1` bis `2147483647` Optimizer-Schritten. Weglassen, um nur am Epochenende zu validieren.
   </ParamField>
 
   <ParamField body="max_eval_samples" type="integer">
-    Obergrenze pro Datensatz für periodische GLiNER2-Validierung, von `1` bis `2147483647`. Weglassen für keine Obergrenze.
+    Obergrenze pro Datensatz für periodische GLiNER2-Validierung, von `1` bis `2147483647`. Weglassen, um keine Obergrenze zu setzen.
   </ParamField>
 
   <ParamField body="max_length" type="integer">
@@ -174,11 +175,11 @@ Dieser Endpunkt ist auf 20 Anfragen pro Minute pro Benutzer begrenzt.
   </ParamField>
 
   <ParamField body="max_gold_per_query" type="integer">
-    Maximale Anzahl beibehaltener Gold-Spans pro GLiNER2-Abfrage, von `1` bis `1024`. Weglassen für `32`.
+    Maximale Anzahl beibehaltener GLiNER2-Gold-Spans pro Abfrage, von `1` bis `1024`. Weglassen, um `32` zu verwenden.
   </ParamField>
 
   <ParamField body="on_capacity_exceeded" type="string">
-    Verhalten bei mehr Gold-Spans als `max_gold_per_query`: `raise`, `truncate_with_warning` oder `skip_sample`. Weglassen für `raise`.
+    GLiNER2-Verhalten, wenn die Gold-Spans `max_gold_per_query` überschreiten: `raise`, `truncate_with_warning` oder `skip_sample`. Weglassen, um `raise` zu verwenden.
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
@@ -239,9 +240,9 @@ Die Erstellung kann folgende codierte Konflikte zurückgeben:
 | --- | --- |
 | `409 duplicate_training_submission` | Ein identischer Job ist bereits aktiv. |
 | `409 idempotency_key_job_deleted` | Der ursprünglich mit diesem Idempotenzschlüssel erstellte Job wurde gelöscht. Verwenden Sie für einen neuen Job einen neuen Schlüssel. |
-| `409` | Ein referenzierter Datensatz wurde zwischen Validierung und Job-Insertion außer Betrieb genommen. Beheben Sie den Datensatz und versuchen Sie es mit einem neuen Schlüssel erneut. |
+| `409` | Ein referenzierter Datensatz wurde zwischen der Validierung und dem Anlegen des Jobs außer Betrieb genommen. Klären Sie das Problem mit dem Datensatz und versuchen Sie es mit einem neuen Schlüssel erneut. |
 
-Derselbe `Idempotency-Key` mit identischem Body spielt den ursprünglichen Job erneut ab, statt einen neuen zu erstellen. Ein geänderter Body mit demselben Schlüssel gibt `422` zurück.
+Derselbe `Idempotency-Key` und ein identischer Body geben den ursprünglichen Job erneut zurück, statt einen weiteren zu erstellen. Ein geänderter Body mit demselben Schlüssel gibt `422` zurück.
 
 Ein Decoder-Basismodell gibt `400` zurück:
 

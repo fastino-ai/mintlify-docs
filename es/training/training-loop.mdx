@@ -22,7 +22,8 @@ trabajo.
   <Step title="Guarda pesos para muestrear">
     Llama a `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` con un
     nombre y espera a que termine su future de guardado. Solo entonces muestrea
-    desde ese checkpoint duradero.
+    desde ese checkpoint, para que cada rollout quede ligado a un artefacto
+    duradero del mismo trabajo.
   </Step>
   <Step title="Recoge grupos de rollouts">
     Muestrea varias respuestas candidatas por prompt con
@@ -44,7 +45,7 @@ trabajo.
   </Step>
   <Step title="Guarda un punto de recuperación">
     Guarda el estado con `POST /v1/training/jobs/{job_id}/save-weights`, espera
-    a que termine el future y persiste después su ruta con el paso de la
+    a que termine el future de guardado y persiste después su ruta con el paso de la
     aplicación y el cursor del dataset antes de la siguiente iteración.
   </Step>
 </Steps>
@@ -103,9 +104,9 @@ escrita en tu propio código no puede ejecutarse en el trabajo.
 ## Mantén ordenado el trabajo dependiente
 
 Espera a que el future de forward-backward termine correctamente antes de
-enviar su paso del optimizador. Así se evita que un paso preencolado se ejecute
-después de un fallo o una cancelación. Espera al optimizador antes de guardar el
-estado actualizado.
+enviar su paso del optimizador. Así se evita que un paso del optimizador
+encolado de antemano se ejecute si forward-backward falla o se cancela. Espera a
+que termine el paso del optimizador antes de guardar el estado actualizado.
 
 Los clientes JSON nativos llaman a
 [`forward-backward`](/es/api-reference/training-jobs/interactive/forward-backward)
@@ -130,7 +131,8 @@ Los resultados de los futures permanecen disponibles durante una hora. Dentro
 de ese plazo, consulta el `future_id` conocido para resolver trabajo incierto.
 Un `410` indica que el resultado ya no puede recuperarse; no repitas la
 operación a ciegas. Para la recuperación a largo plazo, usa solo un checkpoint
-completado cuya ruta se haya escrito en el registro duradero de la aplicación.
+completado cuya ruta se haya escrito en el registro duradero de la aplicación
+después de que terminara su future de guardado.
 
 Para la secuencia de recuperación y los tipos de checkpoint, sigue
 [Checkpoints y recuperación](/es/training/checkpoints).

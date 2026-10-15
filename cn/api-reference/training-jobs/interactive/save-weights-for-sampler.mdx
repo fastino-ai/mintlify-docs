@@ -1,19 +1,15 @@
 ---
 title: "保存采样器权重"
 sidebarTitle: "保存采样器权重"
-description: "将交互式作业的 LoRA 权重以指定名称保存，用于采样和 PEFT 下载。响应包含 future_id、检查点 ID 和 tinker:// 路径。"
+description: "以指定名称保存交互式任务的 LoRA 权重，用于采样和 PEFT 下载。响应包含 future_id、检查点 ID 和 tinker:// 路径。"
 api: "POST /v1/training/jobs/{job_id}/save-weights-for-sampler"
 ---
+
 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`
 
-将作业的 LoRA 权重保存为 `sampler_weights/<name>`。你可以
-[样本](/cn/api-reference/training-jobs/interactive/sample) 来自它，也在作业之后
-停止，或[下载](/cn/api-reference/training-jobs/download-checkpoint)
-PEFT LoRA 文件。它没有优化器状态，因此作业无法加载它或从
-它；使用[`POST /v1/training/jobs/{job_id}/save-weights`](/cn/api-reference/training-jobs/interactive/save-weights)
-为此。
+将任务的 LoRA 权重保存为 `sampler_weights/<name>`。您可以基于它进行[采样](/cn/api-reference/training-jobs/interactive/sample)（任务停止后也可以），或将其作为 PEFT LoRA 文件[下载](/cn/api-reference/training-jobs/download-checkpoint)。它不包含优化器状态，因此任务无法加载它，也无法从它开始训练；如需这样做，请使用 [`POST /v1/training/jobs/{job_id}/save-weights`](/cn/api-reference/training-jobs/interactive/save-weights)。
 
-保存与作业的其他调用按顺序运行。
+保存操作与任务的其他调用按顺序运行。
 
 ## 请求
 
@@ -22,20 +18,19 @@ PEFT LoRA 文件。它没有优化器状态，因此作业无法加载它或从
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  交互式作业 ID。
+  交互式任务 ID。
 </ParamField>
 
 <ParamField body="name" type="string" required>
-  `A-Z`、`a-z`、`0-9`、`.`、`_` 和 `-` 中的 1–128 个字符。
+  1–128 个字符，取自 `A-Z`、`a-z`、`0-9`、`.`、`_` 和 `-`。
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  在这么多秒后自动删除检查点，来自 `3600`
-  （1 小时）到 `315360000`（10 年）。省略它或发送 `null` 以保留检查点，直到您将其删除。实时检查点会计入[存储使用](/cn/api-reference/training-jobs/interactive/storage-usage)。
+  在指定秒数后自动删除检查点，取值范围为 `3600`（1 小时）到 `315360000`（10 年）。省略此项或发送 `null`，检查点将一直保留，直到您将其删除。未删除的检查点会计入[存储用量](/cn/api-reference/training-jobs/interactive/storage-usage)。
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  与检查点一起存储的字符串键值元数据。
+  与检查点一同存储的字符串键值元数据。
 </ParamField>
 
 <RequestExample>
@@ -49,10 +44,10 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 </RequestExample>
 
-## 回应
+## 响应
 
 <ResponseField name="future_id" type="string">
-  `save` 未来。
+  `save` future。
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -77,8 +72,8 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 </ResponseExample>
 
-|状态 |意义|
-| ---| ---|
-| `400` |名称包含无效字符或长度、TTL 超出范围或作业已停止。 |
-| `404` |该职位不存在或属于另一个团队。 |
-| `422` |主体缺失 `name` 或具有未知字段。 |
+| 状态 | 含义 |
+| --- | --- |
+| `400` | 名称包含无效字符或长度不符合要求、TTL 超出范围，或任务已停止。 |
+| `404` | 任务不存在或属于其他团队。 |
+| `422` | 请求体缺少 `name` 或包含未知字段。 |

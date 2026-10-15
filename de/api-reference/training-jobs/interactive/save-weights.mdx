@@ -1,19 +1,21 @@
 ---
 title: "Trainingsgewichte speichern"
 sidebarTitle: "Gewichte speichern"
-description: "Speichert LoRA-Gewichte und Optimizer-Zustand eines interaktiven Jobs unter einem Namen. Liefert future_id, weights-Checkpoint-ID und tinker://-Pfad."
+description: "Speichert LoRA-Gewichte und Optimizer-Zustand eines interaktiven Jobs unter einem Namen. Die Antwort enthält eine future_id, eine weights-Checkpoint-ID und deren tinker://-Pfad."
 api: "POST /v1/training/jobs/{job_id}/save-weights"
 ---
+
 `POST /v1/training/jobs/{job_id}/save-weights`
 
-Speichert die LoRA-Gewichte und den Optimierungsstatus des Jobs als `weights/<name>`. Du kannst
-[Laden](/de/api-reference/training-jobs/interactive/load-weights) es zurück in denselben Job,
-oder [einen neuen Job starten](/de/api-reference/training-jobs/interactive/create-model) daraus. Zum Probieren
-oder laden Sie Gewichte herunter und speichern Sie sie mit
-[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/de/api-reference/training-jobs/interactive/save-weights-for-sampler)
-stattdessen.
+Speichert die LoRA-Gewichte und den Optimizer-Zustand des Jobs als
+`weights/<name>`. Sie können ihn wieder in denselben Job
+[laden](/de/api-reference/training-jobs/interactive/load-weights) oder von ihm aus
+[einen neuen Job starten](/de/api-reference/training-jobs/interactive/create-model).
+Um aus Gewichten zu samplen oder sie herunterzuladen, speichern Sie sie
+stattdessen mit
+[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/de/api-reference/training-jobs/interactive/save-weights-for-sampler).
 
-Die Speicherung wird der Reihe nach mit den anderen Aufrufen des Jobs ausgeführt.
+Das Speichern wird in der Reihenfolge der übrigen Aufrufe des Jobs ausgeführt.
 
 ## Anfrage
 
@@ -22,7 +24,7 @@ Die Speicherung wird der Reihe nach mit den anderen Aufrufen des Jobs ausgeführ
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Interaktive Job-ID.
+  ID des interaktiven Jobs.
 </ParamField>
 
 <ParamField body="name" type="string" required>
@@ -30,16 +32,18 @@ Die Speicherung wird der Reihe nach mit den anderen Aufrufen des Jobs ausgeführ
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  Löschen Sie den Prüfpunkt nach dieser Anzahl von Sekunden automatisch von `3600`
-  (1 Stunde) bis `315360000` (10 Jahre). Lassen Sie es weg oder senden Sie `null`, um den Prüfpunkt beizubehalten, bis Sie ihn löschen. Live-Prüfpunkte werden auf [Speichernutzung](/de/api-reference/training-jobs/interactive/storage-usage) angerechnet .
+  Löscht den Checkpoint automatisch nach dieser Anzahl von Sekunden, von `3600`
+  (1 Stunde) bis `315360000` (10 Jahre). Lassen Sie das Feld weg oder senden Sie
+  `null`, um den Checkpoint zu behalten, bis Sie ihn löschen. Bestehende
+  Checkpoints zählen zur [Speichernutzung](/de/api-reference/training-jobs/interactive/storage-usage).
 </ParamField>
 
 <ParamField body="overwrite" type="boolean" default="false">
-  Ersetzen Sie einen Statuskontrollpunkt mit demselben Namen.
+  Ersetzt einen Zustands-Checkpoint mit demselben Namen.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  String-Schlüsselwert-Metadaten, die mit dem Prüfpunkt gespeichert werden.
+  String-Schlüssel-Wert-Metadaten, die mit dem Checkpoint gespeichert werden.
 </ParamField>
 
 <RequestExample>
@@ -56,7 +60,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 ## Antwort
 
 <ResponseField name="future_id" type="string">
-  Die Zukunft `save`.
+  Das `save`-Future.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -64,7 +68,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 </ResponseField>
 
 <ResponseField name="path" type="string">
-  Vollständiger Checkpoint-Pfad. Übergeben Sie es als `from_checkpoint`, wenn Sie einen Job erstellen.
+  Vollständiger Checkpoint-Pfad. Übergeben Sie ihn als `from_checkpoint`, wenn Sie einen Job erstellen.
 </ResponseField>
 
 <ResponseExample>
@@ -83,6 +87,6 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 | Status | Bedeutung |
 | --- | --- |
-| `400` | Der Name enthält ungültige Zeichen oder eine ungültige Länge, die TTL liegt außerhalb des gültigen Bereichs oder der Job wurde gestoppt. |
+| `400` | Der Name enthält ungültige Zeichen oder hat eine ungültige Länge, die TTL liegt außerhalb des gültigen Bereichs, oder der Job wurde gestoppt. |
 | `404` | Der Job existiert nicht oder gehört zu einem anderen Team. |
-| `422` | Dem Text fehlt `name` oder er hat ein unbekanntes Feld. |
+| `422` | Im Body fehlt `name`, oder er enthält ein unbekanntes Feld. |

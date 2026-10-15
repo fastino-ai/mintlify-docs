@@ -49,13 +49,14 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
 ```
 
 Der Pfad in der ersten Speicherantwort ist vorläufig. Der Checkpoint wird erst
-nach Abschluss des Speicher-Futures dauerhaft. Bei Fehler oder Abbruch dürfen
-Sie diesen Pfad nicht persistieren oder verwenden.
+dauerhaft, wenn das Speicher-Future abgeschlossen ist. Schlägt das Future fehl
+oder wird es abgebrochen, dürfen Sie diesen Pfad weder persistieren noch
+verwenden.
 
 Verwenden Sie eindeutige Checkpoint-Namen, damit jeder Loop-Datensatz einen
 eindeutigen Wiederherstellungspunkt bezeichnet. Namen bestehen aus 1–128 Zeichen
-aus `A-Z`, `a-z`, `0-9`, `.`, `_` und `-`. Präfixe `__park-` und `__snap-`
-sind reserviert.
+aus `A-Z`, `a-z`, `0-9`, `.`, `_` und `-`. Namen, die mit `__park-` oder
+`__snap-` beginnen, sind reserviert.
 
 ## 2. Neuesten vollständigen Datensatz lesen
 
@@ -134,11 +135,12 @@ des Loop-Datensatzes, behalten Sie den vorherigen vollständigen Datensatz als
 vertrauenswürdigen Wiederherstellungspunkt. Markieren Sie einen Schritt erst als
 abgeschlossen, wenn sein Datensatz dauerhaft gespeichert ist.
 
-Future-Ergebnisse bleiben eine Stunde abrufbar. Fragen Sie in diesem Fenster
-eine bekannte Speicher-`future_id` ab. Bei `410` dürfen Sie nicht blind erneut
-speichern; gleichen Sie die Checkpoints des Jobs mit dem dauerhaften
+Future-Ergebnisse bleiben eine Stunde lang abrufbar. Fragen Sie in diesem
+Zeitraum eine bekannte Speicher-`future_id` ab, bevor Sie entscheiden, was
+passiert ist. Gibt sie `410` zurück, wiederholen Sie das Speichern nicht blind,
+sondern gleichen Sie die Checkpoints des Jobs mit Ihrem dauerhaften
 Loop-Datensatz ab. Die langfristige Commit-Grenze ist ein abgeschlossener
-Checkpoint mit seinem dauerhaften Anwendungsdatensatz.
+Checkpoint samt seinem dauerhaften Anwendungsdatensatz, nicht das Future selbst.
 
 ## 5. Checkpoint-Arten getrennt halten
 
@@ -186,9 +188,9 @@ Verwalten Sie Checkpoints mit diesen Routen:
 Für Downloads benötigt das Team Zugriff auf den Gewichte-Download.
 
 Nach dem Stoppen eines Jobs werden verändernde Trainingsoperationen abgelehnt.
-Seine Checkpoints können weiterhin aufgelistet, geprüft, heruntergeladen,
-veröffentlicht, mit einer TTL versehen und gelöscht werden. Sampling aus
-Sampler-Checkpoints bleibt ebenfalls möglich.
+Sie können seine Checkpoints aber weiterhin auflisten, prüfen, herunterladen,
+veröffentlichen, ihre TTL ändern und sie löschen. Außerdem können Sie aus seinen
+Sampler-Checkpoints samplen.
 
 ## 6. Fortsetzung prüfen
 
@@ -239,7 +241,7 @@ finden Sie unter
 | Symptom | Prüfung |
 | --- | --- |
 | Ein Future schlägt fehl | Notieren Sie die Job-ID und den `error` des Futures. Schreiben Sie abhängigen Anwendungszustand nicht fort |
-| Ein Trainingsaufruf gibt nach einer Pause `400` zurück | Der Job wurde gestoppt oder nach 30 inaktiven Minuten freigegeben. Veränderndes Training ist nicht verfügbar; Checkpoint-Verwaltung und Sampling bleiben verfügbar. Starten Sie zum Fortsetzen einen neuen Job aus dem letzten Zustands-Checkpoint |
+| Ein Trainingsaufruf gibt nach einer Pause `400` zurück | Der Job wurde gestoppt oder nach 30 inaktiven Minuten freigegeben. Veränderndes Training ist nicht verfügbar; Checkpoint-Verwaltung und Sampling aus Sampler-Checkpoints bleiben verfügbar. Starten Sie zum Fortsetzen einen neuen Job aus dem letzten Zustands-Checkpoint |
 | Ein Checkpoint lässt sich nicht laden | Prüfen Sie Job, Checkpoint-Art und den clienteigenen Wiederherstellungsdatensatz |
 | `from_checkpoint` wird abgelehnt | Bestätigen Sie, dass es ein vollständiger `tinker://<job_id>/weights/<name>`-Pfad Ihres Teams ist; Sampler-Checkpoints können keinen Job starten |
 | Abruf des fortgesetzten Jobs schlägt fehl | Bestätigen Sie, dass die ID aus der Erstellungsantwort des neuen Jobs stammt und dasselbe Fastino-Team authentifiziert ist |

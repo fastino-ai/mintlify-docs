@@ -21,8 +21,9 @@ Tinker représente le même job.
   </Step>
   <Step title="Enregistrer des poids pour l'échantillonnage">
     Appelez `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` avec un
-    nom et attendez la fin de sa future. Échantillonnez seulement ensuite depuis
-    ce checkpoint durable.
+    nom, puis attendez que son future d'enregistrement se termine. Échantillonnez
+    seulement ensuite depuis ce checkpoint, afin que chaque rollout soit lié à un
+    artefact durable du même job.
   </Step>
   <Step title="Collecter des groupes de rollouts">
     Échantillonnez plusieurs réponses candidates par prompt avec
@@ -39,13 +40,13 @@ Tinker représente le même job.
     log-probabilités ou avantages par position.
   </Step>
   <Step title="Mettre à jour le même job">
-    Envoyez `POST /v1/training/jobs/{job_id}/forward-backward` et attendez sa
-    réussite. Envoyez seulement ensuite
+    Envoyez `POST /v1/training/jobs/{job_id}/forward-backward` et attendez qu'il
+    se termine avec succès. Envoyez seulement ensuite
     `POST /v1/training/jobs/{job_id}/optim-step`.
   </Step>
   <Step title="Enregistrer un point de reprise">
     Enregistrez l'état avec `POST /v1/training/jobs/{job_id}/save-weights`,
-    attendez la fin de la future, puis conservez son chemin avec l'étape de
+    attendez la fin du future d'enregistrement, puis conservez son chemin avec l'étape de
     l'application et le curseur du dataset avant l'itération suivante.
   </Step>
 </Steps>
@@ -104,10 +105,10 @@ perte écrite dans votre propre code ne peut pas s'exécuter sur le job.
 
 ## Maintenir l'ordre du travail dépendant
 
-Attendez la réussite d'une future forward-backward avant d'envoyer son étape
-d'optimiseur. Cela empêche une étape préalablement mise en file de s'exécuter
-après un échec ou une annulation. Attendez l'optimiseur avant d'enregistrer
-l'état mis à jour.
+Attendez qu'un future forward-backward se termine avec succès avant d'envoyer
+son étape d'optimiseur. Cela empêche une étape d'optimiseur mise en file à
+l'avance de s'exécuter après l'échec ou l'annulation de forward-backward.
+Attendez la fin de l'étape d'optimiseur avant d'enregistrer l'état mis à jour.
 
 Les clients JSON natifs appellent
 [`forward-backward`](/fr/api-reference/training-jobs/interactive/forward-backward)
@@ -117,9 +118,9 @@ réponse de mise en file contient un `future_id`. Interrogez
 jusqu'à l'état `completed`, `failed` ou `cancelled`. Une requête avec
 `wait=true` peut répondre avant la fin.
 
-Les clients Tinker suivent chaque future renvoyée par un appel pris en charge et
-résolvent les futures individuellement. Sur les deux interfaces, seules les
-futures d'échantillonnage peuvent être annulées. La récupération par lots via
+Les clients Tinker suivent chaque future renvoyé par un appel pris en charge et
+résolvent les futures individuellement. Sur les deux interfaces, seuls les
+futures d'échantillonnage peuvent être annulés. La récupération par lots via
 `retrieve_futures` n'est pas prise en charge.
 
 ## Récupérer la boucle
@@ -132,8 +133,8 @@ Les résultats des futures restent disponibles pendant une heure. Dans cette
 fenêtre, interrogez le `future_id` connu pour résoudre un travail incertain.
 Un `410` signifie que le résultat n'est plus récupérable ; ne rejouez pas
 l'opération à l'aveugle. Pour la reprise à long terme, utilisez uniquement un
-checkpoint terminé dont le chemin figure dans l'enregistrement durable de
-l'application.
+checkpoint terminé dont le chemin a été écrit dans votre enregistrement
+applicatif durable après la fin de son future d'enregistrement.
 
 Pour la séquence de reprise et les types de checkpoints, suivez
 [Checkpoints et reprise](/fr/training/checkpoints).

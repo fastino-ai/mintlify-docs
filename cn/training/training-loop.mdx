@@ -1,11 +1,10 @@
 ---
 title: "构建自定义训练循环"
 sidebarTitle: "训练循环"
-description: "由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中构建对齐的 datum 并管理检查点。"
+description: "在一个 Fastino 交互式任务中串联采样、奖励、更新和检查点。"
 ---
 
-你的应用决定采样内容、评分方式和更新时机。Fastino 执行交互式模型操作。
-原生客户端通过 `job_id` 寻址任务。Tinker `TrainingClient` 代表同一个任务。
+你的应用决定采样内容、评分方式和更新时机。Fastino 执行交互式模型操作。原生客户端通过 `job_id` 寻址任务。Tinker `TrainingClient` 代表同一个任务。
 
 ## 控制循环
 
@@ -17,8 +16,7 @@ description: "由你的应用控制采样、评分和更新时机，在一个 Fa
     或心跳。
   </Step>
   <Step title="保存用于采样的权重">
-    使用名称调用 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`。
-    等待保存 future 成功完成后再从该检查点采样，使每个 rollout 都对应同一任务中的持久产物。
+    使用名称调用 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`，然后等待其保存 future 完成。只有在此之后才从该检查点采样，使每个 rollout 都对应同一任务中的一个持久工件。
   </Step>
   <Step title="收集 rollout 组">
     使用 `POST /v1/training/jobs/{job_id}/sample` 并指定该检查点，
@@ -31,12 +29,10 @@ description: "由你的应用控制采样、评分和更新时机，在一个 Fa
     将提示和响应 token 与逐位置的目标、权重、对数概率或优势组合起来。
   </Step>
   <Step title="更新同一个任务">
-    发送 `POST /v1/training/jobs/{job_id}/forward-backward` 并等待其成功完成，
-    然后再发送 `POST /v1/training/jobs/{job_id}/optim-step`。
+    发送 `POST /v1/training/jobs/{job_id}/forward-backward` 并等待其成功完成。只有在此之后才发送 `POST /v1/training/jobs/{job_id}/optim-step`。
   </Step>
   <Step title="保存恢复边界">
-    使用 `POST /v1/training/jobs/{job_id}/save-weights` 保存状态，等待保存 future
-    完成，然后在开始下一次迭代之前将其路径与应用步骤和数据集游标一起持久化。
+    使用 `POST /v1/training/jobs/{job_id}/save-weights` 保存状态，等待保存 future 完成，然后在开始下一次迭代之前将其路径与应用步骤和数据集游标一起持久化。
   </Step>
 </Steps>
 
@@ -56,11 +52,7 @@ SDK 模型 ID 就是规范的 Fastino 任务 ID。Future 和采样客户端不�
 
 ## 构建对齐的 datum
 
-datum 包含 N 个输入 token，以及 `loss_fn_inputs` 中各含 N 个值的张量。请使用基础模型的
-Hugging Face tokenizer（`transformers.AutoTokenizer.from_pretrained(base_model)`）分词，并用同一个
-tokenizer 解码采样结果。调用 `apply_chat_template` 时，请传入
-`enable_thinking=False`，使答案从已关闭的推理块之后开始。这是 tokenizer
-模板参数，而不是训练 API 请求字段。
+datum 包含 N 个输入 token，以及 `loss_fn_inputs` 中各含 N 个值的张量。请使用基础模型的 Hugging Face tokenizer（`transformers.AutoTokenizer.from_pretrained(base_model)`）分词，并用同一个 tokenizer 解码采样结果。调用 `apply_chat_template` 时，请传入 `enable_thinking=False`，使答案从已关闭的推理块之后开始。这是 tokenizer 模板参数，而不是训练 API 请求字段。
 
 | 损失函数 | 必需输入 |
 | --- | --- |
@@ -85,8 +77,7 @@ tokenizer 解码采样结果。调用 `apply_chat_template` 时，请传入
 
 ## 保持依赖工作有序
 
-请等待 forward-backward future 成功完成后再提交其优化器步骤。这样可避免 forward-backward
-失败或被取消后，预先排队的优化器步骤仍然运行。保存更新后的状态之前，请等待优化器步骤完成。
+请等待 forward-backward future 成功完成后再提交其优化器步骤。这样可避免在 forward-backward 失败或被取消后，预先排队的优化器步骤仍然运行。保存更新后的状态之前，请等待优化器步骤完成。
 
 原生 JSON 客户端调用
 [`forward-backward`](/cn/api-reference/training-jobs/interactive/forward-backward)
@@ -102,9 +93,7 @@ future 可以取消。不支持通过 `retrieve_futures` 批量检索。
 
 持久化任务 ID、应用步骤、数据集游标和最新检查点路径。这样重启后的控制器就能判断哪些工作已完成，而无需重放更新。
 
-Future 结果保留一小时。在此窗口内，请轮询已知的 `future_id` 以解决不确定的 operation。
-`410` 表示结果已无法恢复；不要盲目重放 operation。长期恢复只能使用保存 future 完成后，
-已将路径写入应用持久记录的完整检查点。
+Future 结果在一小时内可用。在此期间，请轮询已知的 `future_id` 来确认状态不明的工作。`410` 表示结果已无法恢复；请勿盲目重放该操作。进行长期恢复时，只能使用已完成的检查点，且其路径须在保存 future 完成后写入你的持久应用记录。
 
 关于恢复顺序和检查点类型，请参阅[检查点与恢复](/cn/training/checkpoints)。
 

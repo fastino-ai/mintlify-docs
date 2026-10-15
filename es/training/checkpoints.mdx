@@ -49,8 +49,8 @@ with Path(log_path).open("a", encoding="utf-8") as checkpoint_log:
 ```
 
 La ruta de la respuesta inicial de guardado es provisional. El checkpoint solo
-es duradero cuando termina el future; si falla o se cancela, no persistas ni
-uses esa ruta.
+pasa a ser duradero cuando se completa el future de guardado; si el future falla
+o se cancela, no persistas ni uses esa ruta.
 
 Usa nombres de checkpoint únicos para que cada registro identifique un punto de
 recuperación inequívoco. Los nombres usan de 1 a 128 caracteres de `A-Z`, `a-z`,
@@ -130,11 +130,12 @@ Si el proceso termina después de guardar el checkpoint pero antes de persistir
 el registro, conserva el registro completo anterior como punto de recuperación
 fiable. No marques un paso como completado antes de que su registro sea duradero.
 
-Los resultados de futures se pueden recuperar durante una hora. En ese plazo,
-consulta el `future_id` de guardado conocido. Si devuelve `410`, no repitas el
-guardado a ciegas: concilia los checkpoints del trabajo con el registro
-duradero. El límite de confirmación a largo plazo es un checkpoint completado
-con su registro duradero de aplicación.
+Los resultados de los futures se pueden recuperar durante una hora. En ese
+plazo, consulta el `future_id` de guardado conocido antes de decidir qué
+ocurrió. Si devuelve `410`, no repitas el guardado a ciegas: concilia los
+checkpoints del trabajo con tu registro duradero del bucle. El límite de
+confirmación a largo plazo es un checkpoint completado junto con su registro
+duradero en la aplicación, no el future en sí.
 
 ## 5. Mantén separados los tipos de checkpoint
 
@@ -152,14 +153,14 @@ sampler = call(
 )
 ```
 
-| Se guarda con | Sufijo del ID | Ruta completa | Úsalo para |
+| Se guarda con | Sufijo del ID del checkpoint | Ruta completa | Úsalo para |
 | --- | --- | --- | --- |
 | `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Recuperar el entrenamiento: cargarlo o iniciar un trabajo nuevo desde él |
 | `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluación y descarga como archivos PEFT LoRA |
 
 No uses un checkpoint sampler como punto de recuperación: no tiene estado del
 optimizador y no se puede iniciar un trabajo nuevo desde él. Pasa la ruta
-completa `tinker://.../weights/<name>`, no el sufijo del ID, como
+completa `tinker://.../weights/<name>`, no el sufijo del ID del checkpoint, como
 `from_checkpoint`.
 
 `ttl_seconds` vale `null` por defecto, así que si lo omites el checkpoint se
@@ -233,7 +234,7 @@ para ver los campos y errores.
 | Síntoma | Comprobación |
 | --- | --- |
 | Un future falla | Registra el ID del trabajo y el `error` del future. No avances el estado dependiente de la aplicación |
-| Una llamada de entrenamiento devuelve `400` tras una pausa | El trabajo se detuvo o se liberó tras 30 minutos inactivo. El entrenamiento modificador no está disponible; la gestión de checkpoints y el muestreo siguen disponibles. Inicia un trabajo nuevo desde el último checkpoint de estado para continuar |
+| Una llamada de entrenamiento devuelve `400` tras una pausa | El trabajo se detuvo o se liberó tras 30 minutos inactivo. Las operaciones de entrenamiento que modifican el trabajo no están disponibles; la gestión de checkpoints y el muestreo desde checkpoints sampler siguen disponibles. Para continuar entrenando, inicia un trabajo nuevo desde el último checkpoint de estado |
 | Un checkpoint no se puede cargar | Verifica su trabajo, su tipo y el registro de recuperación del cliente |
 | Se rechaza `from_checkpoint` | Confirma que es una ruta completa `tinker://<job_id>/weights/<name>` de tu equipo; los checkpoints sampler no pueden iniciar un trabajo |
 | Falla la consulta del trabajo reanudado | Confirma que el ID vino de la respuesta de creación del trabajo nuevo y que estás autenticado en el mismo equipo de Fastino |

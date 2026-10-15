@@ -8,7 +8,7 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 
 ## 错误响应格式
 
-大多数同步 API 错误使用共享的嵌套 `error` 封装：
+大多数同步 API 错误使用统一的嵌套 `error` 封装结构：
 
 ```json
 {
@@ -21,13 +21,13 @@ Fastino API 使用标准 HTTP 状态代码来传达每次请求的结果。`2xx`
 }
 ```
 
-校验失败使用相同的封装，并在 `error` 内增加 `errors` 数组。每一项通过 `location` 和 `raw_location` 标识无效字段，并在 `message` 中说明失败原因。
+校验失败使用相同的封装结构，并在 `error` 内额外包含一个 `errors` 数组。每一项通过 `location` 和 `raw_location` 标识无效字段，并在 `message` 中说明失败原因。
 
 部分端点族有意使用不同的结构：
 
-- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非嵌套封装--参见下方的 [402](#402-需要付款-payment-required) 和 [403](#403-禁止访问-forbidden)。
-- **预热响应**（`425`）包含 `Retry-After` 响应头。OpenAI 格式的响应体还带有 `code: "model_warming"`--参见下方的 [425](#425-过早-too-early)。
-- **速率限制响应**（`429`）在顶层 `detail` 之外增加 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头--参见下方的 [429](#429-请求过多-too-many-requests)。
+- **计费拒绝**（`402`、部分 `403`）返回 `{"code", "message", "resolution_url"}` 而非嵌套封装，参见下方的 [402](#402-需要付款-payment-required) 和 [403](#403-禁止访问-forbidden)。
+- **预热响应**（`425`）包含 `Retry-After` 响应头。OpenAI 格式的响应体还带有 `code: "model_warming"`，参见下方的 [425](#425-过早-too-early)。
+- **速率限制响应**（`429`）在 `detail` 之外增加顶层 `code` 和 `scope` 字段，并附带 `X-RateLimit-Scope` 和 `X-RateLimit-Code` 响应头，参见下方的 [429](#429-请求过多-too-many-requests)。
 - **未处理的服务器错误**（`500`）返回 `{"error", "message"}`，而不是嵌套封装。
 - 携带 `anthropic-version` 请求头的 `/v1/messages` 请求会收到 Anthropic 格式的 `{"type": "error", "error": {"type", "message"}}` 封装。
 

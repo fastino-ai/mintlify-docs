@@ -1,19 +1,21 @@
 ---
 title: "Sampler-Gewichte speichern"
 sidebarTitle: "Sampler-Gewichte speichern"
-description: "Speichert LoRA-Gewichte eines interaktiven Jobs für Sampling und PEFT-Download. Die Antwort enthält future_id, Checkpoint-ID und tinker://-Pfad."
+description: "Speichert die LoRA-Gewichte eines interaktiven Jobs unter einem Namen für Sampling und PEFT-Download. Die Antwort enthält eine future_id, eine Checkpoint-ID und einen tinker://-Pfad."
 api: "POST /v1/training/jobs/{job_id}/save-weights-for-sampler"
 ---
+
 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`
 
-Speichert die LoRA-Gewichte des Jobs als `sampler_weights/<name>`. Du kannst
-[Beispiel](/de/api-reference/training-jobs/interactive/sample) daraus, auch nach dem Auftrag
-gestoppt, oder [herunterladen](/de/api-reference/training-jobs/download-checkpoint) als
-PEFT LoRA-Dateien. Es hat keinen Optimierungsstatus, sodass ein Job es nicht laden oder von dort aus starten kann
-es; verwenden Sie [`POST /v1/training/jobs/{job_id}/save-weights`](/de/api-reference/training-jobs/interactive/save-weights)
-dafür.
+Speichert die LoRA-Gewichte des Jobs als `sampler_weights/<name>`. Sie können
+daraus [samplen](/de/api-reference/training-jobs/interactive/sample), auch nachdem
+der Job gestoppt wurde, oder ihn als PEFT-LoRA-Dateien
+[herunterladen](/de/api-reference/training-jobs/download-checkpoint). Er enthält
+keinen Optimizer-Zustand, daher kann ein Job ihn weder laden noch von ihm aus
+starten; verwenden Sie dafür
+[`POST /v1/training/jobs/{job_id}/save-weights`](/de/api-reference/training-jobs/interactive/save-weights).
 
-Die Speicherung wird der Reihe nach mit den anderen Aufrufen des Jobs ausgeführt.
+Das Speichern wird in der Reihenfolge der übrigen Aufrufe des Jobs ausgeführt.
 
 ## Anfrage
 
@@ -22,7 +24,7 @@ Die Speicherung wird der Reihe nach mit den anderen Aufrufen des Jobs ausgeführ
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Interaktive Job-ID.
+  ID des interaktiven Jobs.
 </ParamField>
 
 <ParamField body="name" type="string" required>
@@ -30,12 +32,14 @@ Die Speicherung wird der Reihe nach mit den anderen Aufrufen des Jobs ausgeführ
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  Löschen Sie den Prüfpunkt nach dieser Anzahl von Sekunden automatisch von `3600`
-  (1 Stunde) bis `315360000` (10 Jahre). Lassen Sie es weg oder senden Sie `null`, um den Prüfpunkt beizubehalten, bis Sie ihn löschen. Live-Prüfpunkte werden auf [Speichernutzung](/de/api-reference/training-jobs/interactive/storage-usage) angerechnet .
+  Löscht den Checkpoint automatisch nach dieser Anzahl von Sekunden, von `3600`
+  (1 Stunde) bis `315360000` (10 Jahre). Lassen Sie das Feld weg oder senden Sie
+  `null`, um den Checkpoint zu behalten, bis Sie ihn löschen. Bestehende
+  Checkpoints zählen zur [Speichernutzung](/de/api-reference/training-jobs/interactive/storage-usage).
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  String-Schlüsselwert-Metadaten, die mit dem Prüfpunkt gespeichert werden.
+  String-Schlüssel-Wert-Metadaten, die mit dem Checkpoint gespeichert werden.
 </ParamField>
 
 <RequestExample>
@@ -52,7 +56,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 ## Antwort
 
 <ResponseField name="future_id" type="string">
-  Die Zukunft `save`.
+  Das `save`-Future.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -79,6 +83,6 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 | Status | Bedeutung |
 | --- | --- |
-| `400` | Der Name enthält ungültige Zeichen oder eine ungültige Länge, die TTL liegt außerhalb des gültigen Bereichs oder der Job wurde gestoppt. |
+| `400` | Der Name enthält ungültige Zeichen oder hat eine ungültige Länge, die TTL liegt außerhalb des gültigen Bereichs, oder der Job wurde gestoppt. |
 | `404` | Der Job existiert nicht oder gehört zu einem anderen Team. |
-| `422` | Dem Text fehlt `name` oder er hat ein unbekanntes Feld. |
+| `422` | Im Body fehlt `name`, oder er enthält ein unbekanntes Feld. |

@@ -8,10 +8,9 @@ description: "准备 GLiNER 数据集、创建托管式配置任务，并通过�
 
 ## 开始之前
 
-按照[训练 API 概览](/cn/training)中的说明设置 `FASTINO_API_KEY`。示例通过
-`X-API-Key` 请求头发送密钥，并使用 `jq` 读取 JSON 响应。
+按照[训练 API 概览](/cn/training)中的说明设置 `FASTINO_API_KEY`。示例通过 `X-API-Key` 请求头发送密钥，并使用 `jq` 读取 JSON 响应。
 
-Owner 或 Admin 可以完成整个指南。Editor 可以上传数据集并创建训练任务，但不能执行实时部署步骤。
+Owner 或 Admin 可以完成本指南的全部步骤。Editor 可以上传数据集并创建训练任务，但无法执行上线部署步骤。
 
 ## 1. 选择任务
 
@@ -147,9 +146,7 @@ curl --fail-with-body -sS -X POST \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-成功响应表示部署和工件发布已同步完成。响应包含 `success: true`、任务和检查点 ID，
-以及规范的 `deployment_path`；`mme_path` 是已弃用的兼容性别名。无需轮询其他部署就绪状态。
-训练任务 ID 是托管推理所使用的模型标识符。
+成功响应表示部署和工件发布已同步完成。响应包含 `success: true`、任务 ID 和检查点 ID，以及规范的 `deployment_path`；`mme_path` 是已弃用的兼容性别名。无需再轮询其他部署就绪状态。训练任务 ID 即托管推理所使用的模型标识符。
 
 ## 7. 运行 GLiNER 推理
 
@@ -175,10 +172,7 @@ curl --fail-with-body -sS \
   }" | jq -r '.choices[0].message.content | fromjson'
 ```
 
-部署后立即进行推理时，服务容量尚未就绪或受到速率限制，可能返回 `425`、`429` 或 `503`。
-仅重试这些状态；如果存在非负整数 `Retry-After`，请采用该值，并限制每次等待时间
-（例如最多 30 秒）和总尝试次数（例如五次）。其他状态应立即失败；达到重试上限后，
-请显示最终响应。
+部署刚完成时，推理服务容量可能尚未就绪或受到速率限制，此时推理可能返回 `425`、`429` 或 `503`。仅对这些状态码进行重试：如果响应包含非负整数形式的 `Retry-After` 值，请使用该值；为每次等待设置上限（例如 30 秒），并在有限次数后停止重试（例如五次）。遇到其他状态码时应立即失败；若达到重试上限，请呈现最终响应。
 
 <CardGroup cols={2}>
   <Card title="调用 GLiNER" icon="braces" href="/cn/inference/chat-completions">

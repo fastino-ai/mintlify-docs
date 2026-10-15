@@ -1,28 +1,29 @@
 ---
 title: "Enregistrer les poids d'entraînement"
 sidebarTitle: "Enregistrer les poids"
-description: "Enregistrez sous un nom les poids LoRA et l'état de l'optimiseur d'un job interactif, pour les recharger ou démarrer un nouveau job depuis ce checkpoint."
+description: "Enregistrez sous un nom les poids LoRA et l'état de l'optimiseur d'un job interactif. La réponse inclut un future_id, un ID de checkpoint de poids et son chemin tinker://."
 api: "POST /v1/training/jobs/{job_id}/save-weights"
 ---
+
 `POST /v1/training/jobs/{job_id}/save-weights`
 
-Enregistre les poids LoRA de la tâche et l'état de l'optimiseur sous `weights/<name>`. Vous pouvez
-[charger](/fr/api-reference/training-jobs/interactive/load-weights) dans le même travail,
-ou [démarrer une nouvelle tâche](/fr/api-reference/training-jobs/interactive/create-model) à partir de celui-ci. Pour échantillonner
-ou téléchargez les poids, enregistrez-les avec
-[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/fr/api-reference/training-jobs/interactive/save-weights-for-sampler)
-à la place.
+Enregistre les poids LoRA et l'état de l'optimiseur du job sous `weights/<name>`.
+Vous pouvez le [recharger](/fr/api-reference/training-jobs/interactive/load-weights)
+dans le même job, ou [démarrer un nouveau job](/fr/api-reference/training-jobs/interactive/create-model)
+à partir de lui. Pour échantillonner ou télécharger les poids, enregistrez-les
+plutôt avec
+[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/fr/api-reference/training-jobs/interactive/save-weights-for-sampler).
 
-La sauvegarde s'exécute dans l'ordre des autres appels du travail.
+L'enregistrement s'exécute dans l'ordre avec les autres appels du job.
 
-## Demande
+## Requête
 
 <ParamField header="X-API-Key" type="string" required>
   Votre clé API Fastino.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID de travail interactif.
+  ID du job interactif.
 </ParamField>
 
 <ParamField body="name" type="string" required>
@@ -30,16 +31,16 @@ La sauvegarde s'exécute dans l'ordre des autres appels du travail.
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  Supprimez automatiquement le point de contrôle après ce nombre de secondes, de `3600`
-  (1 heure) à `315360000` (10 ans). Omettez-le ou envoyez `null` pour conserver le point de contrôle jusqu'à ce que vous le supprimiez. Les points de contrôle en direct sont pris en compte dans [l'utilisation du stockage](/fr/api-reference/training-jobs/interactive/storage-usage).
+  Supprimer automatiquement le checkpoint après ce nombre de secondes, de `3600`
+  (1 heure) à `315360000` (10 ans). Omettez-le ou envoyez `null` pour conserver le checkpoint jusqu'à ce que vous le supprimiez. Les checkpoints actifs sont comptabilisés dans l'[utilisation du stockage](/fr/api-reference/training-jobs/interactive/storage-usage).
 </ParamField>
 
 <ParamField body="overwrite" type="boolean" default="false">
-  Remplacez un point de contrôle d'état par le même nom.
+  Remplacer un checkpoint d'état portant le même nom.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  Chaîne de métadonnées clé-valeur stockées avec le point de contrôle.
+  Métadonnées clé-valeur de type chaîne stockées avec le checkpoint.
 </ParamField>
 
 <RequestExample>
@@ -56,7 +57,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 ## Réponse
 
 <ResponseField name="future_id" type="string">
-  Le futur `save`.
+  Le future `save`.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -64,7 +65,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 </ResponseField>
 
 <ResponseField name="path" type="string">
-  Chemin complet du point de contrôle. Transmettez-le sous le nom `from_checkpoint` lorsque vous créez une tâche.
+  Chemin complet du checkpoint. Transmettez-le comme `from_checkpoint` lorsque vous créez un job.
 </ResponseField>
 
 <ResponseExample>
@@ -83,6 +84,6 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 | Statut | Signification |
 | --- | --- |
-| `400` | Le nom comporte des caractères ou une longueur non valide, la durée de vie est hors plage ou la tâche a été arrêtée. |
-| `404` | Le travail n'existe pas ou appartient à une autre équipe. |
+| `400` | Le nom contient des caractères non valides ou a une longueur non valide, le TTL est hors limites, ou le job a été arrêté. |
+| `404` | Le job n'existe pas ou appartient à une autre équipe. |
 | `422` | Le corps ne contient pas `name` ou comporte un champ inconnu. |

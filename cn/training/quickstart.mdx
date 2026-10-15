@@ -1,7 +1,7 @@
 ---
 title: "训练 API 快速入门"
 sidebarTitle: "快速入门"
-description: "完成身份验证后选择托管训练或自定义训练循环：准备数据集并选择模型启动训练任务，或由你的应用控制采样、奖励和更新，然后验证规范任务 ID。"
+description: "启动托管训练任务或由应用控制的训练循环，然后验证其规范任务 ID。"
 ---
 
 本快速入门涵盖训练 API 的两种路径。要微调 GLiNER 编码器并由 Fastino 运行循环，请使用托管训练。
@@ -97,39 +97,25 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
 
 选择一种受支持的接口：
 
-- 原生 JSON 客户端调用
-  [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)，
-  在 `/v1/training/jobs/{job_id}` 下排队模型操作，并轮询返回的每个
-  `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
-- 现有 Tinker 程序保留 `tinker==0.32.0`；SDK 设置请参阅
-  [从 Tinker 迁移](/cn/training/migrate-from-tinker)。
+- 原生 JSON 客户端调用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)，在 `/v1/training/jobs/{job_id}` 下排队模型操作，并轮询返回的每个 `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
+- 现有 Tinker 程序继续使用 `tinker==0.32.0`；SDK 设置请参阅[从 Tinker 迁移](/cn/training/migrate-from-tinker)。
 
-原生客户端不发送 `seq_id` 或心跳。服务器分配操作顺序并保持内部会话处于活动状态。
-带有 `wait=true` 的请求最多等待 25 秒，因此客户端必须继续轮询未终止的操作。原生路由
-顺序请参阅[构建自定义训练循环](/cn/training/training-loop)。
+原生客户端不发送 `seq_id` 或心跳。服务器负责分配操作顺序并保持内部会话处于活动状态。带有 `wait=true` 的请求最多等待 25 秒，因此客户端必须继续轮询尚未结束的 future。原生路由顺序请参阅[构建自定义训练循环](/cn/training/training-loop)。
 
 ### 原生 JSON 路径
 
-1. 使用 `base_model`，或使用 `from_checkpoint` 和 `load_optimizer`，调用
-   [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)。
-2. 通过[获取 future](/cn/api-reference/training-jobs/interactive/get-future)轮询返回的创建
-   `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
-3. 排队 [forward-backward](/cn/api-reference/training-jobs/interactive/forward-backward)，
-   并轮询其 `future_id`，直到成功完成。然后才排队[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)，
-   并将该 future 轮询到终止状态。
-4. [保存采样器权重](/cn/api-reference/training-jobs/interactive/save-weights-for-sampler)，并将保存 future
-   轮询到终止状态。
+1. 使用 `base_model`，或使用 `from_checkpoint` 和 `load_optimizer`，调用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)。
+2. 通过[获取 future](/cn/api-reference/training-jobs/interactive/get-future)轮询返回的创建 `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
+3. 排队 [forward-backward](/cn/api-reference/training-jobs/interactive/forward-backward) 并轮询其 `future_id`，直到它成功完成。只有在此之后，才排队[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)，并轮询该 future 直到其进入终止状态。
+4. [保存采样器权重](/cn/api-reference/training-jobs/interactive/save-weights-for-sampler)，并轮询保存 future 直到其进入终止状态。
 5. 通过共享的[停止操作](/cn/api-reference/training-jobs/stop)停止任务。
-6. 停止后，[从已保存的检查点采样](/cn/api-reference/training-jobs/interactive/sample)，然后将
-   采样 future 轮询到终止状态。
+6. 停止后，[从已保存的检查点采样](/cn/api-reference/training-jobs/interactive/sample)，然后轮询采样 future 直到其进入终止状态。
 
-只有已排队或正在运行的 sample future 可以取消。HTTP 拒绝表示服务器没有将调用排队。
-已排队的 future 可能改为以 `status: "failed"` 结束。
+只有已排队或正在运行的 sample future 可以取消。HTTP 拒绝表示服务器没有将调用排队。已排队的 future 可能改为以 `status: "failed"` 结束。
 
 ### 原生 REST 路径
 
-原生 REST 示例需要 Python 3.11 或更高版本。Tinker SDK 设置请参阅
-[从 Tinker 迁移](/cn/training/migrate-from-tinker)。
+原生 REST 示例需要 Python 3.11 或更高版本。Tinker SDK 设置请参阅[从 Tinker 迁移](/cn/training/migrate-from-tinker)。
 
 ### 3. 安装客户端库
 
@@ -313,11 +299,9 @@ finally:
     call("POST", f"{jobs}/stop")
 ```
 
-脚本会等待 forward-backward 成功完成，然后再提交优化器步骤。如果任一 future 失败或被取消，
-`wait` 会引发异常，不会提交依赖 operation。
+脚本会等待 forward-backward 成功完成，然后再提交优化器步骤。如果任一 future 失败或被取消，`wait` 会抛出异常，依赖它的操作也不会被提交。
 
-`enable_thinking=False` 会在监督答案开始之前关闭模型的推理块。它是 tokenizer
-模板参数，而不是训练 API 请求字段。
+`enable_thinking=False` 会在监督答案开始之前关闭模型的推理块。它是 tokenizer 模板参数，而不是训练 API 请求字段。
 
 运行脚本：
 
@@ -328,8 +312,7 @@ python quickstart.py
 复制 `TRAINING_JOB_ID=` 后打印的值。
 
 <Note>
-  交互式任务 30 分钟内没有调用就会被释放，其检查点会保留。停止操作会立即返回并阻止新调用，
-  但已排队的 operation 可能会在资源释放前完成，用量也可能持续到资源释放。你仍可从其 sampler 检查点采样并下载。
+  交互式任务 30 分钟内没有调用就会被释放，其检查点会保留。停止操作会立即返回并阻止新调用，但已排队的操作可能会在资源释放前完成，用量也可能持续到资源释放。你仍可从其 sampler 检查点采样并下载。
 </Note>
 
 ### 7. 验证规范任务
@@ -352,8 +335,7 @@ Invoke-RestMethod `
 
 </CodeGroup>
 
-响应描述的是通过原生 REST 端点创建的同一任务。继续使用公开的交互式 operation 页面执行
-模型操作，并使用规范任务 API 执行有文档说明的任务读取。
+响应描述的是通过原生 REST 端点创建的同一任务。请继续通过公开的交互式操作页面执行模型操作，并使用规范任务 API 执行有文档说明的任务读取。
 
 ## 继续
 
@@ -362,7 +344,7 @@ Invoke-RestMethod `
     准备并验证 GLiNER 训练数据。
   </Card>
   <Card title="交互式任务参考" icon="book" href="/cn/api-reference/training-jobs/interactive/create-model">
-    查看 交互式任务的每个请求和响应。
+    查看交互式任务的每个请求和响应。
   </Card>
   <Card title="训练循环" icon="repeat-2" href="/cn/training/training-loop">
     为自定义循环添加奖励、更新和恢复。

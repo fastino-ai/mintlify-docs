@@ -1,45 +1,46 @@
 ---
 title: "Guardar pesos de entrenamiento"
 sidebarTitle: "Guardar pesos"
-description: "Guarda con un nombre los pesos LoRA y el estado del optimizador de un trabajo interactivo. Devuelve un future_id, el ID de weights y su ruta tinker://."
+description: "Guarda con un nombre los pesos LoRA y el estado del optimizador de un trabajo interactivo. La respuesta incluye un future_id, el ID del checkpoint de pesos y su ruta tinker://."
 api: "POST /v1/training/jobs/{job_id}/save-weights"
 ---
+
 `POST /v1/training/jobs/{job_id}/save-weights`
 
-Guarda los pesos LoRA del trabajo y el estado del optimizador como `weights/<name>`. tu puedes
-[cargar](/es/api-reference/training-jobs/interactive/load-weights) de nuevo en el mismo trabajo,
-o [iniciar un nuevo trabajo](/es/api-reference/training-jobs/interactive/create-model) desde él. para probar
-o descargar pesos, guardarlos con
-[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/es/api-reference/training-jobs/interactive/save-weights-for-sampler)
-en cambio.
+Guarda los pesos LoRA y el estado del optimizador del trabajo como
+`weights/<name>`. Puedes
+[cargarlo](/es/api-reference/training-jobs/interactive/load-weights) de nuevo en
+el mismo trabajo o [iniciar un trabajo nuevo](/es/api-reference/training-jobs/interactive/create-model)
+a partir de él. Para muestrear o descargar pesos, guárdalos en su lugar con
+[`POST /v1/training/jobs/{job_id}/save-weights-for-sampler`](/es/api-reference/training-jobs/interactive/save-weights-for-sampler).
 
-El guardado se ejecuta en orden con las otras llamadas del trabajo.
+El guardado se ejecuta en orden con las demás llamadas del trabajo.
 
 ## Solicitud
 
 <ParamField header="X-API-Key" type="string" required>
-  Su clave API de Fastino.
+  Tu clave de API de Fastino.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Identificación de trabajo interactiva.
+  ID del trabajo interactivo.
 </ParamField>
 
 <ParamField body="name" type="string" required>
-  De 1 a 128 caracteres de `A-Z`, `a-z`, `0-9`, `.`, `_` y `-`.
+  De 1 a 128 caracteres entre `A-Z`, `a-z`, `0-9`, `.`, `_` y `-`.
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  Elimine el punto de control automáticamente después de tantos segundos, de `3600`
-  (1 hora) a `315360000` (10 años). Omítelo o envía `null` para mantener el punto de control hasta que lo elimines. Los puntos de control activos cuentan para [uso de almacenamiento](/es/api-reference/training-jobs/interactive/storage-usage).
+  Elimina el checkpoint automáticamente tras este número de segundos, de `3600`
+  (1 hora) a `315360000` (10 años). Omítelo o envía `null` para conservar el checkpoint hasta que lo elimines. Los checkpoints activos cuentan para el [uso de almacenamiento](/es/api-reference/training-jobs/interactive/storage-usage).
 </ParamField>
 
 <ParamField body="overwrite" type="boolean" default="false">
-  Reemplazar un punto de control estatal con el mismo nombre.
+  Reemplaza un checkpoint de estado que tenga el mismo nombre.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  Metadatos de cadena de valor-clave almacenados con el punto de control.
+  Metadatos de pares clave-valor de tipo cadena que se guardan con el checkpoint.
 </ParamField>
 
 <RequestExample>
@@ -56,7 +57,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 ## Respuesta
 
 <ResponseField name="future_id" type="string">
-  El futuro `save`.
+  El future `save`.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -64,7 +65,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 </ResponseField>
 
 <ResponseField name="path" type="string">
-  Ruta completa del punto de control. Páselo como `from_checkpoint` cuando cree un trabajo.
+  Ruta completa del checkpoint. Pásala como `from_checkpoint` cuando crees un trabajo.
 </ResponseField>
 
 <ResponseExample>
@@ -83,6 +84,6 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 | Estado | Significado |
 | --- | --- |
-| `400` | El nombre tiene caracteres o longitud no válidos, el TTL está fuera de rango o el trabajo se detuvo. |
+| `400` | El nombre tiene caracteres o una longitud no válidos, el TTL está fuera de rango o el trabajo se detuvo. |
 | `404` | El trabajo no existe o pertenece a otro equipo. |
 | `422` | Al cuerpo le falta `name` o tiene un campo desconocido. |

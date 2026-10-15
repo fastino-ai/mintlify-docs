@@ -1,28 +1,30 @@
 ---
-title: "Enregistrer les poids d'échantillonnage"
-sidebarTitle: "Enregistrer les poids d'échantillonnage"
-description: "Enregistrez les poids LoRA d'un job interactif pour l'échantillonnage et le téléchargement PEFT. La réponse inclut un future_id et un chemin tinker://."
+title: "Enregistrer les poids sampler"
+sidebarTitle: "Enregistrer les poids sampler"
+description: "Enregistrez sous un nom les poids LoRA d'un job interactif pour l'échantillonnage et le téléchargement PEFT. La réponse inclut un future_id, un ID de checkpoint et un chemin tinker://."
 api: "POST /v1/training/jobs/{job_id}/save-weights-for-sampler"
 ---
+
 `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`
 
-Enregistre les poids LoRA de la tâche sous `sampler_weights/<name>`. Vous pouvez
-[échantillon](/fr/api-reference/training-jobs/interactive/sample), également une fois le travail terminé.
-arrêté, ou [télécharger](/fr/api-reference/training-jobs/download-checkpoint) comme
-Fichiers PEFT LoRA. Il n'a pas d'état d'optimisation, donc une tâche ne peut pas le charger ou démarrer à partir de
-ça; utiliser [`POST /v1/training/jobs/{job_id}/save-weights`](/fr/api-reference/training-jobs/interactive/save-weights)
-pour ça.
+Enregistre les poids LoRA du job sous `sampler_weights/<name>`. Vous pouvez
+[échantillonner](/fr/api-reference/training-jobs/interactive/sample) à partir de
+ce checkpoint, y compris après l'arrêt du job, ou le
+[télécharger](/fr/api-reference/training-jobs/download-checkpoint) sous forme de
+fichiers PEFT LoRA. Il ne contient pas d'état d'optimiseur : un job ne peut donc
+ni le charger ni démarrer à partir de lui. Pour cela, utilisez
+[`POST /v1/training/jobs/{job_id}/save-weights`](/fr/api-reference/training-jobs/interactive/save-weights).
 
-La sauvegarde s'exécute dans l'ordre des autres appels du travail.
+L'enregistrement s'exécute dans l'ordre avec les autres appels du job.
 
-## Demande
+## Requête
 
 <ParamField header="X-API-Key" type="string" required>
   Votre clé API Fastino.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID de travail interactif.
+  ID du job interactif.
 </ParamField>
 
 <ParamField body="name" type="string" required>
@@ -30,12 +32,12 @@ La sauvegarde s'exécute dans l'ordre des autres appels du travail.
 </ParamField>
 
 <ParamField body="ttl_seconds" type="integer | null">
-  Supprimez automatiquement le point de contrôle après ce nombre de secondes, de `3600`
-  (1 heure) à `315360000` (10 ans). Omettez-le ou envoyez `null` pour conserver le point de contrôle jusqu'à ce que vous le supprimiez. Les points de contrôle en direct sont pris en compte dans [l'utilisation du stockage](/fr/api-reference/training-jobs/interactive/storage-usage).
+  Supprimer automatiquement le checkpoint après ce nombre de secondes, de `3600`
+  (1 heure) à `315360000` (10 ans). Omettez-le ou envoyez `null` pour conserver le checkpoint jusqu'à ce que vous le supprimiez. Les checkpoints actifs sont comptabilisés dans l'[utilisation du stockage](/fr/api-reference/training-jobs/interactive/storage-usage).
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
-  Chaîne de métadonnées clé-valeur stockées avec le point de contrôle.
+  Métadonnées clé-valeur de type chaîne stockées avec le checkpoint.
 </ParamField>
 
 <RequestExample>
@@ -52,7 +54,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 ## Réponse
 
 <ResponseField name="future_id" type="string">
-  Le futur `save`.
+  Le future `save`.
 </ResponseField>
 
 <ResponseField name="checkpoint_id" type="string">
@@ -60,7 +62,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 </ResponseField>
 
 <ResponseField name="path" type="string">
-  Chemin complet du point de contrôle.
+  Chemin complet du checkpoint.
 </ResponseField>
 
 <ResponseExample>
@@ -79,6 +81,6 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/save-weig
 
 | Statut | Signification |
 | --- | --- |
-| `400` | Le nom comporte des caractères ou une longueur non valide, la durée de vie est hors plage ou la tâche a été arrêtée. |
-| `404` | Le travail n'existe pas ou appartient à une autre équipe. |
+| `400` | Le nom contient des caractères non valides ou a une longueur non valide, le TTL est hors limites, ou le job a été arrêté. |
+| `404` | Le job n'existe pas ou appartient à une autre équipe. |
 | `422` | Le corps ne contient pas `name` ou comporte un champ inconnu. |

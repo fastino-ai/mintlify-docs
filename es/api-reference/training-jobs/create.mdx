@@ -5,24 +5,23 @@ description: "Llama a POST /v1/training/jobs para iniciar un trabajo de entrenam
 api: "POST /v1/training/jobs"
 ---
 
-Los clientes nativos crean un trabajo `interactive` con [`POST /v1/training/jobs/create-model`](/es/api-reference/training-jobs/interactive/create-model). Los clientes Tinker crean el mismo tipo mediante el SDK compatible.
-
 `POST /v1/training/jobs`
 
-Crea un trabajo de entrenamiento asíncrono `config` y devuelve su registro. En
-un trabajo de configuración, proporcionas un dataset y una configuración, y
-Fastino ejecuta el bucle.
-
-Los trabajos de configuración entrenan modelos codificadores devueltos por
-`GET /v1/base-models?supports_training=true` que tengan una ruta de despacho
-compatible para trabajos config. Los modelos base decodificadores devuelven
-`400`; entrena los decodificadores paso a paso con un trabajo interactivo.
-
-Para controlar el bucle paso a paso, crea un trabajo `interactive` con
+Crea un trabajo de entrenamiento asíncrono `config` y devuelve su registro. En un
+trabajo de configuración, tú proporcionas un dataset y una configuración, y
+Fastino ejecuta el bucle de entrenamiento. Para controlar el bucle paso a paso,
+sigue la [ruta del bucle de entrenamiento personalizado](/es/training/quickstart#custom-training-loop),
+que crea un trabajo `interactive` mediante
 [`POST /v1/training/jobs/create-model`](/es/api-reference/training-jobs/interactive/create-model)
-y sigue la [ruta del bucle de entrenamiento personalizado](/es/training/quickstart#custom-training-loop).
+o el SDK de Tinker compatible. Este endpoint no crea trabajos interactivos.
 Después de la creación, ambos tipos de trabajo usan sus IDs canónicos con las
 operaciones documentadas del ciclo de vida en `/v1/training/jobs/{job_id}`.
+
+Los trabajos de configuración entrenan modelos codificadores que devuelve
+`GET /v1/base-models?supports_training=true` y que tienen una ruta de despacho
+compatible con trabajos de configuración. Los modelos base decodificadores
+devuelven `400`; en su lugar, entrena los decodificadores paso a paso con un
+trabajo interactivo.
 
 Este endpoint está limitado a 20 solicitudes por minuto por usuario.
 
@@ -80,84 +79,111 @@ Este endpoint está limitado a 20 solicitudes por minuto por usuario.
   <ParamField body="save_steps" type="integer" default="100">
     Guarda un checkpoint cada N pasos, con N de `1` a `2147483647`.
   </ParamField>
+
   <ParamField body="profile_training" type="boolean" default="false">
     Conserva un artefacto estructurado del perfil de entrenamiento.
   </ParamField>
+
   <ParamField body="wandb_api_key" type="string">
     Clave de API opcional de Weights & Biases. Trátala como un secreto y nunca la incluyas en el control de versiones, los logs ni los ejemplos.
   </ParamField>
+
   <ParamField body="lora_r" type="integer">
     Rango de LoRA de `1` a `256`. Omítelo para usar la receta del modelo.
   </ParamField>
+
   <ParamField body="lora_alpha" type="integer">
     Alpha de LoRA positivo, hasta `2147483647`. Omítelo para usar la receta del modelo.
   </ParamField>
+
   <ParamField body="lora_dropout" type="number">
     Dropout de LoRA de `0` (incluido) a `1` (excluido). Omítelo para usar la receta del modelo.
   </ParamField>
+
   <ParamField body="warmup_ratio" type="number">
     Fracción de warmup de `0` a `1`. `warmup_steps` tiene prioridad.
   </ParamField>
+
   <ParamField body="warmup_steps" type="integer">
     Número absoluto de pasos de warmup, de `1` a `2147483647`.
   </ParamField>
+
   <ParamField body="lr_scheduler_type" type="string" default="cosine">
     Programa de tasa de aprendizaje: `constant`, `linear` o `cosine`.
   </ParamField>
+
   <ParamField body="weight_decay" type="number" default="0.01">
     Weight decay no negativo de AdamW.
   </ParamField>
+
   <ParamField body="early_stopping_patience" type="integer" default="3">
     Épocas de validación sin mejora antes de detenerse, de `0` a `10000`. Establece `0` para desactivarlo.
   </ParamField>
+
   <ParamField body="early_stopping_min_delta" type="number" default="0.0001">
     Mejora mínima no negativa de la pérdida de validación que cuenta como progreso.
   </ParamField>
+
   <ParamField body="provider_name" type="string">
     Fija un proveedor de entrenamiento compatible. Omítelo para la selección automática.
   </ParamField>
+
   <ParamField body="encoder_learning_rate" type="number">
     Tasa de aprendizaje del codificador de GLiNER de `1e-8` a `1`. Si se omite, usa `learning_rate`.
   </ParamField>
+
   <ParamField body="task_learning_rate" type="number">
     Tasa de aprendizaje de la cabeza de tarea de GLiNER de `1e-8` a `1`. Si se omite, usa `learning_rate`.
   </ParamField>
+
   <ParamField body="gradient_accumulation_steps" type="integer">
-    Número positivo de acumulación de minilotes.
+    Número positivo de minilotes que se acumulan, hasta `2147483647`.
   </ParamField>
+
   <ParamField body="auto_data_sizing" type="boolean">
     Habilita el dimensionado automático del dataset de GLiNER.
   </ParamField>
+
   <ParamField body="min_samples_per_dataset" type="integer">
     Límite inferior del dimensionado automático de GLiNER, de `1` a `2147483647`.
   </ParamField>
+
   <ParamField body="max_samples_per_dataset" type="integer">
     Límite superior del dimensionado automático de GLiNER, de `1` a `2147483647`.
   </ParamField>
+
   <ParamField body="samples_per_label" type="integer">
     Escala del dimensionado automático de GLiNER por etiqueta, de `1` a `2147483647`.
   </ParamField>
+
   <ParamField body="min_training_steps" type="integer">
     Pasos mínimos del optimizador de GLiNER, de `0` a `2147483647`.
   </ParamField>
+
   <ParamField body="eval_steps" type="integer">
     Intervalo de validación periódica de GLiNER2, de `1` a `2147483647` pasos del optimizador. Omítelo para validar solo al final de cada época.
   </ParamField>
+
   <ParamField body="max_eval_samples" type="integer">
     Límite por dataset para validación periódica de GLiNER2, de `1` a `2147483647`. Omítelo para no aplicar límite.
   </ParamField>
+
   <ParamField body="max_length" type="integer">
     Longitud máxima de entrada de GLiNER, de `1` a `2147483647` tokens. Omítela para usar el límite de contexto del modelo.
   </ParamField>
+
   <ParamField body="max_gold_per_query" type="integer">
     Máximo de spans gold conservados por consulta de GLiNER2, de `1` a `1024`. Omítelo para usar `32`.
   </ParamField>
+
   <ParamField body="on_capacity_exceeded" type="string">
     Comportamiento cuando los spans gold superan `max_gold_per_query`: `raise`, `truncate_with_warning` o `skip_sample`. Omítelo para usar `raise`.
   </ParamField>
+
   <ParamField body="training_algorithm" type="string" default="sft">
     Los trabajos de configuración solo admiten `sft`. Omítelo para usar el valor predeterminado.
   </ParamField>
+
 </Expandable>
 
 <RequestExample>

@@ -5,18 +5,11 @@ description: "调用 POST /v1/training/jobs，基于基础模型和数据集启�
 api: "POST /v1/training/jobs"
 ---
 
-原生客户端通过 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model) 创建 `interactive` 任务。Tinker 客户端通过受支持的 SDK 创建同一种任务。
-
 `POST /v1/training/jobs`
 
-创建一个异步 `config` 训练任务并返回其任务记录。在配置任务中，你提供数据集和配置，
-Fastino 负责运行训练循环。
+创建一个异步 `config` 训练任务并返回其任务记录。在配置任务中，您提供数据集和配置，由 Fastino 运行训练循环。如需逐步控制训练循环，请按照[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作：该路径通过 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model) 或受支持的 Tinker SDK 创建 `interactive` 任务。此端点不会创建交互式任务。创建完成后，两种任务类型都使用各自的规范 ID 调用文档中所述的 `/v1/training/jobs/{job_id}` 生命周期操作。
 
-配置任务训练由 `GET /v1/base-models?supports_training=true` 返回且具有兼容配置任务调度路由的编码器模型。解码器基础模型会返回 `400`；请改用交互式任务逐步训练解码器。
-
-要逐步控制训练循环，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)
-创建 `interactive` 任务，并按照[自定义训练循环路径](/cn/training/quickstart#custom-training-loop)操作。
-创建后，两种任务类型都使用其规范 ID 调用已记录的 `/v1/training/jobs/{job_id}` 生命周期操作。
+配置任务可训练由 `GET /v1/base-models?supports_training=true` 返回、且具有兼容配置任务调度路由的编码器模型。解码器基础模型会返回 `400`；请改用交互式任务逐步训练解码器。
 
 此端点限制为每个用户每分钟 20 次请求。
 
@@ -132,7 +125,7 @@ Fastino 负责运行训练循环。
   </ParamField>
 
   <ParamField body="gradient_accumulation_steps" type="integer">
-    正整数的小批量累积次数。
+    正整数的小批量累积次数，最大为 `2147483647`。
   </ParamField>
 
   <ParamField body="auto_data_sizing" type="boolean">
@@ -172,7 +165,7 @@ Fastino 负责运行训练循环。
   </ParamField>
 
   <ParamField body="on_capacity_exceeded" type="string">
-    gold span 超过 `max_gold_per_query` 时的行为：`raise`、`truncate_with_warning` 或 `skip_sample`。省略时使用 `raise`。
+    GLiNER2 在 gold span 超过 `max_gold_per_query` 时的行为：`raise`、`truncate_with_warning` 或 `skip_sample`。省略时使用 `raise`。
   </ParamField>
 
   <ParamField body="training_algorithm" type="string" default="sft">
@@ -233,7 +226,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 | --- | --- |
 | `409 duplicate_training_submission` | 已有相同任务处于活动状态。 |
 | `409 idempotency_key_job_deleted` | 此幂等键最初创建的任务已删除。新任务请使用新键。 |
-| `409` | 引用的数据集在验证与插入任务之间被停用。解决数据集问题后使用新键重试。 |
+| `409` | 引用的数据集在验证与插入任务之间被停用。请处理该数据集问题后使用新键重试。 |
 
 相同 `Idempotency-Key` 和完全相同的请求体会重放原任务，而不是创建新任务。同一键配合不同请求体会返回 `422`。
 
@@ -245,8 +238,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 }
 ```
 
-要训练解码器，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)
-创建交互式任务，并按照[自定义训练循环](/cn/training/quickstart#custom-training-loop)操作。
+要训练解码器，请使用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model) 创建交互式任务，并按照[自定义训练循环](/cn/training/quickstart#custom-training-loop)操作。
 
 ## 授权
 

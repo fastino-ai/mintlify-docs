@@ -40,9 +40,7 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 
 </CodeGroup>
 
-每次请求令牌时都会运行 `TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
-密钥；`tml-` 凭据会被拒绝。请取消设置 `TINKER_API_KEY`：环境中的该值优先于
-`TINKER_CREDENTIAL_CMD`。
+每次请求令牌时都会运行 `TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。请使用普通的 `fast_sk_` Fastino 密钥；`tml-` 凭据会被拒绝。请取消设置 `TINKER_API_KEY`：环境中已有的该变量值会优先于 `TINKER_CREDENTIAL_CMD`。
 
 ## 3. 验证连接
 
@@ -53,22 +51,19 @@ service_client = tinker.ServiceClient()
 print(service_client.get_server_capabilities())
 ```
 
-选择 `get_server_capabilities()` 返回的模型，然后运行现有工作负载的小型版本。
-测试应完成一次训练更新、保存并重新加载状态，并在采样前使用明确的 TTL
-保存采样器权重。测试完成后再增加工作负载规模。
+选择 `get_server_capabilities()` 返回的模型，然后运行现有工作负载的小型版本。冒烟测试应完成一次训练更新、保存并重新加载状态，并在采样前使用明确的 TTL 保存采样器权重。测试完成后再增加工作负载规模。
 
 ## Tinker SDK 兼容性
 
-使用 `tinker==0.32.0` 时，每个 Tinker 训练客户端都是一个 Fastino 交互式任务。SDK 模型 ID
-也是其在 `/v1/training/jobs` 下的任务 ID。
+使用 `tinker==0.32.0` 时，每个 Tinker 训练客户端都是一个 Fastino 交互式任务。SDK 模型 ID 也是其在 `/v1/training/jobs` 下的任务 ID。
 
 | 范围 | 支持的行为 |
 | --- | --- |
 | 训练 | 创建或恢复客户端；检查客户端；运行前向、前向/反向、自定义损失和优化器操作 |
-| 检查点 | 保存和加载状态；保存采样器权重；检查、列出、下载、删除、发布和设置保留期 |
+| 检查点 | 保存和加载状态；保存采样器权重；检查、列出、下载、删除、发布、取消发布和设置保留期 |
 | 采样 | 创建或获取采样客户端并调用 `sample` |
 | Future | 获取单个异步结果；取消未完成的采样 future |
-| 用量 | 列出交互式运行并读取检查点存储或小时计费用量 |
+| 用量 | 列出或获取交互式运行，并读取检查点存储或小时计费用量 |
 
 <AccordionGroup>
   <Accordion title="支持的管理调用">
@@ -81,8 +76,7 @@ print(service_client.get_server_capabilities())
     `set_checkpoint_ttl_from_tinker_path`、
     `get_current_checkpoint_storage_usage` 和 `get_billing_usage`。
 
-    运行列表仅返回交互式运行。要列出配置任务和交互式任务，请使用
-    `/v1/training/jobs`。
+    运行列表仅返回交互式运行。要同时列出配置任务和交互式任务，请使用 `/v1/training/jobs`。
   </Accordion>
   <Accordion title="限制">
     - LoRA 秩必须在 1 到 32 之间。
@@ -90,8 +84,8 @@ print(service_client.get_server_capabilities())
     - 支持 `cross_entropy`、`importance_sampling`、`ppo`、`cispo` 和 `dro` 损失。
     - 提示词块必须使用 `encoded_text`。
     - 训练操作按顺序执行，训练操作的 future 无法取消。
-    - 检查点下载需要权重下载权限；否则返回 `403`。请联系 sales@fastino.ai。
-    - 发布仅更改所属团队内的可见性，不会让其他团队加载该路径。
+    - 检查点下载需要权重下载权限；否则下载会返回 `403`；如需启用，请联系 sales@fastino.ai。
+    - 发布仅更改所属团队内的可见性，不会使其他团队能够加载该路径。
   </Accordion>
   <Accordion title="不受支持的调用">
     - 使用 `retrieve_futures` 批量检索 future

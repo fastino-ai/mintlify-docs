@@ -1,7 +1,7 @@
 ---
 title: "停止训练任务"
 sidebarTitle: "停止任务"
-description: "停止运行中的 Fastino 训练任务并保留停止前创建的检查点。JSON 请求体为可选，可附带停止原因、数值指标和检查点路径。"
+description: "停止运行中的 Fastino 训练任务，同时保留现有检查点。"
 api: "POST /v1/training/jobs/{job_id}/stop"
 ---
 
@@ -77,7 +77,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 }
 ```
 
-```json 202 — 正在等待取消
+```json 202 — cancellation pending
 {
   "success": true,
   "message": "Cancellation in progress. The job moves to 'stopped' once the provider confirms; checkpoints are preserved.",
@@ -88,13 +88,11 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 
 </ResponseExample>
 
-`message` 字段、`202` 响应和轮询规则仅适用于配置任务。配置任务收到 `202` 后，请轮询
-`GET /v1/training/jobs/{job_id}`。在等待确认取消期间，请勿重复发送停止请求。
+`message` 字段、`202` 响应和轮询规则仅适用于配置任务。配置任务收到 `202` 后，请轮询 `GET /v1/training/jobs/{job_id}`；在取消等待确认期间，请勿重复发送停止请求。
 
 ## 交互式任务响应
 
-交互式任务使用同一操作，但不发送请求体。响应包含公共字段 `success`、`job_id` 和
-`status`。交互式客户端不得要求仅配置任务具有的 `message` 字段。
+交互式任务使用同一操作，但不发送请求体。响应包含公共字段 `success`、`job_id` 和 `status`。请勿期望交互式响应中包含仅适用于配置任务的 `message` 字段。
 
 ```json Response
 {
@@ -111,7 +109,7 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 | 状态 | 含义 |
 | --- | --- |
 | `200` | 任务已停止，现有检查点仍然可用。 |
-| `202` | 正在等待提供方确认取消操作。 |
+| `202` | 取消正在进行中，等待提供方确认。 |
 | `400` | 配置任务 ID 或请求无效。 |
 | `409 training_job_already_finished` | 任务在停止前已进入最终状态。 |
 | `409 cancellation_unconfirmed` | 提供方未确认取消。请读取任务状态，然后在适当时重试。 |
@@ -119,4 +117,4 @@ curl -X POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/sto
 
 ## 配置任务授权
 
-对于配置任务，此操作需要团队的 Owner、Admin 或 Editor 角色。其他角色会收到 `403 Forbidden`。原生交互式处理器使用交互式运行时的调用者授权；不要从此共享路径推断配置任务 RBAC。
+对于配置任务，此操作需要团队的 Owner、Admin 或 Editor 角色。其他角色会收到 `403 Forbidden`。原生交互式处理器使用交互式运行时的调用者授权；请勿根据这一共享路径推断配置任务的 RBAC 规则。

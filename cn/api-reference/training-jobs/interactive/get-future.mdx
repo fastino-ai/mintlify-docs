@@ -4,12 +4,10 @@ sidebarTitle: "获取 future"
 description: "轮询交互式 future 以获取其状态和结果。设置 wait=true 时，请求最多等待 25 秒，服务会将结果保留一小时。"
 api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 ---
+
 `GET /v1/training/jobs/{job_id}/futures/{future_id}`
 
-每个有效的交互式作业调用都会返回 `future_id`。投票未来
-直到其 `status` 为 `completed`、`failed` 或 `cancelled`。使用 `wait=true` 来
-每个请求最多等待 25 秒；超时仍然可以返回非终结符
-未来。结果保留一小时。
+交互式任务中每个执行实际工作的调用都会返回一个 `future_id`。请轮询该 future，直到其 `status` 变为 `completed`、`failed` 或 `cancelled`。使用 `wait=true` 时，每个请求最多等待 25 秒；超时后仍可能返回尚未结束的 future。结果会保留一小时。
 
 ## 请求
 
@@ -18,16 +16,15 @@ api: "GET /v1/training/jobs/{job_id}/futures/{future_id}"
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  交互式作业 ID。
+  交互式任务 ID。
 </ParamField>
 
 <ParamField path="future_id" type="string" required>
-  当工作排队时返回未来 ID。
+  工作加入队列时返回的 future ID。
 </ParamField>
 
 <ParamField query="wait" type="boolean" default="false">
-  在回答之前，请等待最多 25 秒，等待未完成的未来。重复
-  请求直到完成。
+  对于尚未完成的 future，最多等待 25 秒后再响应。请重复发送请求，直到其完成。
 </ParamField>
 
 <RequestExample>
@@ -39,14 +36,14 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 </RequestExample>
 
-## 回应
+## 响应
 
 <ResponseField name="future_id" type="string">
-  未来。
+  该 future。
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
-  工作。
+  该任务。
 </ResponseField>
 
 <ResponseField name="type" type="string">
@@ -58,28 +55,24 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 </ResponseField>
 
 <ResponseField name="queue_state" type="string | null">
-  未完成时：`active`，或 GPU 容量预热时的 `paused_capacity`。
+  未完成时为 `active`；GPU 容量预热期间为 `paused_capacity`。
 </ResponseField>
 
 <ResponseField name="queue_state_reason" type="string | null">
-  人类可读的容量解释，而 `queue_state` 是
-  `paused_capacity`；否则为 `null`。
+  当 `queue_state` 为 `paused_capacity` 时，提供人类可读的容量说明；否则为 `null`。
 </ResponseField>
 
 <ResponseField name="result" type="any">
-  一旦`completed`：
+  状态为 `completed` 时：
 
-  - `forward` 和 `forward_backward`：`loss_fn_outputs`（每个张量一个条目）
-    数据，例如 `logprobs`) 和 `metrics`。
-  - `sample`：`sequences`，每个都有 `tokens`、`logprobs` 和 `stop_reason`，
-    根据要求加上 `prompt_logprobs`。
+  - `forward` 和 `forward_backward`：`loss_fn_outputs`（每个数据项对应一组张量，例如 `logprobs`）以及 `metrics`。
+  - `sample`：`sequences`，每个序列包含 `tokens`、`logprobs` 和 `stop_reason`；如有请求，还包含 `prompt_logprobs`。
   - `save`：检查点路径。
-  - 其他类型：确认。
+  - 其他类型：一条确认信息。
 </ResponseField>
 
 <ResponseField name="error" type="object | null">
-  当`failed`或`cancelled`：`message`和`category`（`user`为问题
-  根据请求，`server` 用于 Fastino 问题）。
+  状态为 `failed` 或 `cancelled` 时：包含 `message` 和 `category`（`user` 表示请求本身有问题，`server` 表示 Fastino 端出现问题）。
 </ResponseField>
 
 <ResponseExample>
@@ -119,7 +112,7 @@ curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_I
 
 </ResponseExample>
 
-|状态 |意义|
-| ---| ---|
-| `404` |该工作或未来不存在，或者属于另一个团队。 |
-| `410` |操作丢失，或其保留结果已过期。重新提交操作；过期结果无法恢复。 |
+| 状态 | 含义 |
+| --- | --- |
+| `404` | 任务或 future 不存在，或属于其他团队。 |
+| `410` | 操作已丢失，或其保留的结果已过期。请重新提交该操作；已过期的结果无法恢复。 |
