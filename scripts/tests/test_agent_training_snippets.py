@@ -57,7 +57,7 @@ EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
     "training/encoder-quickstart.mdx": 5,
     "training/decoder-quickstart.mdx": 14,
-    "training/migrate-from-tinker.mdx": 5,
+    "training/migrate-from-tinker.mdx": 3,
     "concepts/datasets.mdx": 8,
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
@@ -436,9 +436,8 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
 
         english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
         install_fences = [body for body in fence_bodies(english) if "tinker==" in body]
-        self.assertEqual(len(install_fences), 2)
-        for body in install_fences:
-            self.assertIn(support.package, body)
+        self.assertEqual(install_fences, [])
+        self.assertIn(support.package, english.split("## 1.", 1)[0])
         compatibility = english.split("## Tinker SDK compatibility", 1)[1]
         self.assertIn(support.package, compatibility)
 
@@ -634,7 +633,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             set(),
         )
 
-    def test_inventory_is_exactly_53_fences_across_10_training_api_pages(self) -> None:
+    def test_inventory_is_exactly_51_fences_across_10_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -642,7 +641,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 53)
+        self.assertEqual(len(snippets), 51)
         self.assertEqual(len(pages), 10)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(
