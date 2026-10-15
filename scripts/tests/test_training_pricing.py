@@ -74,6 +74,8 @@ ENCODER_IDS = (
 def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
     rows: dict[str, tuple[str, ...]] = {}
     for line in page.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|"):
+            continue
         for display_name in EXPECTED_RATES:
             if display_name not in line:
                 continue
@@ -89,8 +91,8 @@ def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
 
 
 class TrainingPricingTests(unittest.TestCase):
-    def test_all_locales_publish_the_same_interactive_rates(self) -> None:
-        for page in PRICING_PAGES:
+    def test_pricing_and_model_catalogs_publish_the_same_interactive_rates(self) -> None:
+        for page in PRICING_PAGES + MODEL_CATALOG_PAGES:
             with self.subTest(page=page.relative_to(ROOT)):
                 self.assertEqual(_interactive_rates(page), EXPECTED_RATES)
 
