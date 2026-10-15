@@ -11,6 +11,9 @@ LOCALES = ("cn", "de", "es", "fr")
 PRICING_PAGES = (ROOT / "pricing.mdx",) + tuple(
     ROOT / locale / "pricing.mdx" for locale in LOCALES
 )
+MODEL_CATALOG_PAGES = (ROOT / "concepts" / "models.mdx",) + tuple(
+    ROOT / locale / "concepts" / "models.mdx" for locale in LOCALES
+)
 SECTION_HEADINGS = {
     ROOT / "pricing.mdx": ("## Training", "## Inference"),
     ROOT / "cn" / "pricing.mdx": ("## 训练", "## 推理"),
@@ -20,26 +23,31 @@ SECTION_HEADINGS = {
 }
 
 EXPECTED_RATES = {
-    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": (
+    "Nemotron 3.5 Super VL": (
         r"\$0.65",
         r"\$0.65",
     ),
-    "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": (
+    "Nemotron 3.5 Lightning": (
         r"\$0.35",
         r"\$0.30",
     ),
-    "Qwen/Qwen3.6-35B-A3B": (
+    "Qwen3.6-35B-A3B": (
         r"\$0.44",
         r"\$0.44",
     ),
+}
+CALLABLE_IDS = {
+    "Nemotron 3.5 Super VL": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+    "Nemotron 3.5 Lightning": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+    "Qwen3.6-35B-A3B": "Qwen/Qwen3.6-35B-A3B",
 }
 
 
 def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
     rows: dict[str, tuple[str, ...]] = {}
     for line in page.read_text(encoding="utf-8").splitlines():
-        for model_id in EXPECTED_RATES:
-            if f"`{model_id}`" not in line:
+        for display_name in EXPECTED_RATES:
+            if display_name not in line:
                 continue
             cells = tuple(cell.strip() for cell in line.split("|")[1:-1])
             current_rates = []
@@ -48,7 +56,7 @@ def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
                 match = re.search(r"\\\$\d+(?:\.\d+)?", without_previous_rate)
                 if match:
                     current_rates.append(match.group())
-            rows[model_id] = tuple(current_rates)
+            rows[display_name] = tuple(current_rates)
     return rows
 
 
@@ -71,24 +79,52 @@ class TrainingPricingTests(unittest.TestCase):
             with self.subTest(page=page.relative_to(ROOT)):
                 self.assertIn("Nemotron 3.5 Super VL", page.read_text(encoding="utf-8"))
 
+    def test_callable_ids_live_in_model_catalogs_not_pricing_tables(self) -> None:
+        for page in PRICING_PAGES:
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(ROOT)):
+                for model_id in CALLABLE_IDS.values():
+                    self.assertNotIn(model_id, text)
+
+        for page in MODEL_CATALOG_PAGES:
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(ROOT)):
+                for display_name, model_id in CALLABLE_IDS.items():
+                    self.assertIn(display_name, text)
+                    self.assertIn(f"`{model_id}`", text)
+
     def test_training_precedes_inference(self) -> None:
         for page, (training_heading, inference_heading) in SECTION_HEADINGS.items():
             text = page.read_text(encoding="utf-8")
             with self.subTest(page=page.relative_to(ROOT)):
                 self.assertLess(text.index(training_heading), text.index(inference_heading))
 
-    def test_interactive_dollar_rows_live_only_on_pricing_pages(self) -> None:
-        pricing_pages = {page.resolve() for page in PRICING_PAGES}
+    def test_interactive_dollar_rows_live_only_on_pricing_and_catalog_pages(self) -> None:
+        approved_pages = {
+            page.resolve() for page in PRICING_PAGES + MODEL_CATALOG_PAGES
+        }
         for page in ROOT.glob("**/*.mdx"):
-            if page.resolve() in pricing_pages:
+            if page.resolve() in approved_pages:
                 continue
             for line in page.read_text(encoding="utf-8").splitlines():
-                if any(f"`{model_id}`" in line for model_id in EXPECTED_RATES):
+                if any(name in line for name in EXPECTED_RATES):
                     self.assertNotRegex(
                         line,
                         r"\\\$\d",
-                        f"interactive rates must remain on pricing pages: {page}",
+                        f"interactive rates must remain on approved pages: {page}",
                     )
+
+    def test_retired_rates_are_absent_or_struck_through(self) -> None:
+        retired_rates = (r"\$0.16", r"\$0.032", r"\$0.05", r"\$0.01", r"\$0.08", r"\$0.016")
+        previous_promotional_rates = (r"\$0.96", r"\$0.72")
+        for page in PRICING_PAGES + MODEL_CATALOG_PAGES:
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(ROOT)):
+                for rate in retired_rates:
+                    self.assertNotIn(rate, text)
+                without_strikethrough = re.sub(r"~~.*?~~", "", text)
+                for rate in previous_promotional_rates:
+                    self.assertNotIn(rate, without_strikethrough)
 
 
 if __name__ == "__main__":
