@@ -338,6 +338,9 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
             overview = (ROOT / f"{prefix}training.mdx").read_text(encoding="utf-8")
+            quickstart = (ROOT / f"{prefix}training/quickstart.mdx").read_text(
+                encoding="utf-8"
+            )
             loop = (ROOT / f"{prefix}training/training-loop.mdx").read_text(
                 encoding="utf-8"
             )
@@ -348,10 +351,10 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             for marker in ("forward", "checkpoint"):
                 self.assertIn(marker, overview.lower(), f"{prefix}training.mdx")
             self.assertIn("/api-reference/training-jobs/interactive/storage-usage", overview)
-            self.assertIn("/api-reference/training-jobs/interactive/forward", overview)
+            self.assertIn("/api-reference/training-jobs/interactive/forward", quickstart)
             self.assertIn(
                 "/api-reference/training-jobs/interactive/save-weights-for-sampler",
-                overview,
+                quickstart,
             )
             self.assertIn(f"/{prefix}training/migrate-from-tinker", overview)
             self.assertIn("Tinker", overview)
