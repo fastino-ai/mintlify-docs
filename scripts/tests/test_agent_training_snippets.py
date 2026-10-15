@@ -168,6 +168,14 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 terminate_path,
             )
 
+    def test_interactive_stop_discloses_queued_work_before_release(self) -> None:
+        stop = (ROOT / "api-reference/training-jobs/stop.mdx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Already queued operations", stop)
+        self.assertIn("usage can continue until release", stop)
+
     def test_sampler_checkpoint_examples_set_an_explicit_ttl(self) -> None:
         for path in ROOT.glob("**/training/*.mdx"):
             text = path.read_text(encoding="utf-8")
