@@ -180,6 +180,36 @@ Before scaling the resumed workload:
 5. Save a new state checkpoint under a new name.
 6. Persist the next loop record.
 
+## Deploy your trained model
+
+Deploy a sampler checkpoint to serve it as a model. Deployment is available for
+supported base models; other bases return `400`.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+The response has the model's `model_id` and a `status` of `deploying`. Repeat
+the same call to check progress; it returns the same model, and `status` becomes
+`deployed` once the model is ready. Then call it by ID:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+Replace `MODEL_ID` with the returned `model_id`. See
+[Deploy checkpoint](/api-reference/interactive-jobs/deploy-checkpoint) for the
+request fields and errors.
+
 ## Diagnose recovery errors
 
 | Symptom | Check |

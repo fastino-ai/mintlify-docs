@@ -181,6 +181,36 @@ Antes de escalar la carga reanudada:
 5. Guarda un checkpoint de estado nuevo con otro nombre.
 6. Persiste el siguiente registro del bucle.
 
+## Despliega tu modelo entrenado
+
+Despliega un checkpoint sampler para servirlo como modelo. El despliegue está
+disponible para los modelos base compatibles; las demás bases devuelven `400`.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+La respuesta contiene el `model_id` del modelo y un `status` `deploying`. Repite
+la misma llamada para ver el progreso: devuelve el mismo modelo, y `status` pasa
+a `deployed` cuando el modelo está listo. Después llámalo por su ID:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+Sustituye `MODEL_ID` por el `model_id` devuelto. Consulta
+[Desplegar checkpoint](/es/api-reference/interactive-jobs/deploy-checkpoint)
+para ver los campos y errores.
+
 ## Diagnostica errores de recuperación
 
 | Síntoma | Comprobación |

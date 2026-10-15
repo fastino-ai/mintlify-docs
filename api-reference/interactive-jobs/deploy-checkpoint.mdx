@@ -1,0 +1,98 @@
+---
+title: "Deploy an interactive-job checkpoint"
+sidebarTitle: "Deploy checkpoint"
+description: "Call POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy to serve a sampler checkpoint as a trained model."
+api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
+---
+
+`POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
+
+Serves one of the job's sampler checkpoints as a trained model. Call it with
+[`POST /v1/chat/completions`](/api-reference/inference/chat-completions) and
+`"model": "<model_id>"`. Deployment is available for supported base models;
+other bases return `400`.
+
+The model's `status` is `deploying` until the serving engine has loaded it, then
+`deployed`. Deploying the same checkpoint again returns the same model and its
+current status, so you can repeat the call to check progress. If an earlier
+attempt failed, the repeat call retries it.
+
+## Request
+
+<ParamField header="X-API-Key" type="string" required>
+  Your Fastino API key.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  Interactive job ID.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Name of a sampler checkpoint saved with
+  [`save-weights-for-sampler`](/api-reference/interactive-jobs/save-weights-for-sampler).
+</ParamField>
+
+<ParamField body="model_name" type="string">
+  Up to 64 letters, digits, hyphens, and underscores, starting and ending with a
+  letter or digit. Derived from the checkpoint name when omitted. The body is
+  optional.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+</RequestExample>
+
+## Response
+
+<ResponseField name="model_id" type="string">
+  The trained model's ID. Pass it as `model` for inference.
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  The interactive job that saved the checkpoint.
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  `sampler_weights/<name>`.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  The model's base model.
+</ResponseField>
+
+<ResponseField name="project_id" type="string | null">
+  The job's project, if it has one.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  `deploying` or `deployed`.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "model_id": "MODEL_ID",
+  "job_id": "SESSION_ID:train:0",
+  "checkpoint_id": "sampler_weights/step-000100",
+  "base_model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+  "project_id": null,
+  "status": "deploying"
+}
+```
+
+</ResponseExample>
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Serving isn't available yet for the job's base model, or the checkpoint isn't a PEFT adapter the serving engine accepts. |
+| `404` | The job or sampler checkpoint doesn't exist, belongs to another team, or has no files. |
+| `409` | Another model already uses `model_name`, or the model served from this checkpoint was deleted. Save the weights under a new name to deploy them again. |
+| `422` | `model_name` is invalid or the body has an unknown field. |

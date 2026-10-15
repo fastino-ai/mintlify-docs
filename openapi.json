@@ -3052,6 +3052,28 @@
         "title": "DeleteTrainingJobResponse",
         "type": "object"
       },
+      "DeployCheckpointRequest": {
+        "additionalProperties": false,
+        "description": "``POST .../checkpoints/sampler_weights/{name}/deploy``.",
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The trained model's name (alphanumerics, hyphens, underscores); derived from the checkpoint when absent.",
+            "title": "Model Name"
+          }
+        },
+        "title": "DeployCheckpointRequest",
+        "type": "object"
+      },
       "DeployCheckpointResponse": {
         "description": "Response after deploying a checkpoint",
         "properties": {
@@ -3092,6 +3114,58 @@
           "mme_path"
         ],
         "title": "DeployCheckpointResponse",
+        "type": "object"
+      },
+      "DeployedCheckpoint": {
+        "description": "A sampler checkpoint as a trained model: call it with `model=<model_id>` or deploy it to a project.",
+        "properties": {
+          "base_model": {
+            "title": "Base Model",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "model_id": {
+            "description": "The trained model's id (`POST /v1/projects/{project_id}/deployments`).",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "status": {
+            "description": "`deploying` while the adapter is staged and the serving engine warms up.",
+            "enum": [
+              "deploying",
+              "deployed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "job_id",
+          "checkpoint_id",
+          "base_model",
+          "project_id",
+          "status"
+        ],
+        "title": "DeployedCheckpoint",
         "type": "object"
       },
       "DeploymentHistoryResponse": {
@@ -10177,6 +10251,75 @@
           }
         },
         "summary": "List Job Checkpoints",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy": {
+      "post": {
+        "description": "Serve one of the job's sampler checkpoints as a trained model: call it with `POST /v1/chat/completions` and `model=<model_id>`, or deploy it with `POST /v1/projects/{project_id}/deployments`. Deploying the same checkpoint again returns the same model. Its status is `deploying` until the serving engine has loaded it. Only bases the serving catalog loads adapters of are served (Nemotron 3.5 Lightning).",
+        "operationId": "deploy_checkpoint_v1_training_jobs__job_id__checkpoints_sampler_weights__name__deploy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DeployCheckpointRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployedCheckpoint"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Serve an interactive training job checkpoint",
         "tags": [
           "training"
         ]

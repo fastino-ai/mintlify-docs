@@ -1,0 +1,85 @@
+---
+title: "部署交互式任务检查点"
+sidebarTitle: "部署检查点"
+description: "调用 POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy，将 sampler 检查点作为训练好的模型提供服务。"
+api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
+---
+
+`POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
+
+将任务的某个 sampler 检查点作为训练好的模型提供服务。使用 [`POST /v1/chat/completions`](/cn/api-reference/inference/chat-completions) 并传入 `"model": "<model_id>"` 调用它。部署适用于受支持的基础模型；其他基础模型返回 `400`。
+
+在服务引擎加载模型之前，其 `status` 为 `deploying`，之后为 `deployed`。再次部署同一检查点会返回同一个模型及其当前状态，因此可以重复调用来查看进度。如果之前的尝试失败，重复调用会重试。
+
+<ParamField header="X-API-Key" type="string" required>
+  您的 Fastino API 密钥。
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  交互式任务 ID。
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  使用 [`save-weights-for-sampler`](/cn/api-reference/interactive-jobs/save-weights-for-sampler) 保存的 sampler 检查点名称。
+</ParamField>
+
+<ParamField body="model_name" type="string">
+  最多 64 个字母、数字、连字符和下划线，须以字母或数字开头和结尾。省略时根据检查点名称生成。请求体可省略。
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+</RequestExample>
+
+<ResponseField name="model_id" type="string">
+  训练好的模型 ID。推理时将其作为 `model` 传入。
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  保存该检查点的交互式任务。
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  `sampler_weights/<name>`。
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  模型的基础模型。
+</ResponseField>
+
+<ResponseField name="project_id" type="string | null">
+  任务所属的项目（如有）。
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  `deploying` 或 `deployed`。
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "model_id": "MODEL_ID",
+  "job_id": "SESSION_ID:train:0",
+  "checkpoint_id": "sampler_weights/step-000100",
+  "base_model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+  "project_id": null,
+  "status": "deploying"
+}
+```
+
+</ResponseExample>
+
+| 状态 | 含义 |
+| --- | --- |
+| `400` | 任务的基础模型暂不支持服务，或该检查点不是服务引擎接受的 PEFT 适配器。 |
+| `404` | 任务或 sampler 检查点不存在、属于其他团队，或没有文件。 |
+| `409` | `model_name` 已被其他模型使用，或由该检查点提供服务的模型已被删除。请以新名称保存权重后再部署。 |
+| `422` | `model_name` 无效，或请求体包含未知字段。 |

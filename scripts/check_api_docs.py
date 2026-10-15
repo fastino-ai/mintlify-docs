@@ -25,6 +25,11 @@ INFERENCE_OPERATIONS = {
     ("GET", "/v1/inferences/{inference_id}/feedback"),
     ("POST", "/v1/inferences/{inference_id}/feedback"),
 }
+# Documented ahead of Pioneer main. Pioneer's contract check accepts their bindings and routes
+# before its projection and route manifest carry them; the static harness still requires them.
+UNRELEASED_OPERATIONS = frozenset(
+    {("POST", "/v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy")}
+)
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",
@@ -147,6 +152,7 @@ def _llms_findings(root: Path) -> list[str]:
 def _api_reference_findings(
     root: Path,
     destination: dict[str, object],
+    unreleased: frozenset[tuple[str, str]] = frozenset(),
 ) -> list[str]:
     """Return OpenAPI binding and API-reference navigation findings."""
     findings: list[str] = []
@@ -166,7 +172,7 @@ def _api_reference_findings(
                 f"{operation[0]} {operation[1]} must have exactly one API binding, "
                 f"found {pages}"
             )
-    findings.extend(_stale_binding_findings(bindings, actual_operations))
+    findings.extend(_stale_binding_findings(bindings, actual_operations | unreleased))
 
     config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
     languages = config.get("navigation", {}).get("languages", [])
@@ -576,11 +582,16 @@ def _line_findings(
     return findings
 
 
-def local_docs_findings(root: Path, destination: dict[str, object]) -> list[str]:
+def local_docs_findings(
+    root: Path,
+    destination: dict[str, object],
+    *,
+    unreleased: frozenset[tuple[str, str]] = frozenset(),
+) -> list[str]:
     """Return checks that need only this documentation repository."""
     findings = _llms_findings(root)
     findings.extend(_skill_findings(root))
-    findings.extend(_api_reference_findings(root, destination))
+    findings.extend(_api_reference_findings(root, destination, unreleased))
     findings.extend(_journey_order_findings(root))
     claim_files = _claim_files(root)
     findings.extend(_sdk_claim_findings(root, claim_files))
@@ -617,8 +628,18 @@ def main() -> int:
         )
     )
     route_patterns = _route_patterns(manifest)
+    unreleased = _route_patterns(
+        {
+            "routes": [
+                {"target_path": path, "methods": [method], "environments": ["prod"]}
+                for method, path in UNRELEASED_OPERATIONS
+            ]
+        }
+    )
+    for method, patterns in unreleased.items():
+        route_patterns.setdefault(method, []).extend(patterns)
     actual_operations = _operations(destination)
-    findings = local_docs_findings(root, destination)
+    findings = local_docs_findings(root, destination, unreleased=UNRELEASED_OPERATIONS)
     docs = _documentation_files(root, include_locales=args.include_locales)
     for path in docs:
         findings.extend(

@@ -1,0 +1,85 @@
+---
+title: "Déployer un checkpoint d’une tâche interactive"
+sidebarTitle: "Déployer un checkpoint"
+description: "Appelez POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy pour servir un checkpoint sampler comme modèle entraîné."
+api: "POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"
+---
+
+`POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
+
+Sert l’un des checkpoints sampler de la tâche comme modèle entraîné. Appelez-le avec [`POST /v1/chat/completions`](/fr/api-reference/inference/chat-completions) et `"model": "<model_id>"`. Le déploiement est disponible pour les modèles de base pris en charge ; les autres bases renvoient `400`.
+
+Le `status` du modèle vaut `deploying` jusqu’à ce que le moteur de serving l’ait chargé, puis `deployed`. Redéployer le même checkpoint renvoie le même modèle et son état actuel : vous pouvez donc répéter l’appel pour suivre la progression. Si une tentative précédente a échoué, l’appel répété la relance.
+
+<ParamField header="X-API-Key" type="string" required>
+  Votre clé API Fastino.
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID de la tâche interactive.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Nom d’un checkpoint sampler enregistré avec [`save-weights-for-sampler`](/fr/api-reference/interactive-jobs/save-weights-for-sampler).
+</ParamField>
+
+<ParamField body="model_name" type="string">
+  Jusqu’à 64 lettres, chiffres, tirets et tirets bas, commençant et finissant par une lettre ou un chiffre. Dérivé du nom du checkpoint s’il est omis. Le corps est facultatif.
+</ParamField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+</RequestExample>
+
+<ResponseField name="model_id" type="string">
+  ID du modèle entraîné. Passez-le comme `model` pour l’inférence.
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  La tâche interactive qui a enregistré le checkpoint.
+</ResponseField>
+
+<ResponseField name="checkpoint_id" type="string">
+  `sampler_weights/<name>`.
+</ResponseField>
+
+<ResponseField name="base_model" type="string">
+  Le modèle de base du modèle.
+</ResponseField>
+
+<ResponseField name="project_id" type="string | null">
+  Le projet de la tâche, le cas échéant.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  `deploying` ou `deployed`.
+</ResponseField>
+
+<ResponseExample>
+
+```json Response
+{
+  "model_id": "MODEL_ID",
+  "job_id": "SESSION_ID:train:0",
+  "checkpoint_id": "sampler_weights/step-000100",
+  "base_model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+  "project_id": null,
+  "status": "deploying"
+}
+```
+
+</ResponseExample>
+
+| Statut | Signification |
+| --- | --- |
+| `400` | Le serving n’est pas encore disponible pour le modèle de base de la tâche, ou le checkpoint n’est pas un adaptateur PEFT accepté par le moteur de serving. |
+| `404` | La tâche ou le checkpoint sampler n’existe pas, appartient à une autre équipe ou n’a pas de fichiers. |
+| `409` | Un autre modèle utilise déjà `model_name`, ou le modèle servi depuis ce checkpoint a été supprimé. Enregistrez les poids sous un nouveau nom pour les redéployer. |
+| `422` | `model_name` n’est pas valide ou le corps contient un champ inconnu. |

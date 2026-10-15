@@ -184,6 +184,38 @@ Bevor Sie den fortgesetzten Workload skalieren:
 5. Speichern Sie einen neuen Zustands-Checkpoint unter neuem Namen.
 6. Persistieren Sie den nächsten Loop-Datensatz.
 
+## Trainiertes Modell bereitstellen
+
+Stellen Sie einen Sampler-Checkpoint bereit, um ihn als Modell auszuliefern. Das
+Deployment ist für unterstützte Basismodelle verfügbar; andere Basismodelle
+geben `400` zurück.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+Die Antwort enthält die `model_id` des Modells und den `status` `deploying`.
+Wiederholen Sie denselben Aufruf, um den Fortschritt zu prüfen: Er gibt dasselbe
+Modell zurück, und `status` wird `deployed`, sobald das Modell bereit ist. Rufen
+Sie es dann über seine ID auf:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+Ersetzen Sie `MODEL_ID` durch die zurückgegebene `model_id`. Felder und Fehler
+finden Sie unter
+[Checkpoint bereitstellen](/de/api-reference/interactive-jobs/deploy-checkpoint).
+
 ## Wiederherstellungsfehler diagnostizieren
 
 | Symptom | Prüfung |

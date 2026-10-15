@@ -60,7 +60,7 @@ EXPECTED_FENCE_COUNTS = {
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
     "training/verifiable-rewards.mdx": 7,
-    "training/checkpoints.mdx": 4,
+    "training/checkpoints.mdx": 6,
     "training/auto.mdx": 0,
 }
 EXPECTED_LIVE_GETS_WITH_FIXTURES = 9
@@ -201,7 +201,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         )
         self.assertIn("interactive runs only", runs)
 
-    def test_inventory_is_exactly_49_fences_across_9_training_api_pages(self) -> None:
+    def test_inventory_is_exactly_51_fences_across_9_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -209,7 +209,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 49)
+        self.assertEqual(len(snippets), 51)
         self.assertEqual(len(pages), 9)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(

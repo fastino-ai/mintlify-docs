@@ -167,6 +167,31 @@ sampler = call(
 5. 以新名称保存新的状态检查点。
 6. 持久化下一条循环记录。
 
+## 部署训练好的模型
+
+部署 sampler 检查点即可将其作为模型提供服务。部署适用于受支持的基础模型；其他基础模型返回 `400`。
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+响应包含模型的 `model_id`，`status` 为 `deploying`。重复同一调用即可查看进度：它返回同一个模型，模型就绪后 `status` 变为 `deployed`。然后按 ID 调用它：
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+将 `MODEL_ID` 替换为返回的 `model_id`。请求字段和错误请参阅[部署检查点](/cn/api-reference/interactive-jobs/deploy-checkpoint)。
+
 ## 诊断恢复错误
 
 | 现象 | 检查 |

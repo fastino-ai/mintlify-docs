@@ -46,6 +46,10 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   `/optim-step`, `/save-weights`, `/save-weights-for-sampler`, `/load-weights`,
   and `/sample`. Each returns a `future_id`; read it with
   `GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true`.
+- Serve a sampler checkpoint with
+  `POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`
+  (available for supported models), then pass its `model_id` as `model` to
+  `POST /v1/chat/completions`.
 - Tokenize client-side with the base model's Hugging Face tokenizer. Datums
   are JSON: `model_input.chunks[].tokens` and `loss_fn_inputs` tensors.
 - The server orders each job's calls. Don't send sequence numbers or

@@ -182,6 +182,37 @@ Avant de faire monter en charge la reprise :
 5. Enregistrez un nouveau checkpoint d'état sous un nouveau nom.
 6. Conservez l'enregistrement de boucle suivant.
 
+## Déployer votre modèle entraîné
+
+Déployez un checkpoint sampler pour le servir comme modèle. Le déploiement est
+disponible pour les modèles de base pris en charge ; les autres bases renvoient
+`400`.
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "support-replies-v1"}'
+```
+
+La réponse contient le `model_id` du modèle et un `status` `deploying`. Répétez
+le même appel pour suivre la progression : il renvoie le même modèle, et `status`
+passe à `deployed` lorsque le modèle est prêt. Appelez-le ensuite par son ID :
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/chat/completions" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+  }'
+```
+
+Remplacez `MODEL_ID` par le `model_id` renvoyé. Consultez
+[Déployer un checkpoint](/fr/api-reference/interactive-jobs/deploy-checkpoint)
+pour les champs et les erreurs.
+
 ## Diagnostiquer les erreurs de reprise
 
 | Symptôme | Vérification |

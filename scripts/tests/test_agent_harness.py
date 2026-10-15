@@ -221,6 +221,36 @@ class AgentHarnessTests(unittest.TestCase):
             ],
         )
 
+    def test_unreleased_bindings_pass_the_contract_check_but_not_the_static_harness(self) -> None:
+        document = HARNESS._load_openapi()
+        paths = dict(document["paths"])
+        for method, path in CHECKS.UNRELEASED_OPERATIONS:
+            item = {key: value for key, value in paths[path].items() if key != method.lower()}
+            if any(key in CHECKS.HTTP_METHODS for key in item):
+                paths[path] = item
+            else:
+                del paths[path]
+        released = {**document, "paths": paths}
+
+        self.assertEqual(
+            CHECKS._api_reference_findings(
+                HARNESS.ROOT, released, CHECKS.UNRELEASED_OPERATIONS
+            ),
+            [],
+        )
+        self.assertEqual(
+            [
+                finding
+                for finding in CHECKS._api_reference_findings(HARNESS.ROOT, released)
+                if "has API bindings but is absent from openapi.json" in finding
+            ],
+            [
+                f"{method} {path} has API bindings but is absent from openapi.json: "
+                "['api-reference/interactive-jobs/deploy-checkpoint']"
+                for method, path in sorted(CHECKS.UNRELEASED_OPERATIONS)
+            ],
+        )
+
     def test_locale_skeleton_reports_dropped_fields_and_code(self) -> None:
         english = """---
 api: "POST /v1/example"
