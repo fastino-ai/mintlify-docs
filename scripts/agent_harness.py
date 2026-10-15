@@ -91,6 +91,7 @@ JOURNEY_PAGES = (
     "inference/chat-completions.mdx",
     "training.mdx",
     "training/quickstart.mdx",
+    "training/decoder-quickstart.mdx",
     "training/migrate-from-tinker.mdx",
     "training/training-loop.mdx",
     "training/verifiable-rewards.mdx",
@@ -111,6 +112,7 @@ COOKBOOK_ENDPOINTS = {
 TRAINING_NAVIGATION = [
     "training",
     "training/quickstart",
+    "training/decoder-quickstart",
     "training/migrate-from-tinker",
     "concepts/datasets",
     "guides/fine-tune-gliner",
@@ -127,7 +129,8 @@ TRAINING_NAVIGATION = [
 ]
 TRAINING_SIDEBAR_TITLES = {
     "training": "Overview",
-    "training/quickstart": "Quickstart",
+    "training/quickstart": "Encoder Quickstart",
+    "training/decoder-quickstart": "Decoder Quickstart",
     "training/migrate-from-tinker": "Migrate from Tinker",
     "concepts/datasets": "Datasets",
     "guides/fine-tune-gliner": "Fine-tune GLiNER",

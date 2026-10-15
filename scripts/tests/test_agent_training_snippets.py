@@ -39,6 +39,7 @@ SPEC.loader.exec_module(SNIPPETS)
 EXPECTED_PAGES = (
     "training.mdx",
     "training/quickstart.mdx",
+    "training/decoder-quickstart.mdx",
     "training/migrate-from-tinker.mdx",
     "concepts/datasets.mdx",
     "guides/fine-tune-gliner.mdx",
@@ -54,7 +55,8 @@ EXPECTED_EMPTY_PAGES = (
 )
 EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
-    "training/quickstart.mdx": 17,
+    "training/quickstart.mdx": 5,
+    "training/decoder-quickstart.mdx": 14,
     "training/migrate-from-tinker.mdx": 5,
     "concepts/datasets.mdx": 8,
     "guides/fine-tune-gliner.mdx": 8,
@@ -66,6 +68,7 @@ EXPECTED_FENCE_COUNTS = {
 EXPECTED_LIVE_GETS_WITH_FIXTURES = 9
 PARITY_PAGES = (
     "training/quickstart.mdx",
+    "training/decoder-quickstart.mdx",
     "training/migrate-from-tinker.mdx",
     "training/training-loop.mdx",
     "training/verifiable-rewards.mdx",
@@ -370,16 +373,16 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
     def test_tinker_quickstarts_require_python_311(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
-            path = ROOT / f"{prefix}training/quickstart.mdx"
+            path = ROOT / f"{prefix}training/decoder-quickstart.mdx"
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("Python 3.10", text, path)
-            self.assertGreaterEqual(text.count("Python 3.11"), 2, path)
+            self.assertGreaterEqual(text.count("Python 3.11"), 1, path)
 
     def test_interactive_billing_and_sdk_limits_are_documented_in_every_locale(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
             overview = (ROOT / f"{prefix}training.mdx").read_text(encoding="utf-8")
-            quickstart = (ROOT / f"{prefix}training/quickstart.mdx").read_text(
+            quickstart = (ROOT / f"{prefix}training/decoder-quickstart.mdx").read_text(
                 encoding="utf-8"
             )
             loop = (ROOT / f"{prefix}training/training-loop.mdx").read_text(
@@ -551,7 +554,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             ROOT / f"{prefix}{page}"
             for prefix in ("", "cn/", "de/", "es/", "fr/")
             for page in (
-                "training/quickstart.mdx",
+                "training/decoder-quickstart.mdx",
                 "training/verifiable-rewards.mdx",
             )
         ]
@@ -573,20 +576,30 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             )
             self.assertIn("`enable_thinking=False`", loop)
 
-    def test_quickstart_has_one_native_rest_tutorial(self) -> None:
-        headings = {
-            "": ("### Native JSON path", "### Run the native REST quickstart"),
-            "cn/": ("### 原生 JSON 路径", "### 运行原生 REST 快速入门"),
-            "de/": ("### Nativer JSON-Weg", "### Nativen REST-Quickstart ausführen"),
-            "es/": ("### Vía JSON nativa", "### Ejecuta el inicio rápido REST nativo"),
-            "fr/": ("### Voie JSON native", "### Exécuter le démarrage rapide REST natif"),
+    def test_encoder_and_decoder_quickstarts_are_separate(self) -> None:
+        titles = {
+            "": ("Encoder Quickstart", "Decoder Quickstart"),
+            "cn/": ("编码器快速入门", "解码器快速入门"),
+            "de/": ("Encoder-Schnellstart", "Decoder-Schnellstart"),
+            "es/": ("Inicio rápido del codificador", "Inicio rápido del decodificador"),
+            "fr/": ("Démarrage rapide de l'encodeur", "Démarrage rapide du décodeur"),
         }
-        for prefix, (duplicate, canonical) in headings.items():
-            page = ROOT / f"{prefix}training/quickstart.mdx"
-            text = page.read_text(encoding="utf-8")
-            with self.subTest(page=page.relative_to(ROOT)):
-                self.assertNotIn(duplicate, text)
-                self.assertEqual(text.count(canonical), 1)
+        navigation = (ROOT / "docs.json").read_text(encoding="utf-8")
+        for prefix, (encoder_title, decoder_title) in titles.items():
+            encoder_path = f"{prefix}training/quickstart"
+            decoder_path = f"{prefix}training/decoder-quickstart"
+            encoder = (ROOT / f"{encoder_path}.mdx").read_text(encoding="utf-8")
+            decoder = (ROOT / f"{decoder_path}.mdx").read_text(encoding="utf-8")
+            llms = (ROOT / f"{prefix}llms.txt").read_text(encoding="utf-8")
+            with self.subTest(locale=prefix or "en"):
+                self.assertIn(f'title: "{encoder_title}"', encoder)
+                self.assertIn(f'title: "{decoder_title}"', decoder)
+                self.assertNotIn("/forward-backward", encoder)
+                self.assertIn('f"{jobs}/forward-backward"', decoder)
+                self.assertIn(f'"{encoder_path}"', navigation)
+                self.assertIn(f'"{decoder_path}"', navigation)
+                self.assertIn(f"/{encoder_path}.md", llms)
+                self.assertIn(f"/{decoder_path}.md", llms)
 
     def test_retired_claim_guard_rejects_banned_text(self) -> None:
         cases = (
@@ -611,7 +624,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             set(),
         )
 
-    def test_inventory_is_exactly_51_fences_across_9_training_api_pages(self) -> None:
+    def test_inventory_is_exactly_53_fences_across_10_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -619,8 +632,8 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 51)
-        self.assertEqual(len(pages), 9)
+        self.assertEqual(len(snippets), 53)
+        self.assertEqual(len(pages), 10)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(
             tuple(page for page, count in counts.items() if count == 0),

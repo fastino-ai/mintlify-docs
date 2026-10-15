@@ -1,0 +1,302 @@
+---
+title: "Decoder-Schnellstart"
+sidebarTitle: "Decoder-Schnellstart"
+description: "Trainieren Sie ein Nemotron- oder Qwen-Decoder-LLM mit dem nativen interaktiven REST-Trainingsloop."
+---
+
+Dieser Schnellstart zeigt, wie Sie ein Decoder-LLM trainieren, wenn Ihre
+Anwendung Sampling, Rewards und Modellupdates steuern muss. Um einen
+GLiNER-Encoder mit einem verwalteten Config-Job feinabzustimmen, verwenden Sie
+den [Encoder-Schnellstart](/de/training/quickstart).
+
+## 1. Authentifizieren
+
+1. Erstellen Sie ein [Fastino-Konto](https://agent.fastino.ai/).
+2. Öffnen Sie [API-Schlüssel](https://agent.fastino.ai/api-keys).
+3. Erstellen Sie einen Schlüssel und kopieren Sie ihn, sobald er angezeigt wird.
+
+Speichern Sie den Schlüssel in einer Umgebungsvariable:
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_API_KEY="fast_sk_..."
+```
+
+```powershell Windows
+$env:FASTINO_API_KEY = "fast_sk_..."
+```
+
+</CodeGroup>
+
+Senden Sie diesen Schlüssel als `X-API-Key: $FASTINO_API_KEY`. Den vollständigen
+Authentifizierungsvertrag finden Sie unter
+[Authentifizierung](/de/authentication).
+
+Wählen Sie eine unterstützte Schnittstelle:
+
+- Native JSON-Clients rufen
+  [`POST /v1/training/jobs/create-model`](/de/api-reference/training-jobs/interactive/create-model)
+  auf, reihen Modelloperationen unter `/v1/training/jobs/{job_id}` ein und fragen
+  jede zurückgegebene `future_id` ab, bis sie `completed`, `failed` oder
+  `cancelled` ist.
+- Bestehende Tinker-Programme behalten `tinker==0.32.0`; die SDK-Einrichtung
+  finden Sie unter [Von Tinker migrieren](/de/training/migrate-from-tinker).
+
+Native Clients senden weder `seq_id` noch Heartbeats. Der Server weist die
+Operationsreihenfolge zu und hält die interne Sitzung aktiv. Ein Request mit
+`wait=true` wartet höchstens 25 Sekunden. Der Client muss eine nicht
+abgeschlossene Operation daher weiter abfragen. Informationen zu Rewards,
+wiederholten Rollouts und Wiederherstellung nach diesem Quickstart finden Sie
+unter [Benutzerdefinierten Trainingsloop erstellen](/de/training/training-loop).
+
+## 2. Client-Bibliotheken installieren
+
+Sie benötigen Python 3.11 oder neuer. `transformers` liefert den Tokenizer des
+Modells; das Training selbst läuft auf Fastino.
+
+<CodeGroup>
+
+```bash uv
+uv init fastino-training
+cd fastino-training
+uv add requests transformers
+```
+
+```bash pip
+mkdir fastino-training && cd fastino-training
+python -m venv .venv
+source .venv/bin/activate
+pip install requests transformers
+```
+
+```powershell pip · Windows
+mkdir fastino-training
+cd fastino-training
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install requests transformers
+```
+
+</CodeGroup>
+
+## 3. Modell auswählen
+
+| Modell-ID | Kontextlänge (Token) |
+| --- | --- |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | 65,536 |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 32,768 |
+| `Qwen/Qwen3.6-35B-A3B` | 32,768 |
+
+LoRA-Ränge von 1 bis 32 werden unterstützt; der Standard ist 32.
+
+<CodeGroup>
+
+```bash macOS/Linux
+export FASTINO_TRAINING_MODEL="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16"
+```
+
+```powershell Windows
+$env:FASTINO_TRAINING_MODEL = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16"
+```
+
+</CodeGroup>
+
+## 4. Job erstellen
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"base_model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", "lora_config": {"rank": 32}}'
+```
+
+Die Antwort enthält eine `job_id` und die `future_id` des `create`-Futures
+des Jobs:
+
+```json
+{
+  "job_id": "SESSION_ID:train:0",
+  "type": "interactive",
+  "base_model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+  "future_id": "FUTURE_ID",
+  "load_future_id": null
+}
+```
+
+Jeder Aufruf, der Arbeit ausführt, gibt ein Future zurück. Lesen Sie es,
+bis `status` `completed` ist. Mit `wait=true` wartet die Anfrage bis zu
+25 Sekunden:
+
+```bash
+curl "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/futures/$FUTURE_ID?wait=true" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+## 5. Trainieren, speichern und samplen
+
+Das folgende Skript führt den ganzen Loop aus: Es erstellt einen Job, führt drei
+Forward-Backward-Durchläufe und Optimiererschritte aus, speichert einen
+Sampler-Checkpoint, sampelt daraus und stoppt den Job.
+
+Erstellen Sie `quickstart.py`:
+
+```python
+import os
+
+import requests
+from transformers import AutoTokenizer
+
+API = "https://api.fastino.ai"
+MODEL = os.environ["FASTINO_TRAINING_MODEL"]
+
+session = requests.Session()
+session.headers["X-API-Key"] = os.environ["FASTINO_API_KEY"]
+
+
+def call(method, path, body=None):
+    response = session.request(method, API + path, json=body, timeout=60)
+    response.raise_for_status()
+    return response.json() if response.content else None
+
+
+def wait(job_id, future_id):
+    path = f"/v1/training/jobs/{job_id}/futures/{future_id}?wait=true"
+    while True:
+        future = call("GET", path)
+        if future["status"] == "completed":
+            return future["result"]
+        if future["status"] in ("failed", "cancelled"):
+            raise RuntimeError(future["error"])
+
+
+def datum(prompt_tokens, completion_tokens):
+    tokens = prompt_tokens + completion_tokens
+    weights = [0.0] * (len(prompt_tokens) - 1) + [1.0] * len(completion_tokens)
+    return {
+        "model_input": {"chunks": [{"type": "encoded_text", "tokens": tokens[:-1]}]},
+        "loss_fn_inputs": {
+            "target_tokens": {"data": tokens[1:], "dtype": "int64"},
+            "weights": {"data": weights, "dtype": "float32"},
+        },
+    }
+
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL)
+prompt = tokenizer.apply_chat_template(
+    [{"role": "user", "content": "What is the capital of France?"}],
+    add_generation_prompt=True,
+    enable_thinking=False,
+    return_dict=False,
+)
+completion = tokenizer.encode("Paris.", add_special_tokens=False)
+completion.append(tokenizer.eos_token_id)
+batch = {"datums": [datum(prompt, completion)], "loss_fn": "cross_entropy"}
+
+created = call(
+    "POST",
+    "/v1/training/jobs/create-model",
+    {"base_model": MODEL, "lora_config": {"rank": 32}},
+)
+job_id = created["job_id"]
+jobs = f"/v1/training/jobs/{job_id}"
+print(f"TRAINING_JOB_ID={job_id}")
+
+try:
+    wait(job_id, created["future_id"])
+
+    for step in range(3):
+        backward = call("POST", f"{jobs}/forward-backward", batch)
+        result = wait(job_id, backward["future_id"])
+        update = call(
+            "POST",
+            f"{jobs}/optim-step",
+            {"adam_params": {"learning_rate": 1e-4}},
+        )
+        wait(job_id, update["future_id"])
+        print(f"step {step}: loss {result['metrics']['loss:sum']:.4f}")
+
+    saved = call(
+        "POST",
+        f"{jobs}/save-weights-for-sampler",
+        {"name": "quickstart", "ttl_seconds": 24 * 60 * 60},
+    )
+    wait(job_id, saved["future_id"])
+
+    sample = call(
+        "POST",
+        f"{jobs}/sample",
+        {
+            "checkpoint": "quickstart",
+            "prompt_tokens": prompt,
+            "sampling_params": {"max_tokens": 32},
+        },
+    )
+    sequence = wait(job_id, sample["future_id"])["sequences"][0]
+    print(tokenizer.decode(sequence["tokens"]))
+finally:
+    call("POST", f"{jobs}/stop")
+```
+
+Das Skript wartet auf den erfolgreichen Abschluss des Forward-Backward-
+Durchlaufs, bevor es den Optimiererschritt sendet. Wenn ein Future fehlschlägt
+oder abgebrochen wird, löst `wait` einen Fehler aus und die abhängige Operation
+wird nicht gesendet.
+
+`enable_thinking=False` schließt den Reasoning-Block des Modells, bevor die
+überwachte Antwort beginnt. Dies ist ein Tokenizer-Template-Argument, kein
+Anfragefeld der Training API.
+
+Führen Sie das Skript aus:
+
+```bash
+python quickstart.py
+```
+
+Kopieren Sie den Wert nach `TRAINING_JOB_ID=`.
+
+<Note>
+  Ein interaktiver Job ohne Aufrufe für 30 Minuten wird freigegeben. Seine
+  Checkpoints bleiben erhalten. Das Stoppen antwortet sofort und verhindert neue
+  Aufrufe, aber bereits eingereihte Operationen können abgeschlossen werden,
+  bevor Ressourcen freigegeben werden. Die Nutzung kann bis zu dieser Freigabe weiterlaufen. Sie können seine Sampler-Checkpoints
+  weiterhin samplen und herunterladen.
+</Note>
+
+## 6. Kanonischen Job prüfen
+
+<CodeGroup>
+
+```bash macOS/Linux
+export TRAINING_JOB_ID="<ID printed by quickstart.py>"
+curl --fail-with-body \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID"
+```
+
+```powershell Windows
+$env:TRAINING_JOB_ID = "<ID printed by quickstart.py>"
+Invoke-RestMethod `
+  -Headers @{ "X-API-Key" = "$env:FASTINO_API_KEY" } `
+  -Uri "https://api.fastino.ai/v1/training/jobs/$env:TRAINING_JOB_ID"
+```
+
+</CodeGroup>
+
+Die Antwort beschreibt denselben Job, der über den nativen REST-Endpunkt
+erstellt wurde. Verwenden Sie die öffentlichen Seiten für interaktive
+Operationen und die kanonische Jobs-API für dokumentierte Job-Lesezugriffe.
+
+## Weiter
+
+<CardGroup cols={3}>
+  <Card title="Encoder-Schnellstart" icon="database" href="/de/training/quickstart">
+    Einen GLiNER-Encoder mit einem verwalteten Config-Job feinabstimmen.
+  </Card>
+  <Card title="Referenz für interaktive Jobs" icon="book" href="/de/api-reference/training-jobs/interactive/create-model">
+    Jede Anfrage und Antwort interaktiver Jobs prüfen.
+  </Card>
+  <Card title="Trainingsloop" icon="repeat-2" href="/de/training/training-loop">
+    Rewards, Updates und Wiederherstellung zu einem benutzerdefinierten Loop hinzufügen.
+  </Card>
+</CardGroup>
