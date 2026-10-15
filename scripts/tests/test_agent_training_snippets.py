@@ -640,7 +640,8 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             self.assertIn("gliner2-model-a1b2c3d4.tar.gz", download)
             for marker in ("`stdout`", "`stderr`", "`system`"):
                 self.assertIn(marker, logs, f"{prefix} logs page")
-            self.assertIn("6.5", quickstart, f"{prefix} decoder quickstart")
+            self.assertIn("future", quickstart, f"{prefix} decoder quickstart")
+            self.assertNotIn("6.5", quickstart, f"{prefix} decoder quickstart")
             self.assertIn("deployed", guide, f"{prefix} GLiNER guide")
             self.assertNotIn("/checkpoints/$CHECKPOINT_ID/deploy", guide)
 
