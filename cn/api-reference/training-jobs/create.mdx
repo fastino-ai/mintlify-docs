@@ -28,7 +28,7 @@ api: "POST /v1/training/jobs"
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  `GET /v1/base-models?supports_training=true` 返回的可训练编码器 ID，或受支持的检查点 UUID。所选 `training_type` 必须具有兼容的调度路由。解码器基础模型会返回 `400`。
+  `GET /v1/base-models?supports_training=true` 返回的可训练编码器 ID。所选 `training_type` 必须具有兼容的调度路由。检查点 UUID 和解码器基础模型会返回 `400`。
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -89,19 +89,19 @@ api: "POST /v1/training/jobs"
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
-    预热比例，取值从 `0` 到 `1`。`warmup_steps` 优先生效。
+    预热比例，取值从 `0` 到 `1`。GLiNER 任务使用此字段配置预热。
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    绝对预热步数，范围为 `1` 到 `2147483647`。
+    绝对预热步数，范围为 `1` 到 `2147483647`。GLiNER 任务会以 `422 unsupported_encoder_scheduling` 拒绝此字段；请使用 `warmup_ratio`。
   </ParamField>
 
-  <ParamField body="lr_scheduler_type" type="string" default="cosine">
-    学习率调度：`constant`、`linear` 或 `cosine`。
+  <ParamField body="lr_scheduler_type" type="string">
+    学习率调度：`constant`、`linear` 或 `cosine`。省略时 GLiNER 使用 `linear`；只有显式值会被转发。
   </ParamField>
 
-  <ParamField body="weight_decay" type="number" default="0.01">
-    非负的 AdamW 权重衰减。
+  <ParamField body="weight_decay" type="number">
+    为请求兼容性而接受，但不会转发到 GLiNER 训练。GLiNER 使用容器默认值 `0.01`。
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
@@ -234,7 +234,12 @@ curl -X POST https://api.fastino.ai/v1/training/jobs \
 
 ```json
 {
-  "detail": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart)."
+  "error": {
+    "message": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart).",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null
+  }
 }
 ```
 

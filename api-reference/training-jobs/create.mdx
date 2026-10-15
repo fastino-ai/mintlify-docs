@@ -39,7 +39,7 @@ This endpoint is limited to 20 requests per minute per user.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  A trainable encoder ID returned by `GET /v1/base-models?supports_training=true`, or a supported checkpoint UUID. The selected `training_type` must have a compatible dispatch route. A decoder base model returns `400`.
+  A trainable encoder ID returned by `GET /v1/base-models?supports_training=true`. The selected `training_type` must have a compatible dispatch route. Checkpoint UUIDs and decoder base models return `400`.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -100,19 +100,19 @@ This endpoint is limited to 20 requests per minute per user.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
-    Warmup fraction from `0` to `1`. `warmup_steps` takes precedence.
+    Warmup fraction from `0` to `1`. Use this field to configure warmup for GLiNER jobs.
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    Absolute warmup-step count, from `1` to `2147483647`.
+    Absolute warmup-step count, from `1` to `2147483647`. GLiNER jobs reject this field with `422 unsupported_encoder_scheduling`; use `warmup_ratio`.
   </ParamField>
 
-  <ParamField body="lr_scheduler_type" type="string" default="cosine">
-    Learning-rate schedule: `constant`, `linear`, or `cosine`.
+  <ParamField body="lr_scheduler_type" type="string">
+    Learning-rate schedule: `constant`, `linear`, or `cosine`. GLiNER uses `linear` when this field is omitted; only an explicit value is forwarded.
   </ParamField>
 
-  <ParamField body="weight_decay" type="number" default="0.01">
-    Non-negative AdamW weight decay.
+  <ParamField body="weight_decay" type="number">
+    Accepted for request compatibility but not forwarded to GLiNER training. GLiNER uses its container default of `0.01`.
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
@@ -245,7 +245,12 @@ A decoder base model returns `400`:
 
 ```json
 {
-  "detail": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart)."
+  "error": {
+    "message": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart).",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null
+  }
 }
 ```
 

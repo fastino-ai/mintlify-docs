@@ -558,6 +558,61 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertIn("team-scoped", usage)
         self.assertIn("does not report compute usage or total billing", usage)
 
+    def test_corrected_training_contract_is_documented_in_every_locale(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            create = (
+                ROOT / f"{prefix}api-reference/training-jobs/create.mdx"
+            ).read_text(encoding="utf-8")
+            future = (
+                ROOT
+                / f"{prefix}api-reference/training-jobs/interactive/get-future.mdx"
+            ).read_text(encoding="utf-8")
+            get_job = (
+                ROOT / f"{prefix}api-reference/training-jobs/get.mdx"
+            ).read_text(encoding="utf-8")
+            list_jobs = (
+                ROOT / f"{prefix}api-reference/training-jobs/list.mdx"
+            ).read_text(encoding="utf-8")
+
+            for marker in (
+                "warmup_ratio",
+                "unsupported_encoder_scheduling",
+                "linear",
+                "weight_decay",
+                '"error"',
+            ):
+                self.assertIn(marker, create, f"{prefix} create page")
+            self.assertNotRegex(create, r'(?m)^\s*"detail"\s*:')
+            for marker in ("`404`", "`410`", "/training/checkpoints"):
+                self.assertIn(marker, future, f"{prefix} future page")
+            if not locale:
+                self.assertIn("one-hour", future)
+            for marker in (
+                "job_id",
+                "training_run_id",
+                "status",
+                "stop_reason",
+                "error_message",
+                "is_terminal_status",
+            ):
+                self.assertIn(marker, get_job, f"{prefix} get-job page")
+                self.assertIn(marker, list_jobs, f"{prefix} list-jobs page")
+
+    def test_openapi_exposes_interactive_job_lifecycle(self) -> None:
+        spec = json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+        schema = spec["components"]["schemas"]["InteractiveJobView"]
+        properties = schema["properties"]
+        for field in (
+            "job_id",
+            "training_run_id",
+            "status",
+            "stop_reason",
+            "error_message",
+            "is_terminal_status",
+        ):
+            self.assertIn(field, properties)
+
     def test_localized_training_pages_keep_english_code_and_identifiers(self) -> None:
         for page in PARITY_PAGES:
             english = (ROOT / page).read_text(encoding="utf-8")

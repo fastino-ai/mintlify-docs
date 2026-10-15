@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "AdamParams": {
+        "additionalProperties": false,
         "description": "AdamW step parameters (Tinker defaults); finite and in range, or the step is refused.",
         "properties": {
           "beta1": {
@@ -2157,12 +2158,17 @@
           "user_metadata": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/JsonObject-Input"
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "String keys and values, as on `save-weights`.",
+            "title": "User Metadata"
           }
         },
         "title": "CreateModelBody",
@@ -2763,6 +2769,20 @@
             "description": "Column mapping from source to standard names (e.g., {\"sentence\": \"text\", \"category\": \"label\"}). Valid standard targets: text, label, labels, entities.",
             "title": "Column Mapping"
           },
+          "content_length": {
+            "anyOf": [
+              {
+                "maximum": 5368709120.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact size in bytes of the file you will PUT, at most 5 GiB (one S3 PUT). When set, presigned_url is signed for this Content-Length, and storage refuses a body of any other size.",
+            "title": "Content Length"
+          },
           "dataset_name": {
             "description": "Name for the dataset",
             "minLength": 1,
@@ -2862,6 +2882,19 @@
             "description": "Expected schema as JSON object (e.g., {\"age\": \"Int64\", \"name\": \"Utf8\"}). Enforces column types during parsing. Valid types: Int8, Int16, Int32, Int64, UInt8-64, Float32, Float64, Utf8, Boolean, Date, Datetime, Time, Duration, Categorical, Binary",
             "title": "Schema"
           },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-fA-F]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hex sha256 of the file you will PUT. When set, presigned_url is signed for its x-amz-checksum-sha256, and storage refuses bytes with another digest.",
+            "title": "Sha256"
+          },
           "split_ratio": {
             "anyOf": [
               {
@@ -2938,8 +2971,16 @@
             "title": "Presigned Url",
             "type": "string"
           },
+          "upload_headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Headers the PUT to presigned_url must send, with exactly these values. They are part of the URL's signature, so storage answers 403 when one is missing or different. Always holds Content-Type: application/octet-stream; also Content-Length and x-amz-checksum-sha256 when the request declared content_length and sha256. Most HTTP clients set Content-Length from the body.",
+            "title": "Upload Headers",
+            "type": "object"
+          },
           "upload_instructions": {
-            "default": "Upload file via HTTP PUT to presigned_url, then call /datasets/upload/process with dataset_id, format, and schema (if applicable)",
+            "default": "PUT the raw file bytes to presigned_url and send every header in upload_headers with exactly its value: always Content-Type: application/octet-stream, plus Content-Length and x-amz-checksum-sha256 when listed. A missing or different header is refused with 403. Then call POST /datasets/upload/process with dataset_id.",
             "description": "Instructions for completing the upload",
             "title": "Upload Instructions",
             "type": "string"
@@ -2955,7 +2996,8 @@
           "dataset_id",
           "dataset_name",
           "version_number",
-          "expires_in"
+          "expires_in",
+          "upload_headers"
         ],
         "title": "DatasetUploadUrlResponse",
         "type": "object"
@@ -3014,6 +3056,7 @@
         "type": "object"
       },
       "Datum": {
+        "additionalProperties": false,
         "description": "One training example: N input tokens and per-position loss inputs (Tinker's definition).",
         "properties": {
           "loss_fn_inputs": {
@@ -3294,6 +3337,7 @@
         "type": "object"
       },
       "EncodedTextChunk": {
+        "additionalProperties": false,
         "description": "Token ids of a text chunk (image and audio chunks are refused at the gateway).",
         "properties": {
           "tokens": {
@@ -3886,6 +3930,18 @@
             "title": "Human Feedback At",
             "type": "string"
           },
+          "human_feedback_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User ID of the member who submitted this feedback. Null for feedback recorded before authorship was tracked.",
+            "title": "Human Feedback By"
+          },
           "human_verdict": {
             "description": "Stored human verdict",
             "title": "Human Verdict",
@@ -4032,6 +4088,18 @@
             ],
             "description": "When human feedback was submitted",
             "title": "Human Feedback At"
+          },
+          "human_feedback_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User ID of the member who submitted the current human feedback",
+            "title": "Human Feedback By"
           },
           "human_feedback_notes": {
             "anyOf": [
@@ -4309,10 +4377,32 @@
             "title": "Corrupted",
             "type": "boolean"
           },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why creating the job failed, when `status` is `failed`; null otherwise.",
+            "title": "Error Message"
+          },
           "is_lora": {
             "default": true,
             "title": "Is Lora",
             "type": "boolean"
+          },
+          "is_terminal_status": {
+            "description": "Whether `status` is final (`stopped` or `failed`), so a polling loop can stop.",
+            "title": "Is Terminal Status",
+            "type": "boolean"
+          },
+          "job_id": {
+            "description": "The job's id, the same value as `training_run_id`: the `job_id` that create-model returned and that every /v1/training/jobs/{job_id} route takes.",
+            "title": "Job Id",
+            "type": "string"
           },
           "last_checkpoint": {
             "anyOf": [
@@ -4354,6 +4444,36 @@
             "title": "Model Owner",
             "type": "string"
           },
+          "status": {
+            "description": "`creating`: its adapter is being created. `active`: it takes training and sampling calls. `stopping`: a stop was requested or its session ended, and calls already queued are finishing before its adapter is released; it takes no new training calls. `stopped`: its adapter is released and its checkpoints are kept. `failed`: creating it failed, see `error_message`.",
+            "enum": [
+              "creating",
+              "active",
+              "stopping",
+              "stopped",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "requested",
+                  "idle_timeout",
+                  "session_finished",
+                  "session_errored"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a `stopping` or `stopped` job stopped; null in any other status, and for a copy of a checkpoint made through the SDK (which never trained). `requested`: a stop was requested (POST /v1/training/jobs/{job_id}/stop, the SDK's `unload_model`, or a cancel of the agent task that ran it). `idle_timeout`: its session went idle (no call for 30 minutes on a job created through this API, no SDK heartbeat for 5 minutes on an SDK session). `session_finished`: the SDK client that created it closed its session. `session_errored`: that session ended on an error or an interruption, or creating the job failed.",
+            "title": "Stop Reason"
+          },
           "training_run_id": {
             "title": "Training Run Id",
             "type": "string"
@@ -4383,15 +4503,12 @@
           "training_run_id",
           "base_model",
           "model_owner",
-          "last_request_time"
+          "last_request_time",
+          "job_id",
+          "status",
+          "is_terminal_status"
         ],
         "title": "InteractiveJobView",
-        "type": "object"
-      },
-      "JsonObject-Input": {
-        "additionalProperties": {
-          "$ref": "#/components/schemas/JsonValue-Input"
-        },
         "type": "object"
       },
       "JsonObject-Output": {
@@ -4480,6 +4597,7 @@
         "type": "object"
       },
       "LoraConfig": {
+        "additionalProperties": false,
         "description": "LoRA settings of a new training run.",
         "properties": {
           "rank": {
@@ -4557,6 +4675,7 @@
         "type": "object"
       },
       "ModelInput": {
+        "additionalProperties": false,
         "description": "A token sequence made of text chunks.",
         "properties": {
           "chunks": {
@@ -4662,7 +4781,7 @@
         "type": "object"
       },
       "OptimizerConfig": {
-        "additionalProperties": true,
+        "additionalProperties": false,
         "description": "Optimizer family chosen at creation (only ``adamw`` is served).",
         "properties": {
           "type": {
@@ -5133,7 +5252,7 @@
             "type": "array"
           },
           "sampling_params": {
-            "$ref": "#/components/schemas/SdkSamplingParams"
+            "$ref": "#/components/schemas/SamplingParams"
           },
           "topk_prompt_logprobs": {
             "default": 0,
@@ -5151,6 +5270,74 @@
           "prompt_tokens"
         ],
         "title": "SampleBody",
+        "type": "object"
+      },
+      "SamplingParams": {
+        "additionalProperties": false,
+        "description": "Decoding parameters.",
+        "properties": {
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop"
+          },
+          "temperature": {
+            "default": 1.0,
+            "title": "Temperature",
+            "type": "number"
+          },
+          "top_k": {
+            "default": -1,
+            "title": "Top K",
+            "type": "integer"
+          },
+          "top_p": {
+            "default": 1.0,
+            "title": "Top P",
+            "type": "number"
+          }
+        },
+        "title": "SamplingParams",
         "type": "object"
       },
       "SaveWeightsAccepted": {
@@ -5380,75 +5567,9 @@
         "title": "Score",
         "type": "object"
       },
-      "SdkSamplingParams": {
-        "description": "Decoding parameters as the SDK sends them.",
-        "properties": {
-          "max_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Tokens"
-          },
-          "seed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Seed"
-          },
-          "stop": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stop"
-          },
-          "temperature": {
-            "default": 1.0,
-            "title": "Temperature",
-            "type": "number"
-          },
-          "top_k": {
-            "default": -1,
-            "title": "Top K",
-            "type": "integer"
-          },
-          "top_p": {
-            "default": 1.0,
-            "title": "Top P",
-            "type": "number"
-          }
-        },
-        "title": "SdkSamplingParams",
-        "type": "object"
-      },
       "SetTtlRequest": {
-        "description": "``.../ttl``: a new TTL in seconds, or None to keep forever.",
+        "additionalProperties": false,
+        "description": "``PUT .../checkpoints/{kind}/{name}/ttl``: ``ttl_seconds`` is required (null: keep until deleted).",
         "properties": {
           "ttl_seconds": {
             "anyOf": [
@@ -5459,9 +5580,13 @@
                 "type": "null"
               }
             ],
+            "description": "Seconds to keep the checkpoint from now (1 hour to 10 years), or null to keep it until deleted.",
             "title": "Ttl Seconds"
           }
         },
+        "required": [
+          "ttl_seconds"
+        ],
         "title": "SetTtlRequest",
         "type": "object"
       },
@@ -5873,6 +5998,7 @@
         "type": "object"
       },
       "TensorData": {
+        "additionalProperties": false,
         "description": "Row-major tensor, dense unless both CSR index arrays are set (``data`` then holds the nnz values).\n\n``data`` keeps int64 values as ints (token ids above 2**53 survive) and float32 values as floats.",
         "properties": {
           "data": {
@@ -10027,7 +10153,7 @@
         ]
       },
       "get": {
-        "description": "Get one training job: a config job, or an interactive job (a Tinker training run) with its latest checkpoints.",
+        "description": "Get one training job: a config job, or an interactive job (a Tinker training run) with its latest checkpoints, its `status` and, once stopping or stopped, its `stop_reason`.",
         "operationId": "get_job_v1_training_jobs__job_id__get",
         "parameters": [
           {

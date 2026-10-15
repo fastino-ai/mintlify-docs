@@ -40,7 +40,7 @@ Este endpoint está limitado a 20 solicitudes por minuto por usuario.
 </ParamField>
 
 <ParamField body="base_model" type="string" required>
-  Un ID de codificador entrenable devuelto por `GET /v1/base-models?supports_training=true`, o un UUID de checkpoint compatible. El `training_type` elegido debe tener una ruta de despacho compatible. Un modelo base decodificador devuelve `400`.
+  Un ID de codificador entrenable devuelto por `GET /v1/base-models?supports_training=true`. El `training_type` elegido debe tener una ruta de despacho compatible. Los UUID de checkpoint y los modelos base decodificadores devuelven `400`.
 </ParamField>
 
 <ParamField body="datasets" type="object[]" required>
@@ -101,19 +101,19 @@ Este endpoint está limitado a 20 solicitudes por minuto por usuario.
   </ParamField>
 
   <ParamField body="warmup_ratio" type="number">
-    Fracción de warmup de `0` a `1`. `warmup_steps` tiene prioridad.
+    Fracción de warmup de `0` a `1`. Usa este campo para configurar el warmup de trabajos GLiNER.
   </ParamField>
 
   <ParamField body="warmup_steps" type="integer">
-    Número absoluto de pasos de warmup, de `1` a `2147483647`.
+    Número absoluto de pasos de warmup, de `1` a `2147483647`. Los trabajos GLiNER rechazan este campo con `422 unsupported_encoder_scheduling`; usa `warmup_ratio`.
   </ParamField>
 
-  <ParamField body="lr_scheduler_type" type="string" default="cosine">
-    Programa de tasa de aprendizaje: `constant`, `linear` o `cosine`.
+  <ParamField body="lr_scheduler_type" type="string">
+    Programa de tasa de aprendizaje: `constant`, `linear` o `cosine`. Si se omite, GLiNER usa `linear`; solo se reenvía un valor explícito.
   </ParamField>
 
-  <ParamField body="weight_decay" type="number" default="0.01">
-    Weight decay no negativo de AdamW.
+  <ParamField body="weight_decay" type="number">
+    Se acepta por compatibilidad de la solicitud, pero no se reenvía al entrenamiento GLiNER. GLiNER usa el valor predeterminado del contenedor `0.01`.
   </ParamField>
 
   <ParamField body="early_stopping_patience" type="integer" default="3">
@@ -246,7 +246,12 @@ Un modelo base decodificador devuelve `400`:
 
 ```json
 {
-  "detail": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart)."
+  "error": {
+    "message": "Decoder training on this route is retired: 'Qwen/Qwen3.6-35B-A3B' cannot be trained here. Train decoders step by step with the training job routes under /v1/training/jobs (see https://docs.fastino.ai/training/quickstart).",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": null
+  }
 }
 ```
 

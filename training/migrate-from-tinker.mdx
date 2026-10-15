@@ -28,7 +28,8 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 </CodeGroup>
 
 Use a Fastino `fast_sk_` key with `TINKER_CREDENTIAL_CMD`. Unset
-`TINKER_API_KEY`, because the SDK prefers it when both are set.
+`TINKER_API_KEY`, because the SDK checks any value there before
+`TINKER_CREDENTIAL_CMD`. Fastino rejects Tinker `tml-` keys with `401`.
 
 ## 2. Verify the connection
 
@@ -51,7 +52,7 @@ job. The SDK model ID is also its ID under `/v1/training/jobs`.
 
 | Area | Supported behavior |
 | --- | --- |
-| Training | Create or restore a client; inspect it; run forward, forward/backward, custom-loss, and optimizer operations |
+| Training | Create or restore a client; inspect it; run forward, forward/backward, `forward_backward_custom`, and optimizer operations. The custom helper computes the loss in your process and translates it into supported built-in model operations. |
 | Checkpoints | Save and load state; save sampler weights; inspect, list, download, delete, publish, unpublish, and set retention |
 | Sampling | Create or retrieve a sampling client and call `sample` |
 | Futures | Retrieve individual asynchronous results; cancel unfinished sampling futures |
@@ -77,6 +78,7 @@ job. The SDK model ID is also its ID under `/v1/training/jobs`.
     - Supported losses are `cross_entropy`, `importance_sampling`, `ppo`, `cispo`, and `dro`.
     - Prompt chunks must use `encoded_text`.
     - Training operations run in order. Training-operation futures cannot be cancelled.
+    - The SDK session is released after 5 minutes without its heartbeat. Keep the `ServiceClient` active or finish the session before a laptop sleeps.
     - Checkpoint downloads require weight-download access. Without it, downloads return `403`; contact sales@fastino.ai to enable it.
     - Publishing changes visibility within the owning team. It does not make the path loadable by another team.
   </Accordion>
