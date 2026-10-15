@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from generate_localized_llms import localized_index_findings
@@ -99,6 +100,7 @@ REQUIRED_AGENT_RESOURCES = {
     "https://docs.fastino.ai/openapi.json",
 }
 RoutePatterns = dict[str, list[re.Pattern[str]]]
+PRERELEASE_EXCEPTIONS = Path("scripts/api_docs_prerelease_exceptions.json")
 LOCALE_PARITY_SCOPES = (
     "concepts/datasets.mdx",
     "training.mdx",
@@ -519,13 +521,91 @@ def _route_patterns(manifest: dict[str, object]) -> RoutePatterns:
             or "prod" not in environments
         ):
             continue
-        expression = re.escape(target)
-        expression = re.sub(r"\\\{[^}]+\\\}", r"[^/?#]+", expression)
-        pattern = re.compile(f"^{expression}/?$")
+        pattern = _route_pattern(target)
         for method in methods:
             if isinstance(method, str):
                 patterns.setdefault(method, []).append(pattern)
     return patterns
+
+
+def _route_pattern(path: str) -> re.Pattern[str]:
+    expression = re.escape(path)
+    expression = re.sub(r"\\\{[^}]+\\\}", r"[^/?#]+", expression)
+    return re.compile(f"^{expression}/?$")
+
+
+def _prerelease_exception_patterns(
+    root: Path,
+    deployed: RoutePatterns,
+    documented_operations: set[tuple[str, str]],
+    *,
+    today: date | None = None,
+) -> tuple[RoutePatterns, list[str], list[str]]:
+    path = root / PRERELEASE_EXCEPTIONS
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    entries = payload.get("exceptions") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return {}, [f"{PRERELEASE_EXCEPTIONS} must contain an exceptions list"], []
+
+    allowed: RoutePatterns = {}
+    findings: list[str] = []
+    notices: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    current_date = today or date.today()
+    required = {
+        "method",
+        "path",
+        "pioneer_pr",
+        "reason",
+        "removal_condition",
+        "expires_on",
+    }
+    for index, entry in enumerate(entries):
+        label = f"{PRERELEASE_EXCEPTIONS}: exception {index + 1}"
+        if not isinstance(entry, dict) or set(entry) != required:
+            findings.append(f"{label} must contain exactly {sorted(required)}")
+            continue
+        if not all(isinstance(entry[key], str) and entry[key].strip() for key in required):
+            findings.append(f"{label} fields must be non-empty strings")
+            continue
+
+        method = entry["method"].upper()
+        operation = (method, entry["path"])
+        if method.lower() not in HTTP_METHODS or not entry["path"].startswith("/v1/"):
+            findings.append(f"{label} has invalid operation: {method} {entry['path']}")
+            continue
+        if operation in seen:
+            findings.append(f"{label} duplicates {method} {entry['path']}")
+            continue
+        seen.add(operation)
+        if operation not in documented_operations:
+            findings.append(
+                f"{label} is not present in openapi.json: {method} {entry['path']}"
+            )
+        if not re.fullmatch(
+            r"https://github\.com/fastino-ai/Pioneer/pull/\d+",
+            entry["pioneer_pr"],
+        ):
+            findings.append(f"{label} pioneer_pr must link to a Fastino Pioneer PR")
+        try:
+            expiry = date.fromisoformat(entry["expires_on"])
+        except ValueError:
+            findings.append(f"{label} expires_on must use YYYY-MM-DD")
+            continue
+        if expiry < current_date:
+            findings.append(f"{label} expired on {expiry.isoformat()}")
+        if _path_matches_route(entry["path"], deployed, method):
+            findings.append(
+                f"{label} is stale because {method} {entry['path']} is now deployed"
+            )
+            continue
+        allowed.setdefault(method, []).append(_route_pattern(entry["path"]))
+        notices.append(
+            f"PRERELEASE EXCEPTION: {method} {entry['path']} via "
+            f"{entry['pioneer_pr']} until {entry['expires_on']}; "
+            f"remove when {entry['removal_condition']}"
+        )
+    return allowed, findings, notices
 
 
 def _path_matches_route(
@@ -674,7 +754,14 @@ def main() -> int:
     )
     route_patterns = _route_patterns(manifest)
     actual_operations = _operations(destination)
-    findings = local_docs_findings(root, destination)
+    prerelease_patterns, prerelease_findings, prerelease_notices = (
+        _prerelease_exception_patterns(root, route_patterns, actual_operations)
+    )
+    effective_patterns = {
+        method: route_patterns.get(method, []) + prerelease_patterns.get(method, [])
+        for method in set(route_patterns) | set(prerelease_patterns)
+    }
+    findings = prerelease_findings + local_docs_findings(root, destination)
     docs = _documentation_files(root, include_locales=args.include_locales)
     for path in docs:
         findings.extend(
@@ -682,10 +769,12 @@ def main() -> int:
                 root,
                 path,
                 path.read_text(encoding="utf-8"),
-                route_patterns,
+                effective_patterns,
             )
         )
 
+    for notice in prerelease_notices:
+        print(notice)
     if findings:
         print("\n".join(findings))
         return 1

@@ -45,7 +45,8 @@ View your local preview at `http://localhost:3000`.
 The checked-in `openapi.json` is derived from Pioneer's complete
 `api/openapi.json`. Route-level `x-fastino-visibility: public` metadata in
 Pioneer is the only operation-publication decision; docs must not maintain
-another allowlist. Refresh and verify it against a local Pioneer checkout:
+another permanent allowlist. Refresh and verify it against a local Pioneer
+checkout:
 
 ```bash
 uv run --directory ../Pioneer/brain --locked \
@@ -53,6 +54,16 @@ uv run --directory ../Pioneer/brain --locked \
   ../api/openapi.json "$(pwd)/openapi.json"
 python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
 ```
+
+Pull-request CI runs the same check against Pioneer `development`.
+`PIONEER_DOCS_TOKEN` must be configured as a repository secret with read access
+to `fastino-ai/Pioneer`.
+
+For an intentional docs-first contract change, add a temporary entry to
+`scripts/api_docs_prerelease_exceptions.json`. Every entry must name the exact
+operation, link its Pioneer PR, explain the reason and removal condition, and
+set an expiry date. The checker reports every active exception and fails when
+one expires or when its route reaches Pioneer development, forcing its removal.
 
 The check also enforces two-way parity with the existing public endpoint pages,
 validates the five canonical Mintlify skills, and rejects stale Pioneer API
