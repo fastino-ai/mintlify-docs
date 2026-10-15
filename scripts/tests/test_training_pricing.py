@@ -14,6 +14,17 @@ PRICING_PAGES = (ROOT / "pricing.mdx",) + tuple(
 MODEL_CATALOG_PAGES = (ROOT / "concepts" / "models.mdx",) + tuple(
     ROOT / locale / "concepts" / "models.mdx" for locale in LOCALES
 )
+STORAGE_USAGE_PAGES = (
+    ROOT / "api-reference" / "training-jobs" / "interactive" / "storage-usage.mdx",
+) + tuple(
+    ROOT
+    / locale
+    / "api-reference"
+    / "training-jobs"
+    / "interactive"
+    / "storage-usage.mdx"
+    for locale in LOCALES
+)
 SECTION_HEADINGS = {
     ROOT / "pricing.mdx": ("## Training", "## Inference"),
     ROOT / "cn" / "pricing.mdx": ("## 训练", "## 推理"),
@@ -31,16 +42,22 @@ MODEL_SECTION_HEADINGS = {
 
 EXPECTED_RATES = {
     "Nemotron 3.5 Super VL": (
-        r"\$0.65",
-        r"\$0.65",
+        r"\$0.16",
+        r"\$0.032",
+        r"\$0.72",
+        r"\$0.96",
     ),
     "Nemotron 3.5 Lightning": (
+        r"\$0.05",
+        r"\$0.01",
         r"\$0.35",
         r"\$0.30",
     ),
     "Qwen3.6-35B-A3B": (
-        r"\$0.44",
-        r"\$0.44",
+        r"\$0.08",
+        r"\$0.016",
+        r"\$0.35",
+        r"\$0.35",
     ),
 }
 CALLABLE_IDS = {
@@ -137,17 +154,22 @@ class TrainingPricingTests(unittest.TestCase):
                         f"interactive rates must remain on approved pages: {page}",
                     )
 
-    def test_retired_rates_are_absent_or_struck_through(self) -> None:
-        retired_rates = (r"\$0.16", r"\$0.032", r"\$0.05", r"\$0.01", r"\$0.08", r"\$0.016")
-        previous_promotional_rates = (r"\$0.96", r"\$0.72")
+    def test_stale_promotional_rates_are_absent(self) -> None:
+        stale_rates = (r"\$0.65", r"\$0.44")
         for page in PRICING_PAGES + MODEL_CATALOG_PAGES:
             text = page.read_text(encoding="utf-8")
             with self.subTest(page=page.relative_to(ROOT)):
-                for rate in retired_rates:
+                for rate in stale_rates:
                     self.assertNotIn(rate, text)
-                without_strikethrough = re.sub(r"~~.*?~~", "", text)
-                for rate in previous_promotional_rates:
-                    self.assertNotIn(rate, without_strikethrough)
+                self.assertNotIn("Limited-time discount", text)
+                self.assertNotIn("~~", text)
+
+    def test_storage_usage_examples_match_the_billed_rate(self) -> None:
+        for page in STORAGE_USAGE_PAGES:
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(ROOT)):
+                self.assertIn('"effective_rate_usd_per_gigabyte_month": 0.05', text)
+                self.assertIn('"estimated_monthly_cost_usd": 0.0375', text)
 
 
 if __name__ == "__main__":
