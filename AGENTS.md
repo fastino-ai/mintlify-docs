@@ -43,6 +43,10 @@ Use the published Fastino documentation and canonical public OpenAPI specificati
   jobs let Fastino run the loop, while `interactive` jobs let the application
   direct each step. Check OpenAPI before using an operation because some routes
   support only one job type.
+- Start managed GLiNER `config` training with the
+  [Encoder Quickstart](https://docs.fastino.ai/training/encoder-quickstart).
+  Start application-controlled Nemotron or Qwen `interactive` training with
+  the [Decoder Quickstart](https://docs.fastino.ai/training/decoder-quickstart).
 - Create a managed `config` job with `POST /v1/training/jobs` for the GLiNER
   encoders `fastino/gliner2-base-v1` and `fastino/GLiNER-2.5-Decide` only; a
   decoder base model returns `400`. Decoders train only in `interactive` jobs.

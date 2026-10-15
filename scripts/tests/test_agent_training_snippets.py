@@ -653,6 +653,8 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         ).read_text()
         self.assertNotIn("training/quickstart#custom-training-loop", agents)
         self.assertNotIn("supported-client-behavior", agents)
+        self.assertIn("training/encoder-quickstart", agents)
+        self.assertIn("training/decoder-quickstart", agents)
         self.assertNotIn("`task_type` (`ner`", dataset_skill)
         for marker in ("artifact_ready", "paused"):
             self.assertIn(marker, fine_tune_skill)
