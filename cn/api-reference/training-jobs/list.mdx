@@ -9,7 +9,7 @@ api: "GET /v1/training/jobs"
 
 返回已认证账户可见的配置训练任务和交互式训练任务。
 
-未指定 `type` 时，每页先列出配置任务（从新到旧），再列出交互式任务（从新到旧）。传入 `type=interactive` 只列出交互式任务。
+未指定 `type` 时，配置任务和交互式任务按 `created_at` 从新到旧交错排列。如果两个任务的时间戳相同，则配置任务排在前面。传入 `type=interactive` 只列出交互式任务。
 
 ## 请求
 
@@ -18,7 +18,7 @@ api: "GET /v1/training/jobs"
 </ParamField>
 
 <ParamField query="status" type="string">
-  按持久化状态筛选配置任务。提供 `status` 后，响应不会包含交互式任务。`status=complete` 会返回持久化状态为 `complete`、`artifact_ready` 或 `deployed` 的任务，因此包含所有成功完成的配置任务。
+  按状态筛选两种任务。交互式任务支持 `creating`、`active`、`stopping`、`stopped` 和 `failed`；`running` 也会匹配 `active`，而 `errored` 和 `error` 会匹配 `failed`。`running`、`errored`、`error`、`stopped` 和 `failed` 可以匹配两种任务。`creating`、`active` 和 `stopping` 仅匹配交互式任务；其他配置任务状态仅匹配配置任务。对于配置任务，`status=complete` 会返回持久化状态为 `complete`、`artifact_ready` 或 `deployed` 的任务。
 </ParamField>
 
 <ParamField query="type" type="string">
@@ -56,10 +56,12 @@ curl "https://api.fastino.ai/v1/training/jobs?type=config&status=complete&limit=
   本页的训练任务记录。
 </ResponseField>
 
-配置任务记录使用 `id`。交互式任务记录使用 `job_id` 作为规范路径 ID，并在
-`training_run_id` 中保留相同值以兼容 SDK。交互式记录还包括 `status`、
-`stop_reason`、`error_message` 和 `is_terminal_status`；使用 `job_id`
-轮询任务，直到终止标志为 true。
+每条记录都包含 `id` 和 `created_at`。交互式记录还会在 `job_id` 和
+`training_run_id` 中重复 `id` 以兼容 API 和 SDK，并包含 `status`、
+`stop_reason`、`error_message` 和 `is_terminal_status`。使用 `id`
+轮询交互式任务，直到终止标志为 true。
+
+`type: "config"` 且 `source: "interactive_checkpoint"` 的记录是从交互式 sampler 检查点创建的服务模型。其配置训练字段（包括轮数、批次大小、学习率和验证比例）均为 `null`。
 
 <ResponseField name="count" type="integer">
   本页任务数量。

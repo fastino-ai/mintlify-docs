@@ -10,9 +10,10 @@ api: "GET /v1/training/jobs"
 Devuelve los trabajos de entrenamiento de configuración e interactivos visibles
 para la cuenta autenticada.
 
-Sin `type`, una página lista primero los trabajos de configuración (del más
-reciente al más antiguo) y después los interactivos (del más reciente al más
-antiguo). Pasa `type=interactive` para listar solo los trabajos interactivos.
+Sin `type`, los trabajos de configuración e interactivos se intercalan por
+`created_at`, del más reciente al más antiguo. Si dos trabajos tienen la misma
+marca de tiempo, el trabajo de configuración aparece primero. Pasa
+`type=interactive` para listar solo los trabajos interactivos.
 
 ## Solicitud
 
@@ -21,7 +22,7 @@ antiguo). Pasa `type=interactive` para listar solo los trabajos interactivos.
 </ParamField>
 
 <ParamField query="status" type="string">
-  Filtra trabajos config por estado persistido. Al enviar `status`, la respuesta excluye los trabajos interactivos. `status=complete` devuelve trabajos persistidos como `complete`, `artifact_ready` o `deployed`, por lo que incluye todos los trabajos config finalizados correctamente.
+  Filtra ambos tipos de trabajo por estado. Los trabajos interactivos admiten `creating`, `active`, `stopping`, `stopped` y `failed`; `running` también coincide con `active`, mientras que `errored` y `error` coinciden con `failed`. `running`, `errored`, `error`, `stopped` y `failed` pueden coincidir con ambos tipos. `creating`, `active` y `stopping` solo coinciden con trabajos interactivos; los demás estados config solo con trabajos config. Para los trabajos config, `status=complete` devuelve trabajos persistidos como `complete`, `artifact_ready` o `deployed`.
 </ParamField>
 
 <ParamField query="type" type="string">
@@ -59,11 +60,13 @@ curl "https://api.fastino.ai/v1/training/jobs?type=config&status=complete&limit=
   Registros de trabajos de entrenamiento de esta página.
 </ResponseField>
 
-Los trabajos de configuración usan `id`. Los trabajos interactivos usan
-`job_id` como ID canónico de ruta y conservan el mismo valor en
-`training_run_id` por compatibilidad con el SDK. También incluyen `status`,
-`stop_reason`, `error_message` e `is_terminal_status`; consulta el trabajo por
-`job_id` hasta que el indicador terminal sea true.
+Todos los registros incluyen `id` y `created_at`. Los registros interactivos
+también repiten `id` en `job_id` y `training_run_id` por compatibilidad con la
+API y el SDK, e incluyen `status`, `stop_reason`, `error_message` e
+`is_terminal_status`. Consulta un trabajo interactivo por `id` hasta que el
+indicador terminal sea true.
+
+Un registro con `type: "config"` y `source: "interactive_checkpoint"` es el modelo servido creado a partir de un checkpoint sampler interactivo. Sus campos de entrenamiento config, incluidos épocas, tamaño de lote, tasa de aprendizaje y porcentaje de validación, son `null`.
 
 <ResponseField name="count" type="integer">
   Número de trabajos de esta página.

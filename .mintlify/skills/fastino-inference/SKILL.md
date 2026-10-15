@@ -23,7 +23,8 @@ Authorization: Bearer YOUR_API_KEY
 
 Best for direct NER, classification, and structured extraction with the
 hosted base GLiNER model. This endpoint does not select fine-tuned models;
-use the OpenAI-compatible endpoint below with the training-job UUID.
+use the compatible endpoints below with a config training-job UUID or a
+deployed interactive checkpoint's `model_id`.
 
 ```http
 POST https://api.fastino.ai/v1/gliner-2
@@ -55,7 +56,8 @@ sunset date to avoid breaking changes.
 ## OpenAI-Compatible Endpoint
 
 Drop-in replacement for the OpenAI SDK. Set `base_url` to `https://api.fastino.ai/v1`.
-Pass `schema` via `extra_body` for NER/classification tasks.
+For a completed config encoder job, use its training-job UUID as `model` and
+pass the GLiNER `schema` via `extra_body`:
 
 ```http
 POST https://api.fastino.ai/v1/chat/completions
@@ -63,9 +65,42 @@ X-API-Key: YOUR_API_KEY
 Content-Type: application/json
 
 {
-  "model": "YOUR_TRAINING_JOB_ID",
+  "model": "YOUR_CONFIG_TRAINING_JOB_ID",
   "messages": [{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
   "schema": {"entities": [{"name": "organization"}, {"name": "product"}]}
+}
+```
+
+Interactive checkpoints are decoder models and do not accept the GLiNER
+`schema` field. When the user wants to serve one, first deploy a
+`sampler_weights` checkpoint:
+
+```http
+POST https://api.fastino.ai/v1/training/jobs/YOUR_INTERACTIVE_JOB_ID/checkpoints/sampler_weights/YOUR_CHECKPOINT_NAME/deploy
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+
+{}
+```
+
+Deployment support is model-specific. A `400` means the base model is not
+servable yet or the checkpoint is not an accepted adapter; do not poll that
+response, and verify model availability and the checkpoint before trying again.
+A `409` is terminal for that model name or checkpoint; save the weights under a
+new name before deploying again. Use bounded backoff when repeating a successful
+deployment request whose status is still `deploying`; inference is ready when
+the status is `deployed`.
+
+Use the response's `model_id`—not the interactive job ID—for decoder inference:
+
+```http
+POST https://api.fastino.ai/v1/chat/completions
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "model": "YOUR_DEPLOYED_MODEL_ID",
+  "messages": [{"role": "user", "content": "Summarize the attached support case."}]
 }
 ```
 
@@ -83,7 +118,7 @@ X-API-Key: YOUR_API_KEY
 Content-Type: application/json
 
 {
-  "model": "YOUR_TRAINING_JOB_ID",
+  "model": "YOUR_MODEL_ID",
   "input": "Extract entities from: Apple launched the iPhone."
 }
 ```
@@ -98,10 +133,9 @@ X-API-Key: YOUR_API_KEY
 Content-Type: application/json
 
 {
-  "model": "YOUR_TRAINING_JOB_ID",
+  "model": "YOUR_MODEL_ID",
   "max_tokens": 1024,
-  "messages": [{"role": "user", "content": "Extract entities from: Apple launched the iPhone."}],
-  "schema": ["organization", "product"]
+  "messages": [{"role": "user", "content": "Summarize the attached support case."}]
 }
 ```
 
@@ -112,9 +146,17 @@ GET https://api.fastino.ai/v1/base-models
 X-API-Key: YOUR_API_KEY
 ```
 
-Filterable by `training`, `inference`, and `task_type`. For compatible routes,
-use a catalog model ID as `model`. To call a fine-tuned model, use its completed
-training-job UUID as `model` on the OpenAI-compatible endpoint.
+Use the supported query parameters to filter the catalog:
+
+```http
+GET https://api.fastino.ai/v1/base-models?supports_training=true
+GET https://api.fastino.ai/v1/base-models?supports_inference=true
+GET https://api.fastino.ai/v1/base-models?task_type=decoder
+```
+
+For compatible routes, use a catalog model ID as `model`. To call a fine-tuned
+model, use its completed config training-job UUID or the `model_id` returned
+when deploying an interactive job's sampler checkpoint.
 
 `supports_inference` is model-level availability. For encoders, hosted features
 are `encoder_features` on each row (null on decoders). A feature missing from

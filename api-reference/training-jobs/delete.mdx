@@ -7,11 +7,26 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-Deletes the job and its stored artifacts. If the job is active, the service first requests a stop. Deletion completes in the same call only when cancellation is confirmed.
+Deletes a config or interactive job and its stored artifacts.
 
 <Warning>
-  Deletion is irreversible. First download anything you need into storage you control. Deletion removes checkpoints and stored artifacts and releases active hosted deployments.
+  Deletion is irreversible. First download anything you need into storage you
+  control.
 </Warning>
+
+For a config job, the service first requests cancellation when the job is
+active. Deletion completes in the same call only when cancellation is confirmed.
+It removes checkpoints and stored artifacts and releases active hosted
+deployments.
+
+For an interactive job, the service cancels queued non-sampling training calls,
+requests a stop, and marks the job and its checkpoints deleted in the same
+request. The job immediately becomes unavailable through list, get, checkpoint,
+and future routes. Queued sampling calls and calls already running still finish
+and are billed before background cleanup completes.
+
+Models already deployed from the job's sampler checkpoints remain separate
+model resources and continue serving until deleted separately.
 
 ## Request
 
@@ -20,7 +35,7 @@ Deletes the job and its stored artifacts. If the job is active, the service firs
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  Training-job UUID.
+  Config-job UUID or interactive job ID.
 </ParamField>
 
 <RequestExample>
@@ -49,8 +64,8 @@ An unknown or inaccessible job returns `404`.
 
 | Status | Meaning |
 | --- | --- |
-| `409 training_job_already_finished` | The job completed or failed before cancellation landed. Read the job state before deciding whether to retry. |
-| `409 cancellation_unconfirmed` | The job is still stopping. Poll `GET /v1/training/jobs/{job_id}`, then retry this `DELETE` after the job is stopped. Deletion does not complete in the background. |
+| `409 training_job_already_finished` | For a config job, the job completed or failed before cancellation landed. Read the job state before deciding whether to retry. |
+| `409 cancellation_unconfirmed` | For a config job, the job is still stopping. Poll `GET /v1/training/jobs/{job_id}`, then retry this `DELETE` after the job is stopped. Deletion does not complete in the background. |
 
 ## Authorization
 

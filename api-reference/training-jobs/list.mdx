@@ -10,8 +10,9 @@ api: "GET /v1/training/jobs"
 Returns config and interactive training jobs visible to the authenticated
 account.
 
-Without `type`, a page lists config jobs (newest first) before interactive
-jobs (newest first). Pass `type=interactive` to list only interactive jobs.
+Without `type`, config and interactive jobs are interleaved by `created_at`,
+newest first. If two jobs have the same timestamp, the config job appears
+first. Pass `type=interactive` to list only interactive jobs.
 
 ## Request
 
@@ -20,10 +21,13 @@ jobs (newest first). Pass `type=interactive` to list only interactive jobs.
 </ParamField>
 
 <ParamField query="status" type="string">
-  Filter config jobs by persisted status. Supplying `status` excludes
-  interactive jobs from the response. `status=complete` returns jobs persisted
-  as `complete`, `artifact_ready`, or `deployed`, so it includes every
-  successfully finished config job.
+  Filter both job types by status. Interactive jobs support `creating`, `active`,
+  `stopping`, `stopped`, and `failed`; `running` also matches `active`, while
+  `errored` and `error` match `failed`. `running`, `errored`, `error`, `stopped`,
+  and `failed` can match both types. `creating`, `active`, and `stopping` match
+  only interactive jobs; other config statuses match only config jobs. For
+  config jobs, `status=complete` returns jobs persisted as `complete`,
+  `artifact_ready`, or `deployed`.
 </ParamField>
 
 <ParamField query="type" type="string">
@@ -61,11 +65,15 @@ curl "https://api.fastino.ai/v1/training/jobs?type=config&status=complete&limit=
   Training-job records for this page.
 </ResponseField>
 
-Config-job records use `id`. Interactive-job records use `job_id` as the
-canonical path ID and retain the same value in `training_run_id` for SDK
-compatibility. Interactive records also include `status`, `stop_reason`,
-`error_message`, and `is_terminal_status`; poll the job by `job_id` until the
-terminal flag is true.
+Every record includes `id` and `created_at`. Interactive records also repeat
+`id` in `job_id` and `training_run_id` for API and SDK compatibility, and
+include `status`, `stop_reason`, `error_message`, and `is_terminal_status`.
+Poll an interactive job by `id` until the terminal flag is true.
+
+A record with `type: "config"` and `source: "interactive_checkpoint"` is the
+served model created from an interactive sampler checkpoint. Its config-training
+fields, including epochs, batch size, learning rate, and validation percentage,
+are `null`.
 
 <ResponseField name="count" type="integer">
   Number of jobs in this page.

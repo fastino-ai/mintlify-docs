@@ -7,11 +7,17 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-Löscht den Job und seine gespeicherten Artefakte. Wenn der Job aktiv ist, fordert der Dienst zuerst einen Stopp an. Das Löschen wird im selben Aufruf nur abgeschlossen, wenn der Abbruch bestätigt ist.
+Löscht einen Config- oder interaktiven Job und seine gespeicherten Artefakte.
 
 <Warning>
-  Das Löschen ist unumkehrbar. Laden Sie zuerst alles, was Sie benötigen, in einen von Ihnen kontrollierten Speicher herunter. Beim Löschen werden Checkpoints und gespeicherte Artefakte entfernt und aktive gehostete Deployments freigegeben.
+  Das Löschen ist unumkehrbar. Laden Sie zuerst alles, was Sie benötigen, in einen von Ihnen kontrollierten Speicher herunter.
 </Warning>
+
+Bei einem Config-Job fordert der Dienst zuerst einen Abbruch an, wenn der Job aktiv ist. Das Löschen wird im selben Aufruf nur abgeschlossen, wenn der Abbruch bestätigt ist. Checkpoints und gespeicherte Artefakte werden entfernt und aktive gehostete Deployments freigegeben.
+
+Bei einem interaktiven Job bricht der Dienst ausstehende Trainingsaufrufe außer Sampling ab, fordert einen Stopp an und markiert den Job und seine Checkpoints in derselben Anfrage als gelöscht. Der Job ist über Listen-, Abruf-, Checkpoint- und Future-Routen sofort nicht mehr verfügbar. Ausstehende Sampling-Aufrufe und bereits laufende Aufrufe werden noch beendet und abgerechnet, bevor die Bereinigung im Hintergrund abgeschlossen ist.
+
+Modelle, die bereits aus den Sampler-Checkpoints des Jobs bereitgestellt wurden, bleiben separate Modellressourcen und werden weiter bedient, bis sie separat gelöscht werden.
 
 ## Request
 
@@ -20,7 +26,7 @@ Löscht den Job und seine gespeicherten Artefakte. Wenn der Job aktiv ist, forde
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID des Trainingsjobs.
+  UUID des Config-Jobs oder ID des interaktiven Jobs.
 </ParamField>
 
 <RequestExample>
@@ -49,8 +55,8 @@ Ein unbekannter oder nicht zugänglicher Job gibt `404` zurück.
 
 | Status | Bedeutung |
 | --- | --- |
-| `409 training_job_already_finished` | Der Job wurde abgeschlossen oder ist fehlgeschlagen, bevor der Abbruch wirksam wurde. Lesen Sie den Jobstatus, bevor Sie über einen erneuten Versuch entscheiden. |
-| `409 cancellation_unconfirmed` | Der Job wird noch gestoppt. Fragen Sie `GET /v1/training/jobs/{job_id}` ab und wiederholen Sie dieses `DELETE`, nachdem der Job gestoppt ist. Das Löschen wird nicht im Hintergrund abgeschlossen. |
+| `409 training_job_already_finished` | Bei einem Config-Job wurde der Job abgeschlossen oder ist fehlgeschlagen, bevor der Abbruch wirksam wurde. Lesen Sie den Jobstatus, bevor Sie über einen erneuten Versuch entscheiden. |
+| `409 cancellation_unconfirmed` | Bei einem Config-Job wird der Job noch gestoppt. Fragen Sie `GET /v1/training/jobs/{job_id}` ab und wiederholen Sie dieses `DELETE`, nachdem der Job gestoppt ist. Das Löschen wird nicht im Hintergrund abgeschlossen. |
 
 ## Autorisierung
 

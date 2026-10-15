@@ -255,6 +255,58 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertNotIn('"model": "fastino/gliner2-base-v1"', skill)
         self.assertNotIn("upcoming unified Training API", skill)
 
+    def test_inference_skill_uses_deployed_interactive_model_id(self) -> None:
+        skill = (ROOT / ".mintlify/skills/fastino-inference/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('"model": "YOUR_TRAINING_JOB_ID"', skill)
+        self.assertIn('"model": "YOUR_CONFIG_TRAINING_JOB_ID"', skill)
+        self.assertIn('"model": "YOUR_DEPLOYED_MODEL_ID"', skill)
+        self.assertIn(
+            "/training/jobs/YOUR_INTERACTIVE_JOB_ID/checkpoints/"
+            "sampler_weights/YOUR_CHECKPOINT_NAME/deploy",
+            skill,
+        )
+        deployed_example = skill[skill.index('"model": "YOUR_DEPLOYED_MODEL_ID"'):]
+        deployed_example = deployed_example[:deployed_example.index("```")]
+        self.assertNotIn('"schema"', deployed_example)
+        self.assertIn("A `400`", skill)
+        self.assertIn("bounded backoff", skill)
+
+        spec = json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+        catalog_parameters = {
+            parameter["name"]
+            for parameter in spec["paths"]["/v1/base-models"]["get"]["parameters"]
+        }
+        self.assertEqual(
+            catalog_parameters,
+            {"supports_training", "supports_inference", "task_type"},
+        )
+        for query in catalog_parameters:
+            self.assertRegex(skill, rf"/v1/base-models\?{query}=[^\s]+")
+        self.assertNotIn("Filterable by `training`, `inference`", skill)
+
+    def test_glide_skill_lists_optional_request_fields_and_retention(self) -> None:
+        skill = (ROOT / ".mintlify/skills/fastino-glide/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        spec = json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+        request = spec["components"]["schemas"]["SystemOneRequest"]
+        optional_fields = set(request["properties"]) - set(request["required"])
+        self.assertEqual(
+            optional_fields,
+            {"provider", "user", "session_id", "trace", "thinking", "store"},
+        )
+        for field in optional_fields:
+            self.assertIn(f"`{field}`", skill)
+        self.assertIn("`store` defaults to `true`", skill)
+        self.assertIn("`store: false`", skill)
+        self.assertIn("billing metadata", skill)
+        self.assertNotIn(
+            "Any other top-level request key returns",
+            skill,
+        )
+
     def test_gliner_training_examples_match_development_contract(self) -> None:
         canonical_classification = (
             '"classifications":[{"task":"action","labels":["jump","wait"],'
@@ -346,7 +398,14 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             self.assertNotIn("Editor", text, deploy)
             self.assertIn("`403 Forbidden`", text, deploy)
 
-    def test_status_filter_excludes_interactive_jobs(self) -> None:
+    def test_status_filter_includes_interactive_status_mappings(self) -> None:
+        tie_phrases = {
+            "": "same timestamp",
+            "cn": "时间戳相同",
+            "de": "denselben Zeitstempel",
+            "es": "misma marca de tiempo",
+            "fr": "même horodatage",
+        }
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
             path = ROOT / f"{prefix}api-reference/training-jobs/list.mdx"
@@ -357,7 +416,32 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 "</ParamField>",
             )
             self.assertRegex(status, r"(?:config|Config|配置)")
-            self.assertRegex(status, r"(?:excludes|keine|excluye|exclut|不会包含)")
+            self.assertRegex(
+                status,
+                r"(?i:interactive|interaktiv|interactivo|interactif)|交互式",
+            )
+            for value in (
+                "creating",
+                "active",
+                "stopping",
+                "stopped",
+                "failed",
+                "running",
+                "errored",
+                "error",
+            ):
+                self.assertIn(f"`{value}`", status, path)
+            self.assertIn("`created_at`", text, path)
+            self.assertIn(tie_phrases[locale], " ".join(text.split()), path)
+            self.assertNotRegex(
+                text,
+                r"config jobs \(newest first\) before interactive",
+                path,
+            )
+            for field in ("`id`", "`created_at`", "`job_id`"):
+                self.assertIn(field, text, path)
+            self.assertIn('`source: "interactive_checkpoint"`', text, path)
+            self.assertIn("`null`", text, path)
 
     def test_checkpoint_list_documents_config_and_interactive_shapes(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
@@ -400,6 +484,95 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 call = text[match.start():match.start() + 180]
                 self.assertIn("ttl_seconds=", call, f"{path}: {call}")
 
+    def test_checkpoint_ttl_update_requires_ttl_seconds(self) -> None:
+        spec = json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+        ttl_schema = spec["components"]["schemas"]["SetTtlRequest"]
+        self.assertIn("ttl_seconds", ttl_schema["required"])
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / (
+                f"{prefix}api-reference/training-jobs/interactive/"
+                "set-checkpoint-ttl.mdx"
+            )
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(
+                '<ParamField body="ttl_seconds" type="integer | null" required>',
+                text,
+                path,
+            )
+            self.assertRegex(text, r"\| `422` \|[^\n]+`ttl_seconds`", path)
+
+    def test_delete_documents_config_and_interactive_jobs(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}api-reference/training-jobs/delete.mdx"
+            text = path.read_text(encoding="utf-8")
+            job_id = _between(
+                text,
+                '<ParamField path="job_id" type="string" required>',
+                "</ParamField>",
+            )
+            self.assertRegex(job_id, r"(?:config|Config|配置)")
+            self.assertRegex(job_id, r"(?:interactive|interaktiv|interactivo|interactif|交互式)")
+            self.assertIn("future", text.lower(), path)
+            self.assertRegex(text, r"(?i:sampling)|采样", path)
+            self.assertRegex(text, r"(?:billed|abgerechnet|factur|费用)", path)
+            self.assertRegex(
+                text,
+                r"(?:separate|separat|independiente|distinct|独立)",
+                path,
+            )
+            self.assertRegex(
+                text,
+                r"\| `409 cancellation_unconfirmed` \|[^\n]+(?:config|Config|配置)",
+                path,
+            )
+
+    def test_config_only_operations_refuse_interactive_job_ids(self) -> None:
+        pages = {
+            "logs.mdx": "future",
+            "billing.mdx": "`GET /v1/training/usage`",
+            "download.mdx": (
+                "`GET /v1/training/jobs/{job_id}/checkpoints/"
+                "{checkpoint_id}/download`"
+            ),
+            "deployments.mdx": ("`model_id`", "`status`"),
+            "sync.mdx": "`GET /v1/training/jobs/{job_id}`",
+            "terminate.mdx": "`POST /v1/training/jobs/{job_id}/stop`",
+            "update-model-name.mdx": "`model_name`",
+            "update-project.mdx": "Tinker",
+        }
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            for page, alternative in pages.items():
+                path = ROOT / f"{prefix}api-reference/training-jobs/{page}"
+                text = path.read_text(encoding="utf-8")
+                self.assertRegex(text, r"(?:config|Config|配置)", path)
+                self.assertRegex(
+                    text,
+                    r"(?:interactive|interaktiv|interactivo|interactif|交互式)",
+                    path,
+                )
+                self.assertIn("`400`", text, path)
+                markers = alternative if isinstance(alternative, tuple) else (alternative,)
+                for marker in markers:
+                    self.assertIn(marker.lower(), text.lower(), path)
+
+            push_path = ROOT / f"{prefix}api-reference/training-jobs/push-to-hub.mdx"
+            push = push_path.read_text(encoding="utf-8")
+            self.assertRegex(push, r"(?:config|Config|配置)", push_path)
+            self.assertRegex(
+                push,
+                r"(?:interactive|interaktiv|interactivo|interactif|交互式)",
+                push_path,
+            )
+            self.assertIn("`400`", push, push_path)
+            self.assertRegex(
+                push,
+                r"(?i:(?:no|keinen|keine|ninguna|aucune|n[’']ont|没有).{0,30}push)",
+                push_path,
+            )
+
     def test_tinker_quickstarts_require_python_311(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):
             prefix = f"{locale}/" if locale else ""
@@ -407,6 +580,18 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("Python 3.10", text, path)
             self.assertGreaterEqual(text.count("Python 3.11"), 1, path)
+
+    def test_windows_quickstarts_set_the_current_process_environment(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            path = ROOT / f"{prefix}quickstart.mdx"
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(
+                '$env:FASTINO_API_KEY = "your_api_key_here"',
+                text,
+                path,
+            )
+            self.assertNotIn("setx FASTINO_API_KEY", text, path)
 
     def test_interactive_billing_and_sdk_limits_are_documented_in_every_locale(self) -> None:
         for locale in ("", "cn", "de", "es", "fr"):

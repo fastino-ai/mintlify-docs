@@ -10,9 +10,10 @@ api: "GET /v1/training/jobs"
 Renvoie les jobs d'entraînement de configuration et interactifs visibles par le
 compte authentifié.
 
-Sans `type`, une page liste d'abord les jobs de configuration (du plus récent au
-plus ancien), puis les jobs interactifs (du plus récent au plus ancien). Passez
-`type=interactive` pour ne lister que les jobs interactifs.
+Sans `type`, les jobs de configuration et interactifs sont entrelacés selon
+`created_at`, du plus récent au plus ancien. Si deux jobs ont le même horodatage,
+le job de configuration apparaît en premier. Passez `type=interactive` pour ne
+lister que les jobs interactifs.
 
 ## Requête
 
@@ -21,7 +22,7 @@ plus ancien), puis les jobs interactifs (du plus récent au plus ancien). Passez
 </ParamField>
 
 <ParamField query="status" type="string">
-  Filtrez les jobs config par statut persisté. Lorsque `status` est fourni, la réponse exclut les jobs interactifs. `status=complete` renvoie les jobs persistés avec le statut `complete`, `artifact_ready` ou `deployed`, et inclut donc tous les jobs config terminés avec succès.
+  Filtrez les deux types de jobs par statut. Les jobs interactifs prennent en charge `creating`, `active`, `stopping`, `stopped` et `failed` ; `running` correspond également à `active`, tandis que `errored` et `error` correspondent à `failed`. `running`, `errored`, `error`, `stopped` et `failed` peuvent correspondre aux deux types. `creating`, `active` et `stopping` correspondent uniquement aux jobs interactifs ; les autres statuts config uniquement aux jobs config. Pour les jobs config, `status=complete` renvoie les jobs persistés avec le statut `complete`, `artifact_ready` ou `deployed`.
 </ParamField>
 
 <ParamField query="type" type="string">
@@ -59,11 +60,13 @@ curl "https://api.fastino.ai/v1/training/jobs?type=config&status=complete&limit=
   Enregistrements des jobs d'entraînement pour cette page.
 </ResponseField>
 
-Les jobs de configuration utilisent `id`. Les jobs interactifs utilisent
-`job_id` comme ID de chemin canonique et conservent la même valeur dans
-`training_run_id` pour la compatibilité SDK. Ils incluent également `status`,
-`stop_reason`, `error_message` et `is_terminal_status` ; interrogez le job avec
-`job_id` jusqu'à ce que l'indicateur terminal soit true.
+Tous les enregistrements incluent `id` et `created_at`. Les enregistrements
+interactifs répètent également `id` dans `job_id` et `training_run_id` pour la
+compatibilité de l’API et du SDK, et incluent `status`, `stop_reason`,
+`error_message` et `is_terminal_status`. Interrogez un job interactif avec `id`
+jusqu'à ce que l'indicateur terminal soit true.
+
+Un enregistrement avec `type: "config"` et `source: "interactive_checkpoint"` est le modèle servi créé à partir d'un checkpoint sampler interactif. Ses champs d'entraînement config, notamment les époques, la taille de lot, le taux d'apprentissage et le pourcentage de validation, valent `null`.
 
 <ResponseField name="count" type="integer">
   Nombre de jobs dans cette page.

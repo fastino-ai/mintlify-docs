@@ -7,11 +7,17 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-Supprime le job et ses artefacts stockés. Si le job est actif, le service demande d'abord son arrêt. La suppression se termine dans le même appel uniquement lorsque l'annulation est confirmée.
+Supprime un job config ou interactif et ses artefacts stockés.
 
 <Warning>
-  La suppression est irréversible. Téléchargez d'abord tout ce dont vous avez besoin vers un stockage que vous contrôlez. La suppression retire les checkpoints et les artefacts stockés et libère les déploiements hébergés actifs.
+  La suppression est irréversible. Téléchargez d'abord tout ce dont vous avez besoin vers un stockage que vous contrôlez.
 </Warning>
+
+Pour un job config, le service demande d'abord son annulation s'il est actif. La suppression se termine dans le même appel uniquement lorsque l'annulation est confirmée. Elle retire les checkpoints et les artefacts stockés et libère les déploiements hébergés actifs.
+
+Pour un job interactif, le service annule les appels d'entraînement en attente autres que le sampling, demande l'arrêt et marque le job et ses checkpoints comme supprimés dans la même requête. Le job devient immédiatement indisponible dans les routes de liste, de consultation, de checkpoints et de futures. Les appels de sampling en attente et les appels déjà en cours se terminent et sont facturés avant la fin du nettoyage en arrière-plan.
+
+Les modèles déjà déployés depuis les checkpoints sampler du job restent des ressources de modèle distinctes et continuent de servir jusqu'à leur suppression séparée.
 
 ## Requête
 
@@ -20,7 +26,7 @@ Supprime le job et ses artefacts stockés. Si le job est actif, le service deman
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID du job d'entraînement.
+  UUID du job config ou ID du job interactif.
 </ParamField>
 
 <RequestExample>
@@ -49,8 +55,8 @@ Un job inconnu ou inaccessible renvoie `404`.
 
 | Statut | Signification |
 | --- | --- |
-| `409 training_job_already_finished` | Le job s'est terminé ou a échoué avant la prise en compte de l'annulation. Consultez son état avant de décider de réessayer. |
-| `409 cancellation_unconfirmed` | Le job est encore en cours d'arrêt. Interrogez `GET /v1/training/jobs/{job_id}`, puis réessayez ce `DELETE` une fois le job arrêté. La suppression ne se termine pas en arrière-plan. |
+| `409 training_job_already_finished` | Pour un job config, le job s'est terminé ou a échoué avant la prise en compte de l'annulation. Consultez son état avant de décider de réessayer. |
+| `409 cancellation_unconfirmed` | Pour un job config, le job est encore en cours d'arrêt. Interrogez `GET /v1/training/jobs/{job_id}`, puis réessayez ce `DELETE` une fois le job arrêté. La suppression ne se termine pas en arrière-plan. |
 
 ## Autorisation
 

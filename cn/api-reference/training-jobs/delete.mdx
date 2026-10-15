@@ -7,11 +7,17 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-删除任务及其存储的工件。如果任务处于活动状态，服务会先请求停止。只有在取消得到确认时，删除才会在同一次调用中完成。
+删除配置任务或交互式任务及其存储的工件。
 
 <Warning>
-  删除操作不可撤销。请先将您需要保留的内容下载到您控制的存储中。删除会移除检查点和已存储的工件，并释放正在运行的托管部署。
+  删除操作不可撤销。请先将您需要保留的内容下载到您控制的存储中。
 </Warning>
+
+对于配置任务，如果任务处于活动状态，服务会先请求取消。只有在取消得到确认时，删除才会在同一次调用中完成。删除会移除检查点和已存储的工件，并释放正在运行的托管部署。
+
+对于交互式任务，服务会取消排队中的非采样训练调用、请求停止任务，并在同一次请求中将任务及其检查点标记为已删除。随后，列表、获取、检查点和 future 路由会立即将该任务视为不存在。排队中的采样调用和已开始运行的调用仍会执行完毕并产生费用，之后后台清理才会完成。
+
+已从该任务的 sampler 检查点部署的模型仍是独立的模型资源，并会继续提供服务，直到单独删除。
 
 ## 请求
 
@@ -20,7 +26,7 @@ api: "DELETE /v1/training/jobs/{job_id}"
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  训练任务 UUID。
+  配置任务 UUID 或交互式任务 ID。
 </ParamField>
 
 <RequestExample>
@@ -49,8 +55,8 @@ curl -X DELETE https://api.fastino.ai/v1/training/jobs/YOUR_TRAINING_JOB_ID \
 
 | 状态 | 含义 |
 | --- | --- |
-| `409 training_job_already_finished` | 任务在取消生效前已完成或失败。请先读取任务状态，再决定是否重试。 |
-| `409 cancellation_unconfirmed` | 任务仍在停止中。请轮询 `GET /v1/training/jobs/{job_id}`，待任务停止后重试此 `DELETE`。删除不会在后台自动完成。 |
+| `409 training_job_already_finished` | 对于配置任务，任务在取消生效前已完成或失败。请先读取任务状态，再决定是否重试。 |
+| `409 cancellation_unconfirmed` | 对于配置任务，任务仍在停止中。请轮询 `GET /v1/training/jobs/{job_id}`，待任务停止后重试此 `DELETE`。删除不会在后台自动完成。 |
 
 ## 授权
 

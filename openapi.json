@@ -4377,6 +4377,12 @@
             "title": "Corrupted",
             "type": "boolean"
           },
+          "created_at": {
+            "description": "When the job was created; the job list is newest first across both types.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
           "error_message": {
             "anyOf": [
               {
@@ -4388,6 +4394,11 @@
             ],
             "description": "Why creating the job failed, when `status` is `failed`; null otherwise.",
             "title": "Error Message"
+          },
+          "id": {
+            "description": "The job's id, the same value as `job_id`: the field a config job's id is in, so one field reads both.",
+            "title": "Id",
+            "type": "string"
           },
           "is_lora": {
             "default": true,
@@ -4504,7 +4515,9 @@
           "base_model",
           "model_owner",
           "last_request_time",
+          "id",
           "job_id",
+          "created_at",
           "status",
           "is_terminal_status"
         ],
@@ -6759,12 +6772,21 @@
             "title": "Artifact Ready"
           },
           "base_model": {
+            "description": "The catalog base model the adapter was trained on (for an `interactive_checkpoint` model, the base of the interactive job it came from).",
             "title": "Base Model",
             "type": "string"
           },
           "batch_size": {
-            "title": "Batch Size",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Training batch size. Null for an `interactive_checkpoint` model.",
+            "title": "Batch Size"
           },
           "completed_at": {
             "anyOf": [
@@ -6950,8 +6972,16 @@
             "title": "Labels"
           },
           "learning_rate": {
-            "title": "Learning Rate",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Learning rate. Null for an `interactive_checkpoint` model.",
+            "title": "Learning Rate"
           },
           "metrics": {
             "anyOf": [
@@ -7037,8 +7067,16 @@
             "type": "array"
           },
           "nr_epochs": {
-            "title": "Nr Epochs",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Training epochs. Null for an `interactive_checkpoint` model.",
+            "title": "Nr Epochs"
           },
           "progress_percent": {
             "anyOf": [
@@ -7135,8 +7173,18 @@
                 "type": "null"
               }
             ],
-            "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded, because its seed is unknown. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 — treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
+            "description": "Effective reproducibility seed for Modal decoder or GLiNER2 (encoder) training. Null for Fireworks, unknown, and other providers/architectures that cannot honor this contract, and also null for a legacy Modal decoder/encoder job created before seed provenance was recorded, because its seed is unknown, and for an `interactive_checkpoint` model, which this job did not train. A non-null value is always a genuinely recorded seed. Decoder contract: A pinned seed governs LoRA initialisation and the trainer's own RNG (dataloader shuffle order and dropout). It does not select the train/validation split: that partition uses a dedicated split seed so two runs that differ only in `seed` are scored on the same held-out rows. It does not make runs bit-identical: GPU reduction order stays non-deterministic, so metrics can differ between otherwise identical runs. Across six observed same-config decoder pairs, final validation loss agreed to within 6.8% relative and two pairs agreed exactly. Treat that as an observed envelope from production history, not a guaranteed bound. Encoder contract: A pinned seed governs dataset shuffle and auto-sizing downsample order, and the trainer's own weight-initialisation and dropout RNG. It does not select the train/validation split on a Brain-dispatched run: that partition is a fixed left-to-right split derived from validation_data_percentage (validation is the tail), independent of seed, so two runs that differ only in `seed` are scored on the same held-out rows. Runs are seeded but not bit-identical: GPU reduction order stays non-deterministic (cuBLAS GEMM split-k, and the embedding-backward scatter_add/index_add path, which is not forced deterministic), so metrics can still differ between identically-configured runs. Before encoder seed control existed, three identically-configured launches measured classification macro-F1 ranging 0.38–0.63 — treat pinning a seed as removing one real, measured source of that noise, not as a guaranteed bound on the rest. Every GLiNER2 job unconditionally pins cuDNN's own algorithm selection (the same flags GLiNER2's bundled Trainer sets) -- this is a fixed container default, not a per-request knob. The cuDNN pin currently costs nothing and changes nothing on this backbone: cuDNN governs convolution/pooling/RNN kernels, and this encoder's DeBERTa-v2 backbone has none, so pinning it has nothing to pin there; the throughput trade-off only materializes if a future backbone adds conv/pooling/RNN layers. torch deterministic algorithms are not enabled: they would roughly halve training throughput without making runs bit-identical.",
             "title": "Seed"
+          },
+          "source": {
+            "default": "config_training",
+            "description": "How the model came to exist: `config_training` for a job Fastino trained from data and a config, `interactive_checkpoint` for a sampler checkpoint of an interactive job served as a model (`POST /v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy`). An `interactive_checkpoint` model ran no training of its own, so it lists no datasets and its training settings are null.",
+            "enum": [
+              "config_training",
+              "interactive_checkpoint"
+            ],
+            "title": "Source",
+            "type": "string"
           },
           "started_at": {
             "anyOf": [
@@ -7204,8 +7252,16 @@
             "type": "string"
           },
           "validation_data_percentage": {
-            "title": "Validation Data Percentage",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the data held out for validation (0-1). Null for an `interactive_checkpoint` model.",
+            "title": "Validation Data Percentage"
           },
           "version_number": {
             "anyOf": [
@@ -7259,7 +7315,7 @@
         "type": "object"
       },
       "TrainingJobsPage": {
-        "description": "``GET /v1/training/jobs``: config jobs, then interactive jobs (Tinker training runs), told apart by ``type``.\n\nInteractive jobs are listed only for a team on the training runs API.",
+        "description": "``GET /v1/training/jobs``: config and interactive jobs (Tinker training runs), newest first, told apart by ``type``.\n\nInteractive jobs are listed only for a team on the training runs API.",
         "properties": {
           "count": {
             "description": "Jobs on this page.",
@@ -9836,7 +9892,7 @@
     },
     "/v1/training/jobs": {
       "get": {
-        "description": "List training jobs: config jobs newest first, then interactive jobs (Tinker training runs) newest first. `status` filters config jobs only, so it lists no interactive jobs.",
+        "description": "List training jobs, config and interactive (Tinker training runs), newest first by `created_at`, with `type` to list one type. `status` filters both: interactive jobs on their own statuses (`creating`, `active`, `stopping`, `stopped`, `failed`), with `running` matching active ones and `errored` failed ones.",
         "operationId": "list_jobs_v1_training_jobs_get",
         "parameters": [
           {
@@ -10053,7 +10109,7 @@
     },
     "/v1/training/jobs/{job_id}": {
       "delete": {
-        "description": "Delete a training job and associated checkpoints.",
+        "description": "Delete a training job and its checkpoints (an interactive job is stopped first if it is active).",
         "operationId": "delete_training_job_v1_training_jobs__job_id__delete",
         "parameters": [
           {

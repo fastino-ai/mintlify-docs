@@ -37,7 +37,17 @@ Treat the OpenAPI document as authoritative. Read credentials from `FASTINO_API_
 ```
 
 - `state`, `questions`, and `model` are all required — omitting `model` returns `422 'model' must be provided`.
-- Any other top-level request key returns `422 Extra inputs are not permitted`.
+- Optional top-level fields are `provider` (object), `user` (string),
+  `session_id` (string), `trace` (object), `thinking` (boolean), and `store`
+  (boolean). The routing and observability fields are accepted for compatibility
+  but are not forwarded to the model. Omit `thinking` or send `false`;
+  `thinking: true` is currently rejected.
+- `store` defaults to `true`. Set `store: false` only when the user wants
+  Fastino not to retain the request and response payloads; billing metadata such
+  as model, token counts, latency, status, and cost is still recorded. Do not
+  change this setting without the user's intent.
+- A top-level key outside this complete schema returns
+  `422 Extra inputs are not permitted`.
 - Limits: 2–255 options per `choice` question; a single option is invalid because it cannot represent a decision or meaningful confidence margin. Each question's prompt (state + that question) must fit in ~40k tokens. `usage.input_tokens` isn't a flat cap — it sums multiple internal passes per question.
 
 ## Question types

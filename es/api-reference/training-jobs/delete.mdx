@@ -7,11 +7,17 @@ api: "DELETE /v1/training/jobs/{job_id}"
 
 `DELETE /v1/training/jobs/{job_id}`
 
-Elimina el trabajo y sus artefactos almacenados. Si el trabajo está activo, el servicio solicita primero su detención. La eliminación termina en la misma llamada solo cuando se confirma la cancelación.
+Elimina un trabajo config o interactivo y sus artefactos almacenados.
 
 <Warning>
-  La eliminación es irreversible. Primero descarga lo que necesites a un almacenamiento que controles. La eliminación borra los checkpoints y los artefactos almacenados, y libera los despliegues alojados activos.
+  La eliminación es irreversible. Primero descarga lo que necesites a un almacenamiento que controles.
 </Warning>
+
+Para un trabajo config, el servicio solicita primero la cancelación si el trabajo está activo. La eliminación termina en la misma llamada solo cuando se confirma la cancelación. Se eliminan los checkpoints y los artefactos almacenados, y se liberan los despliegues alojados activos.
+
+Para un trabajo interactivo, el servicio cancela las llamadas de entrenamiento en cola que no sean de sampling, solicita la detención y marca el trabajo y sus checkpoints como eliminados en la misma solicitud. El trabajo deja de estar disponible inmediatamente en las rutas de listado, consulta, checkpoints y futures. Las llamadas de sampling en cola y las llamadas que ya se están ejecutando terminan y se facturan antes de que concluya la limpieza en segundo plano.
+
+Los modelos ya desplegados desde checkpoints sampler del trabajo siguen siendo recursos de modelo independientes y continúan sirviendo hasta que se eliminen por separado.
 
 ## Solicitud
 
@@ -20,7 +26,7 @@ Elimina el trabajo y sus artefactos almacenados. Si el trabajo está activo, el 
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  UUID del trabajo de entrenamiento.
+  UUID del trabajo config o ID del trabajo interactivo.
 </ParamField>
 
 <RequestExample>
@@ -49,8 +55,8 @@ Un trabajo desconocido o inaccesible devuelve `404`.
 
 | Estado | Significado |
 | --- | --- |
-| `409 training_job_already_finished` | El trabajo terminó o falló antes de que se aplicara la cancelación. Consulta el estado antes de decidir si reintentas. |
-| `409 cancellation_unconfirmed` | El trabajo todavía se está deteniendo. Consulta `GET /v1/training/jobs/{job_id}` y reintenta este `DELETE` cuando esté detenido. La eliminación no termina en segundo plano. |
+| `409 training_job_already_finished` | Para un trabajo config, el trabajo terminó o falló antes de que se aplicara la cancelación. Consulta el estado antes de decidir si reintentas. |
+| `409 cancellation_unconfirmed` | Para un trabajo config, el trabajo todavía se está deteniendo. Consulta `GET /v1/training/jobs/{job_id}` y reintenta este `DELETE` cuando esté detenido. La eliminación no termina en segundo plano. |
 
 ## Autorización
 

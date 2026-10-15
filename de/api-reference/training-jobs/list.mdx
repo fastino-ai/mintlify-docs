@@ -10,8 +10,10 @@ api: "GET /v1/training/jobs"
 Gibt die für den authentifizierten Account sichtbaren Config- und
 Interactive-Trainingsjobs zurück.
 
-Ohne `type` listet eine Seite zuerst Config-Jobs (neueste zuerst) und danach
-interaktive Jobs (neueste zuerst). Übergeben Sie `type=interactive`, um nur interaktive Jobs aufzulisten.
+Ohne `type` werden Config- und interaktive Jobs nach `created_at` gemischt
+aufgelistet, die neuesten zuerst. Haben zwei Jobs denselben Zeitstempel, steht
+der Config-Job zuerst. Übergeben Sie `type=interactive`, um nur interaktive
+Jobs aufzulisten.
 
 ## Request
 
@@ -20,7 +22,7 @@ interaktive Jobs (neueste zuerst). Übergeben Sie `type=interactive`, um nur int
 </ParamField>
 
 <ParamField query="status" type="string">
-  Config-Jobs nach gespeichertem Status filtern. Mit `status` enthält die Antwort keine interaktiven Jobs. `status=complete` gibt Jobs zurück, die als `complete`, `artifact_ready` oder `deployed` gespeichert sind, und umfasst damit alle erfolgreich abgeschlossenen Config-Jobs.
+  Beide Jobtypen nach Status filtern. Interaktive Jobs unterstützen `creating`, `active`, `stopping`, `stopped` und `failed`; `running` entspricht ebenfalls `active`, während `errored` und `error` `failed` entsprechen. `running`, `errored`, `error`, `stopped` und `failed` können beide Typen treffen. `creating`, `active` und `stopping` treffen nur interaktive Jobs; andere Config-Statuswerte nur Config-Jobs. Bei Config-Jobs gibt `status=complete` Jobs zurück, die als `complete`, `artifact_ready` oder `deployed` gespeichert sind.
 </ParamField>
 
 <ParamField query="type" type="string">
@@ -58,11 +60,13 @@ curl "https://api.fastino.ai/v1/training/jobs?type=config&status=complete&limit=
   Trainingsjob-Datensätze für diese Seite.
 </ResponseField>
 
-Config-Job-Datensätze verwenden `id`. Interaktive Job-Datensätze verwenden
-`job_id` als kanonische Pfad-ID und behalten denselben Wert in
-`training_run_id` zur SDK-Kompatibilität. Interaktive Datensätze enthalten
-außerdem `status`, `stop_reason`, `error_message` und `is_terminal_status`;
-fragen Sie den Job über `job_id` ab, bis das Terminal-Flag true ist.
+Jeder Datensatz enthält `id` und `created_at`. Interaktive Datensätze
+wiederholen `id` zur API- und SDK-Kompatibilität in `job_id` und
+`training_run_id` und enthalten außerdem `status`, `stop_reason`,
+`error_message` und `is_terminal_status`. Fragen Sie einen interaktiven Job über
+`id` ab, bis das Terminal-Flag true ist.
+
+Ein Datensatz mit `type: "config"` und `source: "interactive_checkpoint"` ist das bereitgestellte Modell aus einem interaktiven Sampler-Checkpoint. Seine Config-Trainingsfelder, darunter Epochen, Batch-Größe, Lernrate und Validierungsanteil, sind `null`.
 
 <ResponseField name="count" type="integer">
   Anzahl der Jobs auf dieser Seite.
