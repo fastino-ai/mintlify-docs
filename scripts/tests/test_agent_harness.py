@@ -28,7 +28,7 @@ sys.modules[SPEC.name] = HARNESS
 SPEC.loader.exec_module(HARNESS)
 
 CONFIG_CREATE_PAGES = (
-    "training/quickstart.mdx",
+    "training/encoder-quickstart.mdx",
     "concepts/datasets.mdx",
     "guides/fine-tune-gliner.mdx",
     "api-reference/training-jobs/create.mdx",

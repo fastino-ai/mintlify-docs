@@ -38,7 +38,7 @@ SPEC.loader.exec_module(SNIPPETS)
 
 EXPECTED_PAGES = (
     "training.mdx",
-    "training/quickstart.mdx",
+    "training/encoder-quickstart.mdx",
     "training/decoder-quickstart.mdx",
     "training/migrate-from-tinker.mdx",
     "concepts/datasets.mdx",
@@ -55,7 +55,7 @@ EXPECTED_EMPTY_PAGES = (
 )
 EXPECTED_FENCE_COUNTS = {
     "training.mdx": 0,
-    "training/quickstart.mdx": 5,
+    "training/encoder-quickstart.mdx": 5,
     "training/decoder-quickstart.mdx": 14,
     "training/migrate-from-tinker.mdx": 5,
     "concepts/datasets.mdx": 8,
@@ -67,7 +67,7 @@ EXPECTED_FENCE_COUNTS = {
 }
 EXPECTED_LIVE_GETS_WITH_FIXTURES = 9
 PARITY_PAGES = (
-    "training/quickstart.mdx",
+    "training/encoder-quickstart.mdx",
     "training/decoder-quickstart.mdx",
     "training/migrate-from-tinker.mdx",
     "training/training-loop.mdx",
@@ -584,10 +584,16 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             "es/": ("Inicio rápido del codificador", "Inicio rápido del decodificador"),
             "fr/": ("Démarrage rapide de l'encodeur", "Démarrage rapide du décodeur"),
         }
-        navigation = (ROOT / "docs.json").read_text(encoding="utf-8")
+        docs_config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
+        navigation = json.dumps(docs_config["navigation"], ensure_ascii=False)
+        redirects = {
+            (redirect["source"], redirect["destination"], redirect["permanent"])
+            for redirect in docs_config["redirects"]
+        }
         for prefix, (encoder_title, decoder_title) in titles.items():
-            encoder_path = f"{prefix}training/quickstart"
+            encoder_path = f"{prefix}training/encoder-quickstart"
             decoder_path = f"{prefix}training/decoder-quickstart"
+            legacy_path = f"/{prefix}training/quickstart"
             encoder = (ROOT / f"{encoder_path}.mdx").read_text(encoding="utf-8")
             decoder = (ROOT / f"{decoder_path}.mdx").read_text(encoding="utf-8")
             llms = (ROOT / f"{prefix}llms.txt").read_text(encoding="utf-8")
@@ -600,6 +606,10 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 self.assertIn(f'"{decoder_path}"', navigation)
                 self.assertIn(f"/{encoder_path}.md", llms)
                 self.assertIn(f"/{decoder_path}.md", llms)
+                self.assertIn(
+                    (legacy_path, f"/{decoder_path}", True),
+                    redirects,
+                )
 
     def test_retired_claim_guard_rejects_banned_text(self) -> None:
         cases = (
@@ -761,7 +771,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             )
         )
 
-        create = SNIPPETS.classify(_snippet("training/quickstart.mdx", 3))
+        create = SNIPPETS.classify(_snippet("training/encoder-quickstart.mdx", 3))
         self.assertEqual(create.coverage, "static")
         self.assertEqual(create.mapped_command, "training-replay")
         self.assertEqual(create.risk, "mutating")
@@ -780,9 +790,9 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(upload.mapped_command, "blocker")
 
     def test_missing_placeholders_print_skip_and_do_not_guess(self) -> None:
-        job = _snippet("training/quickstart.mdx", 4)
+        job = _snippet("training/encoder-quickstart.mdx", 4)
         dataset = _snippet("concepts/datasets.mdx", 6)
-        catalog = _snippet("training/quickstart.mdx", 2)
+        catalog = _snippet("training/encoder-quickstart.mdx", 2)
 
         skipped_job = SNIPPETS.plan_live(job, SNIPPETS.classify(job), {})
         skipped_dataset = SNIPPETS.plan_live(dataset, SNIPPETS.classify(dataset), {})

@@ -56,14 +56,14 @@
 ### 训练 API
 
 - [训练 API 概览](https://docs.fastino.ai/cn/training.md): 选择托管训练、自定义训练循环或 Auto Train，了解 config 与 交互式任务类型及配置任务生命周期，并检查训练任务。
-- [编码器快速入门](https://docs.fastino.ai/cn/training/quickstart.md): 完成身份验证后，准备数据集并选择 GLiNER 编码器模型，以启动和轮询托管训练任务。
+- [编码器快速入门](https://docs.fastino.ai/cn/training/encoder-quickstart.md): 完成身份验证后，准备数据集并选择 GLiNER 编码器模型，以启动和轮询托管训练任务。
 - [解码器快速入门](https://docs.fastino.ai/cn/training/decoder-quickstart.md): 完成身份验证后，使用原生 REST 接口创建 Nemotron 或 Qwen 解码器任务，运行训练、保存和采样操作，然后验证规范任务 ID。
 - [从 Tinker 迁移](https://docs.fastino.ai/cn/training/migrate-from-tinker.md): 只需更改 SDK 基础 URL 和凭据，即可在 Fastino 上运行现有 Tinker Python SDK 工作负载，然后验证连接并查看限制。
 - [准备并上传训练数据集](https://docs.fastino.ai/cn/concepts/datasets.md): 在启动 Fastino GLiNER 训练任务之前，格式化、上传、验证并检查 NER 或分类数据集。
 - [微调 GLiNER](https://docs.fastino.ai/cn/guides/fine-tune-gliner.md): 准备 GLiNER 数据集、创建托管式配置任务，并通过检查点直至任务完成进行监控。
-- [构建自定义训练循环](https://docs.fastino.ai/cn/training/training-loop.md): 由你的应用控制采样、评分和更新时机，在一个 Fastino 交互式任务中构建对齐的 datum 并管理检查点。
-- [使用可验证奖励进行训练](https://docs.fastino.ai/cn/training/verifiable-rewards.md): 用确定性评分器检查数学答案、测试结果等响应，将奖励转换为优势值，并在同一个 Fastino 交互式任务中完成采样、更新和检查点。
-- [检查点与恢复](https://docs.fastino.ai/cn/training/checkpoints.md): 保存交互式任务的状态检查点和循环记录，读取最新的完整记录，加载前验证任务 ID 和数据集游标，然后在不重放已完成工作的情况下恢复。
+- [构建自定义训练循环](https://docs.fastino.ai/cn/training/training-loop.md): 在一个 Fastino 交互式任务中构建训练循环：保存采样权重、收集 rollout、计算奖励和优势，再执行 forward-backward。
+- [使用可验证奖励进行训练](https://docs.fastino.ai/cn/training/verifiable-rewards.md): 用确定性评分器检查数学答案、测试结果等响应，将奖励转换为逐 token 优势，并在同一个 Fastino 交互式任务中完成采样、更新和检查点保存。
+- [检查点与恢复](https://docs.fastino.ai/cn/training/checkpoints.md): 使用 save-weights 保存交互式任务的 LoRA 权重和优化器状态，同时记录循环进度，在加载前验证，从而无需重放已完成的工作即可恢复训练。
 - [Auto Train](https://docs.fastino.ai/cn/training/auto.md): 将数据准备、训练、评估和模型选择委托给 Fastino 的自治训练智能体。
 
 ### 推理 API
@@ -83,7 +83,7 @@
 
 ### 模型
 
-- [模型目录](https://docs.fastino.ai/cn/concepts/models.md): 比较 GLiDE、GLiNER、GLiGuard 等推理模型的模型 ID、参数量、上下文窗口和价格，以及编码器和解码器可训练模型的训练工作流。
+- [模型目录](https://docs.fastino.ai/cn/concepts/models.md): 比较可训练的 GLiNER 编码器与 Nemotron、Qwen 解码器及训练价格，并查看 GLiDE、GLiGuard、PII 等推理模型。
 
 ### 账户
 
@@ -123,8 +123,8 @@
 - [获取训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/get.md): 通过规范的 Fastino 任务 ID 获取配置训练任务或交互式训练任务。
 - [更新训练任务的项目](https://docs.fastino.ai/cn/api-reference/training-jobs/update-project.md): 调用 PATCH /v1/training/jobs/{job_id}，将训练任务分配到项目，或发送 null 取消分配。相关的部署和推理记录保持不变。
 - [删除训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/delete.md): 调用 DELETE /v1/training/jobs/{job_id}，永久删除训练任务及其检查点和存储的工件；如果任务处于活动状态，会先将其停止。
-- [停止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/stop.md): 停止运行中的 Fastino 训练任务并保留停止前创建的检查点。JSON 请求体为可选，可附带停止原因、数值指标和检查点路径。
-- [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 停止活动的 config 训练任务并请求提供方取消。默认保留现有检查点和工件，设置 delete_checkpoints 会在取消后永久删除它们。
+- [停止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/stop.md): 停止运行中的配置任务或交互式任务，并保留停止前创建的检查点。交互式任务会立即返回并拒绝新调用，已排队的操作可能在资源释放前完成。
+- [终止训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/terminate.md): 停止活动的 config 训练任务并请求提供方取消，默认保留检查点和工件。将 delete_checkpoints 设为 true 会在确认取消后永久删除它们。
 - [同步训练任务](https://docs.fastino.ai/cn/api-reference/training-jobs/sync.md): 调用 POST /v1/training/jobs/{job_id}/sync 并传入训练任务 ID，从训练提供方刷新该训练任务的状态。
 - [获取训练日志](https://docs.fastino.ai/cn/api-reference/training-jobs/logs.md): 获取 Fastino 训练任务结构化的 stdout 和 stderr 日志条目快照。该端点不流式传输，需轮询以跟随运行中的任务。
 - [获取训练任务的计费信息](https://docs.fastino.ai/cn/api-reference/training-jobs/billing.md): 通过 GET /v1/training/jobs/{job_id}/billing 查询 Fastino 训练任务是否已计费，以及费用金额和 GPU 分钟数。
@@ -140,15 +140,15 @@
 - [排队前向-反向操作](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/forward-backward.md): 在交互式训练作业上排队一次累积梯度的前向-反向传播，然后轮询返回的 future_id，直到其达到终态。
 - [排队优化器步骤](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/optim-step.md): 在交互式训练作业上基于累积梯度排队一次优化器步骤。请求体是可选的，响应返回一个可供轮询的 future_id。
 - [获取交互式 future](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/get-future.md): 轮询交互式 future 以获取其状态和结果。设置 wait=true 时，请求最多等待 25 秒，服务会将结果保留一小时。
-- [取消采样 future](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/cancel-future.md): 请求尽力取消排队中或运行中的采样 future。只有采样 future 可以取消，因为训练 future 按顺序运行。
-- [保存训练权重](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/save-weights.md): 将交互式作业的 LoRA 权重和优化器状态以指定名称保存。响应包含 future_id、weights 检查点 ID 及其 tinker:// 路径。
-- [保存采样器权重](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/save-weights-for-sampler.md): 将交互式作业的 LoRA 权重以指定名称保存，用于采样和 PEFT 下载。响应包含 future_id、检查点 ID 和 tinker:// 路径。
+- [取消交互式 future](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/cancel-future.md): 尽力取消排队中或运行中的采样 future。对已结束的 future 或训练 future 发起取消会返回 204，但不执行任何操作。
+- [保存训练权重](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/save-weights.md): 以指定名称保存交互式任务的 LoRA 权重和优化器状态。响应包含 future_id、weights 检查点 ID 及其 tinker:// 路径。
+- [保存采样器权重](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/save-weights-for-sampler.md): 以指定名称保存交互式任务的 LoRA 权重，用于采样和 PEFT 下载。响应包含 future_id、检查点 ID 和 tinker:// 路径。
 - [加载训练权重](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/load-weights.md): 从状态名称或此作业的 tinker:// 路径向交互式作业排队加载。设置 optimizer 可恢复优化器状态，然后轮询 future_id。
 - [从交互式作业采样](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/sample.md): 从采样器检查点名称或此作业的 tinker:// 路径排队采样并获取 future_id。交互式作业停止后仍可采样。
-- [部署交互式任务检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/deploy-checkpoint.md): 将交互式任务的 sampler 检查点部署为训练好的模型，再通过 POST /v1/chat/completions 调用。
+- [部署交互式任务检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/deploy-checkpoint.md): 将 save-weights-for-sampler 保存的采样器检查点部署为训练后的模型，再通过 POST /v1/chat/completions 调用。
 - [获取交互式检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/get-checkpoint.md): 按 kind 和 name 返回交互式训练作业中的一个检查点，其中 kind 为 weights 或 sampler_weights。
 - [删除交互式检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/delete-checkpoint.md): 从交互式训练作业中删除 weights 或 sampler_weights 检查点。操作同步完成，且没有响应体。
 - [发布交互式检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/publish-checkpoint.md): 发布交互式训练作业中的 weights 或 sampler_weights 检查点。发布并不会授予其他团队加载该检查点的权限。
 - [取消发布交互式检查点](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/unpublish-checkpoint.md): 向交互式训练作业检查点的发布路径发送 DELETE 请求以取消发布。请求同步完成，且没有响应体。
-- [设置检查点保留期](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/set-checkpoint-ttl.md): 为交互式训练作业中的 weights 或 sampler_weights 检查点设置保留期。TTL 为 null 时，检查点将保留到被删除为止。
+- [设置检查点保留期](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/set-checkpoint-ttl.md): 为交互式训练任务中的 weights 或 sampler_weights 检查点设置保留期。TTL 为 null 时，检查点将保留到被删除为止。
 - [获取交互式检查点存储用量](https://docs.fastino.ai/cn/api-reference/training-jobs/interactive/storage-usage.md): 通过 GET /v1/training/usage 返回团队范围的交互式检查点存储量及其月度价格。它不报告计算用量或总账单。
