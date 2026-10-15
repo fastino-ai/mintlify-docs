@@ -44,8 +44,8 @@ EXPECTED_RATES = {
     "Nemotron 3.5 Super VL": (
         r"\$0.16",
         r"\$0.04",
-        r"\$0.72",
-        r"\$0.96",
+        r"\$0.65",
+        r"\$0.65",
     ),
     "Nemotron 3.5 Lightning": (
         r"\$0.05",
@@ -143,7 +143,9 @@ class TrainingPricingTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     any(
-                        all(rate in row for rate in (r"\$0.16", r"\$0.04", r"\$0.72", r"\$0.96"))
+                        r"\$0.16" in row
+                        and r"\$0.04" in row
+                        and row.count(r"\$0.65") == 2
                         for row in rows
                     )
                 )
