@@ -41,6 +41,10 @@ CALLABLE_IDS = {
     "Nemotron 3.5 Lightning": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
     "Qwen3.6-35B-A3B": "Qwen/Qwen3.6-35B-A3B",
 }
+ENCODER_IDS = (
+    "fastino/gliner2-multi-v1",
+    "fastino/GLiNER-2.5-Decide",
+)
 
 
 def _interactive_rates(page: Path) -> dict[str, tuple[str, ...]]:
@@ -92,6 +96,16 @@ class TrainingPricingTests(unittest.TestCase):
                 for display_name, model_id in CALLABLE_IDS.items():
                     self.assertIn(display_name, text)
                     self.assertIn(f"`{model_id}`", text)
+
+    def test_model_catalogs_publish_encoder_training_rates(self) -> None:
+        for page in MODEL_CATALOG_PAGES:
+            lines = page.read_text(encoding="utf-8").splitlines()
+            with self.subTest(page=page.relative_to(ROOT)):
+                for model_id in ENCODER_IDS:
+                    rows = [line for line in lines if f"`{model_id}`" in line]
+                    self.assertTrue(
+                        any(r"\$0.07" in row and r"\$4.20" in row for row in rows)
+                    )
 
     def test_training_precedes_inference(self) -> None:
         for page, (training_heading, inference_heading) in SECTION_HEADINGS.items():
