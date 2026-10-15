@@ -189,6 +189,47 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             self.assertIn("`failed`", text, guide)
             self.assertIn("`processing_error`", text, guide)
 
+    def test_dataset_references_document_live_upload_behavior(self) -> None:
+        expected_markers = {
+            "upload-url.mdx": (
+                "application/octet-stream",
+                "`403`",
+                "/api-reference/datasets/process-upload",
+            ),
+            "process-upload.mdx": (
+                "`202`",
+                "`ready`",
+                "`failed`",
+                "`processing_error`",
+                "`503`",
+                "/api-reference/datasets/versions",
+            ),
+            "list.mdx": (
+                "`include_all_versions=true`",
+                "`include_failed=true`",
+                "`limit`",
+                "`offset`",
+                "200",
+            ),
+            "versions.mdx": (
+                "`success`",
+                "`versions`",
+                "`count`",
+                "`version_number`",
+                "`processing_error`",
+            ),
+        }
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            for filename, markers in expected_markers.items():
+                path = ROOT / f"{prefix}api-reference/datasets/{filename}"
+                text = path.read_text(encoding="utf-8")
+                for marker in markers:
+                    localized_marker = marker.replace(
+                        "/api-reference/", f"/{prefix}api-reference/"
+                    )
+                    self.assertIn(localized_marker, text, path)
+
     def test_agent_checkpoint_kinds_match_public_contract(self) -> None:
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("`weights` or `sampler_weights`", agents)
