@@ -1,20 +1,12 @@
 ---
 title: "从 Tinker 迁移"
-description: "将兼容的 Tinker SDK 工作负载迁移到 Fastino 交互式训练任务。"
+description: "在 Fastino 上运行现有的 Tinker SDK 工作负载。"
 ---
 
-训练 API 支持未经修改的 `tinker==0.32.0` Python SDK，用于下面列出的操作。只需更改基础 URL 和凭据。
-迁移后的训练客户端是 `/v1/training/jobs` 中的一个 Fastino 任务；其 SDK 模型 ID
-与规范的 Fastino 任务 ID 相同。
+无需重写训练循环。Fastino 支持 `tinker==0.32.0` Python SDK。
+更改 SDK 基础 URL 和凭据，然后运行现有程序。
 
-你有两种选择：
-
-- **继续使用 SDK。** 将 `tinker` 指向 Fastino 的兼容基础 URL，并使用 Fastino API 密钥进行身份验证。按照下面的步骤 1–4 操作。
-- **切换到原生路由。** 使用 JSON 和同一个 API 密钥调用 Fastino 的 REST 路由。请参阅[切换到原生路由](#switch-to-the-native-routes)。
-
-将现有程序作为验收测试。更改连接、检查每项操作，并在恢复生产工作负载规模之前运行小型冒烟测试。
-
-## 1. 锁定经过测试的软件包
+## 1. 安装受支持的 SDK
 
 <CodeGroup>
 
@@ -28,7 +20,7 @@ pip install "tinker==0.32.0"
 
 </CodeGroup>
 
-## 2. 替换端点和身份验证
+## 2. 将 SDK 指向 Fastino
 
 <CodeGroup>
 
@@ -49,7 +41,7 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 每次请求令牌时都会运行 `TINKER_CREDENTIAL_CMD`，该命令必须打印非空凭据。使用普通的 `fast_sk_` Fastino
 密钥；`tml-` 凭据会被拒绝。不要设置 `TINKER_API_KEY`。
 
-在更改其他任何内容之前，先确认连接：
+## 3. 验证连接
 
 ```python
 import tinker
@@ -58,168 +50,51 @@ service_client = tinker.ServiceClient()
 print(service_client.get_server_capabilities())
 ```
 
-## 3. 检查工作负载
+选择 `get_server_capabilities()` 返回的模型，然后运行现有工作负载的小型版本。
+测试应完成一次训练更新、保存并重新加载状态，并在采样前使用明确的 TTL
+保存采样器权重。测试完成后再增加工作负载规模。
 
-1. 查询 `ServiceClient.get_server_capabilities()` 并选择可用的基础模型。保持 SDK 参数名 `base_model` 不变。
-2. 将代码中的每个方法与[受支持的客户端行为](#supported-client-behavior)进行比较。
-3. 移除对不受支持的批量 future 检索、外部权重导出或外部权重 URL 的依赖。
-4. 将提示词渲染、奖励逻辑、批处理、评估和停止条件保留在你的应用中。
+## Tinker SDK 兼容性
 
-Capabilities 仅列出已启用的模型及其上下文长度，不列出 LoRA 秩、优化器、损失、
-可选方法或操作限制。Fastino 当前接受 1 到 32 的 LoRA 秩，创建客户端时使用
-`adamw`，并支持 `cross_entropy`、`importance_sampling`、`ppo`、`cispo`
-和 `dro` 损失。活动服务会在提交客户端或操作时验证这些设置。
+每个 Tinker 训练客户端都是一个 Fastino 交互式任务。SDK 模型 ID
+也是其在 `/v1/training/jobs` 下的任务 ID。
 
-## 4. 运行冒烟测试
-
-使用现有工作负载中最小的有效 datum 和优化器设置，执行一项低成本测试，以：
-
-- 使用 `create_lora_training_client(base_model=...)` 创建一个客户端
-- 读取 `training_client.get_info().model_id`
-- 使用明确的 TTL 保存采样器权重并采样一次
-- 运行一次受支持的前向/反向操作和一次优化器步骤
-- 保存并重新加载状态检查点
-- 通过 `GET /v1/training/jobs/{job_id}` 获取每个客户端的 ID；工厂恢复会从来源
-  检查点创建一个新的任务 ID
-
-此迁移请继续使用受支持的 Tinker SDK。Fastino 也为新客户端发布了原生 JSON 操作。
-只设置 `TINKER_BASE_URL`。
-
-<span id="supported-client-behavior" />
-
-## 受支持的客户端行为
-
-训练 API 支持以下针对单个 Fastino 交互式任务的 `tinker==0.32.0` 调用。
-
-### 训练和采样
-
-| SDK 方法或操作 | Fastino 行为 |
+| 范围 | 支持的行为 |
 | --- | --- |
-| `create_lora_training_client` | 创建交互式任务 |
-| `copy_weights` | 从检查点启动交互式任务 |
-| `TrainingClient.get_info` | 返回交互式任务 |
-| `forward` | 运行仅前向操作 |
-| `forward_backward` | 运行前向和反向操作 |
-| 自定义前向/反向操作 | 运行受支持的自定义损失操作 |
-| `optim_step` | 应用优化器更新 |
-| `save_state` | 保存训练状态 |
-| `save_weights_for_sampler` | 保存采样器权重 |
-| 加载训练状态 | 恢复状态检查点 |
-| 创建或获取采样客户端 | 解析采样器权重 |
-| `SamplingClient.sample` | 通过所选检查点采样 |
+| 训练 | 创建或恢复客户端；检查客户端；运行前向、前向/反向、自定义损失和优化器操作 |
+| 检查点 | 保存和加载状态；保存采样器权重；检查、列出、下载、删除、发布和设置保留期 |
+| 采样 | 创建或获取采样客户端并调用 `sample` |
+| Future | 获取单个异步结果；取消未完成的采样 future |
+| 用量 | 列出交互式运行并读取检查点存储或小时计费用量 |
 
-保持 SDK 参数 `base_model` 不变。使用 capabilities 选择模型；秩和损失使用上面
-记录的限制，并处理活动服务返回的验证错误。
+<AccordionGroup>
+  <Accordion title="支持的管理调用">
+    Fastino 支持 `list_training_runs`、`get_training_run`、
+    `list_checkpoints`、`list_user_checkpoints`、
+    `get_weights_info_by_tinker_path`、`get_checkpoint_archive_url`、
+    `delete_checkpoint_from_tinker_path`、
+    `publish_checkpoint_from_tinker_path`、
+    `unpublish_checkpoint_from_tinker_path`、
+    `set_checkpoint_ttl_from_tinker_path`、
+    `get_current_checkpoint_storage_usage` 和 `get_billing_usage`。
+  </Accordion>
+  <Accordion title="限制">
+    - LoRA 秩必须在 1 到 32 之间。
+    - 优化器为 AdamW。
+    - 支持 `cross_entropy`、`importance_sampling`、`ppo`、`cispo` 和 `dro` 损失。
+    - 提示词块必须使用 `encoded_text`。
+    - 训练操作按顺序执行，训练操作的 future 无法取消。
+    - 检查点下载需要权重下载权限；否则返回 `403`。请联系 sales@fastino.ai。
+    - 发布仅更改所属团队内的可见性。
+  </Accordion>
+  <Accordion title="不受支持的调用">
+    - 使用 `retrieve_futures` 批量检索 future
+    - `save_weights_external` 和 `external_weights_urls`
+    - 会话跟踪导出和审计日志条目
+    - 不使用 `SamplingClient` 的采样
+    - `target_prompt_logprobs` 和正数 `prompt_alt_tokens_k`
+  </Accordion>
+</AccordionGroup>
 
-### Future 和管理
-
-| SDK 方法或操作 | Fastino 行为 |
-| --- | --- |
-| Future result/get | 获取一个异步结果 |
-| Future cancel | 仅取消来自 `sample` 的未完成采样 future。训练操作的 future 不会被取消 |
-| `list_training_runs` 或 `get_training_run` | 仅读取交互式运行。配置任务和交互式任务使用 `/v1/training/jobs` |
-| `list_checkpoints` 或 `list_user_checkpoints` | 读取属于该任务或该团队的检查点 |
-| `get_weights_info_by_tinker_path` | 读取检查点的权重元数据，包括 LoRA 秩 |
-| `get_checkpoint_archive_url` | 返回交互式检查点的签名归档链接。需要权重下载权限 |
-| `delete_checkpoint_from_tinker_path` | 删除检查点 |
-| `publish_checkpoint_from_tinker_path` 或 `unpublish_checkpoint_from_tinker_path` | 在所属团队内更改发布状态。不会允许其他团队加载该路径 |
-| `set_checkpoint_ttl_from_tinker_path` | 设置或清除检查点保留期 |
-| `get_current_checkpoint_storage_usage` | 读取当前检查点存储用量，可选限定到一个项目 |
-| `get_billing_usage` | 读取按小时对齐窗口内的用量事件 |
-
-两条检查点下载路径都需要团队的权重下载权限。一条是 SDK 方法
-`get_checkpoint_archive_url`。另一条是公开路由
-[`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/cn/api-reference/training-jobs/download-checkpoint)。
-没有该权限时，两者都返回 `403`，详情为
-`For downloading models, please contact sales@fastino.ai`。SDK 会使用
-`TINKER_CREDENTIAL_CMD` 输出的密钥自动完成令牌交换。
-
-### 不受支持的调用
-
-Fastino 不支持：
-
-- 通过 `retrieve_futures` 批量检索 future
-- `save_weights_external`
-- `external_weights_urls`
-- 导出会话跟踪
-- 审计日志条目
-- 不使用 `SamplingClient` 及其采样会话进行采样
-- `target_prompt_logprobs` 或正数 `prompt_alt_tokens_k`
-- `encoded_text` 以外的提示词块
-- AdamW 以外的优化器
-- 超出 1 到 32 范围的 LoRA 秩
-
-这些限制描述使用普通 Fastino API 密钥时的行为。沙箱运行密钥的写入范围更窄：
-它也不能删除或发布检查点、修改检查点 TTL 或重新分配会话项目。
-对应操作仍可使用普通 API 密钥。
-
-不要仅因为已安装的软件包中存在某个方法就推断其受支持。支持表定义 Fastino
-支持的 SDK 子集；capabilities 仅报告已启用的模型及其上下文长度。
-
-## 排查连接问题
-
-| 症状 | 检查项 |
-| --- | --- |
-| 身份验证失败 | 确认 `TINKER_CREDENTIAL_CMD` 打印一个当前的 `fast_sk_` 密钥，且没有额外输出 |
-| 客户端无法连接 | 确认 `TINKER_BASE_URL` 恰好为 `https://api.fastino.ai/v1/training/compat/tinker` |
-| SDK 调用或检查点下载返回 `403`，并显示团队数据正在擦除 | 团队删除正在进行。不要重试；如果删除并非预期，请联系账户管理员或 Fastino 支持 |
-| 检查点下载返回 `403`，并要求联系销售 | 团队没有权重下载权限。请联系 sales@fastino.ai |
-| 模型被拒绝 | 重新查询 capabilities 并选择已启用的模型 |
-| 秩、损失或操作被拒绝 | 对照记录的限制和支持表检查调用；capabilities 不列出这些设置 |
-| 规范任务查找失败 | 确认 ID 来自 `get_info().model_id`，且已通过同一 Fastino 团队的身份验证 |
-
-## 迁移检查清单
-
-- [ ] 锁定 `tinker==0.32.0`。
-- [ ] 为 Tinker SDK 设置训练 API 基础 URL。
-- [ ] 通过 `TINKER_CREDENTIAL_CMD` 提供 `fast_sk_` 密钥。
-- [ ] 对照受支持的客户端行为检查每个 SDK 方法。
-- [ ] 从 capabilities 中选择已启用的模型，并根据本指南验证秩、损失和可选操作。
-- [ ] 完成一次采样和训练更新。
-- [ ] 保存并重新加载一个状态检查点。
-- [ ] 通过规范任务端点验证 SDK 模型 ID。
-- [ ] 仅在冒烟测试通过后增加工作负载规模。
-
-<span id="switch-to-the-native-routes" />
-
-## 切换到原生路由
-
-核心训练和检查点调用在 `/v1/training/jobs` 下有对应的原生 REST 路由。Python 自定义损失回调和 SDK
-计费辅助方法没有一对一的 JSON 等价项。原生 forward 路由接受文档列出的 `loss_fn` 名称。使用同一个 `fast_sk_` 密钥，
-以 `X-API-Key` 或 `Authorization: Bearer` 发送 JSON。你不需要会话、请求序号或心跳：Fastino 按接收顺序排列每个任务的
-operation，并在你持续调用时保持任务存活。交互式任务 30 分钟内没有调用就会被释放，其检查点会保留。
-
-每个执行工作的路由都会返回 `future_id`。使用
-`GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true` 读取结果；它取代了 `future.result()`。
-
-| Tinker 调用 | 原生路由 |
-| --- | --- |
-| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model`，传入 `base_model` 和 `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint`，省略 `load_optimizer` 或设为 `false` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model`，传入 `from_checkpoint` 和 `"load_optimizer": true` |
-| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
-| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
-| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
-| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step`，传入 `adam_params` |
-| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
-| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler`，传入 `ttl_seconds` |
-| `load_state(path)` / `load_state_with_optimizer(path)` | 同一任务的状态使用 `POST /v1/training/jobs/{job_id}/load-weights`，传入 `path` 和 `optimizer`；其他任务的状态请使用 `from_checkpoint` 创建任务 |
-| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample`，传入 `checkpoint` 和 `prompt_tokens` |
-| future 的 `result()` | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
-| 采样 future 的 `cancel()` | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
-| `RestClient` 列出或获取训练运行 | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
-| 列出检查点 | `GET /v1/training/jobs/{job_id}/checkpoints` |
-| 下载检查点归档 | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
-| 删除检查点 | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
-| 发布或取消发布检查点 | `POST` 或 `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
-| 设置或清除检查点 TTL | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
-| 检查点存储用量 | `GET /v1/training/usage` |
-| `ServiceClient.close()` / 卸载模型 | `POST /v1/training/jobs/{job_id}/stop` |
-
-datum 以 JSON 保持 SDK 的结构：`model_input.chunks[].tokens` 加上 `loss_fn_inputs` 张量，例如
-`{"data": [...], "dtype": "int64"}`。请使用模型的 Hugging Face tokenizer（`transformers.AutoTokenizer`）分词。
-[快速入门](/cn/training/quickstart#custom-training-loop)中有完整脚本。
-
-<Card title="构建训练循环" icon="diagram-project" href="/cn/training/training-loop">
-  在一个任务中连接采样、奖励、更新和检查点。
-</Card>
+如果身份验证失败，请确认 `TINKER_CREDENTIAL_CMD` 仅打印一个当前
+`fast_sk_` 密钥，并确认 `TINKER_BASE_URL` 与上面的值完全一致。

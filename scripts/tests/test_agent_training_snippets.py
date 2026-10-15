@@ -156,19 +156,6 @@ def _claim_texts() -> list[tuple[Path, str]]:
     return [(path, path.read_text(encoding="utf-8")) for path in paths]
 
 
-def _future_cancel_row(text: str) -> str:
-    rows = [
-        line
-        for line in text.splitlines()
-        if line.startswith("|") and "`sample`" in line
-    ]
-    if len(rows) != 1:
-        raise AssertionError(
-            f"expected one Future cancel row containing `sample`, found {rows}"
-        )
-    return rows[0]
-
-
 def _snippet(page: str, ordinal: int) -> object:
     matches = [
         snippet
@@ -383,7 +370,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         english = (ROOT / "training/migrate-from-tinker.mdx").read_text(encoding="utf-8")
         english_overview = (ROOT / "training.mdx").read_text(encoding="utf-8")
         self.assertIn("GB-month", english_overview)
-        self.assertIn("Reads interactive runs only", english)
+        self.assertIn("reads interactive runs only", english.lower())
         self.assertIn("weight-download access", english)
         self.assertIn("does not make the path loadable by another team", english)
         self.assertNotIn("Reads canonical Fastino jobs", english)
@@ -408,34 +395,46 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(len(install_fences), 2)
         for body in install_fences:
             self.assertIn(support.package, body)
-        self.assertIn(
-            support.package,
-            _between(english, "## Supported client behavior", "### Training and sampling"),
-        )
-        self.assertIn(support.package, english.split("## Migration checklist", 1)[1])
+        compatibility = english.split("## Tinker SDK compatibility", 1)[1]
+        self.assertIn(support.package, compatibility)
 
-        futures = _between(english, "### Futures and administration", "### Unsupported calls")
-        future_spans = code_spans(futures)
-        self.assertTrue(support.rest_client_methods <= future_spans, future_spans)
-        supported = _between(english, "## Supported client behavior", "### Unsupported calls")
-        unsupported = _between(english, "### Unsupported calls", "## Troubleshoot the connection")
+        compatibility_spans = code_spans(compatibility)
+        self.assertTrue(
+            support.rest_client_methods <= compatibility_spans,
+            compatibility_spans,
+        )
+        supported, unsupported = compatibility.split(
+            '<Accordion title="Unsupported calls">', 1
+        )
         for name in support.unsupported_calls:
             self.assertIn(f"`{name}`", unsupported)
             self.assertNotIn(name, supported)
         self.assertIn("Session trace export", unsupported)
         self.assertIn("Audit-log entries", unsupported)
 
-        cancel = _future_cancel_row(english)
-        self.assertIn("`sample`", cancel)
-        self.assertIn("unfinished sampling future", cancel)
-        self.assertIn("Training-operation futures are not cancelled", cancel)
-        self.assertNotIn("one future", cancel)
+        native_conversion_headings = {
+            "": "## Switch to the native routes",
+            "cn": "## 切换到原生路由",
+            "de": "## Zu den nativen Routen wechseln",
+            "es": "## Cambia a las rutas nativas",
+            "fr": "## Passer aux routes natives",
+        }
+        for locale, heading in native_conversion_headings.items():
+            prefix = f"{locale}/" if locale else ""
+            migration = (
+                ROOT / f"{prefix}training/migrate-from-tinker.mdx"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn(heading, migration)
+
+        self.assertIn("`sample`", compatibility)
+        self.assertIn("unfinished sampling futures", compatibility)
+        self.assertIn("Training-operation futures cannot be cancelled", compatibility)
+        self.assertNotIn("one future", compatibility)
         for locale, claim in ONE_FUTURE_CLAIMS.items():
             prefix = f"{locale}/" if locale else ""
             page = ROOT / f"{prefix}training/migrate-from-tinker.mdx"
             text = page.read_text(encoding="utf-8")
-            row = _future_cancel_row(text)
-            self.assertIn("`sample`", row, page)
+            self.assertIn("`sample`", text, page)
             self.assertNotIn(claim, text, page)
             for phrase in RUN_KEY_EXPORT_CLAIMS:
                 self.assertNotIn(phrase, text, page)

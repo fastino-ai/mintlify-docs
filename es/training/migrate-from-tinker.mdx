@@ -1,26 +1,13 @@
 ---
 title: "Migrar desde Tinker"
-description: "Traslada una carga de trabajo compatible del SDK de Tinker a los trabajos de entrenamiento interactivos de Fastino."
+description: "Ejecuta una carga de trabajo existente del SDK de Tinker en Fastino."
 ---
 
-La API de entrenamiento admite el SDK de Python `tinker==0.32.0` sin
-modificaciones para las operaciones que se indican abajo. Cambia solo la URL
-base y la credencial. Un cliente de entrenamiento migrado es un trabajo de
-Fastino en `/v1/training/jobs`; su ID de modelo del SDK y su ID canónico de
-trabajo de Fastino son idénticos.
+No necesitas reescribir el bucle de entrenamiento. Fastino admite el SDK de
+Python `tinker==0.32.0`. Cambia la URL base y la credencial del SDK y ejecuta
+tu programa existente.
 
-Tienes dos opciones:
-
-- **Mantener el SDK.** Apunta `tinker` a la URL base de compatibilidad de
-  Fastino y autentícate con una clave de API de Fastino. Sigue los pasos 1–4.
-- **Cambiar a las rutas nativas.** Llama a las rutas REST de Fastino con JSON y
-  la misma clave de API. Consulta [Cambia a las rutas nativas](#switch-to-the-native-routes).
-
-Trata tu programa existente como prueba de aceptación. Cambia la conexión,
-comprueba cada operación y ejecuta una pequeña prueba de humo antes de
-restablecer los tamaños de las cargas de producción.
-
-## 1. Fija el paquete probado
+## 1. Instala el SDK compatible
 
 <CodeGroup>
 
@@ -34,7 +21,7 @@ pip install "tinker==0.32.0"
 
 </CodeGroup>
 
-## 2. Sustituye el endpoint y la autenticación
+## 2. Apunta el SDK a Fastino
 
 <CodeGroup>
 
@@ -56,7 +43,7 @@ $env:TINKER_CREDENTIAL_CMD = 'powershell -NoProfile -Command "[Console]::Out.Wri
 una credencial no vacía. Usa una clave normal `fast_sk_` de Fastino; las
 credenciales `tml-` se rechazan. No establezcas `TINKER_API_KEY`.
 
-Confirma la conexión antes de cambiar nada más:
+## 3. Verifica la conexión
 
 ```python
 import tinker
@@ -65,187 +52,53 @@ service_client = tinker.ServiceClient()
 print(service_client.get_server_capabilities())
 ```
 
-## 3. Comprueba la carga de trabajo
+Elige un modelo devuelto por `get_server_capabilities()` y ejecuta una versión
+pequeña de tu carga. La prueba debe completar una actualización, guardar y
+recargar el estado y guardar pesos del muestreador con un TTL explícito antes
+de muestrear. Aumenta la carga cuando termine.
 
-1. Consulta `ServiceClient.get_server_capabilities()` y elige un modelo base disponible. Conserva el nombre de parámetro `base_model` del SDK.
-2. Compara cada método de tu código con el [comportamiento compatible del cliente](#supported-client-behavior).
-3. Elimina dependencias de la recuperación de futures por lotes no compatible,
-   la exportación de pesos externos o las URL de pesos externos.
-4. Mantén en tu aplicación el renderizado de prompts, la lógica de recompensas, el procesamiento por lotes, la evaluación y los criterios de parada.
+## Compatibilidad con el SDK de Tinker
 
-Capabilities solo lista modelos habilitados y sus longitudes de contexto. No
-incluye rangos LoRA, optimizadores, pérdidas, métodos opcionales ni límites de
-operación. Fastino acepta actualmente rangos LoRA de 1 a 32, usa `adamw` al
-crear el cliente y admite `cross_entropy`, `importance_sampling`, `ppo`,
-`cispo` y `dro`. El servicio activo valida estos ajustes al enviarlos.
+Cada cliente de entrenamiento de Tinker es un trabajo interactivo de Fastino.
+El ID de modelo del SDK también es su ID en `/v1/training/jobs`.
 
-## 4. Ejecuta una prueba de humo
-
-Usa los datums válidos más pequeños y los ajustes del optimizador de tu carga de
-trabajo existente para realizar una prueba de bajo coste que:
-
-- Cree un cliente con `create_lora_training_client(base_model=...)`
-- Lea `training_client.get_info().model_id`
-- Guarde los pesos del muestreador con un TTL explícito y realice un muestreo
-- Ejecute una operación compatible hacia delante/hacia atrás y un paso del optimizador
-- Guarde y vuelva a cargar un checkpoint de estado
-- Obtenga el ID de cada cliente de `GET /v1/training/jobs/{job_id}`; una
-  reanudación mediante la fábrica crea un ID nuevo a partir del checkpoint de origen
-
-Sigue usando el SDK de Tinker compatible para esta migración. Fastino también
-publica operaciones JSON nativas para clientes nuevos. Configura solo
-`TINKER_BASE_URL`.
-
-<span id="supported-client-behavior" />
-
-## Comportamiento compatible del cliente
-
-La API de entrenamiento admite las siguientes llamadas de `tinker==0.32.0`
-sobre un trabajo interactivo de Fastino.
-
-### Entrenamiento y muestreo
-
-| Método u operación del SDK | Comportamiento de Fastino |
+| Área | Comportamiento compatible |
 | --- | --- |
-| `create_lora_training_client` | Crea un trabajo interactivo |
-| `copy_weights` | Inicia un trabajo interactivo desde un checkpoint |
-| `TrainingClient.get_info` | Devuelve el trabajo interactivo |
-| `forward` | Ejecuta una operación solo hacia delante |
-| `forward_backward` | Ejecuta una operación hacia delante y hacia atrás |
-| Operación personalizada hacia delante/hacia atrás | Ejecuta una operación compatible con pérdida personalizada |
-| `optim_step` | Aplica una actualización del optimizador |
-| `save_state` | Guarda el estado del entrenamiento |
-| `save_weights_for_sampler` | Guarda los pesos del muestreador |
-| Cargar el estado de entrenamiento | Restaura un checkpoint de estado |
-| Crear u obtener un cliente de muestreo | Resuelve los pesos del muestreador |
-| `SamplingClient.sample` | Muestrea mediante el checkpoint seleccionado |
+| Entrenamiento | Crea o restaura un cliente; inspecciona y ejecuta operaciones forward, forward/backward, pérdida personalizada y optimizador |
+| Checkpoints | Guarda y carga estado; guarda pesos del muestreador; inspecciona, lista, descarga, elimina, publica y configura retención |
+| Muestreo | Crea o recupera un cliente de muestreo y llama a `sample` |
+| Futures | Recupera resultados asíncronos individuales; cancela futures de muestreo sin terminar |
+| Uso | Lista ejecuciones interactivas y consulta almacenamiento o uso facturado por hora |
 
-Conserva sin cambios el parámetro `base_model` del SDK. Elige el modelo mediante
-capabilities; usa los límites documentados para rango y pérdida y gestiona los
-errores de validación del servicio activo.
+<AccordionGroup>
+  <Accordion title="Llamadas de administración compatibles">
+    Fastino admite `list_training_runs`, `get_training_run`,
+    `list_checkpoints`, `list_user_checkpoints`,
+    `get_weights_info_by_tinker_path`, `get_checkpoint_archive_url`,
+    `delete_checkpoint_from_tinker_path`,
+    `publish_checkpoint_from_tinker_path`,
+    `unpublish_checkpoint_from_tinker_path`,
+    `set_checkpoint_ttl_from_tinker_path`,
+    `get_current_checkpoint_storage_usage` y `get_billing_usage`.
+  </Accordion>
+  <Accordion title="Límites">
+    - El rango LoRA debe estar entre 1 y 32.
+    - El optimizador es AdamW.
+    - Las pérdidas compatibles son `cross_entropy`, `importance_sampling`, `ppo`, `cispo` y `dro`.
+    - Los fragmentos de prompt deben usar `encoded_text`.
+    - Las operaciones de entrenamiento se ejecutan en orden y sus futures no se pueden cancelar.
+    - Las descargas requieren acceso de descarga de pesos. Sin él devuelven `403`; contacta con sales@fastino.ai.
+    - La publicación solo cambia la visibilidad dentro del equipo propietario.
+  </Accordion>
+  <Accordion title="Llamadas no compatibles">
+    - Recuperación por lotes con `retrieve_futures`
+    - `save_weights_external` y `external_weights_urls`
+    - Exportación de trazas de sesión y entradas del registro de auditoría
+    - Muestreo sin `SamplingClient`
+    - `target_prompt_logprobs` y valores positivos de `prompt_alt_tokens_k`
+  </Accordion>
+</AccordionGroup>
 
-### Futures y administración
-
-| Método u operación del SDK | Comportamiento de Fastino |
-| --- | --- |
-| Resultado/obtención de future | Obtiene un resultado asíncrono |
-| Cancelación de future | Cancela solo un future de muestreo no terminado de `sample`. Los futures de operaciones de entrenamiento no se cancelan |
-| `list_training_runs` o `get_training_run` | Lee solo ejecuciones interactivas. `/v1/training/jobs` lee trabajos de configuración e interactivos |
-| `list_checkpoints` o `list_user_checkpoints` | Lee los checkpoints que pertenecen al trabajo o al equipo |
-| `get_weights_info_by_tinker_path` | Lee los metadatos de pesos de un checkpoint, incluido el rango LoRA |
-| `get_checkpoint_archive_url` | Devuelve un enlace de archivo firmado para un checkpoint interactivo. Requiere permiso de descarga de pesos |
-| `delete_checkpoint_from_tinker_path` | Elimina un checkpoint |
-| `publish_checkpoint_from_tinker_path` o `unpublish_checkpoint_from_tinker_path` | Cambia la publicación dentro del equipo propietario. No permite que otro equipo cargue la ruta |
-| `set_checkpoint_ttl_from_tinker_path` | Establece o borra la retención del checkpoint |
-| `get_current_checkpoint_storage_usage` | Lee el almacenamiento actual de checkpoints, opcionalmente para un proyecto |
-| `get_billing_usage` | Lee eventos de uso por hora en una ventana alineada a la hora |
-
-Las dos rutas de descarga de checkpoints requieren el permiso del equipo para
-descargar pesos. Una es el método del SDK `get_checkpoint_archive_url`. La otra
-es la ruta pública
-[`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/es/api-reference/training-jobs/download-checkpoint).
-Sin ese permiso, ambas devuelven `403` con
-`For downloading models, please contact sales@fastino.ai`. El SDK gestiona
-automáticamente el intercambio de tokens con la clave que imprime
-`TINKER_CREDENTIAL_CMD`.
-
-### Llamadas no compatibles
-
-Fastino no admite:
-
-- Recuperación de futures por lotes mediante `retrieve_futures`
-- `save_weights_external`
-- `external_weights_urls`
-- Exportación de trazas de sesión
-- Entradas del registro de auditoría
-- Muestreo sin un `SamplingClient` y su sesión de muestreo
-- `target_prompt_logprobs` o un `prompt_alt_tokens_k` positivo
-- Fragmentos de prompt distintos de `encoded_text`
-- Optimizadores distintos de AdamW
-- Rangos LoRA fuera del intervalo de 1 a 32
-
-Estas restricciones describen el comportamiento con claves de API normales de
-Fastino. Una clave de ejecución de sandbox tiene un ámbito de escritura más
-reducido: tampoco puede eliminar o publicar checkpoints, cambiar su TTL ni
-reasignar el proyecto de una sesión. Las operaciones
-correspondientes siguen siendo compatibles con claves de API normales.
-
-No deduzcas la compatibilidad porque un método exista en el paquete instalado.
-La tabla define el subconjunto compatible; capabilities solo informa modelos
-habilitados y longitudes de contexto.
-
-## Soluciona problemas de conexión
-
-| Síntoma | Comprobación |
-| --- | --- |
-| La autenticación falla | Confirma que `TINKER_CREDENTIAL_CMD` imprima una única clave `fast_sk_` actual y ninguna salida adicional |
-| El cliente no puede conectarse | Confirma que `TINKER_BASE_URL` sea exactamente `https://api.fastino.ai/v1/training/compat/tinker` |
-| Una llamada del SDK o descarga de checkpoint devuelve `403` con un mensaje sobre el borrado de datos del equipo | El equipo se está eliminando. No reintentes la operación; contacta con el administrador de la cuenta o con el soporte de Fastino si la eliminación es inesperada |
-| Una descarga de checkpoint devuelve `403` y pide contactar con ventas | Al equipo le falta el permiso de descarga de pesos. Contacta con sales@fastino.ai |
-| Se rechaza un modelo | Vuelve a consultar capabilities y elige un modelo habilitado |
-| Se rechaza un rango, pérdida u operación | Compara la llamada con los límites documentados y la tabla de compatibilidad |
-| Falla la consulta del trabajo canónico | Confirma que el ID proceda de `get_info().model_id` y que esté autenticado el mismo equipo de Fastino |
-
-## Lista de comprobación de la migración
-
-- [ ] Fija `tinker==0.32.0`.
-- [ ] Establece la URL base de la API de entrenamiento para el SDK de Tinker.
-- [ ] Proporciona una clave `fast_sk_` mediante `TINKER_CREDENTIAL_CMD`.
-- [ ] Comprueba cada método del SDK con el comportamiento compatible del cliente.
-- [ ] Elige un modelo habilitado mediante capabilities y valida rango, pérdida
-      y operaciones opcionales con esta guía.
-- [ ] Completa una actualización de muestreo y entrenamiento.
-- [ ] Guarda y vuelve a cargar un checkpoint de estado.
-- [ ] Verifica el ID de modelo del SDK mediante el endpoint canónico del trabajo.
-- [ ] Aumenta el tamaño de la carga solo después de superar la prueba de humo.
-
-<span id="switch-to-the-native-routes" />
-
-## Cambia a las rutas nativas
-
-Las llamadas principales de entrenamiento y checkpoints tienen equivalentes REST
-nativos bajo `/v1/training/jobs`. Los callbacks de pérdida personalizados de
-Python y los auxiliares de facturación del SDK no tienen equivalentes JSON
-individuales. Las rutas forward nativas aceptan los nombres de `loss_fn`
-documentados. Envía JSON con la misma clave `fast_sk_` como `X-API-Key` o
-`Authorization: Bearer`. No necesitas sesiones, números de secuencia ni
-heartbeats: Fastino ordena las operaciones de cada trabajo según las recibe y
-mantiene vivo el trabajo mientras lo llamas. Un trabajo interactivo sin llamadas
-durante 30 minutos se libera; sus checkpoints se conservan.
-
-Cada ruta que hace trabajo devuelve un `future_id`. Lee su resultado con
-`GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true`; esto
-sustituye a `future.result()`.
-
-| Llamada de Tinker | Ruta nativa |
-| --- | --- |
-| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` con `base_model` y `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` con `from_checkpoint`; omite `load_optimizer` o usa `false` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` con `from_checkpoint` y `"load_optimizer": true` |
-| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
-| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
-| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
-| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step` con `adam_params` |
-| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
-| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` con `ttl_seconds` |
-| `load_state(path)` / `load_state_with_optimizer(path)` | `POST /v1/training/jobs/{job_id}/load-weights` con `path` y `optimizer` para el estado del mismo trabajo; para el estado de otro trabajo, crea un trabajo con `from_checkpoint` |
-| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample` con `checkpoint` y `prompt_tokens` |
-| `result()` de un future | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
-| `cancel()` de un future de muestreo | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
-| `RestClient`: listar u obtener ejecuciones | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
-| Listar checkpoints | `GET /v1/training/jobs/{job_id}/checkpoints` |
-| Descargar el archivo de un checkpoint | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
-| Eliminar un checkpoint | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
-| Publicar o despublicar un checkpoint | `POST` o `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
-| Definir o quitar el TTL de un checkpoint | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
-| Uso de almacenamiento de checkpoints | `GET /v1/training/usage` |
-| `ServiceClient.close()` / descargar el modelo | `POST /v1/training/jobs/{job_id}/stop` |
-
-Los datums conservan la forma del SDK en JSON: `model_input.chunks[].tokens`
-más tensores `loss_fn_inputs` como `{"data": [...], "dtype": "int64"}`. Tokeniza
-con el tokenizador de Hugging Face del modelo (`transformers.AutoTokenizer`). La
-[guía rápida](/es/training/quickstart#custom-training-loop) tiene un script completo.
-
-<Card title="Construye el bucle de entrenamiento" icon="diagram-project" href="/es/training/training-loop">
-  Conecta el muestreo, las recompensas, las actualizaciones y los checkpoints en un trabajo.
-</Card>
+Si falla la autenticación, confirma que `TINKER_CREDENTIAL_CMD` imprima
+exactamente una clave `fast_sk_` actual y que `TINKER_BASE_URL` coincida con el
+valor anterior.

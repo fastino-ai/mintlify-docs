@@ -1,27 +1,13 @@
 ---
 title: "Von Tinker migrieren"
-description: "Migrieren Sie einen kompatiblen Workload des Tinker SDK zu interaktiven Fastino-Trainingsjobs."
+description: "Führen Sie einen bestehenden Tinker-SDK-Workload auf Fastino aus."
 ---
 
-Die Training API unterstützt das unveränderte Python-SDK `tinker==0.32.0` für
-die unten aufgeführten Operationen. Ändern Sie nur die Basis-URL und die
-Anmeldedaten. Ein migrierter Trainingsclient ist ein Fastino-Job in
-`/v1/training/jobs`; seine SDK-Modell-ID und seine kanonische Fastino-Job-ID
-sind identisch.
+Sie müssen Ihre Trainingsschleife nicht neu schreiben. Fastino unterstützt das
+Python-SDK `tinker==0.32.0`. Ändern Sie die SDK-Basis-URL und die Anmeldedaten
+und führen Sie dann Ihr bestehendes Programm aus.
 
-Sie haben zwei Möglichkeiten:
-
-- **SDK beibehalten.** Richten Sie `tinker` auf die Kompatibilitäts-Basis-URL
-  von Fastino und authentifizieren Sie sich mit einem Fastino-API-Schlüssel.
-  Folgen Sie den Schritten 1–4.
-- **Zu den nativen Routen wechseln.** Rufen Sie die REST-Routen von Fastino mit
-  JSON und demselben API-Schlüssel auf. Siehe [Zu den nativen Routen wechseln](#switch-to-the-native-routes).
-
-Behandeln Sie Ihr bestehendes Programm als Akzeptanztest. Ändern Sie die
-Verbindung, prüfen Sie jede Operation und führen Sie einen kleinen Smoke-Test
-aus, bevor Sie die Produktionsgröße wiederherstellen.
-
-## 1. Getestetes Paket pinnen
+## 1. Unterstütztes SDK installieren
 
 <CodeGroup>
 
@@ -35,7 +21,7 @@ pip install "tinker==0.32.0"
 
 </CodeGroup>
 
-## 2. Endpunkt und Authentifizierung ersetzen
+## 2. SDK auf Fastino richten
 
 <CodeGroup>
 
@@ -58,7 +44,7 @@ nicht leere Anmeldedaten ausgeben. Verwenden Sie einen normalen Fastino-
 `fast_sk_`-Schlüssel; Anmeldedaten mit `tml-` werden abgelehnt. Setzen Sie
 `TINKER_API_KEY` nicht.
 
-Prüfen Sie die Verbindung, bevor Sie etwas anderes ändern:
+## 3. Verbindung prüfen
 
 ```python
 import tinker
@@ -67,190 +53,53 @@ service_client = tinker.ServiceClient()
 print(service_client.get_server_capabilities())
 ```
 
-## 3. Workload prüfen
+Wählen Sie ein von `get_server_capabilities()` zurückgegebenes Modell und
+führen Sie eine kleine Version Ihres Workloads aus. Der Test sollte ein Update
+abschließen, den Status speichern und neu laden sowie Sampler-Gewichte mit einer
+expliziten TTL vor dem Sampling speichern. Erhöhen Sie danach die Workload-Größe.
 
-1. Fragen Sie `ServiceClient.get_server_capabilities()` ab und wählen Sie ein
-   verfügbares Basismodell. Behalten Sie den SDK-Parameternamen `base_model` bei.
-2. Vergleichen Sie jede Methode in Ihrem Code mit dem
-   [unterstützten Client-Verhalten](#supported-client-behavior).
-3. Entfernen Sie Abhängigkeiten von nicht unterstütztem Batch-Abruf von
-   Futures, externem Gewichtsexport oder externen Gewichts-URLs.
-4. Behalten Sie Prompt-Rendering, Reward-Logik, Batching, Evaluierung und
-   Abbruchkriterien in Ihrer Anwendung.
+## Tinker-SDK-Kompatibilität
 
-Capabilities listen nur aktivierte Modelle und deren Kontextlängen auf. Sie
-enthalten keine LoRA-Ränge, Optimizer, Losses, optionalen Methoden oder
-Operationslimits. Fastino akzeptiert derzeit LoRA-Ränge von 1 bis 32, verwendet
-bei der Client-Erstellung `adamw` und unterstützt `cross_entropy`,
-`importance_sampling`, `ppo`, `cispo` und `dro`. Der aktive Dienst validiert
-diese Einstellungen beim Senden.
+Jeder Tinker-Trainingsclient ist ein interaktiver Fastino-Job. Die
+SDK-Modell-ID ist zugleich seine ID unter `/v1/training/jobs`.
 
-## 4. Smoke-Test ausführen
-
-Verwenden Sie die kleinsten gültigen Datums und Optimierer-Einstellungen aus
-Ihrem bestehenden Workload für einen kostengünstigen Test, der:
-
-- einen Client mit `create_lora_training_client(base_model=...)` erstellt,
-- `training_client.get_info().model_id` liest,
-- Sampler-Gewichte mit einer expliziten TTL speichert und einmal sampelt,
-- eine unterstützte Forward-/Backward-Operation und einen Optimierungsschritt ausführt,
-- einen Status-Checkpoint speichert und erneut lädt,
-- die ID jedes Clients über `GET /v1/training/jobs/{job_id}` abruft; eine
-  Factory-Wiederaufnahme erstellt eine neue Job-ID aus dem Quell-Checkpoint.
-
-Verwenden Sie für diese Migration weiterhin das unterstützte Tinker-SDK.
-Fastino veröffentlicht außerdem native JSON-Operationen für neue Clients. Setzen Sie nur `TINKER_BASE_URL`.
-
-<span id="supported-client-behavior" />
-
-## Unterstütztes Client-Verhalten
-
-Die Training API unterstützt die folgenden Aufrufe aus `tinker==0.32.0` für
-einen interaktiven Fastino-Job.
-
-### Training und Sampling
-
-| SDK-Methode oder -Operation | Fastino-Verhalten |
+| Bereich | Unterstütztes Verhalten |
 | --- | --- |
-| `create_lora_training_client` | Erstellt einen interaktiven Job |
-| `copy_weights` | Startet einen interaktiven Job aus einem Checkpoint |
-| `TrainingClient.get_info` | Gibt den interaktiven Job zurück |
-| `forward` | Führt eine reine Forward-Operation aus |
-| `forward_backward` | Führt eine Forward- und Backward-Operation aus |
-| Benutzerdefinierte Forward-/Backward-Operation | Führt eine unterstützte Custom-Loss-Operation aus |
-| `optim_step` | Wendet ein Optimizer-Update an |
-| `save_state` | Speichert den Trainingsstatus |
-| `save_weights_for_sampler` | Speichert Sampler-Gewichte |
-| Trainingsstatus laden | Stellt einen Status-Checkpoint wieder her |
-| Sampling-Client erstellen oder abrufen | Löst Sampler-Gewichte auf |
-| `SamplingClient.sample` | Sampelt über den ausgewählten Checkpoint |
+| Training | Client erstellen oder wiederherstellen; prüfen; Forward-, Forward/Backward-, Custom-Loss- und Optimizer-Operationen ausführen |
+| Checkpoints | Status speichern und laden; Sampler-Gewichte speichern; prüfen, auflisten, herunterladen, löschen, veröffentlichen und Aufbewahrung setzen |
+| Sampling | Sampling-Client erstellen oder abrufen und `sample` aufrufen |
+| Futures | Einzelne asynchrone Ergebnisse abrufen; unvollendete Sampling-Futures abbrechen |
+| Nutzung | Interaktive Läufe auflisten und Speicher- oder stündliche Abrechnungsdaten lesen |
 
-Behalten Sie den SDK-Parameter `base_model` unverändert bei. Wählen Sie das
-Modell über Capabilities; verwenden Sie für Rang und Loss die dokumentierten
-Grenzen und behandeln Sie Validierungsfehler des aktiven Dienstes.
+<AccordionGroup>
+  <Accordion title="Unterstützte Verwaltungsaufrufe">
+    Fastino unterstützt `list_training_runs`, `get_training_run`,
+    `list_checkpoints`, `list_user_checkpoints`,
+    `get_weights_info_by_tinker_path`, `get_checkpoint_archive_url`,
+    `delete_checkpoint_from_tinker_path`,
+    `publish_checkpoint_from_tinker_path`,
+    `unpublish_checkpoint_from_tinker_path`,
+    `set_checkpoint_ttl_from_tinker_path`,
+    `get_current_checkpoint_storage_usage` und `get_billing_usage`.
+  </Accordion>
+  <Accordion title="Limits">
+    - Der LoRA-Rang muss zwischen 1 und 32 liegen.
+    - Der Optimizer ist AdamW.
+    - Unterstützte Losses sind `cross_entropy`, `importance_sampling`, `ppo`, `cispo` und `dro`.
+    - Prompt-Chunks müssen `encoded_text` verwenden.
+    - Trainingsoperationen laufen der Reihe nach; ihre Futures können nicht abgebrochen werden.
+    - Downloads erfordern die Berechtigung zum Herunterladen von Gewichten. Ohne sie wird `403` zurückgegeben; wenden Sie sich an sales@fastino.ai.
+    - Veröffentlichung ändert nur die Sichtbarkeit im besitzenden Team.
+  </Accordion>
+  <Accordion title="Nicht unterstützte Aufrufe">
+    - Batch-Abruf mit `retrieve_futures`
+    - `save_weights_external` und `external_weights_urls`
+    - Export von Session-Traces und Audit-Log-Einträge
+    - Sampling ohne `SamplingClient`
+    - `target_prompt_logprobs` und positive Werte für `prompt_alt_tokens_k`
+  </Accordion>
+</AccordionGroup>
 
-### Futures und Verwaltung
-
-| SDK-Methode oder -Operation | Fastino-Verhalten |
-| --- | --- |
-| Future result/get | Ruft ein asynchrones Ergebnis ab |
-| Future cancel | Bricht nur ein unvollendetes Sampling-Future von `sample` ab. Futures von Trainingsoperationen werden nicht abgebrochen |
-| `list_training_runs` oder `get_training_run` | Liest nur interaktive Läufe. `/v1/training/jobs` liest Config- und Interactive-Jobs |
-| `list_checkpoints` oder `list_user_checkpoints` | Liest Checkpoints, die zum Job oder zum Team gehören |
-| `get_weights_info_by_tinker_path` | Liest die Gewichtsmetadaten eines Checkpoints, einschließlich des LoRA-Rangs |
-| `get_checkpoint_archive_url` | Gibt einen signierten Archivlink für einen interaktiven Checkpoint zurück. Erfordert die Berechtigung zum Herunterladen von Gewichten |
-| `delete_checkpoint_from_tinker_path` | Löscht einen Checkpoint |
-| `publish_checkpoint_from_tinker_path` oder `unpublish_checkpoint_from_tinker_path` | Ändert die Veröffentlichung innerhalb des besitzenden Teams. Ein anderes Team kann den Pfad dadurch nicht laden |
-| `set_checkpoint_ttl_from_tinker_path` | Setzt die Aufbewahrung des Checkpoints oder hebt sie auf |
-| `get_current_checkpoint_storage_usage` | Liest die aktuelle Checkpoint-Speichernutzung, optional für ein Projekt |
-| `get_billing_usage` | Liest stündliche Nutzungsereignisse für ein an der Stunde ausgerichtetes Fenster |
-
-Beide Checkpoint-Downloadpfade erfordern die Berechtigung des Teams zum
-Herunterladen von Gewichten. Ein Pfad ist die SDK-Methode
-`get_checkpoint_archive_url`. Der andere ist die öffentliche Route
-[`GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`](/de/api-reference/training-jobs/download-checkpoint).
-Ohne diese Berechtigung geben beide `403` mit
-`For downloading models, please contact sales@fastino.ai` zurück. Das SDK
-übernimmt den Tokenaustausch automatisch mit dem Schlüssel, den
-`TINKER_CREDENTIAL_CMD` ausgibt.
-
-### Nicht unterstützte Aufrufe
-
-Fastino unterstützt Folgendes nicht:
-
-- Batch-Abruf von Futures über `retrieve_futures`
-- `save_weights_external`
-- `external_weights_urls`
-- Export von Session-Traces
-- Audit-Log-Einträge
-- Sampling ohne `SamplingClient` und dessen Sampling-Session
-- `target_prompt_logprobs` oder ein positives `prompt_alt_tokens_k`
-- Andere Prompt-Chunks als `encoded_text`
-- Andere Optimizer als AdamW
-- LoRA-Ränge außerhalb von 1 bis 32
-
-Diese Einschränkungen gelten für normale Fastino-API-Schlüssel. Ein
-Sandbox-Run-Key hat einen engeren Schreibumfang: Er kann außerdem keine
-Checkpoints löschen, veröffentlichen oder deren TTL ändern und kein Projekt einer
-Session neu zuweisen. Die entsprechenden
-Operationen bleiben mit normalen API-Schlüsseln unterstützt.
-
-Leiten Sie Unterstützung nicht allein daraus ab, dass eine Methode im
-installierten Paket vorhanden ist. Die Tabelle definiert Fastinos SDK-Teilmenge;
-Capabilities melden nur aktivierte Modelle und Kontextlängen.
-
-## Verbindungsprobleme beheben
-
-| Symptom | Prüfung |
-| --- | --- |
-| Authentifizierung schlägt fehl | Prüfen Sie, ob `TINKER_CREDENTIAL_CMD` genau einen aktuellen `fast_sk_`-Schlüssel und keine zusätzliche Ausgabe ausgibt |
-| Der Client kann keine Verbindung herstellen | Prüfen Sie, ob `TINKER_BASE_URL` exakt `https://api.fastino.ai/v1/training/compat/tinker` ist |
-| Ein SDK-Aufruf oder Checkpoint-Download liefert `403` mit einer Meldung zur Löschung von Teamdaten | Die Löschung des Teams läuft. Wiederholen Sie den Vorgang nicht; wenden Sie sich bei einer unerwarteten Löschung an den Kontoadministrator oder Fastino-Support |
-| Ein Checkpoint-Download liefert `403` und fordert auf, den Vertrieb zu kontaktieren | Dem Team fehlt die Berechtigung zum Herunterladen von Gewichten. Wenden Sie sich an sales@fastino.ai |
-| Ein Modell wird abgelehnt | Fragen Sie Capabilities erneut ab und wählen Sie ein aktiviertes Modell |
-| Rang, Loss oder Operation wird abgelehnt | Vergleichen Sie den Aufruf mit den dokumentierten Grenzen und der Unterstützungstabelle |
-| Kanonischer Job kann nicht abgerufen werden | Prüfen Sie, ob die ID aus `get_info().model_id` stammt und dasselbe Fastino-Team authentifiziert ist |
-
-## Migrationscheckliste
-
-- [ ] `tinker==0.32.0` pinnen.
-- [ ] Die Training-API-Basis-URL für das Tinker-SDK festlegen.
-- [ ] Einen `fast_sk_`-Schlüssel über `TINKER_CREDENTIAL_CMD` bereitstellen.
-- [ ] Jede SDK-Methode anhand des unterstützten Client-Verhaltens prüfen.
-- [ ] Ein aktiviertes Modell aus den Capabilities auswählen und Rang, Loss und
-      Operationen anhand dieses Leitfadens validieren.
-- [ ] Ein Sampling- und Trainingsupdate abschließen.
-- [ ] Einen Status-Checkpoint speichern und erneut laden.
-- [ ] Die SDK-Modell-ID über den kanonischen Job-Endpunkt prüfen.
-- [ ] Die Workload-Größe erst erhöhen, nachdem der Smoke-Test erfolgreich war.
-
-<span id="switch-to-the-native-routes" />
-
-## Zu den nativen Routen wechseln
-
-Die zentralen Trainings- und Checkpoint-Aufrufe haben native REST-Entsprechungen
-unter `/v1/training/jobs`. Benutzerdefinierte Python-Loss-Callbacks und
-SDK-Abrechnungshilfen haben keine direkten JSON-Entsprechungen. Native
-Forward-Routen akzeptieren die dokumentierten `loss_fn`-Namen. Senden Sie JSON
-mit demselben `fast_sk_`-Schlüssel als `X-API-Key` oder
-`Authorization: Bearer`. Sie benötigen weder Sessions noch Sequenznummern oder
-Heartbeats: Fastino ordnet die Operationen jedes Jobs in der Reihenfolge des
-Eingangs und hält den Job aktiv, solange Sie ihn aufrufen. Ein interaktiver Job
-ohne Aufrufe für 30 Minuten wird freigegeben; seine Checkpoints bleiben erhalten.
-
-Jede Route, die Arbeit ausführt, gibt eine `future_id` zurück. Lesen Sie das
-Ergebnis mit `GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true`;
-das ersetzt `future.result()`.
-
-| Tinker-Aufruf | Native Route |
-| --- | --- |
-| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` mit `base_model` und `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` mit `from_checkpoint`; `load_optimizer` weglassen oder auf `false` setzen |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` mit `from_checkpoint` und `"load_optimizer": true` |
-| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
-| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
-| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
-| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step` mit `adam_params` |
-| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
-| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` mit `ttl_seconds` |
-| `load_state(path)` / `load_state_with_optimizer(path)` | `POST /v1/training/jobs/{job_id}/load-weights` mit `path` und `optimizer` für den Zustand desselben Jobs; für den Zustand eines anderen Jobs erstellen Sie einen Job mit `from_checkpoint` |
-| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample` mit `checkpoint` und `prompt_tokens` |
-| Future `result()` | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
-| Future `cancel()` bei einem Sample | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
-| `RestClient`: Trainingsläufe auflisten oder abrufen | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
-| Checkpoints auflisten | `GET /v1/training/jobs/{job_id}/checkpoints` |
-| Checkpoint-Archiv herunterladen | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
-| Checkpoint löschen | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
-| Checkpoint veröffentlichen oder Veröffentlichung aufheben | `POST` oder `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
-| Checkpoint-TTL setzen oder entfernen | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
-| Checkpoint-Speichernutzung | `GET /v1/training/usage` |
-| `ServiceClient.close()` / Modell entladen | `POST /v1/training/jobs/{job_id}/stop` |
-
-Datums behalten die Form des SDK als JSON: `model_input.chunks[].tokens` plus
-`loss_fn_inputs`-Tensoren wie `{"data": [...], "dtype": "int64"}`. Tokenisieren
-Sie mit dem Hugging-Face-Tokenizer des Modells (`transformers.AutoTokenizer`).
-Der [Schnellstart](/de/training/quickstart#custom-training-loop) enthält ein vollständiges Skript.
-
-<Card title="Trainingsloop erstellen" icon="diagram-project" href="/de/training/training-loop">
-  Verbinden Sie Sampling, Rewards, Updates und Checkpoints in einem Job.
-</Card>
+Wenn die Authentifizierung fehlschlägt, prüfen Sie, ob
+`TINKER_CREDENTIAL_CMD` genau einen aktuellen `fast_sk_`-Schlüssel ausgibt und
+`TINKER_BASE_URL` dem obigen Wert entspricht.
