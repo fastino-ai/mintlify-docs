@@ -410,14 +410,14 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             self.assertIn(support.package, body)
         self.assertIn(
             support.package,
-            _between(english, "## Supported client behavior", "### Training and sampling"),
+            _between(english, "## Tinker SDK compatibility", "### Training and sampling"),
         )
         self.assertIn(support.package, english.split("## Migration checklist", 1)[1])
 
         futures = _between(english, "### Futures and administration", "### Unsupported calls")
         future_spans = code_spans(futures)
         self.assertTrue(support.rest_client_methods <= future_spans, future_spans)
-        supported = _between(english, "## Supported client behavior", "### Unsupported calls")
+        supported = _between(english, "## Tinker SDK compatibility", "### Unsupported calls")
         unsupported = _between(english, "### Unsupported calls", "## Troubleshoot the connection")
         for name in support.unsupported_calls:
             self.assertIn(f"`{name}`", unsupported)
