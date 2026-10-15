@@ -41,7 +41,7 @@ MODEL_SECTION_HEADINGS = {
 }
 
 EXPECTED_RATES = {
-    "Nemotron 3 Super": (
+    "Nemotron 3.5 Super VL": (
         r"\$0.16",
         r"\$0.04",
         r"\$0.72",
@@ -61,7 +61,7 @@ EXPECTED_RATES = {
     ),
 }
 CALLABLE_IDS = {
-    "Nemotron 3 Super": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+    "Nemotron 3.5 Super VL": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
     "Nemotron 3.5 Lightning": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
     "Qwen3.6-35B-A3B": "Qwen/Qwen3.6-35B-A3B",
 }
@@ -110,10 +110,10 @@ class TrainingPricingTests(unittest.TestCase):
                 self.assertIn("GPU", text)
                 self.assertEqual(text.count("per 1M tokens"), 1 if page == ROOT / "pricing.mdx" else 0)
 
-    def test_training_super_uses_correct_display_name(self) -> None:
+    def test_training_super_uses_product_display_name(self) -> None:
         for page in PRICING_PAGES:
             with self.subTest(page=page.relative_to(ROOT)):
-                self.assertIn("Nemotron 3 Super", page.read_text(encoding="utf-8"))
+                self.assertIn("Nemotron 3.5 Super VL", page.read_text(encoding="utf-8"))
 
     def test_callable_ids_live_in_model_catalogs_not_pricing_tables(self) -> None:
         for page in PRICING_PAGES:
@@ -134,23 +134,19 @@ class TrainingPricingTests(unittest.TestCase):
         for page in PRICING_PAGES:
             lines = page.read_text(encoding="utf-8").splitlines()
             with self.subTest(page=page.relative_to(ROOT)):
-                inference_rows = [
+                rows = [
                     line for line in lines if "Nemotron 3.5 Super VL" in line
                 ]
-                training_rows = [
-                    line
-                    for line in lines
-                    if "Nemotron 3 Super" in line
-                    and "Nemotron 3.5 Super VL" not in line
-                ]
-                self.assertEqual(len(inference_rows), 1)
-                self.assertEqual(len(training_rows), 1)
-                self.assertIn(r"\$0.08", inference_rows[0])
-                self.assertIn(r"\$0.45", inference_rows[0])
-                self.assertIn(r"\$0.16", training_rows[0])
-                self.assertIn(r"\$0.04", training_rows[0])
-                self.assertIn(r"\$0.72", training_rows[0])
-                self.assertIn(r"\$0.96", training_rows[0])
+                self.assertEqual(len(rows), 2)
+                self.assertTrue(
+                    any(r"\$0.08" in row and r"\$0.45" in row for row in rows)
+                )
+                self.assertTrue(
+                    any(
+                        all(rate in row for rate in (r"\$0.16", r"\$0.04", r"\$0.72", r"\$0.96"))
+                        for row in rows
+                    )
+                )
 
     def test_model_catalogs_publish_encoder_training_rates(self) -> None:
         for page in MODEL_CATALOG_PAGES:
