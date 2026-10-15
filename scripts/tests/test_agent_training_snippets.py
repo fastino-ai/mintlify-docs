@@ -194,6 +194,13 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertNotIn('"file_name": "data.jsonl"', skill)
         self.assertNotIn("Returns `upload_url`", skill)
         self.assertNotIn("DPO uses `prompt`, `chosen`, and `rejected`", skill)
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            guide = ROOT / f"{prefix}guides/fine-tune-gliner.mdx"
+            text = guide.read_text(encoding="utf-8")
+            self.assertIn("`ready`", text, guide)
+            self.assertIn("`failed`", text, guide)
+            self.assertIn("`processing_error`", text, guide)
 
     def test_agent_checkpoint_kinds_match_public_contract(self) -> None:
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -354,6 +361,11 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             for marker in ("forward", "checkpoint"):
                 self.assertIn(marker, overview.lower(), f"{prefix}training.mdx")
             self.assertIn("/api-reference/training-jobs/interactive/storage-usage", overview)
+            self.assertIn("/api-reference/training-jobs/interactive/forward", overview)
+            self.assertIn(
+                "/api-reference/training-jobs/interactive/save-weights-for-sampler",
+                overview,
+            )
             self.assertIn(f"/{prefix}training/migrate-from-tinker", overview)
             self.assertIn("Tinker", overview)
             self.assertRegex(loop, r"(?:canonical|kanonische|canónico|canonique|规范)")
