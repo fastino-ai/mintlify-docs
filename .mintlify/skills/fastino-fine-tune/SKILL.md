@@ -15,7 +15,7 @@ Config jobs don't accept decoder base models; `POST /v1/training/jobs` returns
 `POST /v1/training/jobs/create-model`, then call `/forward-backward`,
 `/optim-step`, `/save-weights-for-sampler`, `/sample`, and deploy a sampler
 checkpoint. Follow
-https://docs.fastino.ai/training/quickstart#custom-training-loop.
+https://docs.fastino.ai/training/training-loop.
 
 ## Authentication
 
@@ -33,7 +33,8 @@ Authorization: Bearer YOUR_API_KEY
 1. Create or confirm your dataset exists (`GET /v1/datasets/:name`)
 2. Start training with that exact dataset name
 3. Poll `is_terminal_status` and inspect `normalized_status`
-4. Deploy an eligible checkpoint before using the job ID for inference
+4. Confirm the final config job reached `deployed`; successful final jobs
+   deploy automatically
 
 ## Start a Training Job
 
@@ -76,8 +77,10 @@ X-API-Key: YOUR_API_KEY
 | `requested` | Queued, waiting for GPU |
 | `running` | GPU training in progress |
 | `complete` | GPU training finished, post-processing starting |
-| `normalizing` | Artifacts being normalized and deployed to inference provider |
+| `normalizing` | Artifacts being normalized before automatic deployment |
+| `artifact_ready` | Artifact is ready; an intermediate pipeline stage may stop here |
 | `deployed` | Ready for inference — use the job `id` as `model_id` |
+| `paused` | Managed training is paused |
 | `errored` | Persisted training failure — check logs |
 | `stopped` | Manually stopped |
 | `terminated` | Force-terminated |
@@ -138,8 +141,11 @@ the job completed or failed first.
 
 ## After Training
 
-Once `deployed`, use the `id` from the response as `model` in `/v1/chat/completions`
-or `POST /v1/gliner-2` for encoder tasks. See the `fastino-inference` skill.
+Successful final config jobs deploy automatically. Once `deployed`, use the
+`id` from the response as `model` in `/v1/chat/completions` or
+`POST /v1/gliner-2` for encoder tasks. Manual checkpoint deployment is only
+needed when an Owner or Admin intentionally selects another eligible
+checkpoint. See the `fastino-inference` skill.
 
 ## Error Codes
 
@@ -147,9 +153,12 @@ or `POST /v1/gliner-2` for encoder tasks. See the `fastino-inference` skill.
 |------|---------|
 | 401 | Invalid or missing API key |
 | 402 | Insufficient credits |
+| 403 | Payment, account policy, or team-role requirement blocks creation |
 | 404 | Resource not found |
-| 409 | `duplicate_training_submission` — an identical job was created moments ago and is still active; poll the `job_id` in the error instead of resubmitting. `idempotency_key_job_deleted` — the job this `Idempotency-Key` created was deleted; send a new key to launch it again |
+| 409 | `duplicate_training_submission` — an identical active job was created in the previous 60 seconds; poll the `job_id` in the error instead of resubmitting. After 60 seconds, the same body without the original idempotency key creates and bills another job, with a suffix such as `_2` when its requested name is taken. `idempotency_key_job_deleted` — the job this `Idempotency-Key` created was deleted; send a new key to launch it again |
+| 429 | Request-rate or active config-job limit exceeded |
 | 422 | Validation error — check request body fields; `idempotency_key_reused` means the `Idempotency-Key` was already used for a different body |
+| 503 | Billing state is unavailable or training providers are at capacity; retry later with the same `Idempotency-Key` |
 | 500 | Server error — retry `POST /v1/training/jobs` with the same `Idempotency-Key` |
 
 Send an `Idempotency-Key` header (a fresh UUID per job you mean to create) on

@@ -65,7 +65,7 @@ EXPECTED_FENCE_COUNTS = {
     "training/checkpoints.mdx": 6,
     "training/auto.mdx": 0,
 }
-EXPECTED_LIVE_GETS_WITH_FIXTURES = 9
+EXPECTED_LIVE_GETS_WITH_FIXTURES = 10
 PARITY_PAGES = (
     "training/encoder-quickstart.mdx",
     "training/decoder-quickstart.mdx",
@@ -600,6 +600,63 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 self.assertIn(marker, get_job, f"{prefix} get-job page")
                 self.assertIn(marker, list_jobs, f"{prefix} list-jobs page")
 
+    def test_part_four_training_contract_is_documented_in_every_locale(self) -> None:
+        for locale in ("", "cn", "de", "es", "fr"):
+            prefix = f"{locale}/" if locale else ""
+            base = ROOT / prefix
+            create = (base / "api-reference/training-jobs/create.mdx").read_text()
+            create_model = (
+                base / "api-reference/training-jobs/interactive/create-model.mdx"
+            ).read_text()
+            sample = (
+                base / "api-reference/training-jobs/interactive/sample.mdx"
+            ).read_text()
+            list_jobs = (
+                base / "api-reference/training-jobs/list.mdx"
+            ).read_text()
+            download = (
+                base / "api-reference/training-jobs/download.mdx"
+            ).read_text()
+            logs = (base / "api-reference/training-jobs/logs.mdx").read_text()
+            quickstart = (base / "training/decoder-quickstart.mdx").read_text()
+            guide = (base / "guides/fine-tune-gliner.mdx").read_text()
+
+            for marker in ("60", "<name>_2", "idempotency_key_reused", "`429`", "`503`"):
+                self.assertIn(marker, create, f"{prefix} create page")
+            for marker in ("`16`", "`512`", "`429`"):
+                self.assertIn(marker, create_model, f"{prefix} create-model page")
+            for marker in (
+                "`1`",
+                "`512`",
+                'default="1024"',
+                "`65,536`",
+                "`32,768`",
+                "`2,048`",
+                "`429`",
+            ):
+                self.assertIn(marker, sample, f"{prefix} sample page")
+            for marker in ("status=complete", "artifact_ready", "deployed"):
+                self.assertIn(marker, list_jobs, f"{prefix} list page")
+            self.assertIn("gliner2-model-a1b2c3d4.tar.gz", download)
+            for marker in ("`stdout`", "`stderr`", "`system`"):
+                self.assertIn(marker, logs, f"{prefix} logs page")
+            self.assertIn("6.5", quickstart, f"{prefix} decoder quickstart")
+            self.assertIn("deployed", guide, f"{prefix} GLiNER guide")
+            self.assertNotIn("/checkpoints/$CHECKPOINT_ID/deploy", guide)
+
+        agents = (ROOT / "AGENTS.md").read_text()
+        dataset_skill = (
+            ROOT / ".mintlify/skills/fastino-datasets/SKILL.md"
+        ).read_text()
+        fine_tune_skill = (
+            ROOT / ".mintlify/skills/fastino-fine-tune/SKILL.md"
+        ).read_text()
+        self.assertNotIn("training/quickstart#custom-training-loop", agents)
+        self.assertNotIn("supported-client-behavior", agents)
+        self.assertNotIn("`task_type` (`ner`", dataset_skill)
+        for marker in ("artifact_ready", "paused"):
+            self.assertIn(marker, fine_tune_skill)
+
     def test_openapi_exposes_interactive_job_lifecycle(self) -> None:
         spec = json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
         schema = spec["components"]["schemas"]["InteractiveJobView"]
@@ -912,10 +969,11 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(create.mapped_command, "training-replay")
         self.assertEqual(create.risk, "mutating")
 
-        deploy = SNIPPETS.classify(_snippet("guides/fine-tune-gliner.mdx", 6))
-        self.assertEqual(deploy.coverage, "static")
-        self.assertEqual(deploy.mapped_command, "training-lifecycle")
-        self.assertIn(deploy.risk, {"mutating", "blocker"})
+        deployment_status = SNIPPETS.classify(
+            _snippet("guides/fine-tune-gliner.mdx", 6)
+        )
+        self.assertEqual(deployment_status.coverage, "live")
+        self.assertEqual(deployment_status.risk, "none")
 
         inference = SNIPPETS.classify(_snippet("guides/fine-tune-gliner.mdx", 7))
         self.assertEqual(inference.coverage, "static")

@@ -6,14 +6,10 @@ api: "POST /v1/training/jobs/{job_id}/forward-backward"
 ---
 `POST /v1/training/jobs/{job_id}/forward-backward`
 
-Berechnet den Verlust eines Stapels von Daten auf Token-Ebene und akkumuliert ihn
-Farbverläufe. Der nächste [Optimierungsschritt](/de/api-reference/training-jobs/interactive/optim-step)
-wendet sie an. Die Antwort ist eine Zukunft; Lesen Sie das Verlust- und Pro-Token-Protokoll
-Wahrscheinlichkeiten aus
+Berechnet den Verlust eines Batches von Daten auf Token-Ebene und akkumuliert dessen Gradienten. Der nächste [Optimiererschritt](/de/api-reference/training-jobs/interactive/optim-step) wendet sie an. Die Antwort ist ein Future; lesen Sie den Verlust und die Log-Wahrscheinlichkeiten pro Token unter
 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/training-jobs/interactive/get-future).
 
-[`POST /v1/training/jobs/{job_id}/forward`](/de/api-reference/training-jobs/interactive/forward)
-nimmt denselben Körper und berechnet den Verlust ohne Gradienten.
+[`POST /v1/training/jobs/{job_id}/forward`](/de/api-reference/training-jobs/interactive/forward) verwendet denselben Request-Body und berechnet den Verlust ohne Gradienten.
 
 ## Anfrage
 
@@ -26,8 +22,7 @@ nimmt denselben Körper und berechnet den Verlust ohne Gradienten.
 </ParamField>
 
 <ParamField body="datums" type="object[]" required>
-  Ein oder mehrere Trainingsbeispiele. Tokenisieren Sie sie selbst mit den Basismodellen
-  Tokenizer.
+  Ein oder mehrere Trainingsbeispiele. Tokenisieren Sie sie selbst mit dem Tokenizer des Basismodells.
 
   <Expandable title="properties">
     <ParamField body="model_input" type="object" required>
@@ -85,7 +80,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 ## Antwort
 
 <ResponseField name="future_id" type="string">
-  Die in der Warteschlange stehende Zukunft.
+  Das Future der eingereihten Operation.
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
@@ -134,6 +129,4 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 | `404` | Der Job existiert nicht oder gehört zu einem anderen Team. |
 | `422` | `datums` ist leer oder der Text enthält ein unbekanntes Feld. |
 
-Während der Batch-Ausführung festgestellte Probleme, z. B. eine fehlende Verlusteingabe, stimmen nicht überein
-Tensorlängen, ein unbekannter `loss_fn_config`-Schlüssel oder ein Datum, das länger als der ist
-Die Grenze des Modells, die Zukunft scheitern. Sein `error.category` ist `user`.
+Probleme, die während der Batch-Ausführung erkannt werden, etwa eine fehlende Loss-Eingabe, nicht übereinstimmende Tensorlängen, ein unbekannter `loss_fn_config`-Schlüssel oder ein Datum oberhalb des Modelllimits, lassen das Future fehlschlagen. Seine `error.category` lautet `user`.

@@ -10,7 +10,7 @@ description: "准备 GLiNER 数据集、创建托管式配置任务，并通过�
 
 按照[训练 API 概览](/cn/training)中的说明设置 `FASTINO_API_KEY`。示例通过 `X-API-Key` 请求头发送密钥，并使用 `jq` 读取 JSON 响应。
 
-Owner 或 Admin 可以完成本指南的全部步骤。Editor 可以上传数据集并创建训练任务，但无法执行上线部署步骤。
+Owner、Admin 和 Editor 都可以完成此托管工作流。最终配置任务成功后，会通过 Fastino 的服务端训练后流程自动部署；创建者无需具备单独的手动部署权限。
 
 ## 1. 选择任务
 
@@ -123,30 +123,24 @@ curl -sS \
 ```bash
 curl -sS \
   "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
-  -H "X-API-Key: $FASTINO_API_KEY" | tee training-checkpoints.json | jq
-
-export CHECKPOINT_ID="$(
-  jq -r '[.checkpoints[] | select(.is_deployable == true)] | first | .id // empty' \
-    training-checkpoints.json
-)"
-test -n "$CHECKPOINT_ID"
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
 有关响应字段，请参阅
 [日志](/cn/api-reference/training-jobs/logs)和
 [检查点](/cn/api-reference/training-jobs/checkpoints)。
 
-## 6. 部署训练后的模型
+## 6. 确认自动部署
 
-部署前，请检查已完成任务的 `is_deployable` 和 `deployability_reason` 字段：
+训练和工件标准化成功后，最终配置任务会自动部署并进入 `deployed` 状态。再次读取任务并确认该状态：
 
 ```bash
-curl --fail-with-body -sS -X POST \
-  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/$CHECKPOINT_ID/deploy" \
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-成功响应表示部署和工件发布已同步完成。响应包含 `success: true`、任务 ID 和检查点 ID，以及规范的 `deployment_path`；`mme_path` 是已弃用的兼容性别名。无需再轮询其他部署就绪状态。训练任务 ID 即托管推理所使用的模型标识符。
+训练任务 ID 即托管推理所使用的模型标识符。只有当 Owner 或 Admin 有意选择其他符合条件的检查点时，才需要手动部署检查点；请参阅[部署检查点](/cn/api-reference/training-jobs/deploy-checkpoint)。
 
 ## 7. 运行 GLiNER 推理
 

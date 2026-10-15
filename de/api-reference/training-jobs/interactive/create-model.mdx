@@ -6,14 +6,11 @@ api: "POST /v1/training/jobs/create-model"
 ---
 `POST /v1/training/jobs/create-model`
 
-Erstellt einen `interactive` LoRA-Trainingsauftrag für ein Decoder-Basismodell oder ein neues
-Job, der aus einem gespeicherten Trainingszustand stammt. Ihre Bewerbung verschickt dann jeder
-Vorwärts-Rückwärts-Durchlauf, Optimierungsschritt, Prüfpunkt und Stichprobe. Natives JSON
-Clients senden keine `seq_id`-Werte oder Heartbeats. Für geführtes Training von
-Für einen hochgeladenen Datensatz verwenden Sie [`POST /v1/training/jobs`](/de/api-reference/training-jobs/create).
+Erstellt einen `interactive` LoRA-Trainingsjob auf einem Decoder-Basismodell oder einen neuen Job aus einem gespeicherten Trainingszustand. Ihre Anwendung sendet anschließend jeden Forward-Backward-Durchlauf, Optimiererschritt, Checkpoint und Sampling-Aufruf. Native JSON-Clients senden weder `seq_id`-Werte noch Heartbeats. Verwenden Sie für verwaltetes Training mit einem hochgeladenen Datensatz [`POST /v1/training/jobs`](/de/api-reference/training-jobs/create).
 
-Der Auftrag ist fertig, sobald seine `create`-Zukunft abgeschlossen ist. Lesen Sie es mit
-[`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/training-jobs/interactive/get-future).
+Der Job ist bereit, sobald sein `create`-Future abgeschlossen ist. Lesen Sie es mit [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/de/api-reference/training-jobs/interactive/get-future).
+
+Jedes Team kann höchstens `16` aktive interaktive Jobs haben. Pro Job können gleichzeitig höchstens `512` Operationen eingereiht sein. Beim Überschreiten eines Limits wird `429` zurückgegeben.
 
 ## Anfrage
 
@@ -29,14 +26,11 @@ Senden Sie genau eines von `base_model` und `from_checkpoint`.
 </ParamField>
 
 <ParamField body="from_checkpoint" type="string">
-  Der `path`, der [`save-weights`](/de/api-reference/training-jobs/interactive/save-weights)
-  für einen Ihrer Jobs zurückgegeben, z. B. `tinker://<job_id>/weights/<name>`. Die
-  Der neue Job übernimmt das Basismodell und die LoRA-Einstellungen dieses Prüfpunkts, also weglassen
-  `lora_config`. Probenprüfpunkte werden abgelehnt.
+  Der `path`, den [`save-weights`](/de/api-reference/training-jobs/interactive/save-weights) für einen Ihrer Jobs zurückgegeben hat, z. B. `tinker://<job_id>/weights/<name>`. Der neue Job übernimmt das Basismodell und die LoRA-Einstellungen dieses Checkpoints; lassen Sie daher `lora_config` weg. Sampler-Checkpoints werden abgelehnt.
 </ParamField>
 
 <ParamField body="load_optimizer" type="boolean" default="false">
-  Setzen Sie `load_optimizer` mit `from_checkpoint`, um den Optimiererstatus wiederherzustellen.
+  Setzen Sie `load_optimizer` zusammen mit `from_checkpoint`, um den Optimiererzustand wiederherzustellen.
 </ParamField>
 
 <ParamField body="lora_config" type="object">
@@ -66,7 +60,7 @@ Senden Sie genau eines von `base_model` und `from_checkpoint`.
 </ParamField>
 
 <ParamField body="project_id" type="string">
-  Projekt, zu dem der Job und seine Verwendung gehören. Standardmäßig wird Ihr Standardprojekt verwendet.
+  Projekt, dem der Job und seine Nutzung zugeordnet sind. Standardmäßig Ihr Standardprojekt.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
@@ -90,7 +84,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 ## Antwort
 
 <ResponseField name="job_id" type="string">
-  Interaktive Job-ID. Verwenden Sie es mit jeder `/v1/training/jobs/{job_id}`-Route.
+  ID des interaktiven Jobs. Verwenden Sie sie für jede Route unter `/v1/training/jobs/{job_id}`.
 </ResponseField>
 
 <ResponseField name="type" type="string">
@@ -102,11 +96,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 </ResponseField>
 
 <ResponseField name="future_id" type="string">
-  Die Zukunft des Jobs `create`.
+  Das `create`-Future des Jobs.
 </ResponseField>
 
 <ResponseField name="load_future_id" type="string | null">
-  Mit `from_checkpoint` die Zukunft, die den Checkpoint lädt.
+  Bei `from_checkpoint` das Future, das den Checkpoint lädt.
 </ResponseField>
 
 <ResponseExample>
@@ -130,4 +124,5 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 | `400` | Das Modell wird nicht bereitgestellt, der Rang liegt außerhalb des Bereichs, `from_checkpoint` ist ein Sampler-Prüfpunkt oder `lora_config` wurde mit `from_checkpoint` gesendet. |
 | `402` | Das Team hat kein Guthaben oder keine gültige Zahlungseinrichtung. |
 | `404` | Dem Team steht kein interaktives Training zur Verfügung oder der Kontrollpunkt existiert nicht. |
+| `429` | Das Team hat bereits `16` aktive interaktive Jobs. Stoppen Sie vor einem erneuten Versuch einen inaktiven Job. |
 | `422` | `base_model` und `from_checkpoint` wurden beide oder keine gesendet, oder der Text enthält ein unbekanntes Feld. |

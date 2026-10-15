@@ -14,9 +14,7 @@ Setzen Sie `FASTINO_API_KEY` wie in der
 [Übersicht zur Training API](/de/training) beschrieben. Die Beispiele senden
 ihn im Header `X-API-Key` und verwenden `jq`, um JSON-Antworten zu lesen.
 
-Mit der Rolle Owner oder Admin können Sie den gesamten Leitfaden durchlaufen. Mit
-der Rolle Editor können Sie einen Datensatz hochladen und einen Trainingsjob
-erstellen, aber nicht die Live-Bereitstellung durchführen.
+Owner, Admins und Editoren können diesen verwalteten Workflow vollständig ausführen. Ein erfolgreicher abschließender Config-Job wird über Fastinos serverseitige Nachbearbeitung automatisch bereitgestellt; dafür benötigt der Ersteller keine separate Berechtigung zur manuellen Bereitstellung.
 
 ## 1. Aufgabe auswählen
 
@@ -138,36 +136,24 @@ Listen Sie die von Fastino erstellten Checkpoints auf:
 ```bash
 curl -sS \
   "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
-  -H "X-API-Key: $FASTINO_API_KEY" | tee training-checkpoints.json | jq
-
-export CHECKPOINT_ID="$(
-  jq -r '[.checkpoints[] | select(.is_deployable == true)] | first | .id // empty' \
-    training-checkpoints.json
-)"
-test -n "$CHECKPOINT_ID"
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
 Die Antwortfelder finden Sie unter
 [Logs](/de/api-reference/training-jobs/logs) und
 [Checkpoints](/de/api-reference/training-jobs/checkpoints).
 
-## 6. Trainiertes Modell bereitstellen
+## 6. Automatische Bereitstellung bestätigen
 
-Prüfen Sie vor der Bereitstellung die Felder `is_deployable` und
-`deployability_reason` des abgeschlossenen Jobs:
+Nach erfolgreichem Training und erfolgreicher Artefaktnormalisierung wird ein abschließender Config-Job automatisch bereitgestellt und erreicht den Status `deployed`. Lesen Sie den Job erneut und bestätigen Sie diesen Status:
 
 ```bash
-curl --fail-with-body -sS -X POST \
-  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/$CHECKPOINT_ID/deploy" \
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-Eine erfolgreiche Antwort bedeutet, dass Bereitstellung und
-Artefaktveröffentlichung synchron abgeschlossen wurden. Sie enthält
-`success: true`, die Job- und Checkpoint-IDs sowie den kanonischen
-`deployment_path`; `mme_path` ist ein veralteter Kompatibilitätsalias. Es gibt
-keinen weiteren Bereitschaftsstatus, den Sie abfragen müssten. Die Trainingsjob-ID ist die
-Modellkennung für die gehostete Inferenz.
+Die Trainingsjob-ID ist die Modellkennung für die gehostete Inferenz. Eine manuelle Checkpoint-Bereitstellung ist nur erforderlich, wenn ein Owner oder Admin absichtlich einen anderen geeigneten Checkpoint auswählt; siehe [Checkpoint bereitstellen](/de/api-reference/training-jobs/deploy-checkpoint).
 
 ## 7. GLiNER-Inferenz ausführen
 

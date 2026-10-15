@@ -242,11 +242,18 @@ La création peut renvoyer les conflits codés suivants :
 
 | Statut | Signification |
 | --- | --- |
-| `409 duplicate_training_submission` | Un job identique est déjà actif. |
+| `402` | Le compte n’a jamais été approvisionné ou a épuisé ses crédits. |
+| `403` | Un moyen de paiement, une exigence du compte ou le rôle d’équipe de l’appelant empêche la création. |
+| `409 duplicate_training_submission` | Un job actif identique a été soumis au cours des 60 dernières secondes. Interrogez le `job_id` de l’erreur au lieu de soumettre à nouveau. |
 | `409 idempotency_key_job_deleted` | Le job créé à l'origine avec cette clé d'idempotence a été supprimé. Utilisez une nouvelle clé pour un nouveau job. |
 | `409` | Un dataset référencé a été retiré entre la validation et l'insertion du job. Corrigez le dataset et réessayez avec une nouvelle clé. |
+| `422 idempotency_key_reused` | La même `Idempotency-Key` a été utilisée avec un corps différent. Utilisez le corps d’origine pour rejouer la requête, ou une nouvelle clé pour créer un autre job. |
+| `429` | La limite de requêtes ou de jobs config actifs a été dépassée. Un utilisateur peut avoir au maximum 25 jobs config actifs. |
+| `503` | L’état de facturation n’a pas pu être vérifié ou tous les fournisseurs d’entraînement sont à pleine capacité. Réessayez plus tard avec la même `Idempotency-Key`. |
 
 La même `Idempotency-Key` et un corps identique rejouent le job d'origine au lieu d'en créer un autre. Un corps différent avec la même clé renvoie `422`.
+
+La vérification des soumissions identiques pendant 60 secondes est distincte du rejeu par clé d’idempotence. Passé ce délai, envoyer le même corps sans réutiliser la clé d’origine crée et facture un autre job. Si le nom de modèle demandé est déjà utilisé, le job suivant reçoit un suffixe tel que `<name>_2`.
 
 Un modèle de base décodeur renvoie `400` :
 

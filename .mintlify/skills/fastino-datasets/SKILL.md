@@ -25,7 +25,9 @@ GET https://api.fastino.ai/v1/datasets
 X-API-Key: YOUR_API_KEY
 ```
 
-Optional query parameters: `task_type` (`ner`, `classification`, `decoder`), `project_id`.
+Optional query parameters: `include_all_versions`, `include_failed`,
+`include_orphans`, `project_id`, `limit`, and `offset`. The list endpoint has
+no `task_type` filter.
 
 ## Get a Dataset (Check It Exists)
 

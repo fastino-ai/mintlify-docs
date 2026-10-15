@@ -236,11 +236,18 @@ La creación puede devolver estos conflictos codificados:
 
 | Estado | Significado |
 | --- | --- |
-| `409 duplicate_training_submission` | Ya hay un trabajo idéntico activo. |
+| `402` | La cuenta nunca ha tenido fondos o ha agotado sus créditos. |
+| `403` | Un método de pago, un requisito de la cuenta o el rol de equipo del solicitante impide la creación. |
+| `409 duplicate_training_submission` | Se envió un trabajo activo idéntico en los últimos 60 segundos. Consulta el `job_id` del error en vez de volver a enviarlo. |
 | `409 idempotency_key_job_deleted` | Se eliminó el trabajo creado originalmente con esta clave de idempotencia. Usa una clave nueva para un trabajo nuevo. |
 | `409` | Un dataset referenciado se retiró entre la validación y la inserción del trabajo. Resuelve el dataset y reintenta con una clave nueva. |
+| `422 idempotency_key_reused` | Se usó la misma `Idempotency-Key` con un cuerpo distinto. Usa el cuerpo original para reproducir la solicitud o una clave nueva para crear otro trabajo. |
+| `429` | Se superó el límite de solicitudes o de trabajos config activos. Un usuario puede tener como máximo 25 trabajos config activos. |
+| `503` | No se pudo comprobar el estado de facturación o todos los proveedores de entrenamiento están al límite de capacidad. Reintenta más tarde con la misma `Idempotency-Key`. |
 
 La misma `Idempotency-Key` y un cuerpo idéntico reproducen el trabajo original en vez de crear otro. Un cuerpo diferente con la misma clave devuelve `422`.
+
+La comprobación de envíos idénticos durante 60 segundos es independiente de la reproducción mediante clave de idempotencia. Pasado ese intervalo, enviar el mismo cuerpo sin reutilizar la clave original crea y factura otro trabajo. Si el nombre de modelo solicitado ya está en uso, el siguiente trabajo recibe un sufijo como `<name>_2`.
 
 Un modelo base decodificador devuelve `400`:
 

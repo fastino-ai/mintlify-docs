@@ -238,11 +238,18 @@ Die Erstellung kann folgende codierte Konflikte zurückgeben:
 
 | Status | Bedeutung |
 | --- | --- |
-| `409 duplicate_training_submission` | Ein identischer Job ist bereits aktiv. |
+| `402` | Das Konto wurde noch nie aufgeladen oder sein Guthaben ist aufgebraucht. |
+| `403` | Eine Zahlungsmethode, eine Kontoanforderung oder die Teamrolle des Aufrufers verhindert die Erstellung. |
+| `409 duplicate_training_submission` | In den letzten 60 Sekunden wurde ein identischer aktiver Job eingereicht. Fragen Sie die `job_id` aus dem Fehler ab, statt erneut einzureichen. |
 | `409 idempotency_key_job_deleted` | Der ursprünglich mit diesem Idempotenzschlüssel erstellte Job wurde gelöscht. Verwenden Sie für einen neuen Job einen neuen Schlüssel. |
 | `409` | Ein referenzierter Datensatz wurde zwischen der Validierung und dem Anlegen des Jobs außer Betrieb genommen. Klären Sie das Problem mit dem Datensatz und versuchen Sie es mit einem neuen Schlüssel erneut. |
+| `422 idempotency_key_reused` | Derselbe `Idempotency-Key` wurde mit einem anderen Request-Body verwendet. Verwenden Sie zum Wiederholen den ursprünglichen Body oder für einen neuen Job einen neuen Schlüssel. |
+| `429` | Das Anfrage- oder das Limit aktiver Config-Jobs wurde überschritten. Ein Benutzer kann höchstens 25 aktive Config-Jobs haben. |
+| `503` | Der Abrechnungsstatus konnte nicht geprüft werden oder alle Trainingsanbieter sind ausgelastet. Versuchen Sie es später mit demselben `Idempotency-Key` erneut. |
 
 Derselbe `Idempotency-Key` und ein identischer Body geben den ursprünglichen Job erneut zurück, statt einen weiteren zu erstellen. Ein geänderter Body mit demselben Schlüssel gibt `422` zurück.
+
+Die 60-Sekunden-Prüfung auf identische Einreichungen ist von der Wiederholung per Idempotenzschlüssel unabhängig. Nach diesem Zeitfenster erstellt und berechnet derselbe Body einen weiteren Job, wenn der ursprüngliche Schlüssel nicht wiederverwendet wird. Ist der gewünschte Modellname bereits vergeben, erhält der nächste Job ein Suffix wie `<name>_2`.
 
 Ein Decoder-Basismodell gibt `400` zurück:
 

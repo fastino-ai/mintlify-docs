@@ -6,14 +6,10 @@ api: "POST /v1/training/jobs/{job_id}/forward-backward"
 ---
 `POST /v1/training/jobs/{job_id}/forward-backward`
 
-计算一批代币级别数据的损失并累积其
-梯度。下一步[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)
-应用它们。回应是未来；读取损失和每个代币的日志
-概率来自
+计算一批 token 级数据的损失并累积梯度。下一次[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)会应用这些梯度。响应是一个 future；通过以下端点读取损失和每个 token 的对数概率：
 [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/cn/api-reference/training-jobs/interactive/get-future)。
 
-[`POST /v1/training/jobs/{job_id}/forward`](/cn/api-reference/training-jobs/interactive/forward)
-采用相同的主体并计算没有梯度的损失。
+[`POST /v1/training/jobs/{job_id}/forward`](/cn/api-reference/training-jobs/interactive/forward) 使用相同的请求体，但只计算损失，不计算梯度。
 
 ## 请求
 
@@ -26,8 +22,7 @@ api: "POST /v1/training/jobs/{job_id}/forward-backward"
 </ParamField>
 
 <ParamField body="datums" type="object[]" required>
-  一个或多个训练示例。使用基本模型自行标记它们
-  分词器。
+  一个或多个训练示例。请使用基础模型的 tokenizer 自行将其转换为 token。
 
   <Expandable title="properties">
     <ParamField body="model_input" type="object" required>
@@ -38,7 +33,7 @@ api: "POST /v1/training/jobs/{job_id}/forward-backward"
       每个位置张量，每个 `{"data": [...], "dtype": "int64" | "float32"}`
       带有可选的 `shape`。每个张量都有 N 个值。
 
-      - `target_tokens`（`int64`，必需）：每个位置预期的代币，
+      - `target_tokens`（`int64`，必需）：每个位置预期的 token，
         通常输入左移一位。
       - `weights` (`float32`)：每个位置的损失重量。使用 `0` 进行提示
         位置和 `1` 为完成位置。
@@ -82,10 +77,10 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 
 </RequestExample>
 
-## 回应
+## 响应
 
 <ResponseField name="future_id" type="string">
-  排队的未来。
+  已排队操作的 future。
 </ResponseField>
 
 <ResponseField name="job_id" type="string">
@@ -131,9 +126,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/forward-b
 | ---| ---|
 | `400` |未知的 `loss_fn`、非整数 `target_tokens` 张量、词汇表标记 ID 之外，或者作业已停止。 |
 | `402` |团队积分用完或没有有效的付款设置。 |
-| `404` |该职位不存在或属于另一个团队。 |
+| `404` | 任务不存在或属于另一个团队。 |
 | `422` | `datums` 为空或主体有未知字段。 |
 
-批处理运行时发现的问题，例如丢失损失输入、不匹配
-张量长度、未知的 `loss_fn_config` 密钥或比
-模型的极限，失败的未来。其`error.category`为`user`。
+批次运行期间发现的问题，例如缺少损失输入、张量长度不匹配、未知的 `loss_fn_config` 键，或某条数据超过模型限制，都会使 future 失败。其 `error.category` 为 `user`。

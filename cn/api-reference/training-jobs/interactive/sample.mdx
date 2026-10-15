@@ -25,19 +25,19 @@ api: "POST /v1/training/jobs/{job_id}/sample"
 </ParamField>
 
 <ParamField body="prompt_tokens" type="integer[]" required>
-  从基本模型的标记生成器提示标记 ID。至少一个令牌。
+  由基础模型 tokenizer 生成的提示 token ID。至少包含一个 token。
 </ParamField>
 
 <ParamField body="num_samples" type="integer" default="1">
-  连续数。
+  延续数量，从 `1` 到 `512`。
 </ParamField>
 
 <ParamField body="sampling_params" type="object">
   解码设置。
 
   <Expandable title="properties">
-    <ParamField body="max_tokens" type="integer">
-      最大生成令牌数。提示加上 `max_tokens` 必须符合模型的采样限制。
+    <ParamField body="max_tokens" type="integer" default="1024">
+      最大生成 token 数。提示加上 `max_tokens` 必须不超过模型的采样限制。Qwen 最多可采样 `65,536` 个 token，但每条 Qwen 训练数据最多为 `32,768` 个 token。
     </ParamField>
     <ParamField body="temperature" type="number" default="1.0">
       取样温度。
@@ -49,7 +49,7 @@ api: "POST /v1/training/jobs/{job_id}/sample"
       Top-k 截止。 `-1` 禁用它。
     </ParamField>
     <ParamField body="stop" type="string | string[] | integer[]">
-      停止字符串或停止令牌 ID。
+      停止字符串或停止 token ID。
     </ParamField>
     <ParamField body="seed" type="integer">
       取样种子。
@@ -58,7 +58,7 @@ api: "POST /v1/training/jobs/{job_id}/sample"
 </ParamField>
 
 <ParamField body="prompt_logprobs" type="boolean" default="false">
-  还返回每个提示标记的对数概率。
+  同时返回每个提示 token 的对数概率。
 </ParamField>
 
 <ParamField body="topk_prompt_logprobs" type="integer" default="0">
@@ -70,6 +70,10 @@ api: "POST /v1/training/jobs/{job_id}/sample"
 </ParamField>
 
 以下数字 prompt token 数组仅为说明性占位符。请使用任务 `base_model` 的 tokenizer 对实际 prompt 进行分词。
+
+<Note>
+  一个团队最多可有 `2,048` 个正在处理的采样请求。达到此限制时，API 返回 `429`；请等待现有 sample future 完成后再重试。
+</Note>
 
 <RequestExample>
 
@@ -87,7 +91,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
 
 </RequestExample>
 
-## 回应
+## 响应
 
 <ResponseExample>
 
@@ -101,9 +105,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
 
 </ResponseExample>
 
-完成结果中的每个序列有`tokens`、`logprobs`、`stop_reason`
-（`stop` 或 `length`）和 `topk_logprobs`。用同样的方法解码 `tokens`
-分词器。取消未完成的样本
+已完成结果中的每个序列都包含 `tokens`、`logprobs`、`stop_reason`（`stop` 或 `length`）和 `topk_logprobs`。请使用同一个 tokenizer 解码 `tokens`。要取消未完成的采样，请使用
 [`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`](/cn/api-reference/training-jobs/interactive/cancel-future)。
 
 |状态 |意义|
@@ -111,4 +113,5 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
 | `400` | `checkpoint` 无效，另一个作业的检查点，或者状态检查点，或者提示太长。 |
 | `402` |团队积分用完或没有有效的付款设置。 |
 | `404` |该作业或检查点不存在，或者该作业属于另一个团队。 |
+| `429` | 团队已有 `2,048` 个正在处理的采样请求。请等待现有 sample future 完成后再重试。 |
 | `422` | `checkpoint` 或 `prompt_tokens` 缺失，或者主体具有未知字段。 |

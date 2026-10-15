@@ -13,9 +13,7 @@ Establece `FASTINO_API_KEY` como se muestra en la [descripción general de la AP
 de entrenamiento](/es/training). Los ejemplos la envían en el encabezado
 `X-API-Key` y usan `jq` para leer las respuestas JSON.
 
-Los roles Owner o Admin pueden completar toda la guía. El rol Editor puede
-subir un dataset y crear un trabajo de entrenamiento, pero no puede realizar
-el despliegue en vivo.
+Los roles Owner, Admin y Editor pueden completar este flujo gestionado. Un trabajo config final correcto se despliega automáticamente mediante el proceso posterior al entrenamiento del servidor de Fastino; el creador no necesita el permiso independiente de despliegue manual.
 
 ## 1. Elige la tarea
 
@@ -135,36 +133,24 @@ Lista los checkpoints que creó Fastino:
 ```bash
 curl -sS \
   "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
-  -H "X-API-Key: $FASTINO_API_KEY" | tee training-checkpoints.json | jq
-
-export CHECKPOINT_ID="$(
-  jq -r '[.checkpoints[] | select(.is_deployable == true)] | first | .id // empty' \
-    training-checkpoints.json
-)"
-test -n "$CHECKPOINT_ID"
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
 Consulta [logs](/es/api-reference/training-jobs/logs) y
 [checkpoints](/es/api-reference/training-jobs/checkpoints) para ver sus campos
 de respuesta.
 
-## 6. Despliega el modelo entrenado
+## 6. Confirma el despliegue automático
 
-Comprueba los campos `is_deployable` y `deployability_reason` del trabajo
-completado antes del despliegue:
+Cuando el entrenamiento y la normalización del artefacto terminan correctamente, el trabajo config final se despliega automáticamente y alcanza el estado `deployed`. Vuelve a leer el trabajo y confirma ese estado:
 
 ```bash
-curl --fail-with-body -sS -X POST \
-  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/$CHECKPOINT_ID/deploy" \
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-Una respuesta correcta significa que el despliegue y la publicación del
-artefacto finalizaron de forma síncrona. Incluye `success: true`, los ID del
-trabajo y del checkpoint, y el `deployment_path` canónico; `mme_path` es un
-alias de compatibilidad obsoleto. No hay otro estado de despliegue listo que
-consultar. El ID del trabajo de entrenamiento es el identificador de modelo
-que se usa para la inferencia alojada.
+El ID del trabajo de entrenamiento es el identificador de modelo usado para la inferencia alojada. El despliegue manual de un checkpoint solo es necesario cuando un Owner o Admin selecciona deliberadamente otro checkpoint apto; consulta [Desplegar un checkpoint](/es/api-reference/training-jobs/deploy-checkpoint).
 
 ## 7. Ejecuta inferencia con GLiNER
 

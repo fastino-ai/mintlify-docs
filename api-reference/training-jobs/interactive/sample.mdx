@@ -31,15 +31,17 @@ tokens from the completed future's `result.sequences`.
 </ParamField>
 
 <ParamField body="num_samples" type="integer" default="1">
-  Number of continuations.
+  Number of continuations, from `1` through `512`.
 </ParamField>
 
 <ParamField body="sampling_params" type="object">
   Decoding settings.
 
   <Expandable title="properties">
-    <ParamField body="max_tokens" type="integer">
-      Maximum generated tokens. Prompt plus `max_tokens` must fit the model's sampling limit.
+    <ParamField body="max_tokens" type="integer" default="1024">
+      Maximum generated tokens. Prompt plus `max_tokens` must fit the model's
+      sampling limit. Qwen can sample up to `65,536` tokens, although each Qwen
+      training datum is limited to `32,768` tokens.
     </ParamField>
     <ParamField body="temperature" type="number" default="1.0">
       Sampling temperature.
@@ -73,6 +75,12 @@ tokens from the completed future's `result.sequences`.
 
 The numeric prompt-token array below is an illustrative placeholder. Tokenize
 your actual prompt with the tokenizer for the job's `base_model`.
+
+<Note>
+  A team can have at most `2,048` sampling requests in flight. The API returns
+  `429` when that limit is reached; wait for existing sample futures to finish
+  before retrying.
+</Note>
 
 <RequestExample>
 
@@ -114,4 +122,5 @@ tokenizer. Cancel an unfinished sample with
 | `400` | `checkpoint` is invalid, another job's checkpoint, or a state checkpoint, or the prompt is too long. |
 | `402` | The team is out of credits or has no valid payment setup. |
 | `404` | The job or checkpoint doesn't exist, or the job belongs to another team. |
+| `429` | The team already has `2,048` sampling requests in flight. Wait for existing sample futures before retrying. |
 | `422` | `checkpoint` or `prompt_tokens` is missing, or the body has an unknown field. |

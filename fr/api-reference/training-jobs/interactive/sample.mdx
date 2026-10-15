@@ -6,9 +6,7 @@ api: "POST /v1/training/jobs/{job_id}/sample"
 ---
 `POST /v1/training/jobs/{job_id}/sample`
 
-Génère des suites d'une invite tokenisée avec l'un des `sampler` du travail
-points de contrôle. L'échantillonnage fonctionne également après l'arrêt du travail. Lire le généré
-jetons du futur `result.sequences` terminé.
+Génère des continuations d’un prompt tokenisé avec l’un des checkpoints `sampler` du job. L’échantillonnage reste disponible après l’arrêt du job. Lisez les tokens générés dans `result.sequences` du future terminé.
 
 ## Demande
 
@@ -17,28 +15,27 @@ jetons du futur `result.sequences` terminé.
 </ParamField>
 
 <ParamField path="job_id" type="string" required>
-  ID de travail interactif.
+  ID du job interactif.
 </ParamField>
 
 <ParamField body="checkpoint" type="string" required>
-  Le nom d'un point de contrôle d'échantillonneur enregistré par ce travail, ou son
-  Chemin `tinker://<job_id>/sampler_weights/<name>`.
+  Le nom d’un checkpoint sampler enregistré par ce job, ou son chemin `tinker://<job_id>/sampler_weights/<name>`.
 </ParamField>
 
 <ParamField body="prompt_tokens" type="integer[]" required>
-  Inviter les ID de jeton du tokenizer du modèle de base. Au moins un jeton.
+  ID des tokens du prompt produits par le tokenizer du modèle de base. Au moins un token.
 </ParamField>
 
 <ParamField body="num_samples" type="integer" default="1">
-  Nombre de suites.
+  Nombre de continuations, de `1` à `512`.
 </ParamField>
 
 <ParamField body="sampling_params" type="object">
   Paramètres de décodage.
 
   <Expandable title="properties">
-    <ParamField body="max_tokens" type="integer">
-      Nombre maximum de jetons générés. L'invite plus `max_tokens` doit correspondre à la limite d'échantillonnage du modèle.
+    <ParamField body="max_tokens" type="integer" default="1024">
+      Nombre maximal de tokens générés. Le prompt et `max_tokens` doivent tenir dans la limite d’échantillonnage du modèle. Qwen peut échantillonner jusqu’à `65,536` tokens, mais chaque donnée d’entraînement Qwen est limitée à `32,768` tokens.
     </ParamField>
     <ParamField body="temperature" type="number" default="1.0">
       Température d'échantillonnage.
@@ -50,16 +47,16 @@ jetons du futur `result.sequences` terminé.
       Seuil top-k. `-1` le désactive.
     </ParamField>
     <ParamField body="stop" type="string | string[] | integer[]">
-      Arrêtez les chaînes ou arrêtez les ID de jeton.
+      Chaînes d’arrêt ou ID de tokens d’arrêt.
     </ParamField>
     <ParamField body="seed" type="integer">
-      Échantillonnage de graines.
+      Seed d’échantillonnage.
     </ParamField>
   </Expandable>
 </ParamField>
 
 <ParamField body="prompt_logprobs" type="boolean" default="false">
-  Renvoie également la probabilité de journalisation de chaque jeton d'invite.
+  Renvoie également la log-probabilité de chaque token du prompt.
 </ParamField>
 
 <ParamField body="topk_prompt_logprobs" type="integer" default="0">
@@ -71,6 +68,10 @@ jetons du futur `result.sequences` terminé.
 </ParamField>
 
 Le tableau numérique de tokens du prompt ci-dessous est uniquement un espace réservé à titre d’illustration. Tokenisez votre prompt réel avec le tokenizer du `base_model` du job.
+
+<Note>
+  Une équipe peut avoir au maximum `2,048` requêtes d’échantillonnage en cours. L’API renvoie `429` lorsque cette limite est atteinte ; attendez la fin des futures d’échantillonnage existants avant de réessayer.
+</Note>
 
 <RequestExample>
 
@@ -102,9 +103,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
 
 </ResponseExample>
 
-Chaque séquence du résultat final comporte `tokens`, `logprobs`, `stop_reason`
-(`stop` ou `length`) et `topk_logprobs`. Décodez `tokens` avec le même
-tokeniseur. Annulez un échantillon inachevé avec
+Chaque séquence du résultat terminé contient `tokens`, `logprobs`, `stop_reason` (`stop` ou `length`) et `topk_logprobs`. Décodez `tokens` avec le même tokenizer. Annulez un échantillonnage inachevé avec
 [`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`](/fr/api-reference/training-jobs/interactive/cancel-future).
 
 | Statut | Signification |
@@ -112,4 +111,5 @@ tokeniseur. Annulez un échantillon inachevé avec
 | `400` | `checkpoint` n'est pas valide, il s'agit d'un point de contrôle d'un autre travail ou d'un point de contrôle d'état, ou l'invite est trop longue. |
 | `402` | L'équipe n'a plus de crédits ou n'a pas de configuration de paiement valide. |
 | `404` | Le travail ou le point de contrôle n'existe pas, ou le travail appartient à une autre équipe. |
+| `429` | L’équipe a déjà `2,048` requêtes d’échantillonnage en cours. Attendez la fin des futures d’échantillonnage existants avant de réessayer. |
 | `422` | `checkpoint` ou `prompt_tokens` est manquant, ou le corps possède un champ inconnu. |

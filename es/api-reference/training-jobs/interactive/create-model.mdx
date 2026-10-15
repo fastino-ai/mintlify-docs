@@ -6,14 +6,11 @@ api: "POST /v1/training/jobs/create-model"
 ---
 `POST /v1/training/jobs/create-model`
 
-Crea un trabajo de entrenamiento `interactive` LoRA en un modelo base de decodificador o un nuevo
-Trabajo iniciado desde un estado de entrenamiento guardado. Luego, su aplicación envía cada
-pase hacia adelante y hacia atrás, paso del optimizador, punto de control y muestra. JSON nativo
-Los clientes no envían valores `seq_id` ni latidos. Para la formación gestionada desde
-un conjunto de datos cargado, utilice [`POST /v1/training/jobs`](/es/api-reference/training-jobs/create).
+Crea un trabajo de entrenamiento LoRA `interactive` sobre un modelo base decodificador o un trabajo nuevo a partir de un estado de entrenamiento guardado. Después, tu aplicación envía cada pasada forward-backward, paso del optimizador, checkpoint y solicitud de muestreo. Los clientes JSON nativos no envían valores `seq_id` ni heartbeats. Para el entrenamiento gestionado con un dataset subido, usa [`POST /v1/training/jobs`](/es/api-reference/training-jobs/create).
 
-El trabajo estará listo una vez que se complete su futuro `create`. Léelo con
-[`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/es/api-reference/training-jobs/interactive/get-future).
+El trabajo está listo cuando termina su future `create`. Léelo con [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/es/api-reference/training-jobs/interactive/get-future).
+
+Cada equipo puede tener como máximo `16` trabajos interactivos activos. Cada trabajo puede tener hasta `512` operaciones en cola al mismo tiempo. Superar cualquiera de los límites devuelve `429`.
 
 ## Solicitud
 
@@ -29,10 +26,7 @@ Envíe exactamente uno de `base_model` y `from_checkpoint`.
 </ParamField>
 
 <ParamField body="from_checkpoint" type="string">
-  El `path` que [`save-weights`](/es/api-reference/training-jobs/interactive/save-weights)
-  devuelto para uno de sus trabajos, como `tinker://<job_id>/weights/<name>`. el
-  El nuevo trabajo toma el modelo base de ese punto de control y la configuración LoRA, así que omita
-  `lora_config`. Se rechazan los puntos de control del muestreador.
+  El `path` devuelto por [`save-weights`](/es/api-reference/training-jobs/interactive/save-weights) para uno de tus trabajos, como `tinker://<job_id>/weights/<name>`. El trabajo nuevo usa el modelo base y la configuración LoRA de ese checkpoint, por lo que debes omitir `lora_config`. Los checkpoints sampler se rechazan.
 </ParamField>
 
 <ParamField body="load_optimizer" type="boolean" default="false">
@@ -90,7 +84,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 ## Respuesta
 
 <ResponseField name="job_id" type="string">
-  Identificación de trabajo interactiva. Úselo con todas las rutas `/v1/training/jobs/{job_id}`.
+  ID del trabajo interactivo. Úsalo con todas las rutas `/v1/training/jobs/{job_id}`.
 </ResponseField>
 
 <ResponseField name="type" type="string">
@@ -102,11 +96,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 </ResponseField>
 
 <ResponseField name="future_id" type="string">
-  El futuro del trabajo `create`.
+  El future `create` del trabajo.
 </ResponseField>
 
 <ResponseField name="load_future_id" type="string | null">
-  Con `from_checkpoint`, el futuro que carga el puesto de control.
+  Con `from_checkpoint`, el future que carga el checkpoint.
 </ResponseField>
 
 <ResponseExample>
@@ -127,7 +121,8 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 
 | Estado | Significado |
 | --- | --- |
-| `400` | El modelo no se entrega, el rango está fuera de rango, `from_checkpoint` es un punto de control de muestra o `lora_config` se envió con `from_checkpoint`. |
+| `400` | El modelo no está disponible, el rango está fuera del intervalo permitido, `from_checkpoint` es un checkpoint sampler o se envió `lora_config` con `from_checkpoint`. |
 | `402` | El equipo no tiene créditos o no tiene una configuración de pago válida. |
-| `404` | La capacitación interactiva no está disponible para el equipo o el punto de control no existe. |
+| `404` | El entrenamiento interactivo no está disponible para el equipo o el checkpoint no existe. |
+| `429` | El equipo ya tiene `16` trabajos interactivos activos. Detén un trabajo inactivo antes de reintentar. |
 | `422` | Se enviaron ambos o ninguno de `base_model` y `from_checkpoint`, o el cuerpo tiene un campo desconocido. |

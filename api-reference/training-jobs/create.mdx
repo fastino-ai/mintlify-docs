@@ -235,11 +235,21 @@ Creation can return these coded conflicts:
 
 | Status | Meaning |
 | --- | --- |
-| `409 duplicate_training_submission` | An identical job is already active. |
+| `402` | The account has never been funded or has exhausted its credits. |
+| `403` | A payment method, account requirement, or the caller's team role blocks creation. |
+| `409 duplicate_training_submission` | An identical active job was submitted in the previous 60 seconds. Poll the `job_id` from the error instead of resubmitting. |
 | `409 idempotency_key_job_deleted` | The job originally created with this idempotency key was deleted. Use a new key for a new job. |
 | `409` | A referenced dataset retired between validation and job insertion. Resolve the dataset and retry with a new key. |
+| `422 idempotency_key_reused` | The same `Idempotency-Key` was used with a different request body. Use the original body to replay, or a new key for a new job. |
+| `429` | The request rate or active config-job limit was exceeded. A user can have at most 25 active config jobs. |
+| `503` | Billing state could not be checked or all training providers are at capacity. Retry later with the same `Idempotency-Key`. |
 
 The same `Idempotency-Key` and identical body replay the original job instead of creating another. A changed body with the same key returns `422`.
+
+The 60-second identical-submission check is separate from idempotency-key
+replay. After that window, sending the same body without reusing the original
+key creates and bills another job. If the requested model name is already
+taken, the next job receives a suffix such as `<name>_2`.
 
 A decoder base model returns `400`:
 

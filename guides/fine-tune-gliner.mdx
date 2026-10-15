@@ -12,8 +12,10 @@ training settings; Fastino runs the training loop.
 Set `FASTINO_API_KEY` as shown in the [Training API overview](/training). The
 examples send it in the `X-API-Key` header and use `jq` to read JSON responses.
 
-An Owner or Admin can complete the entire guide. An Editor can upload a dataset
-and create a training job, but cannot perform the live-deployment step.
+Owners, Admins, and Editors can complete this managed workflow. A successful
+final config job deploys automatically through Fastino's server-side
+post-training pipeline; it does not require the creator to hold the separate
+manual-deployment permission.
 
 ## 1. Choose the task
 
@@ -130,13 +132,7 @@ List the checkpoints Fastino created:
 ```bash
 curl -sS \
   "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
-  -H "X-API-Key: $FASTINO_API_KEY" | tee training-checkpoints.json | jq
-
-export CHECKPOINT_ID="$(
-  jq -r '[.checkpoints[] | select(.is_deployable == true)] | first | .id // empty' \
-    training-checkpoints.json
-)"
-test -n "$CHECKPOINT_ID"
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
 See
@@ -144,22 +140,22 @@ See
 [checkpoints](/api-reference/training-jobs/checkpoints) for their response
 fields.
 
-## 6. Deploy the trained model
+## 6. Confirm automatic deployment
 
-Check the completed job's `is_deployable` and `deployability_reason` fields,
-then deploy the selected deployable checkpoint:
+After training and artifact normalization succeed, a final config job deploys
+automatically and reaches `deployed`. Read the job again and confirm that
+status:
 
 ```bash
-curl --fail-with-body -sS -X POST \
-  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/$CHECKPOINT_ID/deploy" \
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-A successful response means deployment and artifact publication completed
-synchronously. It includes `success: true`, the job and checkpoint IDs, and the
-canonical `deployment_path`; `mme_path` is a deprecated compatibility alias.
-There is no additional deployment-ready state to poll. The training job ID is
-the model identifier used for hosted inference.
+The training job ID is the model identifier used for hosted inference. Manual
+checkpoint deployment is only needed when an Owner or Admin intentionally
+selects another eligible checkpoint; see
+[Deploy a checkpoint](/api-reference/training-jobs/deploy-checkpoint).
 
 ## 7. Run GLiNER inference
 

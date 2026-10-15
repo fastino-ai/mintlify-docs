@@ -6,14 +6,11 @@ api: "POST /v1/training/jobs/create-model"
 ---
 `POST /v1/training/jobs/create-model`
 
-Crée une tâche de formation LoRA `interactive` sur un modèle de base de décodeur ou un nouveau
-tâche générée à partir d'un état de formation enregistré. Votre candidature envoie ensuite chacun
-passe avant-arrière, étape d'optimisation, point de contrôle et échantillon. JSON natif
-les clients n'envoient pas de valeurs ou de battements de cœur `seq_id`. Pour une formation gérée à partir de
-un ensemble de données téléchargé, utilisez [`POST /v1/training/jobs`](/fr/api-reference/training-jobs/create).
+Crée un job d’entraînement LoRA `interactive` sur un modèle de base décodeur, ou un nouveau job à partir d’un état d’entraînement enregistré. Votre application envoie ensuite chaque passe forward-backward, étape d’optimisation, checkpoint et requête d’échantillonnage. Les clients JSON natifs n’envoient ni valeurs `seq_id` ni heartbeats. Pour un entraînement géré à partir d’un dataset importé, utilisez [`POST /v1/training/jobs`](/fr/api-reference/training-jobs/create).
 
-Le travail est prêt une fois son futur `create` terminé. Lisez-le avec
-[`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/fr/api-reference/training-jobs/interactive/get-future).
+Le job est prêt lorsque son future `create` est terminé. Lisez-le avec [`GET /v1/training/jobs/{job_id}/futures/{future_id}`](/fr/api-reference/training-jobs/interactive/get-future).
+
+Chaque équipe peut avoir au maximum `16` jobs interactifs actifs. Chaque job peut avoir au maximum `512` opérations en file simultanément. Le dépassement de l’une de ces limites renvoie `429`.
 
 ## Demande
 
@@ -29,10 +26,7 @@ Envoyez exactement un des `base_model` et `from_checkpoint`.
 </ParamField>
 
 <ParamField body="from_checkpoint" type="string">
-  Le `path` qui [`save-weights`](/fr/api-reference/training-jobs/interactive/save-weights)
-  renvoyé pour l'un de vos travaux, tel que `tinker://<job_id>/weights/<name>`. Le
-  le nouveau travail prend le modèle de base de ce point de contrôle et les paramètres LoRA, alors omettez
-  `lora_config`. Les points de contrôle de l'échantillonneur sont rejetés.
+  Le `path` renvoyé par [`save-weights`](/fr/api-reference/training-jobs/interactive/save-weights) pour l’un de vos jobs, par exemple `tinker://<job_id>/weights/<name>`. Le nouveau job reprend le modèle de base et les paramètres LoRA de ce checkpoint ; omettez donc `lora_config`. Les checkpoints sampler sont refusés.
 </ParamField>
 
 <ParamField body="load_optimizer" type="boolean" default="false">
@@ -66,7 +60,7 @@ Envoyez exactement un des `base_model` et `from_checkpoint`.
 </ParamField>
 
 <ParamField body="project_id" type="string">
-  Projet auquel appartient le travail et son utilisation. La valeur par défaut est votre projet par défaut.
+  Projet auquel appartiennent le job et son utilisation. Par défaut, votre projet par défaut.
 </ParamField>
 
 <ParamField body="user_metadata" type="object">
@@ -90,7 +84,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 ## Réponse
 
 <ResponseField name="job_id" type="string">
-  ID de travail interactif. Utilisez-le avec chaque itinéraire `/v1/training/jobs/{job_id}`.
+  ID du job interactif. Utilisez-le avec chaque route `/v1/training/jobs/{job_id}`.
 </ResponseField>
 
 <ResponseField name="type" type="string">
@@ -102,11 +96,11 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 </ResponseField>
 
 <ResponseField name="future_id" type="string">
-  L'avenir du travail est `create`.
+  Le future `create` du job.
 </ResponseField>
 
 <ResponseField name="load_future_id" type="string | null">
-  Avec `from_checkpoint`, le futur qui charge le point de contrôle.
+  Avec `from_checkpoint`, le future qui charge le checkpoint.
 </ResponseField>
 
 <ResponseExample>
@@ -130,4 +124,5 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/create-model" \
 | `400` | Le modèle n'est pas servi, le rang est hors de portée, `from_checkpoint` est un point de contrôle d'échantillonneur ou `lora_config` a été envoyé avec `from_checkpoint`. |
 | `402` | L'équipe n'a plus de crédits ou n'a pas de configuration de paiement valide. |
 | `404` | La formation interactive n'est pas disponible pour l'équipe ou le point de contrôle n'existe pas. |
+| `429` | L’équipe a déjà `16` jobs interactifs actifs. Arrêtez un job inactif avant de réessayer. |
 | `422` | Les deux ou aucun des `base_model` et `from_checkpoint` n'ont été envoyés, ou le corps a un champ inconnu. |

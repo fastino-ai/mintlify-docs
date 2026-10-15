@@ -13,9 +13,7 @@ Définissez `FASTINO_API_KEY` comme indiqué dans la
 [présentation de l'API d'entraînement](/fr/training). Les exemples l'envoient dans
 l'en-tête `X-API-Key` et utilisent `jq` pour lire les réponses JSON.
 
-Les rôles Owner ou Admin peuvent suivre l'intégralité du guide. Le rôle Editor
-peut importer un dataset et créer un job d'entraînement, mais ne peut pas
-effectuer l'étape de déploiement en production.
+Les rôles Owner, Admin et Editor peuvent suivre l’intégralité de ce workflow géré. Un job config final réussi est déployé automatiquement par le pipeline serveur de post-entraînement de Fastino ; le créateur n’a pas besoin de disposer de l’autorisation distincte de déploiement manuel.
 
 ## 1. Choisir la tâche
 
@@ -139,13 +137,7 @@ Listez les checkpoints créés par Fastino :
 ```bash
 curl -sS \
   "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints" \
-  -H "X-API-Key: $FASTINO_API_KEY" | tee training-checkpoints.json | jq
-
-export CHECKPOINT_ID="$(
-  jq -r '[.checkpoints[] | select(.is_deployable == true)] | first | .id // empty' \
-    training-checkpoints.json
-)"
-test -n "$CHECKPOINT_ID"
+  -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
 Consultez les pages
@@ -153,23 +145,17 @@ Consultez les pages
 [checkpoints](/fr/api-reference/training-jobs/checkpoints) pour connaître les
 champs de leurs réponses.
 
-## 6. Déployer le modèle entraîné
+## 6. Confirmer le déploiement automatique
 
-Vérifiez les champs `is_deployable` et `deployability_reason` du job terminé
-avant le déploiement :
+Une fois l’entraînement et la normalisation de l’artefact réussis, le job config final est déployé automatiquement et atteint le statut `deployed`. Relisez le job et confirmez ce statut :
 
 ```bash
-curl --fail-with-body -sS -X POST \
-  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/$CHECKPOINT_ID/deploy" \
+curl --fail-with-body -sS \
+  "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID" \
   -H "X-API-Key: $FASTINO_API_KEY" | jq
 ```
 
-Une réponse réussie signifie que le déploiement et la publication de
-l'artefact se sont terminés de manière synchrone. Elle comprend
-`success: true`, les ID du job et du checkpoint, ainsi que le
-`deployment_path` canonique ; `mme_path` est un alias de compatibilité obsolète.
-Il n'y a donc aucun état de déploiement supplémentaire à attendre par
-interrogation. L'ID du job d'entraînement est l'identifiant de modèle utilisé pour l'inférence hébergée.
+L’ID du job d’entraînement est l’identifiant de modèle utilisé pour l’inférence hébergée. Le déploiement manuel d’un checkpoint n’est nécessaire que lorsqu’un Owner ou Admin choisit délibérément un autre checkpoint éligible ; consultez [Déployer un checkpoint](/fr/api-reference/training-jobs/deploy-checkpoint).
 
 ## 7. Exécuter l'inférence GLiNER
 

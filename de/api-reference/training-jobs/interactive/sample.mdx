@@ -21,24 +21,23 @@ generierten Tokens aus `result.sequences` des abgeschlossenen Futures.
 </ParamField>
 
 <ParamField body="checkpoint" type="string" required>
-  Der Name eines Sampler-Prüfpunkts, der von diesem Job oder seinem Job gespeichert wurde
-  `tinker://<job_id>/sampler_weights/<name>`-Pfad.
+  Der Name eines von diesem Job gespeicherten Sampler-Checkpoints oder sein Pfad `tinker://<job_id>/sampler_weights/<name>`.
 </ParamField>
 
 <ParamField body="prompt_tokens" type="integer[]" required>
-  Fordern Sie Token-IDs vom Tokenizer des Basismodells ab. Mindestens ein Token.
+  Prompt-Token-IDs aus dem Tokenizer des Basismodells. Mindestens ein Token.
 </ParamField>
 
 <ParamField body="num_samples" type="integer" default="1">
-  Anzahl der Fortsetzungen.
+  Anzahl der Fortsetzungen, von `1` bis `512`.
 </ParamField>
 
 <ParamField body="sampling_params" type="object">
   Dekodierungseinstellungen.
 
   <Expandable title="properties">
-    <ParamField body="max_tokens" type="integer">
-      Maximal generierte Token. Prompt plus `max_tokens` muss zum Stichprobenlimit des Modells passen.
+    <ParamField body="max_tokens" type="integer" default="1024">
+      Maximal erzeugte Tokens. Prompt und `max_tokens` müssen zusammen in das Sampling-Limit des Modells passen. Qwen kann bis zu `65,536` Tokens samplen; einzelne Qwen-Trainingsbeispiele sind jedoch auf `32,768` Tokens begrenzt.
     </ParamField>
     <ParamField body="temperature" type="number" default="1.0">
       Probentemperatur.
@@ -50,16 +49,16 @@ generierten Tokens aus `result.sequences` des abgeschlossenen Futures.
       Top-K-Cutoff. `-1` deaktiviert es.
     </ParamField>
     <ParamField body="stop" type="string | string[] | integer[]">
-      Stoppen Sie Zeichenfolgen oder Stopp-Token-IDs.
+      Stoppzeichenfolgen oder Stopp-Token-IDs.
     </ParamField>
     <ParamField body="seed" type="integer">
-      Probenahme von Saatgut.
+      Seed für das Sampling.
     </ParamField>
   </Expandable>
 </ParamField>
 
 <ParamField body="prompt_logprobs" type="boolean" default="false">
-  Geben Sie außerdem die Protokollwahrscheinlichkeit jedes Eingabeaufforderungstokens zurück.
+  Gibt zusätzlich die Log-Wahrscheinlichkeit jedes Prompt-Tokens zurück.
 </ParamField>
 
 <ParamField body="topk_prompt_logprobs" type="integer" default="0">
@@ -71,6 +70,10 @@ generierten Tokens aus `result.sequences` des abgeschlossenen Futures.
 </ParamField>
 
 Das numerische Prompt-Token-Array unten ist nur ein illustrativer Platzhalter. Tokenisieren Sie Ihren tatsächlichen Prompt mit dem Tokenizer des `base_model` des Jobs.
+
+<Note>
+  Ein Team kann höchstens `2,048` Sampling-Anfragen gleichzeitig verarbeiten. Beim Erreichen dieses Limits gibt die API `429` zurück. Warten Sie vor einem erneuten Versuch, bis vorhandene Sample-Futures abgeschlossen sind.
+</Note>
 
 <RequestExample>
 
@@ -102,9 +105,7 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
 
 </ResponseExample>
 
-Jede Sequenz im abgeschlossenen Ergebnis hat `tokens`, `logprobs`, `stop_reason`
-(`stop` oder `length`) und `topk_logprobs`. Dekodieren Sie `tokens` damit
-Tokenizer. Stornieren Sie eine unvollendete Probe mit
+Jede Sequenz im abgeschlossenen Ergebnis enthält `tokens`, `logprobs`, `stop_reason` (`stop` oder `length`) und `topk_logprobs`. Dekodieren Sie `tokens` mit demselben Tokenizer. Brechen Sie ein noch nicht abgeschlossenes Sampling ab mit
 [`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`](/de/api-reference/training-jobs/interactive/cancel-future).
 
 | Status | Bedeutung |
@@ -112,4 +113,5 @@ Tokenizer. Stornieren Sie eine unvollendete Probe mit
 | `400` | `checkpoint` ist ungültig, der Prüfpunkt eines anderen Jobs oder ein Statusprüfpunkt oder die Eingabeaufforderung ist zu lang. |
 | `402` | Das Team hat kein Guthaben oder keine gültige Zahlungseinrichtung. |
 | `404` | Der Job oder Prüfpunkt existiert nicht oder der Job gehört zu einem anderen Team. |
+| `429` | Das Team verarbeitet bereits `2,048` Sampling-Anfragen. Warten Sie vor einem erneuten Versuch auf den Abschluss vorhandener Sample-Futures. |
 | `422` | `checkpoint` oder `prompt_tokens` fehlt oder der Text enthält ein unbekanntes Feld. |

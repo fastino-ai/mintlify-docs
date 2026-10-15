@@ -21,24 +21,23 @@ Lee los tokens generados en `result.sequences` del future completado.
 </ParamField>
 
 <ParamField body="checkpoint" type="string" required>
-  El nombre de un punto de control de muestreo guardado por este trabajo, o su
-  Ruta `tinker://<job_id>/sampler_weights/<name>`.
+  El nombre de un checkpoint sampler guardado por este trabajo o su ruta `tinker://<job_id>/sampler_weights/<name>`.
 </ParamField>
 
 <ParamField body="prompt_tokens" type="integer[]" required>
-  Solicite ID de token del tokenizador del modelo base. Al menos una ficha.
+  ID de token del prompt generados por el tokenizador del modelo base. Al menos un token.
 </ParamField>
 
 <ParamField body="num_samples" type="integer" default="1">
-  Número de continuaciones.
+  Número de continuaciones, de `1` a `512`.
 </ParamField>
 
 <ParamField body="sampling_params" type="object">
   Configuración de decodificación.
 
   <Expandable title="properties">
-    <ParamField body="max_tokens" type="integer">
-      Tokens máximos generados. Prompt plus `max_tokens` debe ajustarse al límite de muestreo del modelo.
+    <ParamField body="max_tokens" type="integer" default="1024">
+      Número máximo de tokens generados. El prompt más `max_tokens` debe caber en el límite de muestreo del modelo. Qwen puede muestrear hasta `65,536` tokens, aunque cada dato de entrenamiento de Qwen está limitado a `32,768` tokens.
     </ParamField>
     <ParamField body="temperature" type="number" default="1.0">
       Temperatura de muestreo.
@@ -50,7 +49,7 @@ Lee los tokens generados en `result.sequences` del future completado.
       Límite superior-k. `-1` lo desactiva.
     </ParamField>
     <ParamField body="stop" type="string | string[] | integer[]">
-      Detener cadenas o detener ID de token.
+      Cadenas de parada o ID de tokens de parada.
     </ParamField>
     <ParamField body="seed" type="integer">
       Semillas de muestreo.
@@ -71,6 +70,10 @@ Lee los tokens generados en `result.sequences` del future completado.
 </ParamField>
 
 El array numérico de tokens del prompt siguiente es solo un marcador ilustrativo. Tokeniza el prompt real con el tokenizador del `base_model` del trabajo.
+
+<Note>
+  Un equipo puede tener como máximo `2,048` solicitudes de muestreo en curso. La API devuelve `429` al alcanzar ese límite; espera a que terminen los futures de muestreo existentes antes de reintentar.
+</Note>
 
 <RequestExample>
 
@@ -102,14 +105,13 @@ curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/sample" \
 
 </ResponseExample>
 
-Cada secuencia en el resultado completo tiene `tokens`, `logprobs`, `stop_reason`.
-(`stop` o `length`) y `topk_logprobs`. Decodifica `tokens` con el mismo
-tokenizador. Cancelar una muestra inacabada con
+Cada secuencia del resultado completado contiene `tokens`, `logprobs`, `stop_reason` (`stop` o `length`) y `topk_logprobs`. Decodifica `tokens` con el mismo tokenizador. Cancela un muestreo sin terminar con
 [`POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel`](/es/api-reference/training-jobs/interactive/cancel-future).
 
 | Estado | Significado |
 | --- | --- |
-| `400` | `checkpoint` no es válido, el punto de control de otro trabajo, o un punto de control de estado, o el mensaje es demasiado largo. |
+| `400` | `checkpoint` no es válido, pertenece a otro trabajo, es un checkpoint de estado o el prompt es demasiado largo. |
 | `402` | El equipo no tiene créditos o no tiene una configuración de pago válida. |
-| `404` | El trabajo o punto de control no existe o el trabajo pertenece a otro equipo. |
+| `404` | El trabajo o checkpoint no existe, o el trabajo pertenece a otro equipo. |
+| `429` | El equipo ya tiene `2,048` solicitudes de muestreo en curso. Espera a que terminen los futures de muestreo existentes antes de reintentar. |
 | `422` | Falta `checkpoint` o `prompt_tokens` o el cuerpo tiene un campo desconocido. |
