@@ -7,8 +7,9 @@ api: "GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"
 
 `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`
 
-Returns a short-lived signed URL for one checkpoint from an `interactive` job.
-A sampler checkpoint's archive contains the PEFT LoRA adapter files.
+Returns a short-lived presigned object-storage URL for one checkpoint from an
+`interactive` job. A sampler checkpoint's archive contains the decoder adapter
+files.
 Config jobs use
 [`GET /v1/training/jobs/{job_id}/download`](/api-reference/training-jobs/download)
 for their final model artifact.
@@ -57,7 +58,7 @@ the URL as a credential: do not log, share, or persist it.
 </ResponseField>
 
 <ResponseField name="download_url" type="string">
-  Signed archive URL. No API key is required when fetching it.
+  Presigned object-storage URL. No API key is required when fetching it.
 </ResponseField>
 
 <ResponseField name="expires_in_seconds" type="integer">
@@ -83,17 +84,23 @@ the URL as a credential: do not log, share, or persist it.
 
 </ResponseExample>
 
-This operation requires the team's weight-download entitlement. Without it, the
-endpoint returns `403`.
+Checkpoint downloads are enabled by default. A team whose download access was
+explicitly disabled receives `403`.
+
+<Warning>
+  Downloaded decoder adapters use Fastino's training-cell layout. They are not
+  currently compatible with stock PEFT or standard vLLM; loading them there can
+  fail or silently omit trained tensors. Use Fastino to sample from a sampler
+  checkpoint or deploy it when its base model supports deployment.
+</Warning>
 
 ## Errors
 
 | Status | Meaning |
 | --- | --- |
 | `400` | `checkpoint_id` is not `weights/<name>` or `sampler_weights/<name>`. |
-| `403` | The team lacks weight-download access, is being erased, or the signed URL is invalid or expired. |
-| `404` | The job or checkpoint is unavailable, the checkpoint has no downloadable files, or it was deleted after the URL was issued. |
+| `403` | Weight downloads were explicitly disabled for the team. |
+| `404` | The job or checkpoint is unavailable, or the checkpoint has no downloadable files. |
 
-Fetching `download_url` returns an `application/x-tar` attachment. The signed
-URL is the credential. It returns `403` after expiry or if its token is changed,
-and `404` if the checkpoint becomes unavailable after the link is issued.
+Fetching `download_url` returns an `application/x-tar` attachment. The presigned
+URL is the credential and expires after the response's `expires_in_seconds`.

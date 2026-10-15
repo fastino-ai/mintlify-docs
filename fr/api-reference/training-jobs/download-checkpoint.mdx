@@ -1,16 +1,13 @@
 ---
 title: "Télécharger un checkpoint interactif"
 sidebarTitle: "Télécharger un checkpoint"
-description: "Obtenez une URL de téléchargement à durée limitée pour le checkpoint d'un job d'entraînement interactif."
+description: "Obtenez une URL présignée de stockage objet, à durée limitée, pour le checkpoint d’un job d’entraînement interactif."
 api: "GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"
 ---
 
 `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`
 
-Renvoie une URL signée à durée limitée pour un checkpoint d'un job
-`interactive`. L'archive d'un checkpoint sampler contient les fichiers de
-l'adaptateur PEFT LoRA. Pour l'artefact final de leur modèle, les jobs de configuration
-utilisent
+Renvoie une URL présignée de stockage objet, à durée limitée, pour un checkpoint d’un job `interactive`. L’archive d’un checkpoint sampler contient les fichiers de l’adaptateur de décodeur. Pour l’artefact final de leur modèle, les jobs de configuration utilisent
 [`GET /v1/training/jobs/{job_id}/download`](/fr/api-reference/training-jobs/download).
 
 ## Requête
@@ -41,7 +38,7 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 
 ## Réponse
 
-La réponse contient l'URL signée d'une archive qui expire après 15 minutes.
+La réponse contient une URL présignée de stockage objet qui expire après 15 minutes.
 Traitez cette URL comme un identifiant secret : ne la consignez pas dans les
 logs, ne la partagez pas et ne la conservez pas.
 
@@ -58,11 +55,11 @@ logs, ne la partagez pas et ne la conservez pas.
 </ResponseField>
 
 <ResponseField name="download_url" type="string">
-  URL signée de l'archive. Aucune clé API n'est requise pour la récupérer.
+  URL présignée de stockage objet. Aucune clé API n’est requise pour la récupérer.
 </ResponseField>
 
 <ResponseField name="expires_in_seconds" type="integer">
-  Durée de validité restante de l'URL signée. Les nouveaux liens expirent après 900 secondes.
+  Durée de validité restante de l'URL présignée. Les nouveaux liens expirent après 900 secondes.
 </ResponseField>
 
 <ResponseField name="file_name" type="string">
@@ -84,18 +81,18 @@ logs, ne la partagez pas et ne la conservez pas.
 
 </ResponseExample>
 
-Cette opération nécessite l'autorisation de téléchargement des poids pour
-l'équipe. Sans cette autorisation, l'endpoint renvoie `403`.
+Le téléchargement des checkpoints est activé par défaut. Une équipe dont l’accès au téléchargement a été explicitement désactivé reçoit `403`.
+
+<Warning>
+  Les adaptateurs de décodeur téléchargés utilisent la disposition des cellules d’entraînement Fastino. Ils ne sont actuellement compatibles ni avec PEFT standard ni avec vLLM standard ; leur chargement peut échouer ou omettre silencieusement des tenseurs entraînés. Utilisez Fastino pour échantillonner depuis un checkpoint sampler ou le déployer lorsque son modèle de base prend en charge le déploiement.
+</Warning>
 
 ## Erreurs
 
 | Statut | Signification |
 | --- | --- |
 | `400` | `checkpoint_id` n'est ni `weights/<name>` ni `sampler_weights/<name>`. |
-| `403` | L'équipe ne peut pas télécharger les poids, ses données sont en cours d'effacement, ou l'URL signée est invalide ou expirée. |
-| `404` | Le job ou checkpoint est indisponible, n'a aucun fichier téléchargeable, ou a été supprimé après l'émission de l'URL. |
+| `403` | Le téléchargement des poids a été explicitement désactivé pour l’équipe. |
+| `404` | Le job ou checkpoint est indisponible, ou le checkpoint n’a aucun fichier téléchargeable. |
 
-La récupération de `download_url` renvoie une pièce jointe
-`application/x-tar`. L'URL signée est l'identifiant d'accès. Elle renvoie `403`
-après expiration ou modification du jeton, et `404` si le checkpoint devient
-indisponible après l'émission du lien.
+La récupération de `download_url` renvoie une pièce jointe `application/x-tar`. L’URL présignée de stockage objet est l’identifiant d’accès et expire après le délai `expires_in_seconds` indiqué dans la réponse.

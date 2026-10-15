@@ -1,13 +1,13 @@
 ---
 title: "下载交互式检查点"
 sidebarTitle: "下载检查点"
-description: "获取交互式训练任务中某个检查点的短时有效签名下载 URL。该 URL 在 15 分钟后过期，此操作需要团队的权重下载权限。"
+description: "获取交互式训练任务检查点的短时有效预签名对象存储下载 URL。"
 api: "GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"
 ---
 
 `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`
 
-返回 `interactive` 任务中某个检查点的短时有效签名 URL。sampler 检查点的归档包含 PEFT LoRA 适配器文件。配置任务使用
+返回 `interactive` 任务中某个检查点的短时有效预签名对象存储 URL。sampler 检查点的归档包含解码器适配器文件。配置任务使用
 [`GET /v1/training/jobs/{job_id}/download`](/cn/api-reference/training-jobs/download)
 下载最终模型工件。
 
@@ -39,7 +39,7 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 
 ## 响应
 
-响应包含一个 15 分钟后过期的签名归档 URL。请将该 URL 视为凭据：不要记录、分享或持久化存储。
+响应包含一个 15 分钟后过期的预签名对象存储 URL。请将该 URL 视为凭据：不要记录、分享或持久化存储。
 
 <ResponseField name="success" type="boolean">
   请求是否成功。
@@ -54,11 +54,11 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 </ResponseField>
 
 <ResponseField name="download_url" type="string">
-  签名归档 URL。获取该 URL 时无需 API 密钥。
+  预签名对象存储 URL。获取该 URL 时无需 API 密钥。
 </ResponseField>
 
 <ResponseField name="expires_in_seconds" type="integer">
-  签名 URL 的剩余有效期。新链接在 900 秒后过期。
+  预签名 URL 的剩余有效期。新链接在 900 秒后过期。
 </ResponseField>
 
 <ResponseField name="file_name" type="string">
@@ -80,15 +80,18 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 
 </ResponseExample>
 
-此操作需要团队的权重下载权限。没有该权限时，端点返回 `403`。
+检查点下载默认启用。下载访问被明确禁用的团队会收到 `403`。
+
+<Warning>
+  下载的解码器适配器采用 Fastino 训练单元布局。目前它们与原生 PEFT 或标准 vLLM 不兼容；在那里加载可能会失败或静默遗漏已训练的张量。请使用 Fastino 从 sampler 检查点采样，或在其基础模型支持部署时进行部署。
+</Warning>
 
 ## 错误
 
 | 状态 | 含义 |
 | --- | --- |
 | `400` | `checkpoint_id` 不是 `weights/<name>` 或 `sampler_weights/<name>`。 |
-| `403` | 团队没有权重下载权限、正在删除数据，或签名 URL 无效或已过期。 |
-| `404` | 任务或检查点不可用、检查点没有可下载文件，或 URL 签发后检查点被删除。 |
+| `403` | 团队的权重下载已被明确禁用。 |
+| `404` | 任务或检查点不可用，或检查点没有可下载文件。 |
 
-获取 `download_url` 会返回 `application/x-tar` 附件。签名 URL 本身就是凭据；
-过期或令牌被修改时返回 `403`，检查点之后变得不可用时返回 `404`。
+获取 `download_url` 会返回 `application/x-tar` 附件。预签名对象存储 URL 本身就是凭据，并会在响应的 `expires_in_seconds` 后过期。

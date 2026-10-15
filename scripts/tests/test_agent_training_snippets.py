@@ -58,7 +58,7 @@ EXPECTED_FENCE_COUNTS = {
     "training/encoder-quickstart.mdx": 5,
     "training/decoder-quickstart.mdx": 13,
     "training/migrate-from-tinker.mdx": 3,
-    "concepts/datasets.mdx": 10,
+    "concepts/datasets.mdx": 11,
     "guides/fine-tune-gliner.mdx": 8,
     "training/training-loop.mdx": 0,
     "training/verifiable-rewards.mdx": 8,
@@ -437,7 +437,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 "prompt_alt_tokens_k",
                 "encoded_text",
                 "AdamW",
-                "`403`",
+                "PEFT",
             ):
                 self.assertIn(marker, migration, f"{prefix}training/migrate-from-tinker.mdx")
 
@@ -445,7 +445,8 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         english_overview = (ROOT / "training.mdx").read_text(encoding="utf-8")
         self.assertIn("GB-month", english_overview)
         self.assertIn("reads interactive runs only", english.lower())
-        self.assertIn("weight-download access", english)
+        self.assertIn("enabled by default", english)
+        self.assertIn("stock PEFT", english)
         self.assertIn("does not make the path loadable by another team", english)
         self.assertNotIn("Reads canonical Fastino jobs", english)
 
@@ -613,6 +614,57 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         ):
             self.assertIn(field, properties)
 
+    def test_checkpoint_download_and_deployment_guidance_matches_contract(self) -> None:
+        download = (
+            ROOT / "api-reference/training-jobs/download-checkpoint.mdx"
+        ).read_text(encoding="utf-8")
+        deploy = (
+            ROOT
+            / "api-reference/training-jobs/interactive/deploy-checkpoint.mdx"
+        ).read_text(encoding="utf-8")
+        checkpoints = (ROOT / "training/checkpoints.mdx").read_text(encoding="utf-8")
+
+        self.assertIn("presigned object-storage URL", download)
+        self.assertNotIn("/v1/training/archives/", download)
+        self.assertNotIn("contact sales", download.lower())
+        self.assertIn("stock PEFT", download)
+        self.assertIn("Qwen3.6-35B-A3B", deploy)
+        self.assertIn("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", deploy)
+        self.assertIn("returns `400`", deploy)
+        self.assertIn("`425 model_warming`", checkpoints)
+        self.assertIn('"reasoning": {"enabled": false}', checkpoints)
+
+    def test_dataset_and_catalog_distinctions_are_explicit(self) -> None:
+        datasets = (ROOT / "concepts/datasets.mdx").read_text(encoding="utf-8")
+        models = (ROOT / "concepts/models.mdx").read_text(encoding="utf-8")
+        pricing = (ROOT / "pricing.mdx").read_text(encoding="utf-8")
+        usage = (
+            ROOT
+            / "api-reference/training-jobs/interactive/storage-usage.mdx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("matching is case-insensitive", datasets)
+        self.assertIn('"entities":[],"label":"other"', datasets)
+        self.assertIn("Interactive jobs don't accept a dataset name", datasets)
+        self.assertIn(
+            "| Nemotron 3 Super | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` |",
+            models,
+        )
+        self.assertIn(
+            "`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`",
+            models,
+        )
+        self.assertIn("| Nemotron 3 Super |", pricing)
+        self.assertIn('"size_gigabytes": 0.805306368', usage)
+        self.assertIn('"estimated_monthly_cost_usd": 0.0402653184', usage)
+
+    def test_interactive_token_arrays_are_marked_as_placeholders(self) -> None:
+        interactive = ROOT / "api-reference/training-jobs/interactive"
+        for name in ("forward.mdx", "forward-backward.mdx", "sample.mdx", "get-future.mdx"):
+            text = (interactive / name).read_text(encoding="utf-8")
+            self.assertIn("illustrative placeholder", text, name)
+            self.assertIn("`base_model`", text, name)
+
     def test_localized_training_pages_keep_english_code_and_identifiers(self) -> None:
         for page in PARITY_PAGES:
             english = (ROOT / page).read_text(encoding="utf-8")
@@ -718,7 +770,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             set(),
         )
 
-    def test_inventory_is_exactly_53_fences_across_10_training_api_pages(self) -> None:
+    def test_inventory_is_exactly_54_fences_across_10_training_api_pages(self) -> None:
         pages = SNIPPETS.collect_pages()
         snippets = SNIPPETS.collect_snippets()
         counts = {page: 0 for page in pages}
@@ -726,7 +778,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             counts[snippet.page] += 1
 
         self.assertEqual(pages, EXPECTED_PAGES)
-        self.assertEqual(len(snippets), 53)
+        self.assertEqual(len(snippets), 54)
         self.assertEqual(len(pages), 10)
         self.assertEqual(counts, EXPECTED_FENCE_COUNTS)
         self.assertEqual(
@@ -869,13 +921,13 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertEqual(inference.coverage, "static")
         self.assertEqual(inference.mapped_command, "blocker")
 
-        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 5))
+        upload = SNIPPETS.classify(_snippet("concepts/datasets.mdx", 6))
         self.assertEqual(upload.coverage, "static")
         self.assertEqual(upload.mapped_command, "blocker")
 
     def test_missing_placeholders_print_skip_and_do_not_guess(self) -> None:
         job = _snippet("training/encoder-quickstart.mdx", 4)
-        dataset = _snippet("concepts/datasets.mdx", 8)
+        dataset = _snippet("concepts/datasets.mdx", 9)
         catalog = _snippet("training/encoder-quickstart.mdx", 2)
 
         skipped_job = SNIPPETS.plan_live(job, SNIPPETS.classify(job), {})

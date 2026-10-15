@@ -158,7 +158,7 @@ sampler = call(
 | Saved with | Checkpoint ID suffix | Full path | Use it for |
 | --- | --- | --- | --- |
 | `save-weights` | `weights/<name>` | `tinker://<job_id>/weights/<name>` | Training recovery: load it or start a new job from it |
-| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluation, and download as PEFT LoRA files |
+| `save-weights-for-sampler` | `sampler_weights/<name>` | `tinker://<job_id>/sampler_weights/<name>` | Rollouts, evaluation, deployment, and adapter download |
 
 Don't use a sampler checkpoint as a recovery point; it has no optimizer state
 and a new job can't start from it. Pass the full `tinker://.../weights/<name>`
@@ -181,7 +181,10 @@ Manage checkpoints with these routes:
 | Delete | [`DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}`](/api-reference/training-jobs/interactive/delete-checkpoint) |
 | Read storage usage | [`GET /v1/training/usage`](/api-reference/training-jobs/interactive/storage-usage) |
 
-Downloading needs the team's weight-download access.
+Checkpoint downloads are enabled by default. Downloaded decoder adapters use
+Fastino's training-cell layout and are not currently compatible with stock PEFT
+or standard vLLM. Use Fastino to sample from a sampler checkpoint or deploy it
+when its base model supports deployment.
 
 After a job is stopped, mutating training operations are rejected, but you can
 still list, inspect, download, publish, change the TTL of, and delete its
@@ -202,7 +205,9 @@ Before scaling the resumed workload:
 ## Deploy your trained model
 
 Deploy a sampler checkpoint to serve it as a model. Deployment is available for
-supported base models; other bases return `400`.
+currently enabled base models. Nemotron 3.5 Lightning and Qwen3.6-35B-A3B are
+enabled; Nemotron 3 Super has serving implementation support but is not
+currently enabled, so deployment returns `400`.
 
 ```bash
 curl -X POST "https://api.fastino.ai/v1/training/jobs/$TRAINING_JOB_ID/checkpoints/sampler_weights/step-000100/deploy" \
@@ -221,11 +226,15 @@ curl -X POST "https://api.fastino.ai/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "MODEL_ID",
-    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}]
+    "messages": [{"role": "user", "content": "Summarize this ticket in one sentence."}],
+    "reasoning": {"enabled": false}
   }'
 ```
 
-Replace `MODEL_ID` with the returned `model_id`. See
+Replace `MODEL_ID` with the returned `model_id`. The first inference request can
+return `425 model_warming`; wait for the `Retry-After` interval and retry.
+To request a direct answer without a reasoning preamble, send
+`"reasoning": {"enabled": false}` as shown above. See
 [Deploy checkpoint](/api-reference/training-jobs/interactive/deploy-checkpoint) for the
 request fields and errors.
 

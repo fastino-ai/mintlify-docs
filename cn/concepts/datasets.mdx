@@ -13,8 +13,7 @@ description: "在启动 Fastino GLiNER 训练任务之前，格式化、上传�
 
 ### 命名实体识别
 
-使用 `text` 加上由 `[span, label]` 对组成的 `entities` 列表。每个 span 都必须逐字出现在文本中。
-请使用空列表来包含负样本。
+使用 `text` 加上由 `[span, label]` 对组成的 `entities` 列表。每个 span 都必须出现在文本中，但匹配不区分大小写：对于 `"Ada Lovelace"`，`"ada lovelace"` 是有效值。请使用空列表来包含负样本。
 
 ```jsonl
 {"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]]}
@@ -49,6 +48,15 @@ NER 和分类上传也接受 GLiNER2 的规范 `input` 和 `output` 结构。对
 每行只能使用一种结构。请勿在同一行中混用 `text`、`label`、`labels` 或
 `entities` 与 `input` 和 `output` 字段。
 
+### 联合 NER 与分类
+
+一行可以同时包含 `entities` 和 `label`，以训练两个输出头。每一行都应保持相同的联合结构，并且不要混用单标签 `label` 与多标签 `labels`。
+
+```jsonl
+{"text":"Ada Lovelace worked in London.","entities":[["Ada Lovelace","PERSON"],["London","LOCATION"]],"label":"biography"}
+{"text":"No tagged entities here.","entities":[],"label":"other"}
+```
+
 ### 解码器
 
 将 `dataset_type` 设为 `decoder`，并让每一行都包含带聊天 role 和 content 的 `messages` 数组。
@@ -58,7 +66,7 @@ NER 和分类上传也接受 GLiNER2 的规范 `input` 和 `output` 结构。对
 ```
 
 <Note>
-  配置任务不接受解码器基础模型，因此解码器数据集无法启动[配置任务](/cn/api-reference/training-jobs/create)。要训练解码器，请自行对示例分词，并在[交互式任务](/cn/training/decoder-quickstart)中运行。
+  数据集服务接受用于微调代理和存储工作流的解码器数据集。配置任务会拒绝解码器基础模型，因此不要将 `dataset_type: decoder` 视为直接通过配置任务训练解码器的路径。交互式任务不接受数据集名称；请在应用中读取示例并进行分词，然后按照[解码器快速入门](/cn/training/decoder-quickstart)发送已分词的 datums。
 </Note>
 
 ## 上传数据集

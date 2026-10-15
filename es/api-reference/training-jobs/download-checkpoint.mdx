@@ -1,15 +1,13 @@
 ---
 title: "Descargar un checkpoint interactivo"
 sidebarTitle: "Descargar checkpoint"
-description: "Obtén una URL de descarga de corta duración para el checkpoint de un trabajo de entrenamiento interactivo."
+description: "Obtén una URL prefirmada de almacenamiento de objetos y corta duración para el checkpoint de un trabajo de entrenamiento interactivo."
 api: "GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"
 ---
 
 `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download`
 
-Devuelve una URL firmada de corta duración para un checkpoint de un trabajo
-`interactive`. El archivo de un checkpoint sampler contiene los archivos del
-adaptador PEFT LoRA. Los trabajos de configuración usan
+Devuelve una URL prefirmada de almacenamiento de objetos y corta duración para un checkpoint de un trabajo `interactive`. El archivo de un checkpoint sampler contiene los archivos del adaptador del decodificador. Los trabajos de configuración usan
 [`GET /v1/training/jobs/{job_id}/download`](/es/api-reference/training-jobs/download)
 para el artefacto de su modelo final.
 
@@ -41,7 +39,7 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 
 ## Respuesta
 
-La respuesta contiene la URL firmada de un archivo que caduca a los 15 minutos.
+La respuesta contiene una URL prefirmada de almacenamiento de objetos que caduca a los 15 minutos.
 Trata la URL como una credencial: no la registres, compartas ni conserves.
 
 <ResponseField name="success" type="boolean">
@@ -57,11 +55,11 @@ Trata la URL como una credencial: no la registres, compartas ni conserves.
 </ResponseField>
 
 <ResponseField name="download_url" type="string">
-  URL firmada del archivo. No se requiere clave de API para obtenerla.
+  URL prefirmada de almacenamiento de objetos. No se requiere clave de API para obtenerla.
 </ResponseField>
 
 <ResponseField name="expires_in_seconds" type="integer">
-  Tiempo de vida restante de la URL firmada. Los enlaces nuevos caducan a los 900 segundos.
+  Tiempo de vida restante de la URL prefirmada. Los enlaces nuevos caducan a los 900 segundos.
 </ResponseField>
 
 <ResponseField name="file_name" type="string">
@@ -83,17 +81,18 @@ Trata la URL como una credencial: no la registres, compartas ni conserves.
 
 </ResponseExample>
 
-Esta operación requiere que el equipo tenga derecho a descargar los pesos. Sin
-ese derecho, el endpoint devuelve `403`.
+Las descargas de checkpoints están habilitadas de forma predeterminada. Un equipo cuyo acceso de descarga se haya deshabilitado explícitamente recibe `403`.
+
+<Warning>
+  Los adaptadores de decodificador descargados usan el diseño de celdas de entrenamiento de Fastino. Actualmente no son compatibles con PEFT sin modificar ni con vLLM estándar; cargarlos allí puede fallar u omitir silenciosamente tensores entrenados. Usa Fastino para muestrear desde un checkpoint sampler o desplegarlo cuando su modelo base admita el despliegue.
+</Warning>
 
 ## Errores
 
 | Estado | Significado |
 | --- | --- |
 | `400` | `checkpoint_id` no es `weights/<name>` ni `sampler_weights/<name>`. |
-| `403` | El equipo no puede descargar pesos, se están borrando sus datos, o la URL firmada no es válida o ha caducado. |
-| `404` | El trabajo o checkpoint no está disponible, no tiene archivos descargables, o se eliminó después de emitir la URL. |
+| `403` | Las descargas de pesos se deshabilitaron explícitamente para el equipo. |
+| `404` | El trabajo o checkpoint no está disponible, o el checkpoint no tiene archivos descargables. |
 
-Obtener `download_url` devuelve un adjunto `application/x-tar`. La URL firmada
-es la credencial. Devuelve `403` al caducar o si cambia el token, y `404` si el
-checkpoint deja de estar disponible después de emitir el enlace.
+Obtener `download_url` devuelve un adjunto `application/x-tar`. La URL prefirmada de almacenamiento de objetos es la credencial y caduca tras el valor `expires_in_seconds` de la respuesta.
