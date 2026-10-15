@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "Run inference on Fastino. This guide walks you through the fastest path to a working Fastino integration."
+description: "Run your first inference call and start a managed training job on Fastino."
 sidebarTitle: "Quickstart"
 ---
 
@@ -167,6 +167,34 @@ Success looks like this:
 
   For encoder models (GLiNER), the `schema` object defines the task and can include `entities`, `classifications`, `structures`, and `relations`. For decoder models (LLMs), omit `schema` and send a normal chat message. See the [Inference API](/inference/chat-completions) for the full contract, Python/JavaScript examples, and error codes.
 </Accordion>
+
+## Run your first training job
+
+Managed training fine-tunes a GLiNER encoder from a processed dataset. First,
+[upload a dataset and wait until its version is `ready`](/concepts/datasets).
+Then create and poll a config job:
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+    "model_name": "my-first-model",
+    "base_model": "fastino/gliner2-multi-v1",
+    "datasets": [
+      {"name": "YOUR_READY_DATASET", "version": "VERSION_NUMBER"}
+    ],
+    "training_type": "lora"
+  }'
+
+# Replace JOB_ID with the id returned above.
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+Poll until `is_terminal_status` is `true`. For decoder training or additional
+configuration, continue with the [Training API quickstart](/training/quickstart).
 
 ## Next steps
 

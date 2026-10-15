@@ -1,6 +1,6 @@
 ---
 title: "快速入门"
-description: "在 Fastino 上运行推理。本指南将带你以最快的方式完成可用的 Fastino 集成。"
+description: "在 Fastino 上进行第一次推理调用并启动托管式训练任务。"
 sidebarTitle: "快速入门"
 ---
 
@@ -167,6 +167,34 @@ GLiDE 的价格为**每 100 万输入 token 0.15 美元**。输出 token **免�
 
   对于编码器模型（GLiNER），`schema` 对象定义任务，可以包含 `entities`、`classifications`、`structures` 和 `relations`。对于解码器模型（LLM），省略 `schema`，直接发送普通的聊天消息即可。完整的接口约定、Python/JavaScript 示例和错误码请参阅[推理 API](/cn/inference/chat-completions)。
 </Accordion>
+
+## 运行你的第一个训练任务
+
+托管式训练使用已处理的数据集微调 GLiNER 编码器。首先，
+[上传数据集并等待其版本变为 `ready`](/cn/concepts/datasets)，
+然后创建并轮询配置任务：
+
+```bash
+curl -X POST "https://api.fastino.ai/v1/training/jobs" \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+    "model_name": "my-first-model",
+    "base_model": "fastino/gliner2-multi-v1",
+    "datasets": [
+      {"name": "YOUR_READY_DATASET", "version": "VERSION_NUMBER"}
+    ],
+    "training_type": "lora"
+  }'
+
+# 将 JOB_ID 替换为上面返回的 id。
+curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
+  -H "X-API-Key: $FASTINO_API_KEY"
+```
+
+轮询直到 `is_terminal_status` 为 `true`。如需训练解码器或使用其他配置，
+请继续阅读[训练 API 快速入门](/cn/training/quickstart)。
 
 ## 后续步骤
 
