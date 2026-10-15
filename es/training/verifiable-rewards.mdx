@@ -16,35 +16,27 @@ El muestreo, las pasadas forward-backward, los pasos del optimizador y los
 checkpoints pertenecen al mismo trabajo interactivo de Fastino. El cálculo de
 recompensas y el estado de la aplicación permanecen en tu código.
 
-## Antes de empezar
+## Requisitos previos
 
-Completa la [guía rápida del bucle personalizado](/es/training/quickstart#custom-training-loop).
-Los fragmentos siguientes reutilizan sus helpers `call` y `wait`, su `tokenizer`
-y un `job_id`. Usan la pérdida integrada `importance_sampling` y se centran en el
-flujo de recompensas propio del usuario.
+Empieza con un
+[bucle de entrenamiento personalizado](/es/training/quickstart#custom-training-loop)
+que funcione y confirma que un datum de referencia entrena correctamente. Esta
+guía reutiliza sus helpers `call` y `wait`, el `tokenizer` y el `job_id`.
 
-<Note>
-  Esta guía no es un entrenador independiente para copiar y pegar. Parte del
-  script de la guía rápida, confirma que sus datums entrenan y después añade el
-  flujo de recompensas siguiente.
-</Note>
+Tu aplicación muestrea respuestas, las evalúa y convierte las recompensas en
+ventajas por token. Fastino aplica esas ventajas con una pérdida compatible:
+`importance_sampling`, `ppo`, `cispo` o `dro`. Las funciones de pérdida
+personalizadas no se ejecutan dentro del trabajo de entrenamiento.
 
-<Note>
-  El trabajo solo ejecuta las pérdidas integradas: `cross_entropy`,
-  `importance_sampling`, `ppo`, `cispo` y `dro`. Una función de pérdida escrita
-  en tu propio código no puede ejecutarse en el trabajo. Expresa tu recompensa
-  como ventajas para una de estas pérdidas.
-</Note>
+## 1. Define un evaluador acotado
+
+Separa el análisis de la puntuación para que la salida mal formada sea visible:
 
 <Warning>
   Ejecuta código o herramientas generados solo en un entorno aislado y con
   recursos limitados. Fastino no ejecuta tu función de recompensa ni gestiona
   sus efectos secundarios.
 </Warning>
-
-## 1. Define un evaluador acotado
-
-Separa el análisis de la puntuación para que la salida mal formada sea visible:
 
 ```python
 def get_reward(response: str, expected: str) -> float:

@@ -15,35 +15,27 @@ Sampling, forward-backward passes, optimizer steps, and checkpoints all belong
 to the same interactive Fastino job. Reward execution and application state
 remain in your code.
 
-## Before you start
+## Prerequisites
 
-Complete the [custom-loop Quickstart](/training/quickstart#custom-training-loop).
-The snippets below reuse its `call` and `wait` helpers, its `tokenizer`, and a
-`job_id`. They use the built-in `importance_sampling` loss and focus on the
-user-owned reward flow.
+Start with a working
+[custom training loop](/training/quickstart#custom-training-loop) and confirm
+that a baseline datum trains successfully. This guide reuses its `call` and
+`wait` helpers, `tokenizer`, and `job_id`.
 
-<Note>
-  This guide is not a standalone copy-and-paste trainer. Start from the
-  Quickstart script, confirm that its datums train, then add the reward flow
-  below.
-</Note>
+Your application samples responses, grades them, and converts rewards into
+per-token advantages. Fastino applies those advantages with a supported loss:
+`importance_sampling`, `ppo`, `cispo`, or `dro`. Custom loss functions do not
+run inside the training job.
 
-<Note>
-  The job runs only the built-in losses: `cross_entropy`,
-  `importance_sampling`, `ppo`, `cispo`, and `dro`. A loss function written in
-  your own code can't run on the job. Express your reward as advantages for one
-  of these losses.
-</Note>
+## 1. Define a narrow grader
+
+Separate parsing from scoring so malformed output is observable:
 
 <Warning>
   Run generated code or tools only in an isolated, resource-limited
   environment. Fastino doesn't execute your reward function or manage its side
   effects.
 </Warning>
-
-## 1. Define a narrow grader
-
-Separate parsing from scoring so malformed output is observable:
 
 ```python
 def get_reward(response: str, expected: str) -> float:

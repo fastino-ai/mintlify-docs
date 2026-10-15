@@ -16,37 +16,28 @@ L'échantillonnage, les passes forward-backward, les étapes d'optimiseur et les
 checkpoints appartiennent au même job interactif Fastino. Le calcul des
 récompenses et l'état de l'application restent dans votre code.
 
-## Avant de commencer
+## Prérequis
 
-Terminez le [démarrage rapide de la boucle personnalisée](/fr/training/quickstart#custom-training-loop).
-Les extraits ci-dessous réutilisent ses helpers `call` et `wait`, son
-`tokenizer` et un `job_id`. Ils utilisent la perte intégrée
-`importance_sampling` et se concentrent sur le flux de récompenses géré par
-l'utilisateur.
+Commencez avec une
+[boucle d'entraînement personnalisée](/fr/training/quickstart#custom-training-loop)
+fonctionnelle et vérifiez qu'un datum de référence s'entraîne correctement. Ce
+guide réutilise ses helpers `call` et `wait`, le `tokenizer` et le `job_id`.
 
-<Note>
-  Ce guide n'est pas un entraîneur autonome à copier-coller. Partez du script du
-  démarrage rapide, vérifiez que ses datums s'entraînent, puis ajoutez le flux de
-  récompenses ci-dessous.
-</Note>
+Votre application échantillonne les réponses, les évalue et convertit les
+récompenses en avantages par token. Fastino applique ces avantages avec une
+perte prise en charge : `importance_sampling`, `ppo`, `cispo` ou `dro`. Les
+fonctions de perte personnalisées ne s'exécutent pas dans le job d'entraînement.
 
-<Note>
-  Le job n'exécute que les pertes intégrées : `cross_entropy`,
-  `importance_sampling`, `ppo`, `cispo` et `dro`. Une fonction de perte écrite
-  dans votre propre code ne peut pas s'exécuter sur le job. Exprimez votre
-  récompense sous forme d'avantages pour l'une de ces pertes.
-</Note>
+## 1. Définir un évaluateur restreint
+
+Séparez l'analyse de la notation pour que les sorties mal formées restent
+visibles :
 
 <Warning>
   N'exécutez du code ou des outils générés que dans un environnement isolé et
   aux ressources limitées. Fastino n'exécute pas votre fonction de récompense et
   ne gère pas ses effets de bord.
 </Warning>
-
-## 1. Définir un évaluateur restreint
-
-Séparez l'analyse de la notation pour que les sorties mal formées restent
-visibles :
 
 ```python
 def get_reward(response: str, expected: str) -> float:
