@@ -8,16 +8,9 @@ operations listed below. Change only the base URL and credential. A migrated
 training client is a Fastino job in
 `/v1/training/jobs`; its SDK model ID and canonical Fastino job ID are identical.
 
-You have two options:
-
-- **Keep the SDK.** Point `tinker` at Fastino's compatibility base URL and
-  authenticate with a Fastino API key. Follow steps 1–4 below.
-- **Switch to the native routes.** Call Fastino's REST routes with JSON and the
-  same API key. See [Switch to the native routes](#switch-to-the-native-routes).
-
-Either way, treat your existing program as the acceptance test. Change the
-connection, check every operation, and run a small smoke test before restoring
-production workload sizes.
+Treat your existing program as the acceptance test. Point `tinker` at Fastino,
+change the credential, check every operation, and run a small smoke test before
+restoring production workload sizes.
 
 ## 1. Pin the tested package
 
@@ -95,8 +88,8 @@ workload for a low-cost test that:
 - Fetches each client's ID from `GET /v1/training/jobs/{job_id}`; a factory
   resume creates a new job ID seeded from the source checkpoint
 
-Keep using the supported Tinker SDK for this migration. Fastino also publishes
-native JSON operations for new clients. Set only `TINKER_BASE_URL`.
+Keep using the supported Tinker SDK for this migration. Set only
+`TINKER_BASE_URL`.
 
 ## Supported client behavior
 
@@ -197,51 +190,3 @@ models and their context lengths.
 - [ ] Save and reload one state checkpoint.
 - [ ] Verify the SDK model ID through the canonical job endpoint.
 - [ ] Increase workload size only after the smoke test passes.
-
-## Switch to the native routes
-
-Core mapped training and checkpoint calls have native REST equivalents under
-`/v1/training/jobs`. Python custom-loss callbacks and SDK billing helpers do
-not have one-for-one JSON equivalents. Native forward routes accept the
-documented `loss_fn` names. Send JSON with the same `fast_sk_` key as `X-API-Key` or
-`Authorization: Bearer`. You don't need sessions, request sequence numbers, or
-heartbeats: Fastino orders each job's calls as it receives them and keeps
-the job alive while you call it. An interactive job with no calls for 30
-minutes is released; its checkpoints are kept.
-
-Each route that does work returns an `future_id`. Read its result with
-`GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true`; this
-replaces `future.result()`.
-
-| Tinker call | Native route |
-| --- | --- |
-| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` with `base_model` and `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint`; omit `load_optimizer` or set it to `false` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` with `from_checkpoint` and `"load_optimizer": true` |
-| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
-| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
-| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
-| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step` with `adam_params` |
-| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
-| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` with `ttl_seconds` |
-| `load_state(path)` / `load_state_with_optimizer(path)` | `POST /v1/training/jobs/{job_id}/load-weights` with `path` and `optimizer` for the same job's state; for another job's state, create a job with `from_checkpoint` |
-| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample` with `checkpoint` and `prompt_tokens` |
-| Future `result()` | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
-| Future `cancel()` on a sample | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
-| `RestClient` list or get training runs | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
-| List checkpoints | `GET /v1/training/jobs/{job_id}/checkpoints` |
-| Download checkpoint archive | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
-| Delete checkpoint | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
-| Publish or unpublish checkpoint | `POST` or `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
-| Set or clear checkpoint TTL | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
-| Checkpoint storage usage | `GET /v1/training/usage` |
-| `ServiceClient.close()` / unload the model | `POST /v1/training/jobs/{job_id}/stop` |
-
-Datums keep the SDK's shape as JSON: `model_input.chunks[].tokens` plus
-`loss_fn_inputs` tensors such as `{"data": [...], "dtype": "int64"}`. Tokenize
-with the model's Hugging Face tokenizer (`transformers.AutoTokenizer`). The
-[Quickstart](/training/quickstart#custom-training-loop) has a complete script.
-
-<Card title="Build the training loop" icon="diagram-project" href="/training/training-loop">
-  Connect sampling, rewards, updates, and checkpoints in one job.
-</Card>

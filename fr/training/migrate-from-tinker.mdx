@@ -9,16 +9,10 @@ l'identifiant. Un client d'entraînement migré est un job Fastino dans
 `/v1/training/jobs` ; son ID de modèle SDK et son ID de job Fastino canonique
 sont identiques.
 
-Deux options s'offrent à vous :
-
-- **Conserver le SDK.** Pointez `tinker` vers l'URL de base de compatibilité de
-  Fastino et authentifiez-vous avec une clé API Fastino. Suivez les étapes 1 à 4.
-- **Passer aux routes natives.** Appelez les routes REST de Fastino en JSON avec
-  la même clé API. Consultez [Passer aux routes natives](#switch-to-the-native-routes).
-
-Considérez votre programme existant comme le test d'acceptation. Modifiez la
-connexion, vérifiez chaque opération et exécutez un petit test de fumée avant de
-rétablir les tailles de workload de production.
+Considérez votre programme existant comme le test d'acceptation. Pointez
+`tinker` vers Fastino, modifiez l'identifiant, vérifiez chaque opération et
+exécutez un petit test de fumée avant de rétablir les tailles de workload de
+production.
 
 ## 1. Épingler le paquet testé
 
@@ -96,8 +90,8 @@ votre workload existant pour un test peu coûteux qui :
 - Récupère l'ID de chaque client via `GET /v1/training/jobs/{job_id}` ; une
   reprise par la fabrique crée un nouvel ID à partir du checkpoint source
 
-Continuez à utiliser le SDK Tinker pris en charge pour cette migration. Fastino
-publie aussi des opérations JSON natives pour les nouveaux clients. Définissez uniquement `TINKER_BASE_URL`.
+Continuez à utiliser le SDK Tinker pris en charge pour cette migration.
+Définissez uniquement `TINKER_BASE_URL`.
 
 <span id="supported-client-behavior" />
 
@@ -203,53 +197,3 @@ charge ; capabilities ne rapporte que les modèles activés et longueurs de cont
 - [ ] Augmenter la taille du workload uniquement après la réussite du test de fumée.
 
 <span id="switch-to-the-native-routes" />
-
-## Passer aux routes natives
-
-Les principaux appels d'entraînement et de checkpoint ont des équivalents REST
-natifs sous `/v1/training/jobs`. Les callbacks de perte personnalisés en Python
-et les utilitaires de facturation du SDK n'ont pas d'équivalent JSON direct.
-Les routes forward natives acceptent les noms `loss_fn` documentés. Envoyez du
-JSON avec la même clé `fast_sk_` en `X-API-Key`
-ou `Authorization: Bearer`. Vous n'avez besoin ni de sessions, ni de numéros de
-séquence, ni de heartbeats : Fastino ordonne les opérations de chaque job à leur
-réception et maintient le job actif tant que vous l'appelez. Un job interactif
-sans appel pendant 30 minutes est libéré ; ses checkpoints sont conservés.
-
-Chaque route qui effectue un travail renvoie un `future_id`. Lisez son
-résultat avec `GET /v1/training/jobs/{job_id}/futures/{future_id}?wait=true` ;
-cela remplace `future.result()`.
-
-| Appel Tinker | Route native |
-| --- | --- |
-| `create_lora_training_client(base_model=..., rank=...)` | `POST /v1/training/jobs/create-model` avec `base_model` et `lora_config` |
-| `create_training_client_from_state(path)` | `POST /v1/training/jobs/create-model` avec `from_checkpoint` ; omettez `load_optimizer` ou définissez-le sur `false` |
-| `create_training_client_from_state_with_optimizer(path)` | `POST /v1/training/jobs/create-model` avec `from_checkpoint` et `"load_optimizer": true` |
-| `TrainingClient.get_info()` | `GET /v1/training/jobs/{job_id}` |
-| `forward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward` |
-| `forward_backward(datums, loss_fn)` | `POST /v1/training/jobs/{job_id}/forward-backward` |
-| `optim_step(AdamParams(...))` | `POST /v1/training/jobs/{job_id}/optim-step` avec `adam_params` |
-| `save_state(name)` | `POST /v1/training/jobs/{job_id}/save-weights` |
-| `save_weights_for_sampler(name, ttl_seconds=...)` | `POST /v1/training/jobs/{job_id}/save-weights-for-sampler` avec `ttl_seconds` |
-| `load_state(path)` / `load_state_with_optimizer(path)` | `POST /v1/training/jobs/{job_id}/load-weights` avec `path` et `optimizer` pour l'état du même job ; pour l'état d'un autre job, créez un job avec `from_checkpoint` |
-| `SamplingClient.sample(prompt, ...)` | `POST /v1/training/jobs/{job_id}/sample` avec `checkpoint` et `prompt_tokens` |
-| `result()` d'un future | `GET /v1/training/jobs/{job_id}/futures/{future_id}` |
-| `cancel()` d'un future d'échantillonnage | `POST /v1/training/jobs/{job_id}/futures/{future_id}/cancel` |
-| `RestClient` : lister ou obtenir des exécutions | `GET /v1/training/jobs?type=interactive`, `GET /v1/training/jobs/{job_id}` |
-| Lister les checkpoints | `GET /v1/training/jobs/{job_id}/checkpoints` |
-| Télécharger l'archive d'un checkpoint | `GET /v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download` |
-| Supprimer un checkpoint | `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}` |
-| Publier ou dépublier un checkpoint | `POST` ou `DELETE /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish` |
-| Définir ou retirer le TTL d'un checkpoint | `PUT /v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl` |
-| Usage du stockage des checkpoints | `GET /v1/training/usage` |
-| `ServiceClient.close()` / décharger le modèle | `POST /v1/training/jobs/{job_id}/stop` |
-
-Les datums gardent la forme du SDK en JSON : `model_input.chunks[].tokens`
-plus des tenseurs `loss_fn_inputs` comme `{"data": [...], "dtype": "int64"}`.
-Tokenisez avec le tokenizer Hugging Face du modèle (`transformers.AutoTokenizer`).
-Le [démarrage rapide](/fr/training/quickstart#custom-training-loop) contient un script complet.
-
-<Card title="Construire la boucle d'entraînement" icon="diagram-project" href="/fr/training/training-loop">
-  Reliez l'échantillonnage, les récompenses, les mises à jour et les
-  checkpoints dans un même job.
-</Card>

@@ -425,6 +425,20 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertIn("Session trace export", unsupported)
         self.assertIn("Audit-log entries", unsupported)
 
+        native_conversion_headings = {
+            "": "## Switch to the native routes",
+            "cn": "## 切换到原生路由",
+            "de": "## Zu den nativen Routen wechseln",
+            "es": "## Cambia a las rutas nativas",
+            "fr": "## Passer aux routes natives",
+        }
+        for locale, heading in native_conversion_headings.items():
+            prefix = f"{locale}/" if locale else ""
+            migration = (
+                ROOT / f"{prefix}training/migrate-from-tinker.mdx"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn(heading, migration)
+
         cancel = _future_cancel_row(english)
         self.assertIn("`sample`", cancel)
         self.assertIn("unfinished sampling future", cancel)
