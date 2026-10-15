@@ -75,6 +75,43 @@ class AgentHarnessTests(unittest.TestCase):
                 self.assertIn("/v1/training/jobs", copy.instructions)
                 self.assertIn("/v1/training/usage", copy.instructions)
 
+    def test_api_reference_and_training_pages_are_indexed_in_every_locale(self) -> None:
+        config = json.loads((HARNESS.ROOT / "docs.json").read_text(encoding="utf-8"))
+        languages = {
+            language["language"]: language
+            for language in config["navigation"]["languages"]
+        }
+        redirects = {
+            redirect["source"].strip("/"): redirect["destination"].strip("/")
+            for redirect in config["redirects"]
+        }
+        pages = sorted(
+            {
+                path.relative_to(HARNESS.ROOT).as_posix().removesuffix(".mdx")
+                for path in (HARNESS.ROOT / "api-reference").rglob("*.mdx")
+            }
+            | {"training"}
+            | {
+                path.relative_to(HARNESS.ROOT).as_posix().removesuffix(".mdx")
+                for path in (HARNESS.ROOT / "training").rglob("*.mdx")
+            }
+        )
+
+        for locale in ("en", "cn", "de", "es", "fr"):
+            prefix = "" if locale == "en" else f"{locale}/"
+            visible = HARNESS._visible_navigation_pages(languages[locale])
+            llms = (HARNESS.ROOT / f"{prefix}llms.txt").read_text(encoding="utf-8")
+            for page in pages:
+                localized = f"{prefix}{page}"
+                with self.subTest(locale=locale, page=page):
+                    self.assertTrue((HARNESS.ROOT / f"{localized}.mdx").is_file())
+                    if localized in redirects:
+                        self.assertNotIn(localized, visible)
+                        self.assertIn(f"/{redirects[localized]}.md", llms)
+                    else:
+                        self.assertIn(localized, visible)
+                        self.assertIn(f"/{localized}.md", llms)
+
     def test_secret_bearing_workflows_are_pinned_to_main(self) -> None:
         daily = (HARNESS.ROOT / ".github/workflows/agent-docs-harness.yml").read_text()
         lifecycle = (
