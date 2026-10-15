@@ -647,14 +647,14 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertIn('"entities":[],"label":"other"', datasets)
         self.assertIn("Interactive jobs don't accept a dataset name", datasets)
         self.assertIn(
-            "| Nemotron 3 Super | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` |",
+            "| Nemotron 3.5 Super VL | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` |",
             models,
         )
         self.assertIn(
             "`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`",
             models,
         )
-        self.assertIn("| Nemotron 3 Super |", pricing)
+        self.assertIn("| Nemotron 3.5 Super VL |", pricing)
         self.assertIn('"size_gigabytes": 0.805306368', usage)
         self.assertIn('"estimated_monthly_cost_usd": 0.0402653184', usage)
 
