@@ -21,6 +21,13 @@ SECTION_HEADINGS = {
     ROOT / "es" / "pricing.mdx": ("## Entrenamiento", "## Inferencia"),
     ROOT / "fr" / "pricing.mdx": ("## Entraînement", "## Inférence"),
 }
+MODEL_SECTION_HEADINGS = {
+    ROOT / "concepts" / "models.mdx": ("## Trainable models", "## Inference models"),
+    ROOT / "cn" / "concepts" / "models.mdx": ("## 可训练模型", "## 推理模型"),
+    ROOT / "de" / "concepts" / "models.mdx": ("## Trainierbare Modelle", "## Inferenzmodelle"),
+    ROOT / "es" / "concepts" / "models.mdx": ("## Modelos entrenables", "## Modelos de inferencia"),
+    ROOT / "fr" / "concepts" / "models.mdx": ("## Modèles entraînables", "## Modèles d'inférence"),
+}
 
 EXPECTED_RATES = {
     "Nemotron 3.5 Super VL": (
@@ -108,7 +115,9 @@ class TrainingPricingTests(unittest.TestCase):
                     )
 
     def test_training_precedes_inference(self) -> None:
-        for page, (training_heading, inference_heading) in SECTION_HEADINGS.items():
+        for page, (training_heading, inference_heading) in (
+            SECTION_HEADINGS | MODEL_SECTION_HEADINGS
+        ).items():
             text = page.read_text(encoding="utf-8")
             with self.subTest(page=page.relative_to(ROOT)):
                 self.assertLess(text.index(training_heading), text.index(inference_heading))
