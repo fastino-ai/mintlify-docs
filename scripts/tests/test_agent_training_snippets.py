@@ -392,11 +392,8 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
             for marker in ("forward", "checkpoint"):
                 self.assertIn(marker, overview.lower(), f"{prefix}training.mdx")
             self.assertIn("/api-reference/training-jobs/interactive/storage-usage", overview)
-            self.assertIn("/api-reference/training-jobs/interactive/forward", quickstart)
-            self.assertIn(
-                "/api-reference/training-jobs/interactive/save-weights-for-sampler",
-                quickstart,
-            )
+            self.assertIn('f"{jobs}/forward-backward"', quickstart)
+            self.assertIn('f"{jobs}/save-weights-for-sampler"', quickstart)
             self.assertIn(f"/{prefix}training/migrate-from-tinker", overview)
             self.assertIn("Tinker", overview)
             self.assertRegex(loop, r"(?:canonical|kanonische|canónico|canonique|规范)")
@@ -575,6 +572,21 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertIn("`enable_thinking=False`", loop)
+
+    def test_quickstart_has_one_native_rest_tutorial(self) -> None:
+        headings = {
+            "": ("### Native JSON path", "### Run the native REST quickstart"),
+            "cn/": ("### 原生 JSON 路径", "### 运行原生 REST 快速入门"),
+            "de/": ("### Nativer JSON-Weg", "### Nativen REST-Quickstart ausführen"),
+            "es/": ("### Vía JSON nativa", "### Ejecuta el inicio rápido REST nativo"),
+            "fr/": ("### Voie JSON native", "### Exécuter le démarrage rapide REST natif"),
+        }
+        for prefix, (duplicate, canonical) in headings.items():
+            page = ROOT / f"{prefix}training/quickstart.mdx"
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(ROOT)):
+                self.assertNotIn(duplicate, text)
+                self.assertEqual(text.count(canonical), 1)
 
     def test_retired_claim_guard_rejects_banned_text(self) -> None:
         cases = (

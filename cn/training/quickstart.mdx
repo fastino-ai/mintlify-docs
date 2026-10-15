@@ -100,20 +100,11 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID" \
 - 原生 JSON 客户端调用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)，在 `/v1/training/jobs/{job_id}` 下排队模型操作，并轮询返回的每个 `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
 - 现有 Tinker 程序继续使用 `tinker==0.32.0`；SDK 设置请参阅[从 Tinker 迁移](/cn/training/migrate-from-tinker)。
 
-原生客户端不发送 `seq_id` 或心跳。服务器负责分配操作顺序并保持内部会话处于活动状态。带有 `wait=true` 的请求最多等待 25 秒，因此客户端必须继续轮询尚未结束的 future。原生路由顺序请参阅[构建自定义训练循环](/cn/training/training-loop)。
+原生客户端不发送 `seq_id` 或心跳。服务器分配操作顺序并保持内部会话处于活动状态。
+带有 `wait=true` 的请求最多等待 25 秒，因此客户端必须继续轮询未终止的操作。完成此快速入门后，
+请参阅[构建自定义训练循环](/cn/training/training-loop)以了解奖励、重复 rollout 和恢复。
 
-### 原生 JSON 路径
-
-1. 使用 `base_model`，或使用 `from_checkpoint` 和 `load_optimizer`，调用 [`POST /v1/training/jobs/create-model`](/cn/api-reference/training-jobs/interactive/create-model)。
-2. 通过[获取 future](/cn/api-reference/training-jobs/interactive/get-future)轮询返回的创建 `future_id`，直到状态变为 `completed`、`failed` 或 `cancelled`。
-3. 排队 [forward-backward](/cn/api-reference/training-jobs/interactive/forward-backward) 并轮询其 `future_id`，直到它成功完成。只有在此之后，才排队[优化器步骤](/cn/api-reference/training-jobs/interactive/optim-step)，并轮询该 future 直到其进入终止状态。
-4. [保存采样器权重](/cn/api-reference/training-jobs/interactive/save-weights-for-sampler)，并轮询保存 future 直到其进入终止状态。
-5. 通过共享的[停止操作](/cn/api-reference/training-jobs/stop)停止任务。
-6. 停止后，[从已保存的检查点采样](/cn/api-reference/training-jobs/interactive/sample)，然后轮询采样 future 直到其进入终止状态。
-
-只有已排队或正在运行的 sample future 可以取消。HTTP 拒绝表示服务器没有将调用排队。已排队的 future 可能改为以 `status: "failed"` 结束。
-
-### 原生 REST 路径
+### 运行原生 REST 快速入门
 
 原生 REST 示例需要 Python 3.11 或更高版本。Tinker SDK 设置请参阅[从 Tinker 迁移](/cn/training/migrate-from-tinker)。
 
