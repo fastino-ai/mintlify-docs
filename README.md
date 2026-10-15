@@ -55,10 +55,6 @@ uv run --directory ../Pioneer/brain --locked \
 python3 scripts/check_api_docs.py --pioneer-root ../Pioneer
 ```
 
-Pull-request CI runs the same check against Pioneer `development`.
-`PIONEER_DOCS_TOKEN` must be configured as a repository secret with read access
-to `fastino-ai/Pioneer`.
-
 For an intentional docs-first contract change, add a temporary entry to
 `scripts/api_docs_prerelease_exceptions.json`. Every entry must name the exact
 operation, link its Pioneer PR, explain the reason and removal condition, and
