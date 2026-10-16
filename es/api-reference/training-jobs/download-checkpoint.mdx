@@ -83,9 +83,19 @@ Trata la URL como una credencial: no la registres, compartas ni conserves.
 
 Las descargas de checkpoints están habilitadas de forma predeterminada. Un equipo cuyo acceso de descarga se haya deshabilitado explícitamente recibe `403`.
 
-<Warning>
-  Los adaptadores de decodificador descargados usan el diseño de celdas de entrenamiento de Fastino. Actualmente no son compatibles con PEFT sin modificar ni con vLLM estándar; cargarlos allí puede fallar u omitir silenciosamente tensores entrenados. Usa Fastino para muestrear desde un checkpoint sampler o desplegarlo cuando su modelo base admita el despliegue.
-</Warning>
+## Cargar un adaptador de decodificador
+
+El checkpoint sampler de un decodificador se descarga como un adaptador PEFT estándar de Hugging Face para el modelo base público. El archivo contiene `adapter_config.json`, `adapter_model.safetensors` con todos los tensores entrenados y un `README.md` con código de carga:
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3.6-35B-A3B", dtype="auto")
+model = PeftModel.from_pretrained(base, "path/to/extracted/archive")
+```
+
+Fastino prueba estos adaptadores con transformers 5.19.0 y peft 0.21.2, no con vLLM. Un adaptador de Nemotron 3.5 Lightning que entrena `out_proj` de Mamba necesita una habilitación de una línea antes de que PEFT lo cargue; el `README.md` del archivo la muestra. Solo se convierten los checkpoints sampler: un checkpoint de estado de entrenamiento se descarga en el diseño interno de Fastino.
 
 ## Errores
 

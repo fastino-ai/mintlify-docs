@@ -83,9 +83,19 @@ logs, ne la partagez pas et ne la conservez pas.
 
 Le téléchargement des checkpoints est activé par défaut. Une équipe dont l’accès au téléchargement a été explicitement désactivé reçoit `403`.
 
-<Warning>
-  Les adaptateurs de décodeur téléchargés utilisent la disposition des cellules d’entraînement Fastino. Ils ne sont actuellement compatibles ni avec PEFT standard ni avec vLLM standard ; leur chargement peut échouer ou omettre silencieusement des tenseurs entraînés. Utilisez Fastino pour échantillonner depuis un checkpoint sampler ou le déployer lorsque son modèle de base prend en charge le déploiement.
-</Warning>
+## Charger un adaptateur de décodeur
+
+Le checkpoint sampler d’un décodeur se télécharge sous forme d’adaptateur PEFT Hugging Face standard pour le modèle de base public. L’archive contient `adapter_config.json`, `adapter_model.safetensors` avec tous les tenseurs entraînés, et un `README.md` avec le code de chargement :
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3.6-35B-A3B", dtype="auto")
+model = PeftModel.from_pretrained(base, "path/to/extracted/archive")
+```
+
+Fastino teste ces adaptateurs avec transformers 5.19.0 et peft 0.21.2, pas avec vLLM. Un adaptateur Nemotron 3.5 Lightning qui entraîne le `out_proj` de Mamba nécessite une activation d’une ligne avant que PEFT le charge ; le `README.md` de l’archive la montre. Seuls les checkpoints sampler sont convertis : un checkpoint d’état d’entraînement se télécharge dans la disposition interne de Fastino.
 
 ## Erreurs
 

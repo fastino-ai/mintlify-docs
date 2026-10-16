@@ -83,9 +83,19 @@ Sie sie nicht dauerhaft.
 
 Checkpoint-Downloads sind standardmäßig aktiviert. Ein Team, dessen Download-Zugriff ausdrücklich deaktiviert wurde, erhält `403`.
 
-<Warning>
-  Heruntergeladene Decoder-Adapter verwenden das Trainingszellen-Layout von Fastino. Sie sind derzeit weder mit unverändertem PEFT noch mit Standard-vLLM kompatibel; das Laden dort kann fehlschlagen oder trainierte Tensoren unbemerkt auslassen. Verwenden Sie Fastino, um aus einem Sampler-Checkpoint zu samplen oder ihn bereitzustellen, wenn sein Basismodell Deployment unterstützt.
-</Warning>
+## Decoder-Adapter laden
+
+Der Sampler-Checkpoint eines Decoders wird als Standard-Hugging-Face-PEFT-Adapter für das öffentliche Basismodell heruntergeladen. Das Archiv enthält `adapter_config.json`, `adapter_model.safetensors` mit allen trainierten Tensoren und eine `README.md` mit Ladecode:
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3.6-35B-A3B", dtype="auto")
+model = PeftModel.from_pretrained(base, "path/to/extracted/archive")
+```
+
+Fastino testet diese Adapter mit transformers 5.19.0 und peft 0.21.2, nicht mit vLLM. Ein Nemotron-3.5-Lightning-Adapter, der Mamba-`out_proj` trainiert, braucht vor dem Laden in PEFT eine einzeilige Freigabe; die `README.md` im Archiv zeigt sie. Nur Sampler-Checkpoints werden konvertiert: Ein Trainingszustands-Checkpoint wird im internen Layout von Fastino heruntergeladen.
 
 ## Fehler
 

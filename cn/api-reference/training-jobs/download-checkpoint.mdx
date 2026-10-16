@@ -82,9 +82,19 @@ curl "https://api.fastino.ai/v1/training/jobs/JOB_ID/checkpoints/$CHECKPOINT_ID/
 
 检查点下载默认启用。下载访问被明确禁用的团队会收到 `403`。
 
-<Warning>
-  下载的解码器适配器采用 Fastino 训练单元布局。目前它们与原生 PEFT 或标准 vLLM 不兼容；在那里加载可能会失败或静默遗漏已训练的张量。请使用 Fastino 从 sampler 检查点采样，或在其基础模型支持部署时进行部署。
-</Warning>
+## 加载解码器适配器
+
+解码器的 sampler 检查点会下载为面向公开基础模型的标准 Hugging Face PEFT 适配器。归档包含 `adapter_config.json`、包含全部已训练张量的 `adapter_model.safetensors`，以及附带加载代码的 `README.md`：
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3.6-35B-A3B", dtype="auto")
+model = PeftModel.from_pretrained(base, "path/to/extracted/archive")
+```
+
+Fastino 使用 transformers 5.19.0 和 peft 0.21.2 测试这些适配器，未在 vLLM 上测试。训练了 Mamba `out_proj` 的 Nemotron 3.5 Lightning 适配器需要在 PEFT 加载前添加一行启用代码，归档中的 `README.md` 给出了该代码。只有 sampler 检查点会被转换：训练状态检查点以 Fastino 内部布局下载。
 
 ## 错误
 

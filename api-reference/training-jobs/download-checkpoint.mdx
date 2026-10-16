@@ -87,12 +87,26 @@ the URL as a credential: do not log, share, or persist it.
 Checkpoint downloads are enabled by default. A team whose download access was
 explicitly disabled receives `403`.
 
-<Warning>
-  Downloaded decoder adapters use Fastino's training-cell layout. They are not
-  currently compatible with stock PEFT or standard vLLM; loading them there can
-  fail or silently omit trained tensors. Use Fastino to sample from a sampler
-  checkpoint or deploy it when its base model supports deployment.
-</Warning>
+## Load a decoder adapter
+
+A decoder's sampler checkpoint downloads as a standard Hugging Face PEFT
+adapter for the public base model. The archive holds `adapter_config.json`,
+`adapter_model.safetensors` with every trained tensor, and a `README.md` with
+loading code:
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3.6-35B-A3B", dtype="auto")
+model = PeftModel.from_pretrained(base, "path/to/extracted/archive")
+```
+
+Fastino tests these adapters with transformers 5.19.0 and peft 0.21.2, not
+with vLLM. A Nemotron 3.5 Lightning adapter that trains Mamba `out_proj` needs
+a one-line opt-in before PEFT loads it; the archive's `README.md` shows it.
+Only sampler checkpoints are converted: a training-state checkpoint downloads
+in Fastino's internal layout.
 
 ## Errors
 
