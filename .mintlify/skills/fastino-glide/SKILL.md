@@ -24,7 +24,7 @@ Treat the OpenAPI document as authoritative. Read credentials from `FASTINO_API_
 
 ```json
 {
-  "model": "fastino/glide",
+  "model": "fastino/GLiDE",
   "state": "<text, object, or array — required>",
   "questions": {
     "<question_key>": {
@@ -92,7 +92,7 @@ Choice:
 Score — request question:
 ```json
 {
-  "model": "fastino/glide",
+  "model": "fastino/GLiDE",
   "state": "<your context>",
   "questions": {
     "urgency": {
@@ -123,7 +123,7 @@ curl -s https://api.fastino.ai/v1/systemone \
   -H "X-API-Key: $FASTINO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "fastino/glide",
+    "model": "fastino/GLiDE",
     "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
     "questions": {
       "refund_allowed": {
