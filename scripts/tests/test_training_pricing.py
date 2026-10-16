@@ -61,7 +61,7 @@ EXPECTED_RATES = {
     ),
 }
 CALLABLE_IDS = {
-    "Nemotron 3.5 Super VL": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+    "Nemotron 3.5 Super VL": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
     "Nemotron 3.5 Lightning": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
     "Qwen3.6-35B-A3B": "Qwen/Qwen3.6-35B-A3B",
 }

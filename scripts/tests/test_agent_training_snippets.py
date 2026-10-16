@@ -892,7 +892,7 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertIn('"entities":[],"label":"other"', datasets)
         self.assertIn("Interactive jobs don't accept a dataset name", datasets)
         self.assertIn(
-            "| Nemotron 3.5 Super VL | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` |",
+            "| Nemotron 3.5 Super VL | `nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4` |",
             models,
         )
         self.assertIn(
