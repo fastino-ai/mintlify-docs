@@ -874,8 +874,9 @@ class AgentTrainingSnippetsTests(unittest.TestCase):
         self.assertNotIn("contact sales", download.lower())
         self.assertIn("stock PEFT", download)
         self.assertIn("Qwen3.6-35B-A3B", deploy)
-        self.assertIn("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", deploy)
-        self.assertIn("returns `400`", deploy)
+        self.assertIn("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4", deploy)
+        self.assertNotIn("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", deploy)
+        self.assertIn("| `400` | Serving is unavailable", deploy)
         self.assertIn("`425 model_warming`", checkpoints)
         self.assertIn('"reasoning": {"enabled": false}', checkpoints)
 
