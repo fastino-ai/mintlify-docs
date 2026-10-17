@@ -50,6 +50,32 @@ The [GLiDE inference guide](/inference/systemone) covers the HTTP integration.
   </Card>
 </CardGroup>
 
+## Confirm routing and retention
+
+Successful calls to `POST /v1/systemone`, `/v1/chat/completions`,
+`/v1/responses`, `/v1/messages`, and `/v1/gliner-2` return two diagnostic
+headers:
+
+- `X-Fastino-Data-Retention` is `zero` for team Zero Data Retention,
+  `not-stored` when the request opted out of inference history, or `stored`
+  otherwise.
+- `X-Fastino-Served-Model` is the canonical model that handled the call. It is
+  the fine-tuned model ID when a fine-tune served the request and the base-model
+  ID otherwise.
+
+Inspect them when verifying an integration:
+
+```bash
+curl -sS -D - -o response.json https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @request.json
+```
+
+The headers are absent on error responses and streams that fail before provider
+dispatch. A stream that fails after dispatch retains them and reports its error
+in-band.
+
 ## Cold starts and retries
 
 An idle or newly deployed model may cold-start. Use a read timeout of at least 300 seconds

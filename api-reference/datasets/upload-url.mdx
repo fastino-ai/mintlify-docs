@@ -9,17 +9,53 @@ api: "POST /v1/datasets/upload/url"
 
 Create a presigned upload URL for a new dataset file.
 
-## Upload the file
+## Bind the URL to the file
 
-Upload the exact file bytes to `presigned_url` before it expires. The signed
-request requires `Content-Type: application/octet-stream`; omitting that header
-or using another value returns `403`.
+Optionally send `content_length` (the exact byte count, up to 5 GiB) and
+`sha256` (a 64-character hexadecimal digest). Storage then rejects a PUT whose
+size or digest differs, which catches truncated and corrupted uploads before
+processing.
 
 ```bash
+CONTENT_LENGTH="$(wc -c < training.jsonl | tr -d ' ')"
+SHA256="$(shasum -a 256 training.jsonl | awk '{print $1}')"
+
+curl --fail-with-body -sS https://api.fastino.ai/v1/datasets/upload/url \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --argjson content_length "$CONTENT_LENGTH" \
+    --arg sha256 "$SHA256" \
+    '{
+      dataset_name: "docs-example-ner",
+      filename: "training.jsonl",
+      dataset_type: "ner",
+      content_length: $content_length,
+      sha256: $sha256
+    }')" > dataset-upload.json
+```
+
+## Upload the file
+
+Upload the exact file bytes to `presigned_url` before it expires. Copy every
+entry in the response's `upload_headers` object exactly. The object always
+contains `Content-Type: application/octet-stream`; when you declared
+`content_length` and `sha256`, it also contains the signed `Content-Length` and
+`x-amz-checksum-sha256` values. A missing or changed signed header returns
+`403`.
+
+```bash
+PRESIGNED_URL="$(jq -r '.presigned_url' dataset-upload.json)"
+
 curl --fail-with-body -X PUT \
-  -H "Content-Type: application/octet-stream" \
+  -H "Content-Type: $(jq -r '.upload_headers["Content-Type"]' dataset-upload.json)" \
+  -H "Content-Length: $(jq -r '.upload_headers["Content-Length"]' dataset-upload.json)" \
+  -H "x-amz-checksum-sha256: $(jq -r '.upload_headers["x-amz-checksum-sha256"]' dataset-upload.json)" \
   --upload-file training.jsonl "$PRESIGNED_URL"
 ```
+
+Most HTTP clients calculate `Content-Length` from the body, but it must still
+match the signed value.
 
 After the upload succeeds, pass the returned `dataset_id` to
 [`POST /v1/datasets/upload/process`](/api-reference/datasets/process-upload).
