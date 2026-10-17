@@ -77,6 +77,11 @@ when you need several judgments about the same state.
   and [Score](/concepts/glide-score) for each type's full request and response shape.
 </ParamField>
 
+<ParamField body="store" type="boolean" default="true">
+  Whether Fastino keeps this request's input and output. Set `false` to keep neither. See
+  [Keep a request out of storage](#keep-a-request-out-of-storage).
+</ParamField>
+
 ### State shapes
 
 `state` is the material every question is evaluated against - think of it as what you'd hand a panel of experts before asking them to make a judgment.
@@ -134,6 +139,43 @@ curl --max-time 300 -s https://api.fastino.ai/v1/systemone \
 
 Choice and Score return different fields. See their primitive pages for exact response shapes
 and integration examples.
+
+## Keep a request out of storage
+
+Add `"store": false` to the request body. Fastino then keeps neither the `state` and
+`questions` you sent nor the `answers` it returned:
+
+- No entry in your inference history.
+- The payload stays out of Fastino's logs, error reports, and traces.
+- The request is never used for platform training or for continuous adaptation of your task
+  models, whatever your training opt-out says.
+
+Fastino still records usage metadata for billing: model, token counts, latency, status, and
+cost. The `X-Fastino-Data-Retention` response header reports what was applied:
+
+| Value | Meaning |
+| --- | --- |
+| `stored` | The request is kept in your inference history (the default) |
+| `not-stored` | You sent `store: false` |
+| `zero` | Your team has Zero Data Retention enabled, which treats every request as `store: false` |
+
+```bash
+curl --max-time 300 -s -D - https://api.fastino.ai/v1/systemone \
+  -H "X-API-Key: $FASTINO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fastino/GLiDE",
+    "state": "Refund request: the receipt is attached, the purchase was 10 days ago, and refunds are allowed within 30 days.",
+    "questions": {
+      "refund_allowed": {
+        "type": "noul",
+        "instructions": "Does this request qualify for a refund?",
+        "criteria": { "true": "Qualifies", "false": "Does not qualify" }
+      }
+    },
+    "store": false
+  }'
+```
 
 ## Combining multiple questions
 
