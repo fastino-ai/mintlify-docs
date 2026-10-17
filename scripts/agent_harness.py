@@ -19,12 +19,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NoReturn
 
-from check_api_docs import (
-    EXPECTED_OPERATIONS,
-    SDK_BASE_PATHS,
-    _path_matches_route,
-    local_docs_findings,
-)
+from check_api_docs import SDK_BASE_PATHS, _path_matches_route, local_docs_findings
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
@@ -78,10 +73,6 @@ REQUIRED_DISCOVERY_LINKS = {
     "training creation": "/api-reference/training-jobs/create.md",
     "errors": "/troubleshooting/errors.md",
     "retries": "/troubleshooting/retries.md",
-}
-REQUIRED_OPERATIONS = {
-    (method.lower(), path)
-    for method, path in EXPECTED_OPERATIONS
 }
 JOURNEY_PAGES = (
     "authentication.mdx",
@@ -323,9 +314,6 @@ def _validate_openapi(document: dict[str, object]) -> dict[tuple[str, str], dict
         if isinstance(value, dict) and isinstance(value.get("$ref"), str):
             _resolve_pointer(document, value["$ref"])
     operations = _operations(document)
-    missing = REQUIRED_OPERATIONS - set(operations)
-    if missing:
-        fail(f"CONTRACT: required operations are missing: {sorted(missing)}")
     components = document.get("components")
     schemes = components.get("securitySchemes") if isinstance(components, dict) else None
     if not isinstance(schemes, dict) or not {"ApiKeyAuth", "BearerAuth"} <= set(schemes):

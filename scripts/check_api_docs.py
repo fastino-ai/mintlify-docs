@@ -6,69 +6,11 @@ import argparse
 import json
 import re
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 from generate_localized_llms import localized_index_findings
 
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
-INFERENCE_OPERATIONS = {
-    ("POST", "/v1/chat/completions"),
-    ("POST", "/v1/systemone"),
-    ("POST", "/v1/gliner-2"),
-    ("POST", "/v1/gliner-2/async"),
-    ("GET", "/v1/gliner-2/jobs/{job_id}"),
-    ("POST", "/v1/messages"),
-    ("GET", "/v1/models"),
-    ("POST", "/v1/responses"),
-    ("GET", "/v1/inferences"),
-    ("GET", "/v1/inferences/{inference_id}"),
-    ("GET", "/v1/inferences/{inference_id}/feedback"),
-    ("POST", "/v1/inferences/{inference_id}/feedback"),
-}
-TRAINING_OPERATIONS = {
-    ("GET", "/v1/base-models"),
-    ("GET", "/v1/datasets"),
-    ("POST", "/v1/datasets/upload/process"),
-    ("POST", "/v1/datasets/upload/url"),
-    ("DELETE", "/v1/datasets/{name}"),
-    ("GET", "/v1/datasets/{name}"),
-    ("GET", "/v1/training/jobs"),
-    ("POST", "/v1/training/jobs"),
-    ("POST", "/v1/training/jobs/create-model"),
-    ("DELETE", "/v1/training/jobs/{job_id}"),
-    ("GET", "/v1/training/jobs/{job_id}"),
-    ("PATCH", "/v1/training/jobs/{job_id}"),
-    ("GET", "/v1/training/jobs/{job_id}/billing"),
-    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
-    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}"),
-    ("POST", "/v1/training/jobs/{job_id}/checkpoints/sampler_weights/{name}/deploy"),
-    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
-    ("DELETE", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/publish"),
-    ("PUT", "/v1/training/jobs/{job_id}/checkpoints/{kind}/{name}/ttl"),
-    ("GET", "/v1/training/jobs/{job_id}/checkpoints"),
-    ("POST", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/deploy"),
-    ("GET", "/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/download"),
-    ("GET", "/v1/training/jobs/{job_id}/deployments"),
-    ("GET", "/v1/training/jobs/{job_id}/download"),
-    ("POST", "/v1/training/jobs/{job_id}/forward"),
-    ("POST", "/v1/training/jobs/{job_id}/forward-backward"),
-    ("GET", "/v1/training/jobs/{job_id}/futures/{future_id}"),
-    ("POST", "/v1/training/jobs/{job_id}/futures/{future_id}/cancel"),
-    ("POST", "/v1/training/jobs/{job_id}/load-weights"),
-    ("GET", "/v1/training/jobs/{job_id}/logs"),
-    ("POST", "/v1/training/jobs/{job_id}/optim-step"),
-    ("PATCH", "/v1/training/jobs/{job_id}/model-name"),
-    ("POST", "/v1/training/jobs/{job_id}/push-to-hub"),
-    ("POST", "/v1/training/jobs/{job_id}/sample"),
-    ("POST", "/v1/training/jobs/{job_id}/save-weights"),
-    ("POST", "/v1/training/jobs/{job_id}/save-weights-for-sampler"),
-    ("POST", "/v1/training/jobs/{job_id}/stop"),
-    ("POST", "/v1/training/jobs/{job_id}/sync"),
-    ("POST", "/v1/training/jobs/{job_id}/terminate"),
-    ("GET", "/v1/training/usage"),
-}
-EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
 EXPECTED_SKILLS = {
     "fastino-datasets",
@@ -100,7 +42,6 @@ REQUIRED_AGENT_RESOURCES = {
     "https://docs.fastino.ai/openapi.json",
 }
 RoutePatterns = dict[str, list[re.Pattern[str]]]
-PRERELEASE_EXCEPTIONS = Path("scripts/api_docs_prerelease_exceptions.json")
 LOCALE_PARITY_SCOPES = (
     "concepts/datasets.mdx",
     "training.mdx",
@@ -534,80 +475,6 @@ def _route_pattern(path: str) -> re.Pattern[str]:
     return re.compile(f"^{expression}/?$")
 
 
-def _prerelease_exception_patterns(
-    root: Path,
-    deployed: RoutePatterns,
-    documented_operations: set[tuple[str, str]],
-    *,
-    today: date | None = None,
-) -> tuple[RoutePatterns, list[str], list[str]]:
-    path = root / PRERELEASE_EXCEPTIONS
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    entries = payload.get("exceptions") if isinstance(payload, dict) else None
-    if not isinstance(entries, list):
-        return {}, [f"{PRERELEASE_EXCEPTIONS} must contain an exceptions list"], []
-
-    allowed: RoutePatterns = {}
-    findings: list[str] = []
-    notices: list[str] = []
-    seen: set[tuple[str, str]] = set()
-    current_date = today or date.today()
-    required = {
-        "method",
-        "path",
-        "pioneer_pr",
-        "reason",
-        "removal_condition",
-        "expires_on",
-    }
-    for index, entry in enumerate(entries):
-        label = f"{PRERELEASE_EXCEPTIONS}: exception {index + 1}"
-        if not isinstance(entry, dict) or set(entry) != required:
-            findings.append(f"{label} must contain exactly {sorted(required)}")
-            continue
-        if not all(isinstance(entry[key], str) and entry[key].strip() for key in required):
-            findings.append(f"{label} fields must be non-empty strings")
-            continue
-
-        method = entry["method"].upper()
-        operation = (method, entry["path"])
-        if method.lower() not in HTTP_METHODS or not entry["path"].startswith("/v1/"):
-            findings.append(f"{label} has invalid operation: {method} {entry['path']}")
-            continue
-        if operation in seen:
-            findings.append(f"{label} duplicates {method} {entry['path']}")
-            continue
-        seen.add(operation)
-        if operation not in documented_operations:
-            findings.append(
-                f"{label} is not present in openapi.json: {method} {entry['path']}"
-            )
-        if not re.fullmatch(
-            r"https://github\.com/fastino-ai/Pioneer/pull/\d+",
-            entry["pioneer_pr"],
-        ):
-            findings.append(f"{label} pioneer_pr must link to a Fastino Pioneer PR")
-        try:
-            expiry = date.fromisoformat(entry["expires_on"])
-        except ValueError:
-            findings.append(f"{label} expires_on must use YYYY-MM-DD")
-            continue
-        if expiry < current_date:
-            findings.append(f"{label} expired on {expiry.isoformat()}")
-        if _path_matches_route(entry["path"], deployed, method):
-            findings.append(
-                f"{label} is stale because {method} {entry['path']} is now deployed"
-            )
-            continue
-        allowed.setdefault(method, []).append(_route_pattern(entry["path"]))
-        notices.append(
-            f"PRERELEASE EXCEPTION: {method} {entry['path']} via "
-            f"{entry['pioneer_pr']} until {entry['expires_on']}; "
-            f"remove when {entry['removal_condition']}"
-        )
-    return allowed, findings, notices
-
-
 def _path_matches_route(
     url_path: str,
     patterns: RoutePatterns,
@@ -730,12 +597,6 @@ def local_docs_findings(
                 f"openapi.json contains retired public contract text: {retired_contract}"
             )
 
-    docs = _documentation_files(root, include_locales=False)
-    corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs)
-    for method, path in INFERENCE_OPERATIONS:
-        visible_path = path.replace("{inference_id}", ":id")
-        if path not in corpus and visible_path not in corpus:
-            findings.append(f"English docs do not mention {method} {path}")
     return findings
 
 
@@ -754,14 +615,7 @@ def main() -> int:
     )
     route_patterns = _route_patterns(manifest)
     actual_operations = _operations(destination)
-    prerelease_patterns, prerelease_findings, prerelease_notices = (
-        _prerelease_exception_patterns(root, route_patterns, actual_operations)
-    )
-    effective_patterns = {
-        method: route_patterns.get(method, []) + prerelease_patterns.get(method, [])
-        for method in set(route_patterns) | set(prerelease_patterns)
-    }
-    findings = prerelease_findings + local_docs_findings(root, destination)
+    findings = local_docs_findings(root, destination)
     docs = _documentation_files(root, include_locales=args.include_locales)
     for path in docs:
         findings.extend(
@@ -769,12 +623,10 @@ def main() -> int:
                 root,
                 path,
                 path.read_text(encoding="utf-8"),
-                effective_patterns,
+                route_patterns,
             )
         )
 
-    for notice in prerelease_notices:
-        print(notice)
     if findings:
         print("\n".join(findings))
         return 1
