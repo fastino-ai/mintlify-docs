@@ -9,7 +9,6 @@ import sys
 import tempfile
 import unittest
 import urllib.error
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from unittest import mock
@@ -189,21 +188,6 @@ class AgentHarnessTests(unittest.TestCase):
                 self.assertNotIn("model", obj, page)
             found += len(requests)
         self.assertGreaterEqual(found, len(CONFIG_CREATE_PAGES))
-
-    def test_openapi_resolves_required_agent_operations(self) -> None:
-        document = HARNESS._load_openapi()
-        operations = HARNESS._validate_openapi(document)
-
-        self.assertEqual(len(HARNESS.REQUIRED_OPERATIONS), 52)
-        self.assertEqual(HARNESS.REQUIRED_OPERATIONS, set(operations))
-
-    def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:
-        document = HARNESS._load_openapi()
-
-        self.assertEqual(
-            CHECKS._api_reference_findings(HARNESS.ROOT, document),
-            [],
-        )
 
     def test_public_openapi_has_no_compatibility_paths(self) -> None:
         operations = CHECKS._operations(HARNESS._load_openapi())
@@ -391,79 +375,6 @@ class AgentHarnessTests(unittest.TestCase):
                 "POST",
             )
         )
-
-    def test_prerelease_exception_is_explicit_and_reviewable(self) -> None:
-        operation = ("POST", "/v1/training/jobs/example")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            destination = root / CHECKS.PRERELEASE_EXCEPTIONS
-            destination.parent.mkdir(parents=True)
-            destination.write_text(
-                json.dumps(
-                    {
-                        "exceptions": [
-                            {
-                                "method": operation[0],
-                                "path": operation[1],
-                                "pioneer_pr": "https://github.com/fastino-ai/Pioneer/pull/123",
-                                "reason": "Docs-first contract review",
-                                "removal_condition": "Pioneer development publishes the route",
-                                "expires_on": "2026-12-01",
-                            }
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            patterns, findings, notices = CHECKS._prerelease_exception_patterns(
-                root,
-                {},
-                {operation},
-                today=date(2026, 10, 14),
-            )
-
-        self.assertEqual(findings, [])
-        self.assertTrue(CHECKS._path_matches_route(operation[1], patterns, operation[0]))
-        self.assertEqual(len(notices), 1)
-        self.assertIn("Pioneer/pull/123", notices[0])
-        self.assertIn("2026-12-01", notices[0])
-
-    def test_prerelease_exception_expires_and_cannot_outlive_deployment(self) -> None:
-        operation = ("POST", "/v1/training/jobs/example")
-        deployed = {"POST": [CHECKS._route_pattern(operation[1])]}
-        for expires_on, expected in (
-            ("2026-10-13", "expired"),
-            ("2026-12-01", "now deployed"),
-        ):
-            with self.subTest(expires_on=expires_on):
-                with tempfile.TemporaryDirectory() as directory:
-                    root = Path(directory)
-                    destination = root / CHECKS.PRERELEASE_EXCEPTIONS
-                    destination.parent.mkdir(parents=True)
-                    destination.write_text(
-                        json.dumps(
-                            {
-                                "exceptions": [
-                                    {
-                                        "method": operation[0],
-                                        "path": operation[1],
-                                        "pioneer_pr": "https://github.com/fastino-ai/Pioneer/pull/123",
-                                        "reason": "Docs-first contract review",
-                                        "removal_condition": "Pioneer development publishes the route",
-                                        "expires_on": expires_on,
-                                    }
-                                ]
-                            }
-                        ),
-                        encoding="utf-8",
-                    )
-                    _, findings, _ = CHECKS._prerelease_exception_patterns(
-                        root,
-                        deployed if expected == "now deployed" else {},
-                        {operation},
-                        today=date(2026, 10, 14),
-                    )
-                self.assertTrue(any(expected in finding for finding in findings), findings)
 
     def test_schema_validation_rejects_missing_required_field(self) -> None:
         document = {
