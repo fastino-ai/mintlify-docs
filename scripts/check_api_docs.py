@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -49,6 +50,189 @@ LOCALE_PARITY_SCOPES = (
     "api-reference/training/",
     "api-reference/training-jobs/",
 )
+
+
+@dataclass(frozen=True, order=True)
+class Finding:
+    """A stable, machine-readable checker finding."""
+
+    finding_class: str
+    code: str
+    operation: str
+    file: str
+    detail: str
+    message: str
+
+    @property
+    def key(self) -> str:
+        return "|".join((self.code, self.operation, self.file, self.detail))
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "key": self.key,
+            "class": self.finding_class,
+            "code": self.code,
+            "operation": self.operation,
+            "file": self.file,
+            "detail": self.detail,
+            "message": self.message,
+        }
+
+
+_MESSAGE_LOCATION = re.compile(
+    r"^(?P<file>(?:[^:\s]+/[^:\s]+|[^:\s]+\.(?:mdx|md|json|txt|py)))"
+    r"(?::(?P<line>\d+)(?::(?P<column>\d+))?)?:\s*(?P<message>.*)$"
+)
+_MESSAGE_OPERATION = re.compile(
+    r"\b(?P<method>GET|POST|PATCH|PUT|DELETE)\s+(?P<path>/[^\s,;:]+)"
+)
+_EXPLICIT_JSON_POINTER = re.compile(
+    r"\b(?:JSON\s+)?pointer\s+(?P<pointer>#?/[^\s,;:)]+)",
+    re.IGNORECASE,
+)
+_BRACKET_PATH = re.compile(
+    r"(?P<path>(?:\[(?:'[^']+'|\"[^\"]+\"|\d+)\])+)(?=:)"
+)
+_BRACKET_TOKEN = re.compile(r"\[(?:'([^']+)'|\"([^\"]+)\"|(\d+))\]")
+_PARAM_FIELD_DETAIL = re.compile(
+    r'<ParamField\s+(?P<location>header|path|query|body)="(?P<name>[^"]+)"'
+)
+_RESPONSE_FIELD_DETAIL = re.compile(r'<ResponseField\s+name="(?P<name>[^"]+)"')
+
+
+def _finding_code(message: str) -> str:
+    lowered = message.casefold()
+    rules = (
+        ("stale_binding", ("api binding is absent from openapi.json",)),
+        ("missing_binding", ("must have exactly one api binding",)),
+        ("locale_binding", ("locale skeleton differs from english in api binding",)),
+        ("locale_missing", ("locale page is missing",)),
+        (
+            "route_absent",
+            (
+                "absent from route manifest",
+                "absent from the production route manifest",
+                "not a public openapi operation",
+            ),
+        ),
+        ("removed_contract", ("removed ", "retired ", "stale ")),
+        ("llms_index", ("llms.txt",)),
+        ("api_navigation", ("api reference", "english navigation")),
+        ("locale_parity", ("locale skeleton",)),
+        ("sdk_contract", ("sdk pin", "compatibility child route")),
+        ("skill_hygiene", ("skill",)),
+    )
+    for code, markers in rules:
+        if any(marker in lowered for marker in markers):
+            return code
+    prefix = re.match(r"([A-Z][A-Z ]+):", message)
+    if prefix is not None:
+        return re.sub(r"[^a-z0-9]+", "_", prefix.group(1).casefold()).strip("_")
+    return "repo_hygiene"
+
+
+def _json_pointer(tokens: list[str]) -> str:
+    return "/" + "/".join(
+        token.replace("~", "~0").replace("/", "~1") for token in tokens
+    )
+
+
+def _known_detail(message: str) -> str | None:
+    """Extract a canonical pointer or field identifier when the message carries one."""
+    pointer_match = _EXPLICIT_JSON_POINTER.search(message)
+    if pointer_match is not None:
+        raw = pointer_match.group("pointer").removeprefix("#")
+        tokens = [
+            token.replace("~1", "/").replace("~0", "~")
+            for token in raw.removeprefix("/").split("/")
+        ]
+        return _json_pointer(tokens)
+
+    bracket_match = _BRACKET_PATH.search(message)
+    if bracket_match is not None:
+        tokens = [
+            next(value for value in match.groups() if value is not None)
+            for match in _BRACKET_TOKEN.finditer(bracket_match.group("path"))
+        ]
+        if tokens:
+            return _json_pointer(tokens)
+
+    param_match = _PARAM_FIELD_DETAIL.search(message)
+    if param_match is not None:
+        return f"{param_match.group('location')}:{param_match.group('name')}"
+
+    response_match = _RESPONSE_FIELD_DETAIL.search(message)
+    if response_match is not None:
+        return response_match.group("name")
+
+    return None
+
+
+def finding_from_message(message: str, *, code: str | None = None) -> Finding:
+    """Convert legacy human text to a stable finding without line-number identity."""
+    location = _MESSAGE_LOCATION.match(message)
+    leading_file = re.match(
+        r"^(?P<file>[^\s:]+\.(?:mdx|md|json|txt|py))\b",
+        message,
+    )
+    file = (
+        location.group("file")
+        if location is not None
+        else leading_file.group("file")
+        if leading_file is not None
+        else ""
+    )
+    body = location.group("message") if location is not None else message
+    operation_match = _MESSAGE_OPERATION.search(body)
+    operation = (
+        f"{operation_match.group('method')} "
+        f"{operation_match.group('path').rstrip('.,)')}"
+        if operation_match is not None
+        else ""
+    )
+    normalized = re.sub(
+        r"(\.(?:mdx|md|json|txt|py)):\d+(?::\d+)?",
+        r"\1",
+        message,
+    )
+    normalized = re.sub(r"\b(?:line|column)\s+\d+\b", "", normalized, flags=re.I)
+    normalized = " ".join(normalized.split())
+    detail = _known_detail(message)
+    if detail is None:
+        detail = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    finding_code = code or _finding_code(message)
+    finding_class = (
+        "llms"
+        if finding_code == "llms_index"
+        else "spec"
+        if finding_code
+        in {"stale_binding", "missing_binding", "route_absent", "removed_contract"}
+        else "repo"
+    )
+    return Finding(
+        finding_class=finding_class,
+        code=finding_code,
+        operation=operation,
+        file=file,
+        detail=detail,
+        message=message,
+    )
+
+
+def findings_from_messages(messages: list[str]) -> list[Finding]:
+    return unique_findings(finding_from_message(message) for message in messages)
+
+
+def unique_findings(findings: object) -> list[Finding]:
+    """Return deterministic findings with exactly one object per stable key."""
+    by_key: dict[str, Finding] = {}
+    for finding in findings:
+        if not isinstance(finding, Finding):
+            raise TypeError("findings must contain Finding objects")
+        previous = by_key.get(finding.key)
+        if previous is None or finding.message < previous.message:
+            by_key[finding.key] = finding
+    return [by_key[key] for key in sorted(by_key)]
 
 
 @dataclass(frozen=True)
@@ -153,6 +337,17 @@ def _api_reference_findings(
                 f"found {pages}"
             )
     findings.extend(_stale_binding_findings(bindings, actual_operations))
+    locale_bindings: dict[tuple[str, str], list[str]] = {}
+    for path in _documentation_files(root, include_locales=True):
+        relative = path.relative_to(root)
+        if relative.parts[0] not in LOCALES:
+            continue
+        match = API_BINDING.search(path.read_text(encoding="utf-8"))
+        if match is not None:
+            locale_bindings.setdefault((match.group(1), match.group(2)), []).append(
+                relative.with_suffix("").as_posix()
+            )
+    findings.extend(_stale_binding_findings(locale_bindings, actual_operations))
 
     config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
     languages = config.get("navigation", {}).get("languages", [])
@@ -293,9 +488,10 @@ def _stale_binding_findings(
     actual_operations: set[tuple[str, str]],
 ) -> list[str]:
     return [
-        f"{method} {path} has API bindings but is absent from openapi.json: {pages}"
+        f"{page}: {method} {path} API binding is absent from openapi.json"
         for (method, path), pages in sorted(bindings.items())
         if (method, path) not in actual_operations
+        for page in sorted(pages)
     ]
 
 
@@ -600,25 +796,28 @@ def local_docs_findings(
     return findings
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pioneer-root", type=Path, required=True)
-    parser.add_argument("--include-locales", action="store_true")
-    args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
-    destination_path = root / "openapi.json"
-    destination = json.loads(destination_path.read_text(encoding="utf-8"))
+def hygiene_findings(root: Path, spec: dict[str, object]) -> list[Finding]:
+    """Run repository-only checks. This function performs no Pioneer reads."""
+    return findings_from_messages(local_docs_findings(root, spec))
+
+
+def contract_findings(
+    root: Path,
+    spec: dict[str, object],
+    pioneer_root: Path,
+    *,
+    include_locales: bool = False,
+) -> list[Finding]:
+    """Check documented operations against Pioneer's production route manifest."""
     manifest = json.loads(
-        (args.pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
+        (pioneer_root.resolve() / "docs" / "route_manifest.json").read_text(
             encoding="utf-8"
         )
     )
     route_patterns = _route_patterns(manifest)
-    actual_operations = _operations(destination)
-    findings = local_docs_findings(root, destination)
-    docs = _documentation_files(root, include_locales=args.include_locales)
-    for path in docs:
-        findings.extend(
+    messages: list[str] = []
+    for path in _documentation_files(root, include_locales=include_locales):
+        messages.extend(
             _line_findings(
                 root,
                 path,
@@ -626,12 +825,93 @@ def main() -> int:
                 route_patterns,
             )
         )
+    return findings_from_messages(messages)
 
-    if findings:
-        print("\n".join(findings))
-        return 1
-    print(f"API docs parity passed: {len(actual_operations)} published operations")
-    return 0
+
+def all_findings(
+    root: Path,
+    spec: dict[str, object],
+    pioneer_root: Path,
+    *,
+    include_locales: bool = False,
+) -> list[Finding]:
+    return unique_findings(
+        [
+            *hygiene_findings(root, spec),
+            *contract_findings(
+                root,
+                spec,
+                pioneer_root,
+                include_locales=include_locales,
+            ),
+        ]
+    )
+
+
+def _print_findings(
+    findings: list[Finding],
+    *,
+    output_format: str,
+    operation_count: int,
+) -> None:
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "findings": [finding.as_dict() for finding in findings],
+                },
+                sort_keys=True,
+            )
+        )
+    elif findings:
+        print("\n".join(finding.message for finding in findings))
+    else:
+        print(f"API docs parity passed: {operation_count} published operations")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("contract", "hygiene", "all"),
+        default="all",
+    )
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--pioneer-root", type=Path)
+    parser.add_argument("--include-locales", action="store_true")
+    parser.add_argument("--format", choices=("human", "json"), default="human")
+    args = parser.parse_args()
+    root = args.root.resolve()
+    destination_path = root / "openapi.json"
+    destination = json.loads(destination_path.read_text(encoding="utf-8"))
+    actual_operations = _operations(destination)
+    if args.command == "hygiene":
+        findings = hygiene_findings(root, destination)
+    else:
+        if args.pioneer_root is None:
+            parser.error(f"{args.command} requires --pioneer-root")
+        if args.command == "contract":
+            findings = contract_findings(
+                root,
+                destination,
+                args.pioneer_root,
+                include_locales=args.include_locales,
+            )
+        else:
+            findings = all_findings(
+                root,
+                destination,
+                args.pioneer_root,
+                include_locales=args.include_locales,
+            )
+    _print_findings(
+        findings,
+        output_format=args.format,
+        operation_count=len(actual_operations),
+    )
+    return int(bool(findings))
 
 
 if __name__ == "__main__":

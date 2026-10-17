@@ -19,7 +19,13 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NoReturn
 
-from check_api_docs import SDK_BASE_PATHS, _path_matches_route, local_docs_findings
+from check_api_docs import (
+    SDK_BASE_PATHS,
+    Finding,
+    _path_matches_route,
+    findings_from_messages,
+    local_docs_findings,
+)
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
@@ -405,11 +411,11 @@ def _curl_bodies(text: str) -> list[tuple[int, object | None, str | None]]:
     return bodies
 
 
-def _english_docs() -> list[Path]:
+def _english_docs(root: Path = ROOT) -> list[Path]:
     return [
         path
-        for path in ROOT.rglob("*.mdx")
-        if path.relative_to(ROOT).parts[0] not in LOCALES
+        for path in root.rglob("*.mdx")
+        if path.relative_to(root).parts[0] not in LOCALES
     ]
 
 
@@ -450,7 +456,10 @@ def _ordered_navigation_pages(node: object) -> list[str]:
     return pages
 
 
-def _training_navigation_findings(config: dict[str, object]) -> list[str]:
+def _training_navigation_findings(
+    config: dict[str, object],
+    root: Path = ROOT,
+) -> list[str]:
     navigation = config.get("navigation")
     languages = navigation.get("languages") if isinstance(navigation, dict) else None
     if not isinstance(languages, list):
@@ -505,7 +514,7 @@ def _training_navigation_findings(config: dict[str, object]) -> list[str]:
     if stale_pages:
         findings.append(f"TRAINING FLOW: stale RL navigation pages: {stale_pages}")
     for page, expected in TRAINING_SIDEBAR_TITLES.items():
-        text = (ROOT / f"{page}.mdx").read_text(encoding="utf-8")
+        text = (root / f"{page}.mdx").read_text(encoding="utf-8")
         sidebar = re.search(r'^sidebarTitle:\s*"(?P<title>[^"]+)"', text, re.MULTILINE)
         title = re.search(r'^title:\s*"(?P<title>[^"]+)"', text, re.MULTILINE)
         actual = sidebar.group("title") if sidebar else title.group("title") if title else None
@@ -516,10 +525,10 @@ def _training_navigation_findings(config: dict[str, object]) -> list[str]:
     return findings
 
 
-def _private_training_route_findings() -> list[str]:
+def _private_training_route_findings(root: Path = ROOT) -> list[str]:
     findings: list[str] = []
-    for path in [*ROOT.rglob("*.mdx"), *ROOT.rglob("llms.txt")]:
-        relative = path.relative_to(ROOT)
+    for path in [*root.rglob("*.mdx"), *root.rglob("llms.txt")]:
+        relative = path.relative_to(root)
         text = path.read_text(encoding="utf-8")
         if "/v1/training/auto" in text:
             findings.append(f"TRAINING PRIVATE: {relative} exposes /v1/training/auto")
@@ -584,6 +593,7 @@ def _target_finding(
     *,
     redirects: dict[str, str],
     label: str,
+    root: Path = ROOT,
 ) -> str | None:
     resolved, cycle = _resolve_redirect(target, redirects)
     if cycle:
@@ -592,7 +602,7 @@ def _target_finding(
     relative = parsed.path.strip("/")
     if not relative or relative.startswith(("v1/", "_mintlify/")):
         return None
-    candidate = ROOT / f"{relative}.mdx"
+    candidate = root / f"{relative}.mdx"
     if not candidate.is_file():
         return f"{label} points to missing /{relative}"
     if parsed.fragment and parsed.fragment not in _heading_ids(candidate):
@@ -600,7 +610,10 @@ def _target_finding(
     return None
 
 
-def _redirect_findings(config: dict[str, object]) -> list[str]:
+def _redirect_findings(
+    config: dict[str, object],
+    root: Path = ROOT,
+) -> list[str]:
     redirects, findings = _redirect_map(config)
     visible = _visible_navigation_pages(config.get("navigation"))
     for source in sorted(visible & redirects.keys()):
@@ -615,16 +628,17 @@ def _redirect_findings(config: dict[str, object]) -> list[str]:
             destination,
             redirects=redirects,
             label=f"REDIRECT: /{source}",
+            root=root,
         )
         if finding is not None:
             findings.append(finding)
     return findings
 
 
-def _local_link_findings() -> list[str]:
-    config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
+def _local_link_findings(root: Path = ROOT) -> list[str]:
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
     redirects, findings = _redirect_map(config)
-    for page in _english_docs():
+    for page in _english_docs(root):
         text = page.read_text(encoding="utf-8")
         targets = [match.group("target") for match in MARKDOWN_LINK.finditer(text)]
         targets.extend(match.group("target") for match in HREF_LINK.finditer(text))
@@ -632,7 +646,8 @@ def _local_link_findings() -> list[str]:
             finding = _target_finding(
                 target,
                 redirects=redirects,
-                label=f"LINK: {page.relative_to(ROOT)}",
+                label=f"LINK: {page.relative_to(root)}",
+                root=root,
             )
             if finding is not None:
                 findings.append(finding)
@@ -662,10 +677,10 @@ def _normalized_navigation_shape(node: object, locale: str) -> object:
 def _locale_parity_findings(
     config: dict[str, object],
     operations: dict[tuple[str, str], dict[str, object]],
+    root: Path = ROOT,
 ) -> list[str]:
     findings: list[str] = []
-    redirects, redirect_findings = _redirect_map(config)
-    findings.extend(redirect_findings)
+    redirects, _ = _redirect_map(config)
     navigation = config.get("navigation")
     languages = navigation.get("languages") if isinstance(navigation, dict) else None
     if not isinstance(languages, list):
@@ -694,7 +709,7 @@ def _locale_parity_findings(
             )
 
         bindings: dict[tuple[str, str], list[str]] = {}
-        for path in (ROOT / locale).rglob("*.mdx"):
+        for path in (root / locale).rglob("*.mdx"):
             match = re.search(
                 r'^api:\s*"(GET|POST|PATCH|PUT|DELETE) ([^"]+)"\s*$',
                 path.read_text(encoding="utf-8"),
@@ -702,7 +717,7 @@ def _locale_parity_findings(
             )
             if match is not None:
                 bindings.setdefault((match.group(1).lower(), match.group(2)), []).append(
-                    path.relative_to(ROOT).as_posix()
+                    path.relative_to(root).as_posix()
                 )
         for operation in sorted(operations):
             pages = bindings.get(operation, [])
@@ -712,7 +727,7 @@ def _locale_parity_findings(
                     f"must have exactly one API binding, found {pages}"
                 )
 
-        for path in (ROOT / locale).rglob("*.mdx"):
+        for path in (root / locale).rglob("*.mdx"):
             text = path.read_text(encoding="utf-8")
             targets = [match.group("target") for match in MARKDOWN_LINK.finditer(text)]
             targets.extend(match.group("target") for match in HREF_LINK.finditer(text))
@@ -720,7 +735,8 @@ def _locale_parity_findings(
                 target_finding = _target_finding(
                     target,
                     redirects=redirects,
-                    label=f"LOCALE: {path.relative_to(ROOT)}",
+                    label=f"LOCALE: {path.relative_to(root)}",
+                    root=root,
                 )
                 if target_finding is not None:
                     findings.append(target_finding)
@@ -732,19 +748,19 @@ def _locale_parity_findings(
                     continue
                 if any(target_path.startswith(f"{other}/") for other in LOCALES):
                     findings.append(
-                        f"LOCALE: {path.relative_to(ROOT)} links to another locale: {target}"
+                        f"LOCALE: {path.relative_to(root)} links to another locale: {target}"
                     )
                     continue
-                if (ROOT / locale / f"{target_path}.mdx").is_file():
+                if (root / locale / f"{target_path}.mdx").is_file():
                     findings.append(
-                        f"LOCALE: {path.relative_to(ROOT)} should localize {target} "
+                        f"LOCALE: {path.relative_to(root)} should localize {target} "
                         f"to /{locale}/{target_path}"
                     )
     return findings
 
 
-def _journey_discovery_findings() -> list[str]:
-    text = (ROOT / "llms.txt").read_text(encoding="utf-8")
+def _journey_discovery_findings(root: Path = ROOT) -> list[str]:
+    text = (root / "llms.txt").read_text(encoding="utf-8")
     indexed_paths = {match.group("path") for match in LLMS_URL.finditer(text)}
     findings = [
         f"DISCOVERY: llms.txt cannot lead an agent to {name}: {path}"
@@ -760,15 +776,16 @@ def _journey_discovery_findings() -> list[str]:
 def _journey_findings(
     document: dict[str, object],
     operations: dict[tuple[str, str], dict[str, object]],
+    root: Path = ROOT,
 ) -> list[str]:
     findings: list[str] = []
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    agents = (root / "AGENTS.md").read_text(encoding="utf-8")
     if "GET /v1/base-models" not in agents:
         findings.append("DISCOVERY: AGENTS.md must use GET /v1/base-models for model availability")
     if "GET /v1/models" in agents:
         findings.append("DISCOVERY: AGENTS.md conflicts by naming GET /v1/models as the model catalog")
     for relative in JOURNEY_PAGES:
-        path = ROOT / relative
+        path = root / relative
         if not path.is_file():
             findings.append(f"DISCOVERY: journey page is missing: {relative}")
             continue
@@ -811,12 +828,15 @@ def _journey_findings(
             if body_error is not None:
                 findings.append(f"EXAMPLE: {relative} has malformed cURL JSON: {body_error}")
                 continue
-            _validate_value(
-                body,
-                _request_schema(document, found[1]),
-                document,
-                location=f"{relative} request",
-            )
+            try:
+                _validate_value(
+                    body,
+                    _request_schema(document, found[1]),
+                    document,
+                    location=f"{relative} request",
+                )
+            except HarnessFailure as error:
+                findings.append(str(error))
     return findings
 
 
@@ -883,50 +903,73 @@ def _cookbook_findings(
     document: dict[str, object],
     operations: dict[tuple[str, str], dict[str, object]],
     pages: list[Path],
+    root: Path = ROOT,
 ) -> list[str]:
     findings: list[str] = []
     if not pages:
         findings.append(f"COOKBOOK: {COOKBOOK_DIR}/ exists but has no cookbook pages")
     for page in pages:
-        relative = page.relative_to(ROOT).as_posix()
-        text = page.read_text(encoding="utf-8")
         try:
-            if FRONTMATTER.match(text) is None:
-                fail("COOKBOOK: page has invalid frontmatter")
+            relative = page.relative_to(root).as_posix()
+        except ValueError:
+            relative = page.as_posix()
+        text = page.read_text(encoding="utf-8")
+        if FRONTMATTER.match(text) is None:
+            findings.append(f"COOKBOOK: page has invalid frontmatter ({relative})")
+        request: CookbookRequest | None = None
+        try:
             request = _cookbook_request(text)
-            _validate_value(
-                request.body,
-                _request_schema(document, operations[("post", request.path)]),
-                document,
-                location=f"{relative} request",
-            )
-            if not isinstance(_documented_response(text), dict):
+        except HarnessFailure as error:
+            findings.append(f"{error} ({relative})")
+        if request is not None:
+            operation = operations.get(("post", request.path))
+            if operation is None:
+                findings.append(
+                    f"COOKBOOK: POST {request.path} is absent from OpenAPI ({relative})"
+                )
+            else:
+                try:
+                    _validate_value(
+                        request.body,
+                        _request_schema(document, operation),
+                        document,
+                        location=f"{relative} request",
+                    )
+                except HarnessFailure as error:
+                    findings.append(f"{error} ({relative})")
+        try:
+            response = _documented_response(text)
+            if not isinstance(response, dict):
                 fail("COOKBOOK: '## Response' JSON must be an object")
         except HarnessFailure as error:
             findings.append(f"{error} ({relative})")
     return findings
 
 
-def run_static() -> None:
-    document = _load_openapi()
-    operations = _validate_openapi(document)
-    config = json.loads((ROOT / "docs.json").read_text(encoding="utf-8"))
-    findings = local_docs_findings(ROOT, document)
-    findings.extend(_journey_discovery_findings())
-    findings.extend(_training_navigation_findings(config))
-    findings.extend(_private_training_route_findings())
-    findings.extend(_local_link_findings())
-    findings.extend(_redirect_findings(config))
-    findings.extend(_locale_parity_findings(config, operations))
-    try:
-        findings.extend(_journey_findings(document, operations))
-    except HarnessFailure as error:
-        findings.append(str(error))
-    cookbooks = _cookbook_pages()
+def run_static(root: Path, spec: dict[str, object]) -> list[Finding]:
+    """Return all static findings for an explicit repository root and spec."""
+    operations = _validate_openapi(spec)
+    config = json.loads((root / "docs.json").read_text(encoding="utf-8"))
+    messages = local_docs_findings(root, spec)
+    messages.extend(_journey_discovery_findings(root))
+    messages.extend(_training_navigation_findings(config, root))
+    messages.extend(_private_training_route_findings(root))
+    messages.extend(_local_link_findings(root))
+    messages.extend(_redirect_findings(config, root))
+    messages.extend(_locale_parity_findings(config, operations, root))
+    messages.extend(_journey_findings(spec, operations, root))
+    cookbooks = _cookbook_pages(root)
     if cookbooks is not None:
-        findings.extend(_cookbook_findings(document, operations, cookbooks))
-    if findings:
-        fail("\n".join(findings))
+        messages.extend(_cookbook_findings(spec, operations, cookbooks, root))
+    return findings_from_messages(messages)
+
+
+def _print_static_success(
+    root: Path,
+    spec: dict[str, object],
+) -> None:
+    operations = _operations(spec)
+    cookbooks = _cookbook_pages(root)
     cookbook_summary = (
         f"{len(cookbooks)} cookbook pages"
         if cookbooks is not None
@@ -934,7 +977,7 @@ def run_static() -> None:
     )
     print(
         "Agent docs static harness passed: "
-        f"{len(operations)} operations, {len(_english_docs())} English pages, "
+        f"{len(operations)} operations, {len(_english_docs(root))} English pages, "
         f"{cookbook_summary}"
     )
 
@@ -2017,7 +2060,11 @@ def main() -> int:
         return 1
     try:
         if args.command == "static":
-            run_static()
+            spec = _load_openapi(ROOT / "openapi.json")
+            findings = run_static(ROOT, spec)
+            if findings:
+                fail("\n".join(finding.message for finding in findings))
+            _print_static_success(ROOT, spec)
         elif args.command == "published":
             run_published()
         elif args.command == "diagnostics":
