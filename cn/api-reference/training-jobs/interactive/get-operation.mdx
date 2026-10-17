@@ -1,0 +1,38 @@
+---
+title: "查询训练操作"
+sidebarTitle: "查询操作"
+description: "通过 Idempotency-Key 恢复任务和 future，无需再次提交工作。"
+api: "GET /v1/training/operations/{idempotency_key}"
+---
+
+`GET /v1/training/operations/{idempotency_key}`
+
+发送最初用于原生交互式 POST 或编码器任务创建的密钥。密钥按团队隔离。`not_found` 表示当前范围内没有可见回执；原生调用仍在接纳、任务尚未记录时也会返回此状态，不能据此断定调用从未到达。
+
+`accepted` 回执表示任务已记录，不表示执行成功。如有 future，请使用原 future 读取结果。停止操作没有 future；编码器创建只返回任务。
+
+如原生请求结果不确定，请用相同请求体、路由和密钥重试。同一密钥用于不同请求会返回 422；首次调用仍在进行会返回 409。新工作应使用新密钥。此端点不保证回执保留期或过期时间。
+
+<ParamField header="X-API-Key" type="string" required>
+  Fastino API key.
+</ParamField>
+
+<ParamField path="idempotency_key" type="string" required>
+  Idempotency-Key.
+</ParamField>
+
+<ResponseExample>
+
+```json
+{
+  "idempotency_key": "training-step-1",
+  "status": "accepted",
+  "operation": "forward-backward",
+  "job_id": "SESSION_ID:train:0",
+  "future_id": "FUTURE_ID",
+  "future_status": "completed"
+}
+```
+
+</ResponseExample>
+

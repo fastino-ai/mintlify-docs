@@ -2784,7 +2784,8 @@
             "title": "Content Length"
           },
           "dataset_name": {
-            "description": "Name for the dataset",
+            "description": "Name for the dataset, 1 to 128 characters. It must not be blank, contain '/', '\\', '<', '>' or control characters, or be '.' or '..': such a name cannot be fetched or deleted by name afterwards.",
+            "maxLength": 128,
             "minLength": 1,
             "title": "Dataset Name",
             "type": "string"
@@ -2931,6 +2932,10 @@
           "visibility": {
             "anyOf": [
               {
+                "enum": [
+                  "private",
+                  "public"
+                ],
                 "type": "string"
               },
               {
@@ -7416,6 +7421,86 @@
         "title": "TrainingNotice",
         "type": "object"
       },
+      "TrainingOperation": {
+        "description": "``GET /v1/training/operations/{idempotency_key}``: what the call sent with this key did, if it arrived.",
+        "properties": {
+          "future_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The future it queued; null until recorded, for a stop and for `create-job`.",
+            "title": "Future Id"
+          },
+          "future_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The future's status; null without a future, and once a finished future is deleted (its retention).",
+            "title": "Future Status"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The job the call created or acted on; null until its identity is recorded.",
+            "title": "Job Id"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The route the key was used on: `create-model`, `forward-backward`, `stop`, ..., or `create-job` for `POST /v1/training/jobs`.",
+            "title": "Operation"
+          },
+          "status": {
+            "description": "`accepted`: a call with this key was accepted and its job was recorded (work may still be running). `not_found`: no receipt is visible in the caller's scope, including while a native call is still admitting; this does not prove no work was accepted. Reconcile using the original key and request, not a fresh key.",
+            "enum": [
+              "accepted",
+              "not_found"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "status"
+        ],
+        "title": "TrainingOperation",
+        "type": "object"
+      },
       "TrainingOutputLogEntry": {
         "description": "Single training output log entry (stdout/stderr)",
         "properties": {
@@ -10069,6 +10154,28 @@
       "post": {
         "description": "Create a LoRA training job on a decoder base model that you train step by step (Tinker's `create_model`), or restore one from a training-state checkpoint. Encoder (GLiNER) models train from a dataset with `POST /v1/training/jobs`. Read the result at GET /v1/training/jobs/{job_id}/futures/{future_id}.",
         "operationId": "create_model_v1_training_jobs_create_model_post",
+        "parameters": [
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10985,6 +11092,26 @@
               "title": "Job Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -11037,6 +11164,26 @@
             "schema": {
               "title": "Job Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -11198,6 +11345,26 @@
               "title": "Job Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -11317,6 +11484,9 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "The job's owner already has a model with this name."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -11346,6 +11516,26 @@
             "schema": {
               "title": "Job Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -11463,6 +11653,26 @@
               "title": "Job Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -11516,6 +11726,26 @@
               "title": "Job Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -11568,6 +11798,26 @@
             "schema": {
               "title": "Job Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client-generated key (a UUID is ideal; it must be URL-safe to look it up) that makes the call safe to send again after a lost response. A repeat with the same key and body from the same caller returns the first call's answer (the same job and future) without running or billing it again, or a 409 while the first call still runs; the same key with another route, job, body or caller is a 422. Look a key up with GET /v1/training/operations/{idempotency_key}.",
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -11910,6 +12160,51 @@
         ]
       }
     },
+    "/v1/training/operations/{idempotency_key}": {
+      "get": {
+        "description": "Whether a call to an interactive job route (create-model, forward, forward-backward, optim-step, save-weights, save-weights-for-sampler, load-weights, sample, stop), or a `POST /v1/training/jobs` create, sent with this `Idempotency-Key` was accepted, and the job and future it made. A native call still admitting, before its job is recorded, reads as `not_found` with a 200 because its owner and Experiment cannot yet be verified. `not_found` does not prove the call never arrived: retry the original request with the same key, never a fresh key.",
+        "operationId": "get_operation_v1_training_operations__idempotency_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "idempotency_key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Idempotency Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingOperation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Look up a training call by its Idempotency-Key",
+        "tags": [
+          "training"
+        ]
+      }
+    },
     "/v1/training/usage": {
       "get": {
         "description": "The team's live interactive-job checkpoint storage per project, and its monthly price.",
@@ -11922,6 +12217,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {

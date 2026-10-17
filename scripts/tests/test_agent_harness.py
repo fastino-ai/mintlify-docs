@@ -194,7 +194,7 @@ class AgentHarnessTests(unittest.TestCase):
         document = HARNESS._load_openapi()
         operations = HARNESS._validate_openapi(document)
 
-        self.assertEqual(len(HARNESS.REQUIRED_OPERATIONS), 52)
+        self.assertEqual(len(HARNESS.REQUIRED_OPERATIONS), 53)
         self.assertEqual(HARNESS.REQUIRED_OPERATIONS, set(operations))
 
     def test_every_openapi_operation_has_one_visible_reference_binding(self) -> None:

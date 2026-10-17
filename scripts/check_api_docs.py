@@ -67,6 +67,7 @@ TRAINING_OPERATIONS = {
     ("POST", "/v1/training/jobs/{job_id}/sync"),
     ("POST", "/v1/training/jobs/{job_id}/terminate"),
     ("GET", "/v1/training/usage"),
+    ("GET", "/v1/training/operations/{idempotency_key}"),
 }
 EXPECTED_OPERATIONS = INFERENCE_OPERATIONS | TRAINING_OPERATIONS
 LOCALES = {"cn", "de", "es", "fr"}
