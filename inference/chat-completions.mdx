@@ -85,6 +85,17 @@ setx FASTINO_API_KEY "your_api_key_here"
   Persist the inference. Set to `false` to opt out.
 </ParamField>
 
+<ParamField body="truncate_overflow_text" type="boolean" default="false">
+  For encoder models, cut text that exceeds the model's `max_input_tokens`
+  instead of returning `input_too_long`. Use this only when dropping the end of
+  the input is acceptable.
+</ParamField>
+
+When truncation occurs, `x_fastino.truncated` is `true` and entities beyond the
+cut are not returned. Usage still counts the full submitted text. Inputs over
+50,000 characters are rejected before truncation, and full fine-tuned encoder
+models do not support this option.
+
 ## Entity schema
 
 Use descriptive entity definitions when possible:
@@ -459,7 +470,8 @@ string in `choices[0].message.content`:
   },
   "x_fastino": {
     "inference_id": "...",
-    "default_schema_applied": false
+    "default_schema_applied": false,
+    "truncated": false
   }
 }
 ```
@@ -467,7 +479,8 @@ string in `choices[0].message.content`:
 Parse `choices[0].message.content` as JSON before reading task results. When `store=true`,
 `x_fastino.inference_id` identifies the persisted inference.
 `x_fastino.default_schema_applied` is `true` when an encoder request omitted both `schema`
-and `response_format` and Fastino used the selected model's catalog default.
+and `response_format` and Fastino used the selected model's catalog default. Check
+`x_fastino.truncated` before treating an extraction as complete.
 
 ## Async jobs for very large inputs
 
