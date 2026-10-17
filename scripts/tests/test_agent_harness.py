@@ -306,6 +306,83 @@ class AgentHarnessTests(unittest.TestCase):
 
         self.assertEqual(HARNESS._locale_parity_findings(config, operations), [])
 
+    def test_run_static_uses_explicit_root_and_spec(self) -> None:
+        spec = {"openapi": "3.1.0", "paths": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "docs.json").write_text('{"navigation": {}}')
+            with (
+                mock.patch.object(HARNESS, "_validate_openapi", return_value={}),
+                mock.patch.object(HARNESS, "local_docs_findings", return_value=[]) as local,
+                mock.patch.object(HARNESS, "_journey_discovery_findings", return_value=[]) as discovery,
+                mock.patch.object(HARNESS, "_training_navigation_findings", return_value=[]),
+                mock.patch.object(HARNESS, "_private_training_route_findings", return_value=[]),
+                mock.patch.object(HARNESS, "_local_link_findings", return_value=[]),
+                mock.patch.object(HARNESS, "_redirect_findings", return_value=[]),
+                mock.patch.object(HARNESS, "_locale_parity_findings", return_value=[]),
+                mock.patch.object(HARNESS, "_journey_findings", return_value=[]),
+                mock.patch.object(HARNESS, "_cookbook_pages", return_value=None) as cookbooks,
+            ):
+                findings = HARNESS.run_static(root, spec)
+
+        self.assertEqual(findings, [])
+        local.assert_called_once_with(root, spec)
+        discovery.assert_called_once_with(root)
+        cookbooks.assert_called_once_with(root)
+
+    def test_journey_findings_collect_every_schema_failure(self) -> None:
+        document = {"components": {"schemas": {}}}
+        operation = {
+            "requestBody": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["required"],
+                        }
+                    }
+                }
+            }
+        }
+        page = """---
+title: Example
+---
+```bash
+curl -X POST https://api.fastino.ai/v1/test -d '{}'
+```
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Use GET /v1/base-models.\n")
+            for name in ("a.mdx", "b.mdx"):
+                (root / name).write_text(page)
+            with mock.patch.object(HARNESS, "JOURNEY_PAGES", ("a.mdx", "b.mdx")):
+                findings = HARNESS._journey_findings(
+                    document,
+                    {("post", "/v1/test"): operation},
+                    root,
+                )
+
+        schema_findings = [
+            finding for finding in findings if "is a required property" in finding
+        ]
+        self.assertEqual(len(schema_findings), 2)
+        self.assertTrue(any("a.mdx request" in finding for finding in schema_findings))
+        self.assertTrue(any("b.mdx request" in finding for finding in schema_findings))
+
+    def test_cookbook_findings_collect_independent_page_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = root / "broken.mdx"
+            page.write_text("no frontmatter, curl, or response")
+
+            findings = HARNESS._cookbook_findings({}, {}, [page], root)
+
+        self.assertEqual(len(findings), 3)
+        self.assertTrue(any("invalid frontmatter" in finding for finding in findings))
+        self.assertTrue(any("cURL block" in finding for finding in findings))
+        self.assertTrue(any("Response" in finding for finding in findings))
+
     def test_agent_index_orders_guides_before_contracts(self) -> None:
         self.assertEqual(CHECKS._journey_order_findings(HARNESS.ROOT), [])
 
